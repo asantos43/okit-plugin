@@ -4,6 +4,9 @@ import { basename, dirname, join } from 'node:path';
 import process from 'node:process';
 
 const RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY']);
+// Giving a moved-aside lock back can also lose the race against the folder a
+// new owner just created at the path, which is worth another few attempts.
+const RESTORE_RETRY_CODES = new Set([...RENAME_RETRY_CODES, 'EEXIST', 'ENOTEMPTY']);
 const RENAME_MAX_ATTEMPTS = 5;
 const RENAME_BACKOFF_MS = 10;
 const LOCK_POLL_MS = 25;
@@ -48,13 +51,13 @@ async function writeAndSync(file, data) {
 
 // Windows keeps a short-lived handle on a file that was just closed, so a
 // single rename can fail with EPERM/EBUSY even when nothing else uses the file.
-async function renameWithRetry(from, to) {
+async function renameWithRetry(from, to, codes = RENAME_RETRY_CODES) {
   for (let attempt = 1; ; attempt += 1) {
     try {
       await rename(from, to);
       return;
     } catch (error) {
-      const retryable = RENAME_RETRY_CODES.has(error.code) && attempt < RENAME_MAX_ATTEMPTS;
+      const retryable = codes.has(error.code) && attempt < RENAME_MAX_ATTEMPTS;
       if (!retryable) throw error;
       await sleep(RENAME_BACKOFF_MS);
     }
@@ -136,7 +139,7 @@ async function parkStaleLock(lockDir, seen, startedAt) {
   if (!sameLock || (actual && isProcessAlive(actual.pid))) {
     // We moved a lock that is not the stale one we judged: give it back.
     try {
-      await rename(parked, lockDir);
+      await renameWithRetry(parked, lockDir, RESTORE_RETRY_CODES);
     } catch {
       // Someone else took the path; leave the folder alone. Its owner then
       // fails loudly instead of silently running unlocked.
@@ -155,6 +158,16 @@ async function removeStaleLock(lockDir, staleMs) {
   const startedAt = await lockStartedAt(lockDir, owner);
   if (startedAt === null || Date.now() - startedAt <= staleMs) return false;
   if (owner && isProcessAlive(owner.pid)) return false;
+  // The verdict above is only evidence about the folder as it was a moment ago.
+  // Until the rename in parkStaleLock runs, another taker can already have
+  // taken the stale lock, or a new owner can be between its mkdir and the write
+  // of its owner file: that folder has no evidence of its own yet, so a verdict
+  // read before it existed must never be used to move it aside. Reading the
+  // lock again right before renaming keeps the takeover tied to the folder it
+  // judged.
+  const current = await readLockOwner(lockDir);
+  if (!isSameOwner(owner, current)) return false;
+  if (await lockStartedAt(lockDir, current) !== startedAt) return false;
   return parkStaleLock(lockDir, owner, startedAt);
 }
 
@@ -162,18 +175,34 @@ function describeOwner(owner) {
   return owner ? `pid ${owner.pid} since ${new Date(owner.startedAt).toISOString()}` : 'an unknown process';
 }
 
+// mkdir without recursive fails with EEXIST, which is the atomic mutual
+// exclusion primitive available on Linux, macOS and Windows. The owner file
+// goes in right after, so a folder that disappears in between (a taker that
+// judged an older lock stale) costs one more attempt and nothing else: the
+// callback has not run yet, and there is no folder of ours left to clean up.
+async function tryCreateLock(lockDir) {
+  try {
+    await mkdir(lockDir);
+  } catch (error) {
+    if (error.code === 'EEXIST') return false;
+    throw error;
+  }
+
+  const owner = { pid: process.pid, startedAt: Date.now() };
+  try {
+    await writeFile(join(lockDir, LOCK_OWNER_FILE), `${JSON.stringify(owner, null, 2)}\n`, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    await rm(lockDir, { recursive: true, force: true });
+    throw new Error(`Cannot write the owner of ${lockDir}: ${error.message}`, { cause: error });
+  }
+  return true;
+}
+
 async function acquireLock(lockDir, timeoutMs, staleMs) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    try {
-      // mkdir without recursive fails with EEXIST, which is the atomic
-      // mutual exclusion primitive available on Linux, macOS and Windows.
-      await mkdir(lockDir);
-      return;
-    } catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-    }
-
+    if (await tryCreateLock(lockDir)) return;
     if (await removeStaleLock(lockDir, staleMs)) continue;
     if (Date.now() >= deadline) {
       const owner = await readLockOwner(lockDir);
@@ -189,14 +218,6 @@ async function acquireLock(lockDir, timeoutMs, staleMs) {
 export async function withLock(dir, fn, { timeoutMs = 5000, staleMs = 30000 } = {}) {
   const lockDir = `${dir}.lock`;
   await acquireLock(lockDir, timeoutMs, staleMs);
-
-  const owner = { pid: process.pid, startedAt: Date.now() };
-  try {
-    await writeFile(join(lockDir, LOCK_OWNER_FILE), `${JSON.stringify(owner, null, 2)}\n`, 'utf8');
-  } catch (error) {
-    await rm(lockDir, { recursive: true, force: true });
-    throw new Error(`Cannot write the owner of ${lockDir}: ${error.message}`, { cause: error });
-  }
 
   try {
     return await fn();
