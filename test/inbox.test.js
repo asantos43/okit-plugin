@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { inboxAdd, inboxList, inboxSetStatus } from '../src/inbox.js';
+import { inboxAdd, inboxList, inboxSetExt, inboxSetStatus } from '../src/inbox.js';
 
 async function tempRoot() {
   return mkdtemp(join(tmpdir(), 'inbox-test-'));
@@ -202,6 +202,31 @@ test('inboxSetStatus refuses unknown ids, unknown statuses and skipped steps', a
   const failed = await inboxSetStatus(root, final.id, 'failed');
   assert.equal(failed.status, 'failed');
   await assert.rejects(() => inboxSetStatus(root, final.id, 'failed'), /cannot move/);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('inboxSetExt merges into ext, keeps the other keys and refuses bad input', async () => {
+  const root = await tempRoot();
+  const tagged = await inboxAdd(root, {
+    title: 'a run',
+    ext: { template: 'sweep', period: '2030-03-05T09:00:00.000Z' },
+  });
+  const bare = await add(root);
+
+  const merged = await inboxSetExt(root, tagged.id, { template: 'nightly' });
+  assert.equal(merged.ext.template, 'nightly');
+  assert.equal(merged.ext.period, '2030-03-05T09:00:00.000Z');
+  assert.equal(merged.status, tagged.status);
+  assert.equal(merged.updatedAt !== undefined, true);
+
+  const gained = await inboxSetExt(root, bare.id, { template: 'nightly' });
+  assert.deepEqual(gained.ext, { template: 'nightly' });
+
+  await assert.rejects(() => inboxSetExt(root, 'I999999', { a: 1 }), /unknown inbox item/);
+  await assert.rejects(() => inboxSetExt(root, '', { a: 1 }), /id/);
+  await assert.rejects(() => inboxSetExt(root, bare.id, 'nope'), /ext values/);
+  await assert.rejects(() => inboxSetExt(root, bare.id, ['nope']), /ext values/);
 
   await rm(root, { recursive: true, force: true });
 });
