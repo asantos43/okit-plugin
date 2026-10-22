@@ -1,19 +1,22 @@
 # okit-plugin
 
-A plugin for AI coding clients (Claude Code, Codex, opencode) that helps a
-Director agent spread work over the client's own subagents.
+A plugin for AI clients (Claude Code, Codex, opencode) that helps a Director
+agent spread delegable work over the client's own subagents.
 
-The Director classifies each task by effort (simple, normal, hard), picks the
+The Director classifies each demand by effort (simple, normal, hard), picks the
 subagent's model and reasoning effort by class and by the client's remaining
 quota, and keeps a small inbox and standing orders. The Director delegates,
 critiques and consolidates. No panel, no work across clients.
+
+A demand is any unit of delegable work, not only code: research, writing,
+documents, data cleanup, analysis, planning, reviews and file operations.
 
 **Status: design phase (pre-alpha).** This repository currently holds only the
 structure and the documents. There is no working code yet.
 
 ## Planned features
 
-- Effort classification of each incoming task.
+- Effort classification of each incoming demand.
 - Subagent choice by effort class and by remaining client quota.
 - A small inbox plus standing orders kept by the Director.
 - A delegation, critique and consolidation loop.

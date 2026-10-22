@@ -4,9 +4,9 @@ Status: fase de design (pré-alfa).
 
 ## Objetivos
 
-- Distribuir o trabalho pelos subagentes que o cliente de programação com IA já
-  tem.
-- Classificar cada tarefa por esforço para que o subagente certo a receba.
+- Distribuir o trabalho pelos subagentes que o cliente de IA já tem.
+- Aceitar qualquer unidade de trabalho delegável, não só código: pesquisa, redação, documentos, limpeza de dados, análise, planejamento, revisões, operações de arquivos.
+- Classificar cada demanda por esforço para que o subagente certo a receba.
 - Escolher o modelo e o esforço de raciocínio do subagente por classe e por
   cota.
 - Manter uma pequena caixa de entrada e ordens permanentes para o Diretor.
@@ -23,8 +23,9 @@ Status: fase de design (pré-alfa).
 
 ### 1. Classificação de esforço
 
-Cada tarefa é classificada como simples, normal ou difícil. A classe guia o
-passo seguinte e é o que os testes fixam.
+Cada demanda é classificada como simples, normal ou difícil. A classe é derivada
+por padrão e o mantenedor pode sobrescrevê-la. A classe guia o passo seguinte e é
+o que os testes fixam.
 
 ### 2. Escolha do subagente por classe e cota
 
@@ -34,8 +35,8 @@ cliente não exponha.
 
 ### 3. Caixa de entrada e ordens permanentes
 
-Uma pequena caixa de entrada guarda tarefas pendentes; ordens permanentes
-guardam instruções que valem para toda tarefa até serem removidas. Ambos vivem
+Uma pequena caixa de entrada guarda demandas pendentes; ordens permanentes
+guardam instruções que valem para toda demanda até serem removidas. Ambos vivem
 em arquivos JSON.
 
 O Diretor delega o trabalho, critica a saída do subagente e consolida os
@@ -69,3 +70,6 @@ diretamente.
   hooks e servidores MCP? Ainda é preciso verificar.
 
 Versão em inglês: [DESIGN.md](DESIGN.md).
+
+Nota de arquitetura: [ARCHITECTURE.pt-BR.md](ARCHITECTURE.pt-BR.md) (português) e
+[ARCHITECTURE.md](ARCHITECTURE.md) (inglês).
