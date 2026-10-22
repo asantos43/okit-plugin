@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Effort classification (`classify`), actor-profile choice with the low-quota downgrade (`profilePick`) and the concurrency cap over live runs (`canSpawn`, `acquireSlot`, `releaseSlot`, `limitsStatus`).
 - State layer: atomic JSON file writes and a stale-aware directory lock.
 - Schedule engine: parse cron, friendly and event schedules, then decide when one is due with an injected clock.
+- Recurring templates: `templateAdd`, `templateList`, `templateSet`, `templateRemove` with the standing order each one records, plus `due`, `plan` and `openDue` to open one inbox child per period.
 - Initial repository structure.
 - `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE.pt-BR.md`: the architecture note answering the open questions in `docs/DESIGN.md`, with per-client claims sourced and dated.
 
