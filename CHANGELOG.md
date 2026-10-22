@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `PROCESS` spawn mode: `src/spawn-process.js` builds the headless command of `claude-code`, `codex` and `opencode` as a pure value and starts it without a shell, `src/autostart.js` generates the systemd, cron, launchd and schtasks plans, and the `okit` CLI (`daemon start|stop|status|pause|resume|run-once`, `autostart install|uninstall|show`) drives both.
+
 - Inbox and standing-order stores on top of `src/state.js`: `inboxAdd`, `inboxList`, `inboxSetStatus`, `orderAdd`, `orderRemove`, `orderList`, `orderLint`, `orderRender`, plus the state paths in `src/store.js`.
 - Effort classification (`classify`), actor-profile choice with the low-quota downgrade (`profilePick`) and the concurrency cap over live runs (`canSpawn`, `acquireSlot`, `releaseSlot`, `limitsStatus`).
 - State layer: atomic JSON file writes and a stale-aware directory lock.
@@ -20,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional `appliesTo` on inbox demands, standing orders and templates (`src/applies.js`): one global inbox and one global set of orders serve many projects, a record without the field is shared, `inboxList` and `orderList` filter by project plus the global records, `orderRender` shows it, and every child a template opens inherits it.
 - Derived status and retention for standing orders: `orderStatus` computes `active`, `revoked` or `expired` from the row without storing it, `orderList` adds that status (and the `purgeAfter` date) to a copy, `orderRender` says why an order is not active, a second revoke is refused, and `purgeAfter`/`orderPurge` remove an inactive order for good once `orders.retentionDays` (default 90) is over, logging `{ at, purged: [ids] }` to `logs/<date>.jsonl`; the daemon pass reports `purged` in its decision line.
 - `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE.pt-BR.md`: sections for what the core now does — schedules and recurrence, recurring templates, standing orders, the daemon pass order, spawn modes, maximum autonomy and the global state with `appliesTo`.
+- Plugin skills: `skills/okit-director/SKILL.md`, `skills/okit-executor/SKILL.md` and `skills/okit-critic/SKILL.md` for the client to install, plus `installSkillFiles` in `src/skills.js`, which copies a skill folder without ever overwriting a file that already differs.
+- MCP server over stdio (`src/mcp/server.js`, `src/mcp/tools.js`): JSON-RPC 2.0 hand-written with zero dependencies and the eleven tools (`acquire_slot`, `release_slot`, `limits_status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`) that let a client's own subagents hold the concurrency cap and read and write the inbox and the standing orders.
 
 ### Fixed
 
