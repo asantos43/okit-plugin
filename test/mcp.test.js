@@ -12,6 +12,7 @@ const NAMES = [
   'acquire_slot',
   'release_slot',
   'limits_status',
+  'status',
   'classify',
   'profile_pick',
   'inbox_add',

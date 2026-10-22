@@ -124,6 +124,13 @@ Decisão do adaptador: ler modelos de `opencode models`; tratar a cota como desl
 
 Nunca estimar, interpolar nem trazer um número de outro cliente. Uma leitura velha ou ilegível rebaixa uma classe `hard` para a última classe que o cliente ainda aceitou, nunca o contrário. `quotaRead` devolve `source: off` em vez de falhar, para o Diretor continuar trabalhando.
 
+### 5.1 A tabela de cota
+`src/status.js` é a visão dessas leituras, não uma segunda fonte delas: `statusTable(root, deps)` é puro sobre as leituras, o relógio, as contagens do limite e as ordens permanentes que chegam em `deps`, e devolve `{markdown, capacityLine, rows}`. As colunas são `Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age)`; um array `windows` preenche as duas colunas e, sem ele, o `remainingPct` único vai para a coluna de 5h quando `windowMinutes <= 360` e para a da semana caso contrário, inclusive quando `windowMinutes` está ausente.
+
+A coluna Situação é uma palavra, nunca ANSI: `verde` com 15 pontos ou mais acima de `lowQuotaPct`, `amarelo` do piso até essa marca, `vermelho` abaixo do piso e `desligado` quando não há leitura ou a origem é `off` — o que não bloqueia nada. A palavra vem da janela mais apertada, e uma linha `vermelha` cita a ordem permanente que fala de cota ou de piso, recorrendo a `lowQuotaPct` quando não existe uma. Abaixo da tabela, uma linha diz quantos executores podem iniciar agora (`limits.perClient` menos as execuções vivas do cliente, e `limits.global` menos todas elas, com o mínimo em 0) e qual é o piso em vigor. Toda palavra vive em uma tabela `LABELS` com `en` e `pt-BR`, escolhida por `deps.locale`.
+
+As leituras ficam em cache por cliente durante `ttlMs` (60 s por padrão) medido em `deps.now`, então duas chamadas seguidas custam uma leitura. `shouldShowStatus({size, slices, executors})` é verdadeiro para tamanho `L`, `slices >= 2` ou `executors > 1`, e é quando o Diretor mostra a tabela.
+
 ## 6. Regras para Windows
 - Construir todo caminho com `node:path`, nunca concatenando separadores; guardar com barra direta, a forma que o Claude Code substitui, para que o que escrevemos corresponda ao que o cliente lê.
 - Sem shell: `child_process.spawn` com array de argumentos. Comandos de hook na forma shell são preocupação do cliente, não nossa.
@@ -271,6 +278,7 @@ O diretório de trabalho é o `appliesTo` da demanda quando ele é uma única pa
 | `acquire_slot` | `runId`, `client`, `waitMs?` | `acquireSlot` | Reserva uma vaga, ou responde `ok: false` com o teto que recusou. |
 | `release_slot` | `runId` | `releaseSlot` | Libera a vaga de uma execução. |
 | `limits_status` | nenhum | `limitsStatus` | Os tetos e as execuções vivas por cliente. |
+| `status` | `locale?`, `size?`, `slices?`, `executors?` | `statusTable` / `shouldShowStatus` | A tabela de cota e a linha de capacidade; com os três fatos, também `showBefore`. |
 | `classify` | `title`, `body?`, `kind?` | `classify` | `simple`, `normal` ou `hard`, mais o porquê. |
 | `profile_pick` | `client`, `effort`, `quota?` | `profilePick` | Modelo, esforço de raciocínio e `maxTurns` vindos do `config.json`. |
 | `inbox_add` | `title`, `body?`, `kind?`, `accept?`, `effort?`, `client?`, `appliesTo?` | `inboxAdd` | Adiciona uma demanda e devolve o item guardado. |

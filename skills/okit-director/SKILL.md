@@ -41,8 +41,10 @@ You orchestrate work over the subagents the client already has. Read the standin
 
 ## Quota
 
-- Show the quota table before a big task and whenever you are asked: client, remaining, window, source.
-- A reading with the source off is not a number. Ask the user once and store nothing you guessed.
+- Show the quota table before a big task and whenever you are asked: call the `status` tool and show its `markdown` and `capacityLine` as they come.
+- Call it before the task starts when `status` answers `showBefore: true`, which happens for size `L`, for `slices >= 2` or for `executors > 1`. Send the size, the number of slices and the number of executors you are about to use and the tool decides for you; a smaller task does not pay for the round trip.
+- Read the Status word as a word, not a colour: `green` is at or above `lowQuotaPct` plus 15, `yellow` is from the floor up to that, `red` is below the floor and `off` means nobody is reading that client. `off` blocks nothing.
+- A red row already quotes the standing order about the floor. Read it and obey it; ask the user only once and store nothing you guessed.
 
 ## Autonomy
 
