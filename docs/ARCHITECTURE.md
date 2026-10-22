@@ -129,6 +129,8 @@ Never estimate, interpolate or carry a number over from another client. A stale 
 - A native Claude Code install has no sandboxing: assume a subagent can touch the whole worktree, so default to `worktree: true` on Windows.
 - Manual pass before a release: install the plugin, add an inbox item, delegate one step, read the critic verdict, consolidate, restart the client, confirm the state survived.
 
+`PROCESS` mode starts the clients without a shell; on Windows the `.cmd` shims need the real executable resolved first (open item of the Windows pass).
+
 ## 7. Concurrency limit
 | Scope | Default | Read from |
 | :- | :- | :- |
@@ -222,9 +224,27 @@ Two modes per adapter, and the adapter's `spawn()` returns the mode it used. Pla
 | Mode | When | How |
 | :- | :- | :- |
 | `NATIVE` | default in an interactive session | the client's own subagent: the Agent tool call for Claude Code, `spawn_agent` for Codex, the Task tool for opencode |
-| `PROCESS` | the daemon and any other headless run | the headless CLI: `claude -p`, `codex exec`, `opencode run` (exact flags to verify per client) |
+| `PROCESS` | the daemon and any other headless run | the headless CLI: `claude -p`, `codex exec`, `opencode run` (flags verified 2026-10-22, below) |
 
 In `NATIVE` the core is not in the loop, so the cap is enforced by the MCP tools `acquire_slot` and `release_slot` around `classify` and `profile_pick`. In `PROCESS` the daemon reserves the slot itself before the spawner runs, and the run is a child process of the daemon.
+
+### 12.1 `PROCESS`, verified 2026-10-22
+`src/spawn-process.js` builds the command as a pure value and starts it with `child_process.spawn` and an argument array. No shell, anywhere: the briefing is the last positional argument of every client, so nothing in it is read as shell syntax. A child gets `OKWORK_NO_DAEMON=1`, so a daemon-spawned run never starts a daemon of its own.
+
+| Client | Command |
+| :- | :- |
+| `claude-code` | `claude -p <briefing> --model <model> --effort <effort> --output-format json --permission-mode <mode> --add-dir <dir>` |
+| `codex` | `codex exec --cd <dir> --model <model> --sandbox <workspace-write\|read-only\|danger-full-access> --json --skip-git-repo-check -c model_reasoning_effort=<effort> <briefing>` |
+| `opencode` | `opencode run --dir <dir> --model <provider/model> --variant <effort> --format json <briefing>` |
+
+- Claude Code 2.1.303: the permission mode is an option (`acceptEdits` by default); `--dangerously-skip-permissions` exists and is never what we pass. `--max-budget-usd` exists, `--max-turns` does not, so `maxTurns` is not on the command line at all — `maxMinutes` is the only wall-clock bound.
+- Codex 0.163: `--skip-git-repo-check` because a worktree of the maintainer's choice need not be a git repository. `-o <file>` would write the last message to a file and is left to the caller.
+- opencode 1.19: the model is the full `provider/model` id and the effort is a provider variant.
+
+The working directory is the demand's `appliesTo` when it is one existing absolute folder; a project name, several projects or `global` keeps the run where the daemon was started. The run is detached, both streams go to `runs/<runId>.out`, and `runs/<runId>.json` is written with `status: live` — the file `limits.js` already counts — and gains `endedAt` and `exitCode` on exit. `maxMinutes` sends `SIGTERM` through `child.kill()`; the spawner kills nothing else.
+
+### 12.2 Autostart and the CLI
+`src/autostart.js` generates plans, it never acts: `systemd` (a user unit `okit-daemon.service`), `cron` (a `@reboot` line), `launchd` (the agent `com.okit.daemon`) and `schtasks` (a task at every logon). `detectAutostart(platform)` picks the one this platform uses and `applyAutostart(plan, { run })` runs the commands of an action through an injected `run`, so `show` prints the whole plan before anything happens. Windows keeps the paths it stores with forward slashes and no shell.
 
 ## 13. Autonomy
 Maximum autonomy is the default. The plugin ships no hard-coded list of forbidden actions: a refusal comes from something the user wrote or from a technical bound, never from a rule the maintainers guessed.
