@@ -105,6 +105,9 @@ const pendingTitles = async (root) => (await inboxList(root, { status: 'pending'
 // | pid file fresh, live pid    | running true                     | -                              |
 // | abort on the 5th wait       | 5 passes, 5 log lines            | -                              |
 // | signal aborted before start | -                                | 0 passes, no log line          |
+// | tick over a spent retention | purged 1, row gone, purge logged | -                              |
+// | tick inside the retention   | purged 0, row kept               | -                              |
+// | paused or stopped tick      | -                                | no purge at all                 |
 
 test('tick opens a due child once per period and hands it to the spawner', async (t) => {
   const root = await seeded(t);
@@ -577,4 +580,64 @@ test('rotateLogs removes only the logs older than keepDays', async (t) => {
 
   assert.deepEqual(removed, ['2026-01-01.jsonl']);
   assert.deepEqual((await readdir(folder)).sort(), ['2026-03-04.jsonl', 'notes.txt']);
+});
+test('a tick purges the standing orders whose retention is over and logs it', async (t) => {
+  const root = await tempRoot(t);
+  await writeJsonAtomic(paths(root).config, CONFIG);
+  const old = '2030-01-01T00:00:00.000Z';
+  const write = () => writeJsonAtomic(paths(root).orders, {
+    version: 1,
+    seq: 2,
+    orders: [
+      { id: 'G000001', text: 'live', scope: 'all', layer: 'global', active: true, createdAt: old },
+      { id: 'G000002', text: 'gone', scope: 'all', layer: 'global', active: false, createdAt: old, revokedAt: old, revokedReason: 'obsolete' },
+    ],
+  });
+  // 10 day retention: on 2030-03-05 the 63 day old row is well past it.
+  await writeJsonAtomic(paths(root).config, { ...CONFIG, orders: { retentionDays: 10 } });
+  await write();
+
+  const record = await tick(root, fakeDeps().deps);
+
+  assert.equal(record.purged, 1);
+  const store = JSON.parse(await readFile(paths(root).orders, 'utf8'));
+  assert.deepEqual(store.orders.map((order) => order.id), ['G000001']);
+
+  const lines = await decisions(root);
+  assert.equal(lines.at(-1).purged, 1);
+  const purge = lines.find((line) => Array.isArray(line.purged));
+  assert.deepEqual(purge.purged, ['G000002']);
+  assert.equal(purge.at, new Date(SLOT).toISOString());
+
+  // A second pass has nothing left to purge, so it writes no purge line.
+  const again = await tick(root, fakeDeps().deps);
+  assert.equal(again.purged, 0);
+  assert.equal((await decisions(root)).filter((line) => Array.isArray(line.purged)).length, 1);
+});
+
+test('a tick keeps an order whose retention is still running and never purges while stopped', async (t) => {
+  const root = await tempRoot(t);
+  await writeJsonAtomic(paths(root).config, { ...CONFIG, orders: { retentionDays: 3650 } });
+  await writeJsonAtomic(paths(root).orders, {
+    version: 1,
+    seq: 1,
+    orders: [{ id: 'G000001', text: 'gone', scope: 'all', layer: 'global', active: false, createdAt: '2029-01-01T00:00:00.000Z', revokedAt: '2029-01-01T00:00:00.000Z', revokedReason: 'obsolete' }],
+  });
+  const { deps } = fakeDeps();
+
+  const record = await tick(root, deps);
+  assert.equal(record.purged, 0);
+  assert.equal(JSON.parse(await readFile(paths(root).orders, 'utf8')).orders.length, 1);
+
+  await daemonPause(root);
+  const paused = await tick(root, deps);
+  assert.equal(paused.purged, undefined);
+  assert.equal(JSON.parse(await readFile(paths(root).orders, 'utf8')).orders.length, 1);
+
+  await daemonResume(root);
+  await writeFile(join(root, 'daemon.stop'), '', 'utf8');
+  const stopped = await tick(root, deps);
+  assert.equal(stopped.stopped, 'kill switch');
+  assert.equal(stopped.purged, undefined);
+  assert.equal(JSON.parse(await readFile(paths(root).orders, 'utf8')).orders.length, 1);
 });

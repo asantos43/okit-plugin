@@ -182,10 +182,23 @@ An order is a line the maintainer writes once and the Director reads with every 
 | Function | Effect |
 | :- | :- |
 | `orderAdd(root, { text, scope, layer, until, origin, appliesTo }, { projectRoot })` | Adds an active order; `until` must be a date in the future. |
-| `orderRemove(root, id, { reason })` | Revokes it: `active: false` with `revokedAt` and `revokedReason`. Nothing is deleted, so the history survives. |
-| `orderList(root, { activeOnly, appliesTo, now }, { projectRoot })` | Both layers merged, global first; the same text in a project replaces the global one in place. `activeOnly` drops revoked and expired orders. |
+| `orderRemove(root, id, { reason })` | Revokes it: `active: false` with `revokedAt` and `revokedReason`. Nothing is deleted, so the history survives. A second revoke is refused. |
+| `orderStatus(order, now)` | The derived status of one order: `revoked`, `expired` or `active`. |
+| `orderList(root, { activeOnly, appliesTo, now }, { projectRoot })` | Both layers merged, global first; the same text in a project replaces the global one in place. `activeOnly` drops revoked and expired orders. Every order comes back with its derived `status` and, when inactive, the `purgeAfter` date. |
 | `orderLint(root, { projectRoot, now })` | What a reader of the files would trip on: empty text, unknown scope, unreadable dates, a repeated id, an active order past its `until`, two live orders with the same text. |
+| `purgeAfter(order, retentionDays, now)` | The instant an inactive order may be purged, or `undefined` for an active one. |
+| `orderPurge(root, { now, retentionDays }, { projectRoot })` | Removes for good, in both layers, every inactive order whose retention is over, and appends `{ at, purged: [ids] }` to `logs/<date>.jsonl`. |
 | `orderRender(orders)` | Markdown for a human to read. |
+
+Status is computed from the row and is never written to the file, so a reader of the JSON sees only what was written:
+
+| Status | How it is derived |
+| :- | :- |
+| `revoked` | `active` is not `true`: the order was revoked, and the reason is in `revokedReason`. |
+| `expired` | `until` is a date that is not in the future. At the exact instant of `until` the order is already expired. |
+| `active` | Anything else: never revoked and still inside its `until`. |
+
+Revoking marks, it does not delete: the row stays with `active: false`, `revokedAt` and `revokedReason`. Re-adding the same text later makes a new order with a new id, and a second revoke of the same id is refused so the first reason survives. An inactive order is then purged for good once its retention is over, and the purge is logged: `purgeAfter` is `revokedAt` for a revoked order and `until` for an expired one, plus `orders.retentionDays` (default 90) in `config.json`; `orderPurge` removes the row from both layers only once that date has arrived, and writes `{ at, purged: [ids] }` to `logs/<date>.jsonl` so the trail of what went survives the removal. A broken `orders.retentionDays` falls back to the default instead of stopping a reader.
 
 Two layers: `global` (default) in `orders.json` under the state root, and `project` in `<projectRoot>/.okwork/orders.json`; the layer is chosen by `projectRoot` when `layer` is absent. Ids are `G000001` in the global layer and `O000001` in the project one. `scope` is `all` or `effort:simple`, `effort:normal`, `effort:hard`; `origin` is free text, defaulting to `maintainer`, and a template writes `template:<name>`. A template's order is created with its record, moved on a rename and revoked with a reason on removal, so the order that allowed a run stops allowing it.
 
@@ -199,10 +212,11 @@ The order of one pass, `tick`:
 | 1 | Pause | `daemon.paused` exists: the record says `paused`, nothing is opened and nothing is spawned. The loop keeps running. |
 | 2 | Kill switch | `daemon.stop` exists: the record says `stopped: kill switch`, and `daemonRun` leaves the loop. |
 | 3 | Quota floor | Every client of the pending demands below `daemon.minQuotaPct` stops the pass. A client with no reading is not below the floor, so an unmeasured client never paralyzes the daemon. |
-| 4 | Due templates | `openDue` with the worst reading of the pass: the lowest quota and the least idle of the clients it knows. |
-| 5 | Pending demands, oldest first | The inbox lists newest first, so the queue is reversed and a demand waiting behind newer ones never starves. A period serves one run at a time: while a sibling of the same `ext.template` and `ext.period` is still `delegated` or `criticised`, the others wait. |
-| 6 | Cap | Per demand: `classify` when the item has no `effort`, `profilePick`, then `acquireSlot` before the spawner runs and `releaseSlot` if it refuses, so a refusal costs nothing. |
-| 7 | One decision line | `{ at, opened, spawned, skipped, stopped?, paused? }` appended as a single JSON line to `logs/<date>.jsonl`, so a reader tailing the file always sees a whole pass. |
+| 4 | Retention | `orderPurge` drops from both layers every inactive order whose `orders.retentionDays` is over and appends `{ at, purged: [ids] }` to `logs/<date>.jsonl`. A paused or stopped daemon purges nothing. |
+| 5 | Due templates | `openDue` with the worst reading of the pass: the lowest quota and the least idle of the clients it knows. |
+| 6 | Pending demands, oldest first | The inbox lists newest first, so the queue is reversed and a demand waiting behind newer ones never starves. A period serves one run at a time: while a sibling of the same `ext.template` and `ext.period` is still `delegated` or `criticised`, the others wait. |
+| 7 | Cap | Per demand: `classify` when the item has no `effort`, `profilePick`, then `acquireSlot` before the spawner runs and `releaseSlot` if it refuses, so a refusal costs nothing. |
+| 8 | One decision line | `{ at, opened, spawned, skipped, purged, stopped?, paused? }` appended as a single JSON line to `logs/<date>.jsonl`, so a reader tailing the file always sees a whole pass. |
 
 The daemon never refuses a demand on its own: a demand is skipped only for a technical bound (paused, kill switch, quota floor, the concurrency cap) or a spawner failure, and every skip says which.
 
@@ -216,7 +230,7 @@ The daemon never refuses a demand on its own: a demand is skipped only for a tec
 
 The spawner is injected: `deps` carries `now()`, `quota(client)`, `idle(client)` and `spawn(demand, { client, profile, limits, maxTurns, maxMinutes, runId })`. The `runId` it is given is the slot already reserved for the run, so returning the same id is the cheap path; returning another one moves the slot to that id, and when that id cannot be taken the original is taken again.
 
-Pacing: the interval is paced on a monotonic clock, so a wall-clock jump forwards or backwards moves neither the number of passes nor the per-period idempotency. One daemon per root: `daemonRun` holds the `daemon` lock and throws when another already holds it. `daemonStatus` needs a live pid and a pid file that is not stale, so a daemon that crashed reads as stopped even while its pid file is still on disk. Defaults live under `daemon` in `config.json`: `intervalSeconds` 60, `minQuotaPct` 10, `logKeepDays` 14; a broken value never stops the loop.
+Pacing: the interval is paced on a monotonic clock, so a wall-clock jump forwards or backwards moves neither the number of passes nor the per-period idempotency. One daemon per root: `daemonRun` holds the `daemon` lock and throws when another already holds it. `daemonStatus` needs a live pid and a pid file that is not stale, so a daemon that crashed reads as stopped even while its pid file is still on disk. Defaults live under `daemon` in `config.json`: `intervalSeconds` 60, `minQuotaPct` 10, `logKeepDays` 14; a broken value never stops the loop. The retention of the standing orders lives beside it under `orders`: `retentionDays` 90, the whole days an inactive order is kept before it is purged, where a broken value falls back to the default.
 
 ## 12. Spawn modes
 Two modes per adapter, and the adapter's `spawn()` returns the mode it used. Planned: no adapter is written yet.

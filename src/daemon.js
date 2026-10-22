@@ -12,6 +12,7 @@ import { classify } from './classify.js';
 import { inboxList, inboxSetExt, inboxSetStatus } from './inbox.js';
 import { acquireSlot, releaseSlot } from './limits.js';
 import { DEFAULT_CONFIG, profilePick } from './profiles.js';
+import { orderPurge } from './orders.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
 import { paths } from './store.js';
 import { openDue } from './templates.js';
@@ -202,7 +203,7 @@ async function relinkSlot(root, from, to, client, config) {
 /**
  * One pass over the state root: the stop conditions, the due templates and the
  * pending demands, in that order. Returns the decision record `{at, opened,
- * spawned, skipped, stopped?}` and appends it as one JSON line to
+ * spawned, skipped, purged, stopped?}` and appends it as one JSON line to
  * `logs/<date>.jsonl`.
  *
  * `deps` carries everything the core cannot know: `now()`, `quota(client)`,
@@ -216,7 +217,7 @@ async function relinkSlot(root, from, to, client, config) {
  *
  * @param {string} root state root
  * @param {{now?: () => number, quota?: Function, idle?: Function, spawn: Function}} deps
- * @returns {Promise<{at: string, opened: string[], spawned: object[], skipped: object[], stopped?: string, paused?: boolean}>}
+ * @returns {Promise<{at: string, opened: string[], spawned: object[], skipped: object[], purged?: number, stopped?: string, paused?: boolean}>}
  */
 export async function tick(root, deps = {}) {
   const at = typeof deps.now === 'function' ? deps.now() : Date.now();
@@ -240,6 +241,12 @@ export async function tick(root, deps = {}) {
     record.skipped.push({ id: 'daemon', reason: `${KILL_SWITCH}: ${stopFile(root)} exists` });
     return finish();
   }
+
+  // Housekeeping comes after the two switches, so a paused or stopped daemon
+  // leaves the orders alone, and before the pass asks for anything: an inactive
+  // order past its retention is dropped whatever the quota says, and the line
+  // says how many went.
+  record.purged = (await orderPurge(root, { now: at })).length;
 
   const pending = await inboxList(root, { status: 'pending' });
   const clients = clientsOf(pending);
