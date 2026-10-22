@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { orderAdd, orderLint, orderList, orderPurge, orderRemove, orderRender, orderStatus, purgeAfter } from '../src/orders.js';
-import { paths, projectOrdersPath } from '../src/store.js';
+import { orderAdd, orderLint, orderList, orderMigrateProjects, orderPurge, orderRemove, orderRender, orderStatus, purgeAfter } from '../src/orders.js';
+import { paths } from '../src/store.js';
 import { writeJsonAtomic } from '../src/state.js';
 
 const NOW = '2030-01-01T00:00:00.000Z';
@@ -17,8 +18,8 @@ async function tempRoot() {
 }
 
 // The stored rows, read straight from the file, with no derived field added.
-async function stored(root, file = 'orders.json') {
-  return JSON.parse(await readFile(join(root, file), 'utf8')).orders;
+async function stored(root) {
+  return JSON.parse(await readFile(paths(root).orders, 'utf8')).orders;
 }
 
 // One decision line of the purge log of a day, or null when there is none.
@@ -29,12 +30,17 @@ async function purgeLines(root, at) {
   return text.split('\n').filter((line) => line !== '').map((line) => JSON.parse(line));
 }
 
+// The legacy project-side file of one project, as the old layout wrote it.
+async function writeLegacyProjectFile(projectRoot, orders, seq = orders.length) {
+  return writeJsonAtomic(join(projectRoot, '.okwork', 'orders.json'), { version: 1, seq, orders });
+}
+
 // Must pass / must refuse table:
 // | case                        | must pass                     | must refuse                  |
 // | orderAdd default            | G1, scope all, active true   | -                            |
 // | orderAdd bad text           | -                            | TypeError                    |
 // | orderAdd until in the past  | -                            | TypeError                    |
-// | orderAdd layer project      | O1 in the project file       | projectRoot missing          |
+// | orderAdd layer              | -                            | layer is gone: use appliesTo |
 // | orderAdd appliesTo          | appliesTo 'proj'             | 'global' with a project      |
 // | orderList appliesTo 'proj'  | project + global orders      | -                            |
 // | orderRender appliesTo       | "applies to: proj" on screen  | -                            |
@@ -49,20 +55,21 @@ async function purgeLines(root, at) {
 // | purge inside retention      | row kept, no log line        | -                            |
 // | purge at the purge date     | row removed, log line        | -                            |
 // | retentionDays broken        | falls back to 90             | -                            |
+// | orderMigrateProjects        | moved, file renamed          | skipped on a second run      |
 
-test('orderAdd defaults scope, layer, origin and active', async () => {
+test('orderAdd defaults scope, origin and active', async () => {
   const root = await tempRoot();
 
   const order = await orderAdd(root, { text: 'keep the docs in step with the code' });
 
   assert.match(order.id, /^G\d+$/);
   assert.equal(order.scope, 'all');
-  assert.equal(order.layer, 'global');
   assert.equal(order.origin, 'maintainer');
   assert.equal(order.active, true);
   assert.equal(order.until, undefined);
   assert.equal(order.revokedAt, undefined);
   assert.equal(order.createdAt, new Date(order.createdAt).toISOString());
+  assert.equal('layer' in order, false);
 
   await rm(root, { recursive: true, force: true });
 });
@@ -81,18 +88,22 @@ test('orderAdd keeps ids monotonic and accepts every scope', async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-test('orderAdd refuses empty text, unknown scope, bad layer and a past until', async () => {
+test('orderAdd refuses empty text, unknown scope, a layer and a past until', async () => {
   const root = await tempRoot();
 
   await assert.rejects(() => orderAdd(root, { text: '' }), /text/);
   await assert.rejects(() => orderAdd(root, { text: '   ' }), /text/);
   await assert.rejects(() => orderAdd(root, {}), /text/);
   await assert.rejects(() => orderAdd(root, { text: 'x', scope: 'effort:giant' }), /scope/);
-  await assert.rejects(() => orderAdd(root, { text: 'x', layer: 'team' }), /layer/);
-  await assert.rejects(() => orderAdd(root, { text: 'x', layer: 'project' }), /projectRoot/);
   await assert.rejects(() => orderAdd(root, { text: 'x', until: 'tomorrow' }), /until must be a date/);
   await assert.rejects(() => orderAdd(root, { text: 'x', until: '2020-01-01T00:00:00.000Z' }), /until must be in the future/);
   await assert.rejects(() => orderAdd(root, { text: 'x', origin: 3 }), /origin/);
+
+  // The layer is gone whatever it said, and the caller is told what replaces it.
+  for (const layer of ['global', 'project', 'team', '', 3]) {
+    await assert.rejects(() => orderAdd(root, { text: 'x', layer }), /layer is gone: use appliesTo/);
+  }
+  assert.deepEqual(await orderList(root), []);
 
   await rm(root, { recursive: true, force: true });
 });
@@ -106,59 +117,128 @@ test('orderAdd takes until in the future and keeps it', async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-test('orderAdd puts a project order in the project folder', async () => {
+test('orderMigrateProjects copies the project rows and parks the old file', async () => {
   const root = await tempRoot();
   const projectRoot = await tempRoot();
-
-  const order = await orderAdd(root, { text: 'only here' }, { projectRoot });
-
-  assert.match(order.id, /^O\d+$/);
-  assert.equal(order.layer, 'project');
-  assert.deepEqual(
-    (await orderList(root, {}, { projectRoot })).map((listed) => [listed.id, listed.status]),
-    [[order.id, 'active']],
-  );
-
-  await rm(root, { recursive: true, force: true });
-  await rm(projectRoot, { recursive: true, force: true });
-});
-
-test('orderList merges both layers and the project order wins on the same text', async () => {
-  const root = await tempRoot();
-  const projectRoot = await tempRoot();
-
-  const sharedGlobal = await orderAdd(root, { text: 'Shared text' });
-  await orderAdd(root, { text: 'global only' });
-  const sharedProject = await orderAdd(root, { text: 'shared text' }, { projectRoot });
-  await orderAdd(root, { text: 'project only' }, { projectRoot });
-
-  const merged = await orderList(root, {}, { projectRoot });
-
-  // The global order keeps its place; the project one supplies the content.
-  assert.deepEqual(merged.map((order) => order.text), [
-    'shared text',
-    'global only',
-    'project only',
+  await writeLegacyProjectFile(projectRoot, [
+    { id: 'O000001', text: 'only here', scope: 'effort:hard', layer: 'project', active: true, createdAt: NOW, until: LATER },
+    { id: 'O000002', text: 'gone', scope: 'all', layer: 'project', active: false, createdAt: NOW, revokedAt: NOW, revokedReason: 'obsolete' },
   ]);
-  assert.equal(merged.filter((order) => order.text.toLowerCase() === 'shared text').length, 1);
-  assert.equal(merged.find((order) => order.id === sharedProject.id).layer, 'project');
-  assert.ok(!merged.some((order) => order.id === sharedGlobal.id));
+
+  const result = await orderMigrateProjects(root, projectRoot);
+
+  assert.deepEqual(result, { moved: 2, skipped: 0 });
+  const rows = await stored(root);
+  assert.deepEqual(rows.map((order) => order.id), ['G000001', 'G000002']);
+  assert.equal(rows[0].appliesTo, projectRoot);
+  assert.equal(rows[0].origin, 'migrated:project');
+  assert.equal(rows[0].scope, 'effort:hard');
+  assert.equal(rows[0].until, LATER);
+  assert.equal(rows[0].active, true);
+  assert.equal(rows[0].createdAt, NOW);
+  assert.equal(rows[1].active, false);
+  assert.equal(rows[1].revokedAt, NOW);
+  assert.equal(rows[1].revokedReason, 'obsolete');
+  assert.equal('layer' in rows[0], false);
+
+  // The old file is renamed, never deleted, so the copy is in the global store
+  // before the project file moves aside.
+  const legacy = join(projectRoot, '.okwork', 'orders.json');
+  assert.equal(existsSync(legacy), false);
+  const parked = await readFile(`${legacy}.migrated`, 'utf8');
+  assert.equal(JSON.parse(parked).orders.length, 2);
+
+  // A second run finds nothing to read and moves nothing.
+  assert.deepEqual(await orderMigrateProjects(root, projectRoot), { moved: 0, skipped: 0 });
+  assert.deepEqual((await stored(root)).map((order) => order.id), ['G000001', 'G000002']);
 
   await rm(root, { recursive: true, force: true });
   await rm(projectRoot, { recursive: true, force: true });
 });
 
-test('orderList lists project orders after the global ones', async () => {
+test('orderMigrateProjects skips a row already there and keeps both stores apart', async () => {
+  const root = await tempRoot();
+  const first = await tempRoot();
+  const second = await tempRoot();
+  await orderAdd(root, { text: 'shared words', appliesTo: first });
+  await orderAdd(root, { text: 'global only' });
+  await writeLegacyProjectFile(first, [
+    // Already in the store with this appliesTo: skipped.
+    { id: 'O000001', text: 'Shared Words', scope: 'all', layer: 'project', active: true, createdAt: NOW },
+    { id: 'O000002', text: 'new here', scope: 'all', layer: 'project', active: true, createdAt: NOW },
+  ]);
+  await writeLegacyProjectFile(second, [{ id: 'O000001', text: 'same words elsewhere', scope: 'all', layer: 'project', active: true, createdAt: NOW }]);
+
+  const result = await orderMigrateProjects(root, [first, second]);
+
+  assert.deepEqual(result, { moved: 2, skipped: 1 });
+  const rows = await stored(root);
+  assert.equal(rows.length, 4);
+  const copied = rows.filter((order) => order.origin === 'migrated:project');
+  assert.deepEqual(copied.map((order) => [order.text, order.appliesTo]), [
+    ['new here', first],
+    ['same words elsewhere', second],
+  ]);
+  assert.deepEqual(copied.map((order) => order.id), ['G000003', 'G000004']);
+
+  // The migrated row reads as the project it came from, and a project filter
+  // still brings the shared orders along.
+  const forFirst = await orderList(root, { appliesTo: first });
+  assert.deepEqual(forFirst.map((order) => order.text), ['shared words', 'global only', 'new here']);
+  const onlyFirst = await orderList(root, { appliesTo: 'global' });
+  assert.deepEqual(onlyFirst.map((order) => order.text), ['global only']);
+
+  await rm(root, { recursive: true, force: true });
+  await rm(first, { recursive: true, force: true });
+  await rm(second, { recursive: true, force: true });
+});
+
+test('orderMigrateProjects without a file moves nothing and creates nothing', async () => {
   const root = await tempRoot();
   const projectRoot = await tempRoot();
 
-  await orderAdd(root, { text: 'g1' });
-  await orderAdd(root, { text: 'g2' });
-  await orderAdd(root, { text: 'p1' }, { projectRoot });
+  assert.deepEqual(await orderMigrateProjects(root, projectRoot), { moved: 0, skipped: 0 });
+  assert.deepEqual(await orderMigrateProjects(root, undefined), { moved: 0, skipped: 0 });
+  assert.equal(existsSync(paths(root).orders), false);
 
-  const merged = await orderList(root, {}, { projectRoot });
+  // An old caller whose project has no file is still answered, and nothing is
+  // written on either side.
+  await orderAdd(root, { text: 'plain' });
+  assert.deepEqual((await orderList(root, {}, { projectRoot })).map((order) => order.text), ['plain']);
+  assert.deepEqual(await orderMigrateProjects(root, projectRoot), { moved: 0, skipped: 0 });
+  assert.equal(existsSync(join(projectRoot, '.okwork')), false);
 
-  assert.deepEqual(merged.map((order) => order.text), ['g1', 'g2', 'p1']);
+  await rm(root, { recursive: true, force: true });
+  await rm(projectRoot, { recursive: true, force: true });
+});
+
+test('orderList migrates the old project file when a projectRoot is given', async () => {
+  const root = await tempRoot();
+  const projectRoot = await tempRoot();
+  await orderAdd(root, { text: 'global one' });
+  await writeLegacyProjectFile(projectRoot, [{ id: 'O000001', text: 'project one', scope: 'all', layer: 'project', active: true, createdAt: NOW }]);
+
+  const listed = await orderList(root, {}, { projectRoot });
+
+  assert.deepEqual(listed.map((order) => order.text), ['global one', 'project one']);
+  assert.deepEqual(listed.map((order) => order.status), ['active', 'active']);
+
+  await rm(root, { recursive: true, force: true });
+  await rm(projectRoot, { recursive: true, force: true });
+});
+
+test('orderAdd with a projectRoot migrates first and then writes one global store', async () => {
+  const root = await tempRoot();
+  const projectRoot = await tempRoot();
+  await writeLegacyProjectFile(projectRoot, [{ id: 'O000001', text: 'old project order', scope: 'all', layer: 'project', active: true, createdAt: NOW }]);
+
+  const added = await orderAdd(root, { text: 'fresh order' }, { projectRoot });
+
+  assert.match(added.id, /^G\d+$/);
+  assert.equal(added.appliesTo, undefined);
+  assert.deepEqual((await stored(root)).map((order) => order.text), ['old project order', 'fresh order']);
+  assert.equal(existsSync(join(projectRoot, '.okwork', 'orders.json')), false);
+
   await rm(root, { recursive: true, force: true });
   await rm(projectRoot, { recursive: true, force: true });
 });
@@ -215,16 +295,17 @@ test('orderRemove needs a reason and keeps the history', async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-test('orderRemove revokes a project order and refuses an unknown id', async () => {
+test('orderRemove revokes a migrated order and refuses an unknown id', async () => {
   const root = await tempRoot();
   const projectRoot = await tempRoot();
-  const order = await orderAdd(root, { text: 'project order' }, { projectRoot });
+  await writeLegacyProjectFile(projectRoot, [{ id: 'O000001', text: 'project order', scope: 'all', layer: 'project', active: true, createdAt: NOW }]);
+  const [migrated] = await orderList(root, {}, { projectRoot });
 
-  await assert.rejects(() => orderRemove(root, 'O999999', { reason: 'nope' }), /unknown standing order/);
+  await assert.rejects(() => orderRemove(root, 'O000001', { reason: 'nope' }), /unknown standing order/);
 
-  const revoked = await orderRemove(root, order.id, { reason: 'moved' }, { projectRoot });
+  const revoked = await orderRemove(root, migrated.id, { reason: 'moved' });
   assert.equal(revoked.active, false);
-  assert.deepEqual(await orderList(root, {}, { projectRoot }), []);
+  assert.deepEqual(await orderList(root, { activeOnly: false }).then((all) => all.filter((order) => order.status === 'active')), []);
 
   await rm(root, { recursive: true, force: true });
   await rm(projectRoot, { recursive: true, force: true });
@@ -241,7 +322,7 @@ test('orderLint finds an active order past its until', async () => {
   const problems = await orderLint(root, { now: '2030-04-01T00:00:00.000Z' });
   assert.equal(problems.length, 1);
   assert.equal(problems[0].code, 'expired-active');
-  assert.equal(problems[0].layer, 'global');
+  assert.equal(problems[0].id, 'G000001');
 
   await rm(root, { recursive: true, force: true });
 });
@@ -259,24 +340,20 @@ test('orderLint finds two active orders with the same text', async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-test('orderLint finds a duplicate id across the layers', async () => {
+test('orderLint finds a repeated id in the store', async () => {
   const root = await tempRoot();
-  const projectRoot = await tempRoot();
 
-  const global = await orderAdd(root, { text: 'one' });
-  const project = await orderAdd(root, { text: 'two' }, { projectRoot });
-  await writeJsonAtomic(projectOrdersPath(projectRoot), {
-    version: 1,
-    seq: Number(project.id.slice(1)),
-    orders: [{ ...project, id: global.id }],
-  });
+  const first = await orderAdd(root, { text: 'one' });
+  await orderAdd(root, { text: 'two' });
+  const rows = await stored(root);
+  rows[1].id = first.id;
+  await writeJsonAtomic(paths(root).orders, { version: 1, seq: 2, orders: rows });
 
-  const problems = await orderLint(root, { projectRoot, now: NOW });
+  const problems = await orderLint(root, { now: NOW });
   assert.equal(problems.length, 1);
   assert.equal(problems[0].code, 'duplicate-id');
 
   await rm(root, { recursive: true, force: true });
-  await rm(projectRoot, { recursive: true, force: true });
 });
 
 test('orderLint finds empty text, an unknown scope and a bad date', async () => {
@@ -305,7 +382,7 @@ test('orderRender lists id, date, text and expiry', () => {
   const rendered = orderRender([
     { id: 'G000001', text: 'first order', scope: 'all', active: true, createdAt: NOW },
     {
-      id: 'O000002',
+      id: 'G000002',
       text: 'second order',
       scope: 'effort:hard',
       active: false,
@@ -318,7 +395,7 @@ test('orderRender lists id, date, text and expiry', () => {
   const lines = rendered.split('\n');
   assert.equal(lines[0], '# Standing orders');
   assert.match(lines[2], /^- \*\*G000001\*\* \(2030-01-01T00:00:00.000Z\) first order$/);
-  assert.match(lines[3], /^- \*\*O000002\*\* \(2030-01-01T00:00:00.000Z\) second order — scope `effort:hard` — until 2030-06-01T00:00:00.000Z — revoked: obsolete$/);
+  assert.match(lines[3], /^- \*\*G000002\*\* \(2030-01-01T00:00:00.000Z\) second order — scope `effort:hard` — until 2030-06-01T00:00:00.000Z — revoked: obsolete$/);
   assert.equal(lines.at(-1), '');
 });
 
@@ -497,51 +574,44 @@ test('purgeAfter counts the retention from the revocation or from the until', ()
 
 test('orderPurge removes only the inactive rows whose purge date arrived', async () => {
   const root = await tempRoot();
-  const projectRoot = await tempRoot();
 
   const rows = [
-    { id: 'G000001', text: 'live', scope: 'all', layer: 'global', active: true, createdAt: NOW },
-    { id: 'G000002', text: 'revoked', scope: 'all', layer: 'global', active: false, createdAt: NOW, revokedAt: '2030-01-01T00:00:00.000Z', revokedReason: 'obsolete' },
-    { id: 'G000003', text: 'expired', scope: 'all', layer: 'global', active: true, createdAt: NOW, until: '2030-01-01T00:00:00.000Z' },
+    { id: 'G000001', text: 'live', scope: 'all', active: true, createdAt: NOW },
+    { id: 'G000002', text: 'revoked', scope: 'all', active: false, createdAt: NOW, revokedAt: '2030-01-01T00:00:00.000Z', revokedReason: 'obsolete' },
+    { id: 'G000003', text: 'expired', scope: 'all', active: true, createdAt: NOW, until: '2030-01-01T00:00:00.000Z' },
+    { id: 'G000004', text: 'migrated gone', scope: 'all', origin: 'migrated:project', appliesTo: '/tmp/whatever', active: false, createdAt: NOW, revokedAt: '2030-01-01T00:00:00.000Z', revokedReason: 'moved' },
   ];
-  await writeJsonAtomic(paths(root).orders, { version: 1, seq: 3, orders: rows });
-  await writeJsonAtomic(projectOrdersPath(projectRoot), {
-    version: 1,
-    seq: 1,
-    orders: [{ id: 'O000001', text: 'project gone', scope: 'all', layer: 'project', active: false, createdAt: NOW, revokedAt: '2030-01-01T00:00:00.000Z', revokedReason: 'moved' }],
-  });
+  await writeJsonAtomic(paths(root).orders, { version: 1, seq: 4, orders: rows });
 
   // One millisecond before the purge date nothing goes.
-  const early = await orderPurge(root, { now: '2030-01-10T23:59:59.999Z', retentionDays: 10 }, { projectRoot });
+  const early = await orderPurge(root, { now: '2030-01-10T23:59:59.999Z', retentionDays: 10 });
   assert.deepEqual(early, []);
-  assert.deepEqual((await stored(root)).map((row) => row.id), ['G000001', 'G000002', 'G000003']);
+  assert.deepEqual((await stored(root)).map((row) => row.id), ['G000001', 'G000002', 'G000003', 'G000004']);
   assert.equal(await purgeLines(root, '2030-01-10T23:59:59.999Z'), null);
 
-  // On the purge date every inactive row goes, from both layers, and the live
-  // one stays.
+  // On the purge date every inactive row goes, migrated ones included, and the
+  // live one stays.
   const at = '2030-01-11T00:00:00.000Z';
-  const purged = await orderPurge(root, { now: at, retentionDays: 10 }, { projectRoot });
+  const purged = await orderPurge(root, { now: at, retentionDays: 10 });
 
   assert.deepEqual(purged.map((row) => [row.id, row.status, row.text]).sort(), [
     ['G000002', 'revoked', 'revoked'],
     ['G000003', 'expired', 'expired'],
-    ['O000001', 'revoked', 'project gone'],
+    ['G000004', 'revoked', 'migrated gone'],
   ]);
   assert.equal(purged[0].purgedAt, at);
   assert.deepEqual((await stored(root)).map((row) => row.id), ['G000001']);
-  assert.deepEqual((await stored(projectRoot, join('.okwork', 'orders.json'))), []);
 
   const lines = await purgeLines(root, at);
   assert.equal(lines.length, 1);
   assert.equal(lines[0].at, at);
-  assert.deepEqual(lines[0].purged, ['G000002', 'G000003', 'O000001']);
+  assert.deepEqual(lines[0].purged, ['G000002', 'G000003', 'G000004']);
 
   // A second pass finds nothing left and writes no line.
-  assert.deepEqual(await orderPurge(root, { now: at, retentionDays: 10 }, { projectRoot }), []);
+  assert.deepEqual(await orderPurge(root, { now: at, retentionDays: 10 }), []);
   assert.equal((await purgeLines(root, at)).length, 1);
 
   await rm(root, { recursive: true, force: true });
-  await rm(projectRoot, { recursive: true, force: true });
 });
 
 test('orderPurge with retentionDays 0 removes an inactive row at once', async () => {
@@ -551,8 +621,8 @@ test('orderPurge with retentionDays 0 removes an inactive row at once', async ()
     version: 1,
     seq: 2,
     orders: [
-      { id: 'G000001', text: 'live', scope: 'all', layer: 'global', active: true, createdAt: NOW },
-      { id: 'G000002', text: 'gone', scope: 'all', layer: 'global', active: false, createdAt: NOW, revokedAt: '2030-01-01T00:00:00.000Z', revokedReason: 'obsolete' },
+      { id: 'G000001', text: 'live', scope: 'all', active: true, createdAt: NOW },
+      { id: 'G000002', text: 'gone', scope: 'all', active: false, createdAt: NOW, revokedAt: '2030-01-01T00:00:00.000Z', revokedReason: 'obsolete' },
     ],
   });
 
@@ -568,7 +638,7 @@ test('orderPurge with retentionDays 0 removes an inactive row at once', async ()
 test('orderPurge reads orders.retentionDays from the config and falls back on a broken value', async () => {
   const root = await tempRoot();
   const revokedAt = '2030-01-01T00:00:00.000Z';
-  const row = (id) => ({ id, text: id, scope: 'all', layer: 'global', active: false, createdAt: NOW, revokedAt, revokedReason: 'obsolete' });
+  const row = (id) => ({ id, text: id, scope: 'all', active: false, createdAt: NOW, revokedAt, revokedReason: 'obsolete' });
   const seed = () => writeJsonAtomic(paths(root).orders, { version: 1, seq: 2, orders: [row('G000001'), row('G000002')] });
 
   await writeJsonAtomic(paths(root).config, { orders: { retentionDays: 30 } });

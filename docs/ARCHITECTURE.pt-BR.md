@@ -50,7 +50,7 @@ daemon.paused             arquivo de pausa, escrito por daemonPause
 daemon.stop               chave de parada, lida pelo daemon
 ```
 
-Arquivos do lado do projeto ficam ao lado do projeto, não nesta raiz: `<projectRoot>/.okwork/orders.json` para a camada de projeto das ordens permanentes (`projectOrdersPath`), mais o `CLAUDE.md` do próprio projeto (Claude Code) ou `AGENTS.md` (Codex, opencode).
+Arquivos do lado do projeto ficam ao lado do projeto, não nesta raiz: o `CLAUDE.md` do próprio projeto (Claude Code) ou `AGENTS.md` (Codex, opencode). As ordens permanentes não são um deles — todas moram em `orders.json` aqui, ligadas a um projeto pelo `appliesTo`.
 
 - Escrita: serializar para `<file>.<pid>.<random>.tmp`, depois `fs.rename` sobre o destino, para que nenhum leitor veja arquivo pela metade. Em `EPERM` ou `EBUSY` (Windows), tentar o rename de novo algumas vezes antes de falhar.
 - Trava: `fs.mkdir` na pasta `<name>.lock`, que guarda `owner.json` `{pid, startedAt}`; `EEXIST` significa ocupado; liberar com `rmdir`.
@@ -191,13 +191,14 @@ Uma ordem é uma linha que o mantenedor escreve uma vez e o Diretor lê a cada d
 
 | Função | Efeito |
 | :- | :- |
-| `orderAdd(root, { text, scope, layer, until, origin, appliesTo }, { projectRoot })` | Adiciona uma ordem ativa; `until` precisa ser uma data no futuro. |
+| `orderAdd(root, { text, scope, until, origin, appliesTo }, { projectRoot })` | Adiciona uma ordem ativa no armazenamento único; `until` precisa ser uma data no futuro. Um `layer` é recusado com `layer is gone: use appliesTo`. |
 | `orderRemove(root, id, { reason })` | Revoga: `active: false` com `revokedAt` e `revokedReason`. Nada é apagado, então o histórico sobrevive. Uma segunda revogação é recusada. |
 | `orderStatus(order, now)` | O status derivado de uma ordem: `revoked`, `expired` ou `active`. |
-| `orderList(root, { activeOnly, appliesTo, now }, { projectRoot })` | As duas camadas fundidas, a global primeiro; o mesmo texto em um projeto substitui o global no lugar. `activeOnly` descarta revogadas e vencidas. Cada ordem volta com o `status` derivado e, quando inativa, a data `purgeAfter`. |
-| `orderLint(root, { projectRoot, now })` | O que quem lê os arquivos tropeçaria: texto vazio, escopo desconhecido, data ilegível, id repetido, ordem ativa com `until` passado, duas ordens vivas com o mesmo texto. |
+| `orderList(root, { activeOnly, appliesTo, now }, { projectRoot })` | Lista o armazenamento único. `activeOnly` descarta revogadas e vencidas. Cada ordem volta com o `status` derivado e, quando inativa, a data `purgeAfter`. |
+| `orderMigrateProjects(root, projectRoots)` | Migração única do arquivo antigo do lado do projeto para o armazenamento; devolve `{ moved, skipped }`. |
+| `orderLint(root, { now })` | O que quem lê o arquivo tropeçaria: texto vazio, escopo desconhecido, data ilegível, id repetido, ordem ativa com `until` passado, duas ordens vivas com o mesmo texto. |
 | `purgeAfter(order, retentionDays, now)` | O instante em que uma ordem inativa pode ser expurgada, ou `undefined` para uma ativa. |
-| `orderPurge(root, { now, retentionDays }, { projectRoot })` | Remove para sempre, nas duas camadas, toda ordem inativa cuja retenção acabou, e anexa `{ at, purged: [ids] }` a `logs/<date>.jsonl`. |
+| `orderPurge(root, { now, retentionDays })` | Remove para sempre toda ordem inativa cuja retenção acabou, e anexa `{ at, purged: [ids] }` a `logs/<date>.jsonl`. |
 | `orderRender(orders)` | Markdown para leitura humana. |
 
 O status é computado a partir da linha e nunca é gravado no arquivo, então quem lê o JSON vê só o que foi escrito:
@@ -208,9 +209,9 @@ O status é computado a partir da linha e nunca é gravado no arquivo, então qu
 | `expired` | `until` é uma data que não está no futuro. No instante exato de `until` a ordem já está vencida. |
 | `active` | Qualquer outra coisa: nunca revogada e ainda dentro do seu `until`. |
 
-Revogar marca, não apaga: a linha continua com `active: false`, `revokedAt` e `revokedReason`. Adicionar de novo o mesmo texto depois cria uma ordem nova com id novo, e uma segunda revogação do mesmo id é recusada para que o primeiro motivo sobreviva. Uma ordem inativa é então expurgada para sempre quando a retenção acaba, e a expurgo fica registrado: `purgeAfter` é `revokedAt` para uma ordem revogada e `until` para uma vencida, mais `orders.retentionDays` (padrão 90) no `config.json`; `orderPurge` remove a linha das duas camadas só quando essa data chega, e escreve `{ at, purged: [ids] }` em `logs/<date>.jsonl` para que o rastro do que saiu sobreviva à remoção. Um `orders.retentionDays` quebrado volta ao padrão em vez de travar quem lê.
+Revogar marca, não apaga: a linha continua com `active: false`, `revokedAt` e `revokedReason`. Adicionar de novo o mesmo texto depois cria uma ordem nova com id novo, e uma segunda revogação do mesmo id é recusada para que o primeiro motivo sobreviva. Uma ordem inativa é então expurgada para sempre quando a retenção acaba, e a expurgo fica registrado: `purgeAfter` é `revokedAt` para uma ordem revogada e `until` para uma vencida, mais `orders.retentionDays` (padrão 90) no `config.json`; `orderPurge` remove a linha do armazenamento único só quando essa data chega, e escreve `{ at, purged: [ids] }` em `logs/<date>.jsonl` para que o rastro do que saiu sobreviva à remoção. Um `orders.retentionDays` quebrado volta ao padrão em vez de travar quem lê.
 
-Duas camadas: `global` (padrão) em `orders.json` na raiz do estado, e `project` em `<projectRoot>/.okwork/orders.json`; a camada é escolhida por `projectRoot` quando `layer` está ausente. Os ids são `G000001` na camada global e `O000001` na de projeto. `scope` é `all` ou `effort:simple`, `effort:normal`, `effort:hard`; `origin` é texto livre, com padrão `maintainer`, e um modelo escreve `template:<name>`. A ordem de um modelo é criada junto com o registro, movida em uma renomeação e revogada com motivo na remoção, então a ordem que permitia a execução deixa de permitir.
+Um armazenamento: toda ordem vive em `orders.json` na raiz do estado e o id é `G000001`. Não existe mais a camada de projeto — o projeto é escolhido pelo `appliesTo`, que nomeia os ids ou caminhos aos quais a ordem se liga, e uma ordem sem ele vale para todos. `orderAdd` com `layer` é recusado com `layer is gone: use appliesTo`. A migração única `orderMigrateProjects(root, projectRoots)` copia cada `<projectRoot>/.okwork/orders.json` do layout antigo para o armazenamento com `appliesTo` apontando para aquele projeto, `origin` `migrated:project` e um id `G` novo, preservando texto, escopo, `until`, `active` e os campos de revogação; uma linha já copiada é pulada (mesmo texto mais `appliesTo`), a cópia acontece antes de o arquivo antigo ser renomeado para `orders.json.migrated` e ele nunca é apagado. Ela roda de forma preguiçosa em `orderList`/`orderAdd` quando um `projectRoot` é passado, que é o único uso que resta de `projectRoot`. `scope` é `all` ou `effort:simple`, `effort:normal`, `effort:hard`; `origin` é texto livre, com padrão `maintainer`, e um modelo escreve `template:<name>`. A ordem de um modelo é criada junto com o registro, movida em uma renomeação e revogada com motivo na remoção, então a ordem que permitia a execução deixa de permitir.
 
 ## 11. O daemon
 O daemon é a metade sem tela: ninguém assiste, então todo limite que ele respeita é técnico. O núcleo não inicia nada por conta própria — `spawn` é injetado, então um teste o conduz e um adaptador o conduz de verdade.
@@ -222,7 +223,7 @@ A ordem de uma passagem, `tick`:
 | 1 | Pausa | `daemon.paused` existe: o registro diz `paused`, nada é aberto e nada é iniciado. O laço continua rodando. |
 | 2 | Chave de parada | `daemon.stop` existe: o registro diz `stopped: kill switch`, e `daemonRun` sai do laço. |
 | 3 | Piso de cota | Todos os clientes das demandas pendentes abaixo de `daemon.minQuotaPct` param a passagem. Um cliente sem leitura não está abaixo do piso, então um cliente não medido nunca paralisa o daemon. |
-| 4 | Retenção | `orderPurge` tira das duas camadas toda ordem inativa cujo `orders.retentionDays` já acabou e anexa `{ at, purged: [ids] }` a `logs/<date>.jsonl`. Um daemon pausado ou parado não expurga nada. |
+| 4 | Retenção | `orderPurge` tira do armazenamento único toda ordem inativa cujo `orders.retentionDays` já acabou e anexa `{ at, purged: [ids] }` a `logs/<date>.jsonl`. Um daemon pausado ou parado não expurga nada. |
 | 5 | Modelos vencidos | `openDue` com a pior leitura da passagem: a cota mais baixa e a menor ociosidade dos clientes que ele conhece. |
 | 6 | Demandas pendentes, mais antiga primeiro | A caixa lista das mais novas para as mais antigas, então a fila é invertida e uma demanda que espera atrás de outras nunca passa fome. Um período atende uma execução por vez: enquanto um irmão do mesmo `ext.template` e `ext.period` está `delegated` ou `criticised`, os outros esperam. |
 | 7 | Teto | Por demanda: `classify` quando o item não tem `effort`, `profilePick`, depois `acquireSlot` antes de o iniciador rodar e `releaseSlot` se ele recusar, então uma recusa não custa nada. |
@@ -304,7 +305,7 @@ Uma caixa, um conjunto de ordens permanentes, um armazenamento de modelos, em um
 | `validateAppliesTo(value)` | Apara e tira duplicatas, mantém a forma recebida e nunca guarda o padrão: um registro sem o campo vale para todo projeto. |
 | `validateAppliesToFilter(value)` | O filtro de uma listagem: um projeto, ou só os registros compartilhados. Uma lista de projetos é recusada, porque a união seria ambígua. |
 | `inScope(record, wanted)` | Se um registro aparece para um projeto. |
-| `stateRoot(env)` / `paths(root)` / `projectOrdersPath(projectRoot)` | Onde o estado mora, com a sobrescrita do ambiente primeiro. |
+| `stateRoot(env)` / `paths(root)` | Onde o estado mora, com a sobrescrita do ambiente primeiro. |
 
 Então: ausente significa todos os projetos, um nome significa aquele projeto, uma lista significa cada um deles, e `global` junto com outro projeto é recusado porque não diz nada preciso. `inboxList`, `orderList` e `templateList` filtram por projeto e sempre incluem os registros compartilhados; `templateSet` com `appliesTo: 'global'` apaga o campo, então o modelo volta a ser compartilhado.
 
