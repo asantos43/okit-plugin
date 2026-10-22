@@ -26,6 +26,7 @@ const AUTOSTART_ACTIONS = ['install', 'uninstall', 'show'];
 
 const USAGE = [
   'usage: okit daemon start|stop|status|pause|resume|run-once',
+  '       okit daemon status [--table [--locale en|pt-BR]]',
   '       okit autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       okit status [--locale en|pt-BR]',
   `OKWORK_HOME names the state root; --kind defaults to ${AUTOSTART_KINDS.join(', ')} by platform.`,
@@ -67,6 +68,17 @@ function readLocale(args) {
     else rest.push(arg);
   }
   return { locale, rest };
+}
+
+/** `--table` is a switch, not a value: `--table=true` is not a form of it. */
+function readTable(args) {
+  const rest = [];
+  let table = false;
+  for (const arg of args) {
+    if (arg === '--table') table = true;
+    else rest.push(arg);
+  }
+  return { table, rest };
 }
 
 /** One fact per line, in the order the caller listed them. */
@@ -118,6 +130,26 @@ async function readConfig(root) {
 }
 
 /**
+ * The `statusTable` deps of one command: the settings of this root, the clients
+ * they name, the readings through each client's adapter, the standing orders and
+ * the cap counts. `okit status` and `okit daemon status --table` share it, so the
+ * table under the daemon lines is the same table of `okit status`.
+ */
+async function tableDeps(ctx, locale) {
+  const config = await readConfig(ctx.root);
+  return {
+    config,
+    clients: clientsOf(config, ctx.clients),
+    readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env }),
+    now: ctx.now,
+    orders: ctx.orders ?? await orderList(ctx.root),
+    limits: await limitsStatus(ctx.root, config),
+    locale,
+    cache: ctx.quotaCache,
+  };
+}
+
+/**
  * `okit status`: the quota table and the capacity line under it. The readings
  * come from each client's adapter, the counts from the runs on disk, and both
  * are the same functions the daemon and the MCP tool use.
@@ -126,17 +158,7 @@ async function statusCommand(ctx, args) {
   const { locale, rest } = readLocale(args);
   if (rest.length > 0 || (locale !== null && !Object.hasOwn(LABELS, locale))) return ctx.unknown();
 
-  const config = await readConfig(ctx.root);
-  const table = await statusTable(ctx.root, {
-    config,
-    clients: clientsOf(config, ctx.clients),
-    readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env }),
-    now: ctx.now,
-    orders: ctx.orders ?? await orderList(ctx.root),
-    limits: await limitsStatus(ctx.root, config),
-    locale: locale ?? 'en',
-    cache: ctx.quotaCache,
-  });
+  const table = await statusTable(ctx.root, await tableDeps(ctx, locale ?? 'en'));
   for (const line of table.markdown.split('\n')) ctx.out(line);
   ctx.out(table.capacityLine);
   return 0;
@@ -165,7 +187,9 @@ function describePass(record) {
 }
 
 async function daemonCommand(ctx, action, args) {
-  if (args.length > 0 || !DAEMON_ACTIONS.includes(action)) return ctx.unknown();
+  if (!DAEMON_ACTIONS.includes(action) || (args.length > 0 && action !== 'status')) {
+    return ctx.unknown();
+  }
 
   if (action === 'stop') {
     const file = join(ctx.root, STOP_FILE);
@@ -181,7 +205,17 @@ async function daemonCommand(ctx, action, args) {
   }
 
   if (action === 'status') {
-    const status = await daemonStatus(ctx.root, { now: ctx.now() });
+    // `--locale` alone is a refusal: it names a table, so it needs `--table`, and
+    // an unknown language is refused the same way `okit status` refuses it.
+    const { locale, rest: withoutLocale } = readLocale(args);
+    const { table, rest } = readTable(withoutLocale);
+    if (rest.length > 0 || (locale !== null && (table === false || !Object.hasOwn(LABELS, locale)))) {
+      return ctx.unknown();
+    }
+
+    const options = { now: ctx.now() };
+    if (table) options.table = await tableDeps(ctx, locale ?? 'en');
+    const status = await daemonStatus(ctx.root, options);
     report(ctx.out, [
       `running: ${status.running}`,
       `pid: ${dash(status.pid)}`,
@@ -189,6 +223,13 @@ async function daemonCommand(ctx, action, args) {
       `paused: ${status.paused}`,
       `last pass: ${describePass(status.lastTick)}`,
     ]);
+    // The table only exists when it was asked for, so the default output is the
+    // one it has always been.
+    if (status.table !== undefined) {
+      ctx.out('');
+      for (const line of status.table.markdown.split('\n')) ctx.out(line);
+      ctx.out(status.table.capacityLine);
+    }
     return 0;
   }
 

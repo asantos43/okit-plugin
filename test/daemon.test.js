@@ -562,6 +562,70 @@ test('daemonStatus reports the paused flag and the last tick', async (t) => {
   assert.equal(status.lastTick.spawned.length, 1);
 });
 
+/** A `readQuota` that answers from a map and counts every client it was asked. */
+function readerOf(readings) {
+  const calls = [];
+  const readQuota = async (client) => {
+    calls.push(client);
+    return readings[client] ?? { source: 'off' };
+  };
+  return { readQuota, calls };
+}
+
+// Must pass / must refuse table (options.table of `daemonStatus`):
+// | case                          | must pass                          | must refuse                |
+// | no `table` in the options     | the five daemon fields only        | -                          |
+// | `table` with fake readings    | a `table` of markdown + capacity   | -                          |
+// | two calls inside the TTL      | one reading per client             | -                          |
+
+test('daemonStatus without options.table reads no quota and gains no table', async (t) => {
+  const root = await seeded(t);
+  const { readQuota, calls } = readerOf({ alpha: { source: 'api', remainingPct: 80, windowMinutes: 300 } });
+  // The deps a caller hands over when it does want the table under its lines.
+  const table = { clients: ['alpha'], readQuota, now: () => SLOT, cache: new Map() };
+
+  const status = await daemonStatus(root, { now: SLOT });
+
+  assert.equal('table' in status, false, 'the result is the one of any other day');
+  assert.deepEqual(Object.keys(status), ['running', 'pid', 'startedAt', 'paused', 'lastTick']);
+  assert.deepEqual(calls, [], 'a reading is taken only when a table is asked for');
+  assert.ok(table, 'the same deps with options.table print the table');
+});
+
+test('daemonStatus with options.table answers the markdown and the capacity line', async (t) => {
+  const root = await seeded(t);
+  const { readQuota, calls } = readerOf({
+    alpha: { source: 'api', windows: [{ minutes: 300, remainingPct: 72, resetsInMinutes: 30 }] },
+    beta: { source: 'off' },
+  });
+  const table = { clients: ['alpha', 'beta'], readQuota, now: () => SLOT, cache: new Map() };
+
+  const status = await daemonStatus(root, { now: SLOT, table });
+
+  assert.equal(status.running, false, 'the daemon fields do not change');
+  assert.equal(status.paused, false);
+  assert.deepEqual(Object.keys(status.table), ['markdown', 'capacityLine']);
+  const lines = status.table.markdown.split('\n');
+  assert.equal(lines[0], '| Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age) |');
+  assert.equal(lines[2], '| alpha | 72% | - | 30m | green | api (0s) |');
+  assert.equal(lines[3], '| beta | - | - | - | off | off (0s) |');
+  assert.equal(status.table.capacityLine, 'executors that can launch now: 3 per client, 4 in total; quota floor 15%');
+  assert.deepEqual(calls, ['alpha', 'beta']);
+});
+
+test('daemonStatus reads once per client while two tables fall inside the TTL', async (t) => {
+  const root = await seeded(t);
+  const { readQuota, calls } = readerOf({ alpha: { source: 'api', remainingPct: 72, windowMinutes: 300 } });
+  const table = { clients: ['alpha'], readQuota, now: () => SLOT, cache: new Map() };
+
+  const first = await daemonStatus(root, { now: SLOT, table });
+  const second = await daemonStatus(root, { now: SLOT, table });
+
+  assert.deepEqual(calls, ['alpha'], 'the second table costs no extra reading');
+  assert.equal(second.table.markdown, first.table.markdown);
+  assert.equal(second.table.capacityLine, first.table.capacityLine);
+});
+
 test('rotateLogs removes only the logs older than keepDays', async (t) => {
   const root = await seeded(t);
   const folder = paths(root).logs;
