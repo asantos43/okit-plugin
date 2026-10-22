@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
+import { inScope, validateAppliesTo, validateAppliesToFilter } from './applies.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
 import { paths } from './store.js';
 
@@ -66,7 +67,6 @@ function validateEffort(effort) {
   return effort;
 }
 
-
 async function loadStore(file) {
   const store = await readJson(file, emptyStore());
   if (!Array.isArray(store.items)) fail(`${file} has no items array`);
@@ -91,9 +91,11 @@ const nextId = (seq) => `${ID_PREFIX}${String(seq).padStart(ID_WIDTH, '0')}`;
 
 /**
  * Adds a demand and returns the stored item. The id comes from the file
- * itself, so ids stay unique even when two callers add at once.
+ * itself, so ids stay unique even when two callers add at once. `appliesTo`
+ * names the projects the demand is about; absent or `global`, it is shared and
+ * the field is left out of the stored item.
  */
-export async function inboxAdd(root, { title, body, kind, accept, effort, client, ext } = {}) {
+export async function inboxAdd(root, { title, body, kind, accept, effort, client, appliesTo, ext } = {}) {
   const clean = {
     title: validateTitle(title),
     body: validateBody(body),
@@ -101,6 +103,7 @@ export async function inboxAdd(root, { title, body, kind, accept, effort, client
     accept: validateAccept(accept),
   };
   const effortValue = validateEffort(effort);
+  const appliesToValue = validateAppliesTo(appliesTo);
 
   return mutate(root, async (store) => {
     store.seq += 1;
@@ -116,6 +119,7 @@ export async function inboxAdd(root, { title, body, kind, accept, effort, client
     };
     if (effortValue !== undefined) item.effort = effortValue;
     if (isText(client)) item.client = client.trim();
+    if (appliesToValue !== undefined) item.appliesTo = appliesToValue;
     if (ext !== undefined && ext !== null) {
       if (typeof ext !== 'object' || Array.isArray(ext)) fail('ext must be an object when given');
       item.ext = ext;
@@ -129,19 +133,23 @@ export async function inboxAdd(root, { title, body, kind, accept, effort, client
 
 /**
  * Lists items, newest first. Every filter is optional and they combine.
+ * `appliesTo` narrows the list to one project: its own demands plus the global
+ * ones; `global` lists the shared demands alone.
  */
-export async function inboxList(root, { status, client, limit } = {}) {
+export async function inboxList(root, { status, client, appliesTo, limit } = {}) {
   if (status !== undefined && !STATUSES.includes(status)) {
     fail(`status must be one of ${STATUSES.join('|')} when given`);
   }
   if (limit !== undefined && (!Number.isInteger(limit) || limit < 0)) {
     fail('limit must be a non-negative integer when given');
   }
+  const wanted = validateAppliesToFilter(appliesTo);
 
   const store = await loadStore(paths(root).inbox);
   let items = store.items.slice();
   if (status !== undefined) items = items.filter((item) => item.status === status);
   if (client !== undefined) items = items.filter((item) => item.client === client);
+  if (wanted !== undefined) items = items.filter((item) => inScope(item, wanted));
   items.reverse();
   return limit === undefined ? items : items.slice(0, limit);
 }

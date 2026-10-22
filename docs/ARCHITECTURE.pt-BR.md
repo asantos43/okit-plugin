@@ -5,23 +5,23 @@ Status: fase de design (pré-alfa). Estende [DESIGN.md](DESIGN.md); responde às
 ## 1. Subconjunto: o contrato mínimo
 | Registro | Campos |
 | :- | :- |
-| Item da caixa | `id`, `title`, `body`, `kind` (texto livre: `research`, `writing`, `documents`, `data`, `analysis`, `planning`, `review`, `files`, `code`, ...), `accept` (lista de verificações em palavras simples, cada uma opcionalmente um comando), `effort` (simple\|normal\|hard), `client`, `status` (pending\|delegated\|criticised\|consolidated\|failed), `stepIds`, `ext.<kind>` (extras tipados opcionais), `createdAt` |
-| Ordem permanente | `id`, `text`, `scope` (all\|effort:simple\|effort:normal\|effort:hard), `active` |
+| Item da caixa | `id`, `title`, `body`, `kind` (texto livre: `research`, `writing`, `documents`, `data`, `analysis`, `planning`, `review`, `files`, `code`, ...), `accept` (lista de verificações em palavras simples, cada uma opcionalmente um comando), `effort` (simple\|normal\|hard), `client`, `appliesTo` (id ou caminho de um projeto, uma lista deles, ou ausente para todos), `status` (pending\|delegated\|criticised\|consolidated\|failed), `stepIds`, `ext.<kind>` (extras tipados opcionais), `createdAt` |
+| Ordem permanente | `id`, `text`, `scope` (all\|effort:simple\|effort:normal\|effort:hard), `appliesTo` (id ou caminho de um projeto, uma lista deles, ou ausente para todos), `active` |
 | Classe de esforço | `simple`, `normal`, `hard`; classificada por padrão a partir de `title`, `body` e `kind`; o mantenedor pode sobrescrever no item |
 | Perfil do ator | `client`, `agentId`, `model`, `effort`, `maxTurns`, `worktree` |
 | Leitura de cota | `client`, `source` (api\|user\|off), `remainingPct`, `windowMinutes`, `readAt` |
 | Resumo do passo | `stepId`, `itemId`, `title`, `goal`, `accept`, `contextRefs`, `terseLevel`, `outLevel` |
 | Voto da crítica | `stepId`, `verdict` (pass\|revise\|reject), `findings`, `attempt` (1\|2) |
 
-Regras: uma demanda é qualquer unidade de trabalho delegável, não só código: pesquisa, redação, documentos, limpeza de dados, análise, planejamento, revisões, operações de arquivos e conteúdo. `kind` é texto livre, então um novo tipo não exige mudar o núcleo. Detalhes só de código (branch, PR, comando de teste) ficam em `ext.<kind>` como extras tipados opcionais, nunca campos obrigatórios. O `accept` de um passo é uma fatia da lista do item. O resumo carrega só o que muda; o contexto repetido é referenciado por `contextRefs`, nunca reenviado. `terseLevel` sobe em uma tentativa repetida, `outLevel` cai a cada ida e volta. O núcleo nunca inventa um modelo, um nível de esforço ou um número de cota que o cliente não informou.
+Regras: uma demanda é qualquer unidade de trabalho delegável, não só código: pesquisa, redação, documentos, limpeza de dados, análise, planejamento, revisões, operações de arquivos e conteúdo. `kind` é texto livre, então um novo tipo não exige mudar o núcleo. Detalhes só de código (branch, PR, comando de teste) ficam em `ext.<kind>` como extras tipados opcionais, nunca campos obrigatórios. Existe uma caixa global e um conjunto global de ordens permanentes, então é o `appliesTo` que separa o que é de cada projeto: uma demanda ou ordem que nomeia projetos pertence a eles, uma sem o campo vale para todos, e `'global'` é o padrão que nunca é gravado. O `accept` de um passo é uma fatia da lista do item. O resumo carrega só o que muda; o contexto repetido é referenciado por `contextRefs`, nunca reenviado. `terseLevel` sobe em uma tentativa repetida, `outLevel` cai a cada ida e volta. O núcleo nunca inventa um modelo, um nível de esforço ou um número de cota que o cliente não informou.
 
 ## 2. API do núcleo e as mesmas como ferramentas MCP
 Uma função Node por ferramenta, com o mesmo nome no MCP.
 
 | Ferramenta | Entrada | Saída | Uma linha |
 | :- | :- | :- | :- |
-| `inboxAdd` / `inboxList` / `inboxSetStatus` | `title`, `body`, `kind?`, `accept?`, `effort?`, `client?` / `status?`, `client?`, `limit?` / `id`, `status` | `item` / `items[]` / `item` | Adiciona uma demanda e a classifica quando `effort` falta; lista; move uma. |
-| `orderAdd` / `orderRemove` / `orderList` | `text`, `scope?` / `id` / - | `order` / `removed` / `orders[]` | Adiciona, remove e lista ordens permanentes. |
+| `inboxAdd` / `inboxList` / `inboxSetStatus` | `title`, `body`, `kind?`, `accept?`, `effort?`, `client?`, `appliesTo?` / `status?`, `client?`, `appliesTo?`, `limit?` / `id`, `status` | `item` / `items[]` / `item` | Adiciona uma demanda e a classifica quando `effort` falta; lista, por projeto com `appliesTo`; move uma. |
+| `orderAdd` / `orderRemove` / `orderList` | `text`, `scope?`, `appliesTo?` / `id` / `appliesTo?` | `order` / `removed` / `orders[]` | Adiciona, remove e lista ordens permanentes, por projeto com `appliesTo`. |
 | `classify` | `title`, `body`, `kind?` | `effort`, `reasons[]` | Devolve simple, normal ou hard e o porquê. |
 | `planStep` | `itemId`, `count?` | `steps[]` | Divide uma demanda em passos, cada um com uma classe e sua fatia de `accept`. |
 | `profilePick` | `client`, `effort`, `quota?` | `actor` | Escolhe modelo, nível de esforço e `maxTurns`. |

@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
+import { inScope, validateAppliesTo, validateAppliesToFilter } from './applies.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
 import { paths, projectOrdersPath } from './store.js';
 
@@ -51,7 +52,6 @@ function validateOrigin(origin) {
   return value.trim();
 }
 
-
 // The layer decides the file: global orders share the root, project orders sit
 // in <projectRoot>/.okwork/orders.json and are optional.
 function targetOf(root, layer, projectRoot) {
@@ -100,9 +100,10 @@ function clockNow(now) {
 
 /**
  * Adds a standing order. `until` must be a date in the future and the order
- * stops being active after it.
+ * stops being active after it. `appliesTo` names the projects it binds; absent
+ * or `global`, it binds every project and the field is left out.
  */
-export async function orderAdd(root, { text, scope, layer, until, origin } = {}, { projectRoot } = {}) {
+export async function orderAdd(root, { text, scope, layer, until, origin, appliesTo } = {}, { projectRoot } = {}) {
   const current = clockNow();
   const order = {
     text: isText(text) ? text.trim() : fail('text must be a non-empty string'),
@@ -112,6 +113,8 @@ export async function orderAdd(root, { text, scope, layer, until, origin } = {},
   };
   const expiry = validateUntil(until, current);
   if (expiry !== undefined) order.until = expiry;
+  const appliesToValue = validateAppliesTo(appliesTo);
+  if (appliesToValue !== undefined) order.appliesTo = appliesToValue;
 
   const { layer: resolvedLayer, file } = targetOf(root, order.layer, projectRoot);
   order.layer = resolvedLayer;
@@ -182,10 +185,13 @@ async function readLayer(root, layer, projectRoot) {
 /**
  * Lists standing orders from both layers: global first, project after. When
  * the same text exists in both, the project one wins and the global one is
- * dropped. `now` is injectable so expiry can be tested.
+ * dropped. `now` is injectable so expiry can be tested. `appliesTo` narrows the
+ * result to one project plus the global orders; `global` lists the global ones
+ * alone.
  */
-export async function orderList(root, { activeOnly = true, now } = {}, { projectRoot } = {}) {
+export async function orderList(root, { activeOnly = true, appliesTo, now } = {}, { projectRoot } = {}) {
   if (typeof activeOnly !== 'boolean') fail('activeOnly must be a boolean when given');
+  const wanted = validateAppliesToFilter(appliesTo);
   const current = clockNow(now);
 
   const globalOrders = await readLayer(root, 'global');
@@ -199,7 +205,8 @@ export async function orderList(root, { activeOnly = true, now } = {}, { project
   }
 
   const merged = [...winner.values()];
-  return activeOnly ? merged.filter((order) => isActiveNow(order, current)) : merged;
+  const live = activeOnly ? merged.filter((order) => isActiveNow(order, current)) : merged;
+  return wanted === undefined ? live : live.filter((order) => inScope(order, wanted));
 }
 
 
@@ -271,6 +278,10 @@ export function orderRender(orders) {
     if (order?.createdAt) parts.push(`(${order.createdAt})`);
     parts.push(order?.text ?? '');
     if (order?.scope && order.scope !== DEFAULT_SCOPE) parts.push(`— scope \`${order.scope}\``);
+    if (order?.appliesTo !== undefined && order.appliesTo !== null) {
+      const targets = Array.isArray(order.appliesTo) ? order.appliesTo.join(', ') : order.appliesTo;
+      parts.push(`— applies to: ${targets}`);
+    }
     if (order?.until) parts.push(`— until ${order.until}`);
     if (order?.active === false) parts.push('— revoked');
     lines.push(`${parts.join(' ')}`);

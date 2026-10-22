@@ -5,23 +5,23 @@ Status: design phase (pre-alpha). Extends [DESIGN.md](DESIGN.md); answers its op
 ## 1. Subset: the minimal contract
 | Record | Fields |
 | :- | :- |
-| Inbox item | `id`, `title`, `body`, `kind` (free text: `research`, `writing`, `documents`, `data`, `analysis`, `planning`, `review`, `files`, `code`, ...), `accept` (list of checks in plain words, each optionally a command), `effort` (simple\|normal\|hard), `client`, `status` (pending\|delegated\|criticised\|consolidated\|failed), `stepIds`, `ext.<kind>` (optional typed extras), `createdAt` |
-| Standing order | `id`, `text`, `scope` (all\|effort:simple\|effort:normal\|effort:hard), `active` |
+| Inbox item | `id`, `title`, `body`, `kind` (free text: `research`, `writing`, `documents`, `data`, `analysis`, `planning`, `review`, `files`, `code`, ...), `accept` (list of checks in plain words, each optionally a command), `effort` (simple\|normal\|hard), `client`, `appliesTo` (project id or path, a list of them, or absent for every project), `status` (pending\|delegated\|criticised\|consolidated\|failed), `stepIds`, `ext.<kind>` (optional typed extras), `createdAt` |
+| Standing order | `id`, `text`, `scope` (all\|effort:simple\|effort:normal\|effort:hard), `appliesTo` (project id or path, a list of them, or absent for every project), `active` |
 | Effort class | `simple`, `normal`, `hard`; classified by default from `title`, `body` and `kind`; the maintainer may override it on the item |
 | Actor profile | `client`, `agentId`, `model`, `effort`, `maxTurns`, `worktree` |
 | Quota reading | `client`, `source` (api\|user\|off), `remainingPct`, `windowMinutes`, `readAt` |
 | Step briefing | `stepId`, `itemId`, `title`, `goal`, `accept`, `contextRefs`, `terseLevel`, `outLevel` |
 | Critic verdict | `stepId`, `verdict` (pass\|revise\|reject), `findings`, `attempt` (1\|2) |
 
-Rules: a demand is any unit of delegable work, not only code: research, writing, documents, data cleanup, analysis, planning, reviews, file and content operations. `kind` is free text, so a new kind needs no core change. Code-only details (branch, PR, test command) live under `ext.<kind>` as optional typed extras, never required fields. A step's `accept` is a slice of the item's list. Briefings carry only what changes; repeated context is referenced by `contextRefs`, never resent. `terseLevel` rises on a repeated attempt, `outLevel` falls on every round trip. The core never invents a model, an effort value or a quota number the client did not report.
+Rules: a demand is any unit of delegable work, not only code: research, writing, documents, data cleanup, analysis, planning, reviews, file and content operations. `kind` is free text, so a new kind needs no core change. Code-only details (branch, PR, test command) live under `ext.<kind>` as optional typed extras, never required fields. There is one global inbox and one global set of standing orders, so `appliesTo` is what keeps a shared store apart: a demand or order that names projects belongs to those, one without the field applies everywhere, and `'global'` is the default that is never stored. A step's `accept` is a slice of the item's list. Briefings carry only what changes; repeated context is referenced by `contextRefs`, never resent. `terseLevel` rises on a repeated attempt, `outLevel` falls on every round trip. The core never invents a model, an effort value or a quota number the client did not report.
 
 ## 2. Core API and the same as MCP tools
 One Node function per tool, same name on MCP.
 
 | Tool | Input | Output | One line |
 | :- | :- | :- | :- |
-| `inboxAdd` / `inboxList` / `inboxSetStatus` | `title`, `body`, `kind?`, `accept?`, `effort?`, `client?` / `status?`, `client?`, `limit?` / `id`, `status` | `item` / `items[]` / `item` | Adds a demand and classifies it when `effort` is absent; lists them; moves one. |
-| `orderAdd` / `orderRemove` / `orderList` | `text`, `scope?` / `id` / - | `order` / `removed` / `orders[]` | Adds, removes and lists standing orders. |
+| `inboxAdd` / `inboxList` / `inboxSetStatus` | `title`, `body`, `kind?`, `accept?`, `effort?`, `client?`, `appliesTo?` / `status?`, `client?`, `appliesTo?`, `limit?` / `id`, `status` | `item` / `items[]` / `item` | Adds a demand and classifies it when `effort` is absent; lists them, by project with `appliesTo`; moves one. |
+| `orderAdd` / `orderRemove` / `orderList` | `text`, `scope?`, `appliesTo?` / `id` / `appliesTo?` | `order` / `removed` / `orders[]` | Adds, removes and lists standing orders, by project with `appliesTo`. |
 | `classify` | `title`, `body`, `kind?` | `effort`, `reasons[]` | Returns simple, normal or hard plus why. |
 | `planStep` | `itemId`, `count?` | `steps[]` | Splits a demand into steps, each with a class and its slice of `accept`. |
 | `profilePick` | `client`, `effort`, `quota?` | `actor` | Chooses model, effort level and `maxTurns`. |
