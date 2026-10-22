@@ -23,6 +23,14 @@ async function deadPid() {
   });
 }
 
+function liveChild() {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], { stdio: 'ignore' });
+    child.once('error', reject);
+    child.once('spawn', () => resolve(child));
+  });
+}
+
 test('writeJsonAtomic then readJson returns the same value', async () => {
   const dir = await tempDir();
   const file = join(dir, 'nested', 'deep', 'state.json');
@@ -123,6 +131,109 @@ test('withLock takes an old lock folder that has no owner', async () => {
 
   assert.equal(value, 'taken');
   assert.deepEqual(await readdir(dir), []);
+  await rm(dir, { recursive: true, force: true });
+});
+
+// The takeover renames the dead owner's claim out of the folder instead of
+// moving the folder, so a marker the crashed owner left behind is still inside
+// the lock the new owner runs in.
+test('a takeover claims the folder of a dead owner in place', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  const lockDir = `${file}.lock`;
+  await mkdir(lockDir, { recursive: true });
+  await writeFile(join(lockDir, 'owner.json'), JSON.stringify({ pid: await deadPid(), startedAt: Date.now() - 60_000 }), 'utf8');
+  await writeFile(join(lockDir, 'left-behind.txt'), 'crash', 'utf8');
+
+  const inside = await withLock(file, () => readdir(lockDir), { staleMs: 30_000 });
+
+  assert.deepEqual(inside.sort(), ['left-behind.txt', 'owner.json']);
+  assert.deepEqual(await readdir(dir), []);
+  await rm(dir, { recursive: true, force: true });
+});
+
+// The window the takeover has to survive: it holds the dead owner's claim and
+// has not written its own yet, so a live owner can claim the folder in between.
+// The taker must give way there instead of entering a section it does not own.
+test('a takeover yields to an owner that claims the lock while it runs', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  const lockDir = `${file}.lock`;
+  await mkdir(lockDir, { recursive: true });
+  await writeFile(join(lockDir, 'owner.json'), JSON.stringify({ pid: await deadPid(), startedAt: Date.now() - 60_000 }), 'utf8');
+
+  const intruder = await liveChild();
+  const owner = { pid: intruder.pid, startedAt: Date.now() };
+  let entered = 0;
+
+  const attempt = withLock(file, async () => { entered += 1; }, {
+    timeoutMs: 150,
+    staleMs: 30_000,
+    probe: async (step) => {
+      if (step !== 'claimed') return;
+      await writeFile(join(lockDir, 'owner.json'), `${JSON.stringify(owner, null, 2)}\n`, 'utf8');
+    },
+  });
+
+  await assert.rejects(attempt, new RegExp(`held by pid ${intruder.pid}`));
+  assert.equal(entered, 0);
+  assert.deepEqual(await readJson(join(lockDir, 'owner.json'), null), owner);
+  assert.deepEqual(await readdir(lockDir), ['owner.json']);
+  assert.deepEqual(await readdir(dir), ['state.json.lock']);
+  intruder.kill('SIGKILL');
+  await rm(dir, { recursive: true, force: true });
+});
+
+// Age alone must not make a lock stale: a live pid outranks the clock, or a
+// long run would be stolen while its owner is still inside the section.
+test('withLock never takes a lock whose live owner is older than staleMs', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  const lockDir = `${file}.lock`;
+  await mkdir(lockDir, { recursive: true });
+  const intruder = await liveChild();
+  const owner = { pid: intruder.pid, startedAt: Date.now() - 600_000 };
+  await writeFile(join(lockDir, 'owner.json'), JSON.stringify(owner), 'utf8');
+  let entered = 0;
+
+  const attempt = withLock(file, async () => { entered += 1; }, { timeoutMs: 150, staleMs: 30_000 });
+
+  await assert.rejects(attempt, new RegExp(`held by pid ${intruder.pid}`));
+  assert.equal(entered, 0);
+  assert.deepEqual(await readJson(join(lockDir, 'owner.json'), null), owner);
+  assert.deepEqual(await readdir(dir), ['state.json.lock']);
+  intruder.kill('SIGKILL');
+  await rm(dir, { recursive: true, force: true });
+});
+
+// The folder has no owner file and is old enough to take over, but another
+// owner claims it in the window after the verdict. Losing that claim must read
+// as a lock still held, not as an error the caller has to make sense of.
+test('a takeover reports the lock as held when another owner claims it at the verdict', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  const lockDir = `${file}.lock`;
+  await mkdir(lockDir, { recursive: true });
+  const old = new Date(Date.now() - 60_000);
+  await utimes(lockDir, old, old);
+
+  const intruder = await liveChild();
+  const owner = { pid: intruder.pid, startedAt: Date.now() };
+  let entered = 0;
+
+  const attempt = withLock(file, async () => { entered += 1; }, {
+    timeoutMs: 150,
+    staleMs: 30_000,
+    probe: async (step) => {
+      if (step !== 'verdict') return;
+      await writeFile(join(lockDir, 'owner.json'), `${JSON.stringify(owner, null, 2)}\n`, 'utf8');
+    },
+  });
+
+  await assert.rejects(attempt, new RegExp(`held by pid ${intruder.pid}`));
+  assert.equal(entered, 0);
+  assert.deepEqual(await readJson(join(lockDir, 'owner.json'), null), owner);
+  intruder.kill('SIGKILL');
   await rm(dir, { recursive: true, force: true });
 });
 

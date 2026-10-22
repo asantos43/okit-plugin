@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A stale lock takeover no longer acts on a verdict read before an earlier lock was replaced, so a lock that is fresh but has no `owner.json` yet is never moved aside, and an owner that loses its folder before the owner file lands takes the lock again instead of failing.
+- The stale-lock takeover claims the folder in place, renaming the dead owner's `owner.json` out of it instead of moving the folder aside, so the window where the folder could not be given back — after which the displaced owner's release deleted the live lock of whoever had taken the path — no longer lets two children into the same section.
 
 ## [0.0.0] - Unreleased
 

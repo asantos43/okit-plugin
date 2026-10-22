@@ -54,7 +54,7 @@ Arquivos do lado do projeto ficam ao lado do projeto, não nesta raiz: `<project
 
 - Escrita: serializar para `<file>.<pid>.<random>.tmp`, depois `fs.rename` sobre o destino, para que nenhum leitor veja arquivo pela metade. Em `EPERM` ou `EBUSY` (Windows), tentar o rename de novo algumas vezes antes de falhar.
 - Trava: `fs.mkdir` na pasta `<name>.lock`, que guarda `owner.json` `{pid, startedAt}`; `EEXIST` significa ocupado; liberar com `rmdir`.
-- Trava velha: uma trava é velha quando passa de `staleMs` (padrão 30 s) **e** seu pid está morto; sem `owner.json` legível, usa-se o `mtime` da pasta e não há checagem de pid. A tomada renomeia a pasta para `<name>.lock.stale.<random>` de forma atômica e depois a remove, para que dois concorrentes não vençam os dois.
+- Trava velha: uma trava é velha quando passa de `staleMs` (padrão 30 s) **e** seu pid está morto; sem `owner.json` legível, usa-se o `mtime` da pasta e não há checagem de pid. A tomada reivindica a pasta do dono morto no lugar: renomeia o `owner.json` do dono morto para fora da pasta (só um rename pode vencer) e depois cria o seu próprio `owner.json` de forma exclusiva (`wx`), para que dois concorrentes não vençam os dois. A pasta nunca é movida para o lado.
 - Um escritor por arquivo: caixa, ordens e execuções são arquivos separados, para que dois passos do mesmo item não se bloqueiem.
 
 ## 4. Interface do adaptador

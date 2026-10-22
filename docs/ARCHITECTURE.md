@@ -54,7 +54,7 @@ Project-side files live beside the project, not in this root: `<projectRoot>/.ok
 
 - Write: serialise to `<file>.<pid>.<random>.tmp`, then `fs.rename` over the target, so a reader never sees half a file. On `EPERM` or `EBUSY` (Windows) retry the rename a few times before failing.
 - Lock: `fs.mkdir` the `<name>.lock` folder, which holds `owner.json` `{pid, startedAt}`; `EEXIST` means busy; release with `rmdir`.
-- Stale: a lock is stale when it is older than `staleMs` (default 30 s) **and** its pid is dead; with no readable `owner.json` the folder `mtime` is used and there is no pid check. Takeover renames the folder to `<name>.lock.stale.<random>` atomically, then removes it, so two takers cannot both win.
+- Stale: a lock is stale when it is older than `staleMs` (default 30 s) **and** its pid is dead; with no readable `owner.json` the folder `mtime` is used and there is no pid check. Takeover claims the dead owner's folder in place: it renames the dead owner's `owner.json` out of the folder (only one rename can win) and then creates its own `owner.json` exclusively (`wx`), so two takers cannot both win. The folder is never moved aside.
 - One writer per file: inbox, orders and runs are separate files, so two steps of one item do not block each other.
 
 ## 4. Adapter interface
