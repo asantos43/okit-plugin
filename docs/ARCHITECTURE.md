@@ -114,6 +114,9 @@ Adapter decision: the one client with a documented machine-readable quota. Read 
 
 Adapter decision: read models from `opencode models`; treat quota as off unless the user supplies a number.
 
+### 4.4 The Claude Code adapter in the repository
+`adapters/claude-code/index.js` is the five functions of this section for one client, and it is the adapter the core imports instead of the CLI. `spawn` returns `{mode: 'NATIVE', runId, agentCall: {model, effort, prompt}}` with no process started, and reuses `makeSpawner` of `src/spawn-process.js` in `PROCESS`. `readQuota` answers `{source: 'user'}` and adds `remainingPct`/`windowMinutes` only from `quota/claude-code.json`. `installSkill` copies into `<root>/skills/<name>/` through `installSkillFiles`, `installHooks` merges `<root>/hooks/hooks.json` without dropping a user's entry, and `root` is `opts.root`, then `CLAUDE_CONFIG_DIR`, then `~/.claude`. The Codex and opencode adapters are still to come.
+
 ## 5. Quota
 - `source: api` — the adapter returned a number this session (Codex today). Use it.
 - `source: user` — no number; ask once, store it in `quota/<client>.json`, stale after `windowMinutes`.
@@ -233,7 +236,7 @@ The spawner is injected: `deps` carries `now()`, `quota(client)`, `idle(client)`
 Pacing: the interval is paced on a monotonic clock, so a wall-clock jump forwards or backwards moves neither the number of passes nor the per-period idempotency. One daemon per root: `daemonRun` holds the `daemon` lock and throws when another already holds it. `daemonStatus` needs a live pid and a pid file that is not stale, so a daemon that crashed reads as stopped even while its pid file is still on disk. Defaults live under `daemon` in `config.json`: `intervalSeconds` 60, `minQuotaPct` 10, `logKeepDays` 14; a broken value never stops the loop. The retention of the standing orders lives beside it under `orders`: `retentionDays` 90, the whole days an inactive order is kept before it is purged, where a broken value falls back to the default.
 
 ## 12. Spawn modes
-Two modes per adapter, and the adapter's `spawn()` returns the mode it used. Planned: no adapter is written yet.
+Two modes per adapter, and the adapter's `spawn()` returns the mode it used. Planned: only the Claude Code adapter (section 4.4) is written.
 
 | Mode | When | How |
 | :- | :- | :- |

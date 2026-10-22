@@ -114,6 +114,9 @@ Decisão do adaptador: o único cliente com cota documentada e legível por máq
 
 Decisão do adaptador: ler modelos de `opencode models`; tratar a cota como desligada a menos que o usuário forneça um número.
 
+### 4.4 O adaptador do Claude Code no repositório
+`adapters/claude-code/index.js` são as cinco funções desta seção para um cliente, e é o adaptador que o núcleo importa em vez da CLI. `spawn` devolve `{mode: 'NATIVE', runId, agentCall: {model, effort, prompt}}` sem iniciar processo, e em `PROCESS` reaproveita `makeSpawner` de `src/spawn-process.js`. `readQuota` responde `{source: 'user'}` e só acrescenta `remainingPct`/`windowMinutes` a partir de `quota/claude-code.json`. `installSkill` copia para `<root>/skills/<name>/` por `installSkillFiles`, `installHooks` combina `<root>/hooks/hooks.json` sem descartar entrada alguma do usuário, e a raiz é `opts.root`, depois `CLAUDE_CONFIG_DIR`, depois `~/.claude`. Os adaptadores de Codex e de opencode ainda estão por vir.
+
 ## 5. Cota
 - `source: api` — o adaptador devolveu um número nesta sessão (Codex hoje). Use-o.
 - `source: user` — sem número; perguntar uma vez, guardar em `quota/<client>.json`,velho depois de `windowMinutes`.
@@ -233,7 +236,7 @@ O iniciador é injetado: `deps` traz `now()`, `quota(client)`, `idle(client)` e 
 Ritmo: o intervalo é marcado por um relógio monotônico, então um salto do relógio de parede para frente ou para trás não muda nem o número de passagens nem a idempotência por período. Um daemon por raiz: `daemonRun` segura a trava `daemon` e lança erro quando outro já a segura. `daemonStatus` exige um pid vivo e um arquivo de pid que não esteja velho, então um daemon que morreu lido como parado mesmo com o arquivo de pid ainda em disco. Os padrões vivem em `daemon` no `config.json`: `intervalSeconds` 60, `minQuotaPct` 10, `logKeepDays` 14; um valor quebrado nunca para o laço. A retenção das ordens permanentes mora ao lado, em `orders`: `retentionDays` 90, os dias inteiros que uma ordem inativa é guardada antes de ser expurgada, onde um valor quebrado volta ao padrão.
 
 ## 12. Modos de início
-Dois modos por adaptador, e o `spawn()` do adaptador devolve o modo que usou. Planejado: nenhum adaptador foi escrito ainda.
+Dois modos por adaptador, e o `spawn()` do adaptador devolve o modo que usou. Planejado: só o adaptador do Claude Code (seção 4.4) foi escrito.
 
 | Modo | Quando | Como |
 | :- | :- | :- |
