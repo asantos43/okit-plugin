@@ -124,6 +124,13 @@ Adapter decision: read models from `opencode models`; treat quota as off unless 
 
 Never estimate, interpolate or carry a number over from another client. A stale or unread reading downgrades a `hard` class to the last class the client still accepted, never the other way. `quotaRead` returns `source: off` instead of failing, so the Director keeps working.
 
+### 5.1 The quota table
+`src/status.js` is the view of those readings, not a second source of them: `statusTable(root, deps)` is pure over the readings, the clock, the cap counts and the standing orders that arrive in `deps`, and returns `{markdown, capacityLine, rows}`. Columns are `Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age)`; a `windows` array fills both columns, and without it the single `remainingPct` goes to the 5h column when `windowMinutes <= 360` and to the week otherwise, including when `windowMinutes` is absent.
+
+The Status column is a word, never ANSI: `green` at or more than 15 points above `lowQuotaPct`, `yellow` from the floor up to that, `red` below it, and `off` when there is no reading or the source is `off` — which blocks nothing. The row word follows the tightest of the windows, and a `red` row quotes the standing order that names the quota or the floor, falling back to `lowQuotaPct` itself. Below the table one line says how many executors can launch now (`limits.perClient` minus the live runs of the client, and `limits.global` minus all of them, clamped at 0) and the floor in force. Every word lives in one `LABELS` table with `en` and `pt-BR`, chosen by `deps.locale`.
+
+Readings are cached per client for `ttlMs` (60 s by default) against `deps.now`, so two calls in a row cost one read. `shouldShowStatus({size, slices, executors})` is true for size `L`, `slices >= 2` or `executors > 1`, and the Director shows the table when it is.
+
 ## 6. Windows rules
 - Build every path with `node:path`, never by concatenating separators; store them with forward slashes, the form Claude Code substitutes, so what we write matches what the client reads.
 - No shell: `child_process.spawn` with an argument array. Shell-form hook commands are the client's concern, not ours.
@@ -271,6 +278,7 @@ The working directory is the demand's `appliesTo` when it is one existing absolu
 | `acquire_slot` | `runId`, `client`, `waitMs?` | `acquireSlot` | Reserves a slot, or answers `ok: false` with the cap that refused it. |
 | `release_slot` | `runId` | `releaseSlot` | Frees the slot of a run. |
 | `limits_status` | none | `limitsStatus` | The caps and the live runs per client. |
+| `status` | `locale?`, `size?`, `slices?`, `executors?` | `statusTable` / `shouldShowStatus` | The quota table and the capacity line; with the three facts, also `showBefore`. |
 | `classify` | `title`, `body?`, `kind?` | `classify` | `simple`, `normal` or `hard`, plus why. |
 | `profile_pick` | `client`, `effort`, `quota?` | `profilePick` | Model, reasoning effort and `maxTurns` from `config.json`. |
 | `inbox_add` | `title`, `body?`, `kind?`, `accept?`, `effort?`, `client?`, `appliesTo?` | `inboxAdd` | Adds a demand and returns the stored item. |

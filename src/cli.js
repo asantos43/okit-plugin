@@ -12,8 +12,12 @@ import { promisify } from 'node:util';
 
 import { AUTOSTART_KINDS, applyAutostart, autostartPlan, detectAutostart } from './autostart.js';
 import { daemonPause, daemonResume, daemonRun, daemonStatus, tick } from './daemon.js';
+import { limitsStatus } from './limits.js';
+import { orderList } from './orders.js';
+import { DEFAULT_CONFIG } from './profiles.js';
 import { makeSpawner } from './spawn-process.js';
-import { writeJsonAtomic } from './state.js';
+import { adapterQuotaReader, clientsOf, LABELS, statusTable } from './status.js';
+import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
 
 const STOP_FILE = 'daemon.stop';
@@ -23,6 +27,7 @@ const AUTOSTART_ACTIONS = ['install', 'uninstall', 'show'];
 const USAGE = [
   'usage: okit daemon start|stop|status|pause|resume|run-once',
   '       okit autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
+  '       okit status [--locale en|pt-BR]',
   `OKWORK_HOME names the state root; --kind defaults to ${AUTOSTART_KINDS.join(', ')} by platform.`,
 ].join('\n');
 
@@ -47,6 +52,21 @@ function readKind(args) {
     else rest.push(arg);
   }
   return { kind, rest };
+}
+
+/** `--locale pt-BR`, `--locale=pt-BR` or nothing, which is `en`. */
+function readLocale(args) {
+  const rest = [];
+  let locale = null;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--locale') {
+      locale = args[index + 1] ?? null;
+      index += 1;
+    } else if (arg.startsWith('--locale=')) locale = arg.slice('--locale='.length);
+    else rest.push(arg);
+  }
+  return { locale, rest };
 }
 
 /** One fact per line, in the order the caller listed them. */
@@ -83,6 +103,42 @@ async function autostartCommand(ctx, action, args) {
     `${action}: ${result.ran.length} commands`,
     dash(result.wrote) === '-' ? 'no file written' : `wrote: ${result.wrote}`,
   ]);
+  return 0;
+}
+
+/** The settings of this root: `config.json` over `DEFAULT_CONFIG`. */
+async function readConfig(root) {
+  const stored = await readJson(paths(root).config, {});
+  return {
+    ...DEFAULT_CONFIG,
+    ...(stored ?? {}),
+    limits: { ...DEFAULT_CONFIG.limits, ...(stored?.limits ?? {}) },
+    profiles: { ...(stored?.profiles ?? {}) },
+  };
+}
+
+/**
+ * `okit status`: the quota table and the capacity line under it. The readings
+ * come from each client's adapter, the counts from the runs on disk, and both
+ * are the same functions the daemon and the MCP tool use.
+ */
+async function statusCommand(ctx, args) {
+  const { locale, rest } = readLocale(args);
+  if (rest.length > 0 || (locale !== null && !Object.hasOwn(LABELS, locale))) return ctx.unknown();
+
+  const config = await readConfig(ctx.root);
+  const table = await statusTable(ctx.root, {
+    config,
+    clients: clientsOf(config, ctx.clients),
+    readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env }),
+    now: ctx.now,
+    orders: ctx.orders ?? await orderList(ctx.root),
+    limits: await limitsStatus(ctx.root, config),
+    locale: locale ?? 'en',
+    cache: ctx.quotaCache,
+  });
+  for (const line of table.markdown.split('\n')) ctx.out(line);
+  ctx.out(table.capacityLine);
   return 0;
 }
 
@@ -168,7 +224,8 @@ async function daemonCommand(ctx, action, args) {
  * @param {string[]} [argv] arguments without `node` and the script name
  * @param {{stdout?: Function, stderr?: Function, root?: string, env?: object,
  *   spawn?: Function, run?: Function, write?: Function, signal?: AbortSignal,
- *   sleep?: Function, now?: () => number, platform?: string}} [io]
+ *   sleep?: Function, now?: () => number, platform?: string, clients?: string[],
+ *   readQuota?: Function, orders?: object[], quotaCache?: Map}} [io]
  * @returns {Promise<number>} exit code
  */
 export async function main(argv = [], io = {}) {
@@ -177,6 +234,7 @@ export async function main(argv = [], io = {}) {
   const now = io.now ?? Date.now;
   const ctx = {
     out,
+    env: io.env ?? process.env,
     root: io.root ?? stateRoot(io.env ?? process.env),
     platform: io.platform ?? process.platform,
     spawn: io.spawn,
@@ -185,6 +243,10 @@ export async function main(argv = [], io = {}) {
     signal: io.signal,
     sleep: io.sleep,
     now,
+    clients: io.clients,
+    readQuota: io.readQuota,
+    orders: io.orders,
+    quotaCache: io.quotaCache,
     unknown() {
       err(USAGE);
       return 2;
@@ -195,6 +257,10 @@ export async function main(argv = [], io = {}) {
   try {
     if (group === 'daemon') return await daemonCommand(ctx, action, args);
     if (group === 'autostart') return await autostartCommand(ctx, action, args);
+    if (group === 'status') {
+      // `okit status` takes no action, so the flag lands where one would be.
+      return await statusCommand(ctx, action === undefined ? args : [action, ...args]);
+    }
     return ctx.unknown();
   } catch (error) {
     err(`okit: ${error.message}`);

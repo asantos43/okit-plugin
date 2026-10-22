@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Quota table (`src/status.js`): `statusTable` renders the Markdown table and the capacity line over the adapters' readings with a TTL cache, `shouldShowStatus` decides whether a task is big enough to show it, `okit status [--locale en|pt-BR]` prints it, the `status` MCP tool answers it, and the Director skill names it as the view to show before a big task and on request.
 - Claude Code adapter (`adapters/claude-code/index.js`): the five functions of `docs/ARCHITECTURE.md` section 4 — `spawn` returning the Agent tool call in `NATIVE` and reusing `makeSpawner` in `PROCESS`, `readQuota` without an invented number, `capabilities`, `installSkill` and `installHooks`.
 - `PROCESS` spawn mode: `src/spawn-process.js` builds the headless command of `claude-code`, `codex` and `opencode` as a pure value and starts it without a shell, `src/autostart.js` generates the systemd, cron, launchd and schtasks plans, and the `okit` CLI (`daemon start|stop|status|pause|resume|run-once`, `autostart install|uninstall|show`) drives both.
 
@@ -24,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Derived status and retention for standing orders: `orderStatus` computes `active`, `revoked` or `expired` from the row without storing it, `orderList` adds that status (and the `purgeAfter` date) to a copy, `orderRender` says why an order is not active, a second revoke is refused, and `purgeAfter`/`orderPurge` remove an inactive order for good once `orders.retentionDays` (default 90) is over, logging `{ at, purged: [ids] }` to `logs/<date>.jsonl`; the daemon pass reports `purged` in its decision line.
 - `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE.pt-BR.md`: sections for what the core now does — schedules and recurrence, recurring templates, standing orders, the daemon pass order, spawn modes, maximum autonomy and the global state with `appliesTo`.
 - Plugin skills: `skills/okit-director/SKILL.md`, `skills/okit-executor/SKILL.md` and `skills/okit-critic/SKILL.md` for the client to install, plus `installSkillFiles` in `src/skills.js`, which copies a skill folder without ever overwriting a file that already differs.
-- MCP server over stdio (`src/mcp/server.js`, `src/mcp/tools.js`): JSON-RPC 2.0 hand-written with zero dependencies and the eleven tools (`acquire_slot`, `release_slot`, `limits_status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`) that let a client's own subagents hold the concurrency cap and read and write the inbox and the standing orders.
+- MCP server over stdio (`src/mcp/server.js`, `src/mcp/tools.js`): JSON-RPC 2.0 hand-written with zero dependencies and the twelve tools (`acquire_slot`, `release_slot`, `limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`) that let a client's own subagents hold the concurrency cap and read and write the inbox and the standing orders.
 
 ### Fixed
 
