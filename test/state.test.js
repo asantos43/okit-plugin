@@ -233,3 +233,28 @@ test('eight children race to take one stale lock of a dead pid', async () => {
   }
   await rm(dir, { recursive: true, force: true });
 });
+
+test('a wider takeover race keeps every bump and leaves no folder behind', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'counter.json');
+  const lockDir = `${file}.lock`;
+  const children = 16;
+  const rounds = 3;
+
+  // A takeover reads the lock before moving it aside, so the folder of an owner
+  // that has just created it and has not written its owner file yet is exactly
+  // the one a stale verdict must never touch: it has no evidence of its own.
+  // Sixteen children per round keep far more of those verdicts in flight than
+  // the eight above, which is what made the theft show up only under load.
+  for (let round = 0; round < rounds; round += 1) {
+    await writeJsonAtomic(file, { count: 0 });
+    await mkdir(lockDir, { recursive: true });
+    await writeFile(join(lockDir, 'owner.json'), JSON.stringify({ pid: await deadPid(), startedAt: Date.now() - 60_000 }), 'utf8');
+
+    await Promise.all(Array.from({ length: children }, () => forkBumper(file, 1)));
+
+    assert.deepEqual(await readJson(file, null), { count: children }, `lost update in round ${round}`);
+    assert.deepEqual(await readdir(dir), ['counter.json'], `leftover lock folder in round ${round}`);
+  }
+  await rm(dir, { recursive: true, force: true });
+});
