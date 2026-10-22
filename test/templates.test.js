@@ -55,6 +55,8 @@ async function consolidate(root, id) {
 // | templateRemove                | order revoked with a reason    | unknown name is a TypeError  |
 // | templateSet paused            | decision skip                  | -                            |
 // | templateSet unknown field     | -                              | TypeError                    |
+// | templateAdd appliesTo         | stored on the record           | 'global' with a project      |
+// | openDue child inherits        | same appliesTo on the item     | -                            |
 // | due at the slot               | due true, action run           | -                            |
 // | due before the slot           | due false, action defer        | -                            |
 // | due with a quota floor        | defer below the floor          | -                            |
@@ -399,6 +401,64 @@ test('a rename moves the open children, so the open-child guard still holds', as
   // Consolidating it frees the template under its new name.
   await consolidate(root, moved.id);
   assert.equal((await due(root, NEXT_DAY, {}))[0].due, true);
+
+  await rm(root, { recursive: true, force: true });
+});
+test('templateAdd stores appliesTo and leaves the global default out', async () => {
+  const root = await tempRoot();
+
+  const { template } = await templateAdd(root, {
+    name: 'scoped',
+    schedule: DAILY,
+    demand: DEMAND,
+    appliesTo: 'proj',
+  });
+  assert.equal(template.appliesTo, 'proj');
+
+  const shared = await templateAdd(root, { name: 'shared', schedule: DAILY, demand: DEMAND });
+  assert.equal('appliesTo' in shared.template, false);
+
+  const listed = await templateAdd(root, {
+    name: 'two projects',
+    schedule: DAILY,
+    demand: DEMAND,
+    appliesTo: ['a', 'b', 'a'],
+  });
+  assert.deepEqual(listed.template.appliesTo, ['a', 'b']);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('openDue gives every child the appliesTo of its template', async () => {
+  const root = await seeded({ appliesTo: ['alpha', 'beta'] });
+
+  const { demands } = await plan(root, SLOT, { quotaPct: 100, idle: true });
+  assert.deepEqual(demands[0].appliesTo, ['alpha', 'beta']);
+
+  const { ids } = await openDue(root, SLOT, { quotaPct: 100, idle: true });
+  assert.equal(ids.length, 1);
+
+  const [child] = await inboxList(root);
+  assert.deepEqual(child.appliesTo, ['alpha', 'beta']);
+
+  const forAlpha = await inboxList(root, { appliesTo: 'alpha' });
+  assert.deepEqual(forAlpha.map((item) => item.id), [child.id]);
+  const globals = await inboxList(root, { appliesTo: 'global' });
+  assert.deepEqual(globals, []);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('a global template opens children without appliesTo and templateSet drops it', async () => {
+  const root = await seeded({ appliesTo: 'proj' });
+
+  const { template } = await templateSet(root, 'sweep', { appliesTo: 'global' });
+  assert.equal('appliesTo' in template, false);
+
+  const { ids } = await openDue(root, SLOT, { quotaPct: 100, idle: true });
+  const [child] = await inboxList(root);
+  assert.equal(child.id, ids[0]);
+  assert.equal('appliesTo' in child, false);
 
   await rm(root, { recursive: true, force: true });
 });

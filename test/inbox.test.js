@@ -26,6 +26,11 @@ const add = (root, extra = {}) => inboxAdd(root, {
 // | move forward        | pending->delegated        | pending->consolidated |
 // | fail any            | any->failed               | failed->failed        |
 // | recover             | failed->pending           | delegated->pending    |
+// | appliesTo project   | appliesTo 'proj'          | -                     |
+// | appliesTo array     | ['a','b'] deduped         | ['a','']               |
+// | appliesTo global    | field left out            | ['global','a']         |
+// | filter proj         | project + global items    | -                     |
+// | filter global       | only the global items     | '' filter              |
 
 test('inboxAdd stores an item with an id, a status and a date', async () => {
   const root = await tempRoot();
@@ -227,6 +232,49 @@ test('inboxSetExt merges into ext, keeps the other keys and refuses bad input', 
   await assert.rejects(() => inboxSetExt(root, '', { a: 1 }), /id/);
   await assert.rejects(() => inboxSetExt(root, bare.id, 'nope'), /ext values/);
   await assert.rejects(() => inboxSetExt(root, bare.id, ['nope']), /ext values/);
+
+  await rm(root, { recursive: true, force: true });
+});
+test('inboxAdd stores appliesTo and leaves the global default out', async () => {
+  const root = await tempRoot();
+
+  const scoped = await add(root, { appliesTo: 'proj' });
+  assert.equal(scoped.appliesTo, 'proj');
+
+  const bare = await add(root);
+  assert.equal('appliesTo' in bare, false);
+
+  const explicitGlobal = await add(root, { appliesTo: 'global' });
+  assert.equal('appliesTo' in explicitGlobal, false);
+
+  const listed = await add(root, { appliesTo: ['a', 'b'] });
+  assert.deepEqual(listed.appliesTo, ['a', 'b']);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('inboxList filters by appliesTo, keeping the global demands', async () => {
+  const root = await tempRoot();
+
+  const bare = await add(root, { title: 'shared' });
+  const alpha = await add(root, { title: 'alpha', appliesTo: 'alpha' });
+  const multi = await add(root, { title: 'both', appliesTo: ['alpha', 'beta'] });
+  await add(root, { title: 'beta only', appliesTo: 'beta' });
+
+  const forAlpha = await inboxList(root, { appliesTo: 'alpha' });
+  assert.deepEqual(forAlpha.map((item) => item.title), [multi.title, alpha.title, bare.title]);
+
+  const forBeta = await inboxList(root, { appliesTo: 'beta' });
+  assert.deepEqual(forBeta.map((item) => item.title), ['beta only', multi.title, bare.title]);
+
+  const globals = await inboxList(root, { appliesTo: 'global' });
+  assert.deepEqual(globals.map((item) => item.title), [bare.title]);
+
+  const unknown = await inboxList(root, { appliesTo: 'nowhere' });
+  assert.deepEqual(unknown.map((item) => item.title), [bare.title]);
+
+  const all = await inboxList(root);
+  assert.equal(all.length, 4);
 
   await rm(root, { recursive: true, force: true });
 });

@@ -5,6 +5,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
+import { validateAppliesTo } from './applies.js';
 import { inboxAdd, inboxList, inboxSetExt } from './inbox.js';
 import { orderAdd, orderList, orderRemove } from './orders.js';
 import { evaluateDue, parseSchedule } from './schedule.js';
@@ -18,7 +19,7 @@ const ORDER_PREFIX = 'template:';
 // `name` and `schedule` are the identity of the record; `lastRun` belongs to a
 // run, never to an edit.
 const EDITABLE = ['name', 'schedule', 'paused', 'demand', 'window', 'timeZone', 'minQuotaPct',
-  'onlyWhenIdle', 'skipIfOpen', 'catchup', 'maxRunsPerPeriod'];
+  'onlyWhenIdle', 'skipIfOpen', 'catchup', 'maxRunsPerPeriod', 'appliesTo'];
 
 function fail(message) {
   throw new TypeError(message);
@@ -157,6 +158,7 @@ function buildRecord(input, now) {
     window: validateWindow(input.window),
     minQuotaPct: validateNumber(input.minQuotaPct, 'minQuotaPct'),
     maxRunsPerPeriod: validateNumber(input.maxRunsPerPeriod, 'maxRunsPerPeriod', { integer: true }),
+    appliesTo: validateAppliesTo(input.appliesTo),
   };
   for (const [field, value] of Object.entries(optional)) {
     if (value !== undefined) record[field] = value;
@@ -201,6 +203,8 @@ async function revokeOrder(root, record, reason) {
 /**
  * Adds a template and the standing order that lets it run unattended. The
  * schedule is validated by the schedule engine and the name must be free.
+ * `appliesTo` names the projects the template serves; every child it opens
+ * carries the same field.
  */
 export async function templateAdd(root, input = {}, { now } = {}) {
   const at = clockNow(now);
@@ -233,6 +237,7 @@ export async function templateList(root, { name } = {}) {
  * Edits a template. `paused` pauses or resumes it, `name` renames it, and the
  * other fields are the guards `templateAdd` takes. Unknown fields and an
  * unknown template are refused; the standing order follows a rename.
+ * `appliesTo: 'global'` drops the field, so a template goes back to shared.
  */
 export async function templateSet(root, name, patch = {}) {
   if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
@@ -258,6 +263,11 @@ export async function templateSet(root, name, patch = {}) {
     if (patch.minQuotaPct !== undefined) record.minQuotaPct = validateNumber(patch.minQuotaPct, 'minQuotaPct');
     if (patch.maxRunsPerPeriod !== undefined) {
       record.maxRunsPerPeriod = validateNumber(patch.maxRunsPerPeriod, 'maxRunsPerPeriod', { integer: true });
+    }
+    if (patch.appliesTo !== undefined) {
+      const targets = validateAppliesTo(patch.appliesTo);
+      if (targets === undefined) delete record.appliesTo;
+      else record.appliesTo = targets;
     }
     if (findRecord(store, record.name) !== record) fail(`a template named ${record.name} already exists`);
 
@@ -369,7 +379,11 @@ export async function due(root, nowMs, ctx = {}) {
 
 /** The inbox demand a child of this template would carry, period included. */
 function childDemand(template, period) {
-  return { ...template.demand, ext: { ...template.demand.ext, template: template.name, period } };
+  const demand = { ...template.demand, ext: { ...template.demand.ext, template: template.name, period } };
+  // The child inherits the projects of its template, so one global template
+  // store still knows which inbox each run belongs to.
+  if (template.appliesTo !== undefined) demand.appliesTo = template.appliesTo;
+  return demand;
 }
 
 /**

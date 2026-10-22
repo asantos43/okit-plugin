@@ -21,6 +21,9 @@ async function tempRoot() {
 // | orderAdd bad text           | -                            | TypeError                    |
 // | orderAdd until in the past  | -                            | TypeError                    |
 // | orderAdd layer project      | O1 in the project file       | projectRoot missing          |
+// | orderAdd appliesTo          | appliesTo 'proj'             | 'global' with a project      |
+// | orderList appliesTo 'proj'  | project + global orders      | -                            |
+// | orderRender appliesTo       | "applies to: proj" on screen  | -                            |
 // | orderRemove without reason  | -                            | TypeError                    |
 // | expiry at the injected now  | inactive after until         | listed before until          |
 
@@ -296,4 +299,53 @@ test('orderRender lists id, date, text and expiry', () => {
 test('orderRender says so when there is nothing and refuses other input', () => {
   assert.match(orderRender([]), /^# Standing orders\n\nNone\.\n$/);
   assert.throws(() => orderRender('orders'), TypeError);
+});
+test('orderAdd stores appliesTo and leaves the global default out', async () => {
+  const root = await tempRoot();
+
+  const scoped = await orderAdd(root, { text: 'keep the api in step', appliesTo: 'proj' });
+  assert.equal(scoped.appliesTo, 'proj');
+
+  const bare = await orderAdd(root, { text: 'write the changelog' });
+  assert.equal('appliesTo' in bare, false);
+
+  const explicitGlobal = await orderAdd(root, { text: 'label the releases', appliesTo: 'global' });
+  assert.equal('appliesTo' in explicitGlobal, false);
+
+  const listed = await orderAdd(root, { text: 'watch both deploys', appliesTo: ['proj', 'docs'] });
+  assert.deepEqual(listed.appliesTo, ['proj', 'docs']);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('orderList filters by appliesTo, keeping the global orders', async () => {
+  const root = await tempRoot();
+
+  await orderAdd(root, { text: 'shared one' });
+  await orderAdd(root, { text: 'shared two', appliesTo: 'global' });
+  await orderAdd(root, { text: 'alpha one', appliesTo: 'alpha' });
+  await orderAdd(root, { text: 'alpha and beta', appliesTo: ['alpha', 'beta'] });
+  await orderAdd(root, { text: 'beta one', appliesTo: 'beta' });
+
+  const forAlpha = await orderList(root, { appliesTo: 'alpha' });
+  assert.deepEqual(forAlpha.map((order) => order.text), ['shared one', 'shared two', 'alpha one', 'alpha and beta']);
+
+  const globals = await orderList(root, { appliesTo: 'global' });
+  assert.deepEqual(globals.map((order) => order.text), ['shared one', 'shared two']);
+
+  const every = await orderList(root);
+  assert.equal(every.length, 5);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('orderRender shows applies to only when the order names a project', () => {
+  const scoped = orderRender([{ id: 'G000001', text: 'one', appliesTo: 'proj', active: true }]);
+  assert.match(scoped, /^- \*\*G000001\*\* one — applies to: proj$/m);
+
+  const many = orderRender([{ id: 'G000002', text: 'two', appliesTo: ['a', 'b'], active: true }]);
+  assert.match(many, /^- \*\*G000002\*\* two — applies to: a, b$/m);
+
+  const bare = orderRender([{ id: 'G000003', text: 'three', active: true }]);
+  assert.match(bare, /^- \*\*G000003\*\* three$/m);
 });

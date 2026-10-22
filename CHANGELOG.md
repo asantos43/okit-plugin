@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Daemon core: `tick`, `daemonRun`, `daemonStatus`, `daemonPause`, `daemonResume` and `rotateLogs` — one pass per interval that opens the due template children and hands the pending demands to an injected spawner inside the concurrency cap, with a kill switch, a pause file and one decision record per pass in `logs/<date>.jsonl`.
 - Initial repository structure.
 - `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE.pt-BR.md`: the architecture note answering the open questions in `docs/DESIGN.md`, with per-client claims sourced and dated.
+- Optional `appliesTo` on inbox demands, standing orders and templates (`src/applies.js`): one global inbox and one global set of orders serve many projects, a record without the field is shared, `inboxList` and `orderList` filter by project plus the global records, `orderRender` shows it, and every child a template opens inherits it.
 
 ### Fixed
 
