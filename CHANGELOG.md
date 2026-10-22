@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - State layer: atomic JSON file writes and a stale-aware directory lock.
 - Schedule engine: parse cron, friendly and event schedules, then decide when one is due with an injected clock.
 - Recurring templates: `templateAdd`, `templateList`, `templateSet`, `templateRemove` with the standing order each one records, plus `due`, `plan` and `openDue` to open one inbox child per period.
+- Daemon core: `tick`, `daemonRun`, `daemonStatus`, `daemonPause`, `daemonResume` and `rotateLogs` — one pass per interval that opens the due template children and hands the pending demands to an injected spawner inside the concurrency cap, with a kill switch, a pause file and one decision record per pass in `logs/<date>.jsonl`.
 - Initial repository structure.
 - `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE.pt-BR.md`: the architecture note answering the open questions in `docs/DESIGN.md`, with per-client claims sourced and dated.
 
