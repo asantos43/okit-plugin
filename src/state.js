@@ -1,16 +1,16 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import process from 'node:process';
 
 const RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY']);
-// Giving a moved-aside lock back can also lose the race against the folder a
-// new owner just created at the path, which is worth another few attempts.
-const RESTORE_RETRY_CODES = new Set([...RENAME_RETRY_CODES, 'EEXIST', 'ENOTEMPTY']);
 const RENAME_MAX_ATTEMPTS = 5;
 const RENAME_BACKOFF_MS = 10;
 const LOCK_POLL_MS = 25;
 const LOCK_OWNER_FILE = 'owner.json';
+const LOCK_CLAIM_PREFIX = `${LOCK_OWNER_FILE}.claim.`;
+
+const NO_PROBE = () => {};
 
 const sleep = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
@@ -121,54 +121,90 @@ async function lockStartedAt(lockDir, owner) {
   }
 }
 
-// Renaming a stale lock aside is the only race-free takeover: exactly one
-// waiter moves the folder and the others get ENOENT and loop. Deleting it in
-// place would let a waiter erase the fresh lock of whoever took over first.
-async function parkStaleLock(lockDir, seen, startedAt) {
-  const parked = `${lockDir}.stale.${process.pid}.${randomBytes(4).toString('hex')}`;
+// Writing the owner file with an exclusive create is what makes a folder a lock
+// that exactly one process can own: the file lands whole, or it fails with
+// EEXIST for the one that got there first.
+async function writeOwnerExclusive(lockDir, owner) {
+  const handle = await open(join(lockDir, LOCK_OWNER_FILE), 'wx');
   try {
-    await rename(lockDir, parked);
+    await handle.writeFile(`${JSON.stringify(owner, null, 2)}\n`);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+function currentOwner() {
+  return { pid: process.pid, startedAt: Date.now() };
+}
+
+// Claims a folder that nobody owns. It has no owner file, so the only evidence
+// left is its age, and the exclusive create is what turns the verdict into the
+// claim without a window in between: EEXIST means a taker or a new owner wrote
+// its own claim while we were reading the clock.
+async function claimFolder(lockDir, staleMs, probe) {
+  const startedAt = await lockStartedAt(lockDir, null);
+  if (startedAt === null || Date.now() - startedAt <= staleMs) return false;
+  await probe('verdict');
+  try {
+    await writeOwnerExclusive(lockDir, currentOwner());
   } catch (error) {
-    if (error.code === 'ENOENT' || error.code === 'EEXIST') return false;
+    if (error.code === 'EEXIST' || error.code === 'ENOENT') return false;
     throw error;
   }
-
-  const actual = await readLockOwner(parked);
-  const sameLock = isSameOwner(seen, actual)
-    && await lockStartedAt(parked, actual) === startedAt;
-  if (!sameLock || (actual && isProcessAlive(actual.pid))) {
-    // We moved a lock that is not the stale one we judged: give it back.
-    try {
-      await renameWithRetry(parked, lockDir, RESTORE_RETRY_CODES);
-    } catch {
-      // Someone else took the path; leave the folder alone. Its owner then
-      // fails loudly instead of silently running unlocked.
-    }
-    return false;
-  }
-
-  await rm(parked, { recursive: true, force: true });
   return true;
 }
 
-// A lock left behind by a crashed process would block everyone forever, so an
-// old lock whose owner is dead is moved aside and taken over.
-async function removeStaleLock(lockDir, staleMs) {
+// The interleaving that used to let two owners in, with T1 a waiter that has
+// just judged the dead owner's claim stale and W the taker that won before it:
+//
+//   T1  rename(lock -> parked)  // by now W owns the folder, so T1 moves W's
+//   T3  mkdir(lock)             // the path is free while T1 still holds it
+//   T1  rename(parked -> lock)  // ENOTEMPTY, swallowed as "someone else took it"
+//   W   release                 // rm(lock) drops T3's live folder
+//   T4  enters                  // now T3 and T4 share the critical section
+//
+// Moving a folder aside cannot be undone atomically, so the takeover no longer
+// moves one: it renames the dead owner's *claim* out of the folder instead.
+// That is safe because a claim is evidence for waiters and is never read back by
+// the owner that wrote it, and because the folder it leaves behind holds no
+// claim and has a fresh mtime, so no other taker can move it while this one
+// decides. Only the taker whose rename lands reads back the claim it took, and
+// it checks that this is the same dead owner it judged.
+async function claimStaleLock(lockDir, staleMs, probe) {
   const owner = await readLockOwner(lockDir);
+  if (!owner) return claimFolder(lockDir, staleMs, probe);
+  if (isProcessAlive(owner.pid)) return false;
   const startedAt = await lockStartedAt(lockDir, owner);
   if (startedAt === null || Date.now() - startedAt <= staleMs) return false;
-  if (owner && isProcessAlive(owner.pid)) return false;
-  // The verdict above is only evidence about the folder as it was a moment ago.
-  // Until the rename in parkStaleLock runs, another taker can already have
-  // taken the stale lock, or a new owner can be between its mkdir and the write
-  // of its owner file: that folder has no evidence of its own yet, so a verdict
-  // read before it existed must never be used to move it aside. Reading the
-  // lock again right before renaming keeps the takeover tied to the folder it
-  // judged.
-  const current = await readLockOwner(lockDir);
-  if (!isSameOwner(owner, current)) return false;
-  if (await lockStartedAt(lockDir, current) !== startedAt) return false;
-  return parkStaleLock(lockDir, owner, startedAt);
+
+  await probe('verdict');
+  const claim = join(lockDir, `${LOCK_CLAIM_PREFIX}${process.pid}.${randomBytes(4).toString('hex')}`);
+  try {
+    await rename(join(lockDir, LOCK_OWNER_FILE), claim);
+  } catch (error) {
+    // ENOENT: another taker took this claim first, or the folder is a new one
+    // whose owner has not written its claim yet. Neither is ours to move.
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+
+  if (!isSameOwner(owner, await readJson(claim, null).catch(() => null))) {
+    // Not the claim we judged: put it back, since whoever waits on that folder
+    // decides from it, and the owner that wrote it does not read it back.
+    await renameWithRetry(claim, join(lockDir, LOCK_OWNER_FILE)).catch(() => {});
+    return false;
+  }
+  await rm(claim, { force: true });
+
+  await probe('claimed');
+  try {
+    await writeOwnerExclusive(lockDir, currentOwner());
+  } catch (error) {
+    if (error.code === 'EEXIST' || error.code === 'ENOENT') return false;
+    throw error;
+  }
+  return true;
 }
 
 function describeOwner(owner) {
@@ -177,9 +213,9 @@ function describeOwner(owner) {
 
 // mkdir without recursive fails with EEXIST, which is the atomic mutual
 // exclusion primitive available on Linux, macOS and Windows. The owner file
-// goes in right after, so a folder that disappears in between (a taker that
-// judged an older lock stale) costs one more attempt and nothing else: the
-// callback has not run yet, and there is no folder of ours left to clean up.
+// goes in right after, exclusively: a folder that a taker claimed in between
+// costs one more attempt and nothing else, since the callback has not run yet
+// and the folder is not ours to remove.
 async function tryCreateLock(lockDir) {
   try {
     await mkdir(lockDir);
@@ -188,22 +224,21 @@ async function tryCreateLock(lockDir) {
     throw error;
   }
 
-  const owner = { pid: process.pid, startedAt: Date.now() };
   try {
-    await writeFile(join(lockDir, LOCK_OWNER_FILE), `${JSON.stringify(owner, null, 2)}\n`, 'utf8');
+    await writeOwnerExclusive(lockDir, currentOwner());
   } catch (error) {
-    if (error.code === 'ENOENT') return false;
+    if (error.code === 'EEXIST' || error.code === 'ENOENT') return false;
     await rm(lockDir, { recursive: true, force: true });
     throw new Error(`Cannot write the owner of ${lockDir}: ${error.message}`, { cause: error });
   }
   return true;
 }
 
-async function acquireLock(lockDir, timeoutMs, staleMs) {
+async function acquireLock(lockDir, timeoutMs, staleMs, probe) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     if (await tryCreateLock(lockDir)) return;
-    if (await removeStaleLock(lockDir, staleMs)) continue;
+    if (await claimStaleLock(lockDir, staleMs, probe)) return;
     if (Date.now() >= deadline) {
       const owner = await readLockOwner(lockDir);
       throw new Error(`Lock ${lockDir} is held by ${describeOwner(owner)} after ${timeoutMs} ms`);
@@ -214,10 +249,14 @@ async function acquireLock(lockDir, timeoutMs, staleMs) {
 
 /**
  * Runs `fn` while holding an exclusive lock on `dir`, then releases it.
+ *
+ * `probe` is a test seam: while a stale lock is taken over it is awaited with
+ * 'verdict' and 'claimed', which lets a test drive the interleaving a takeover
+ * has to survive instead of waiting for one to show up under load.
  */
-export async function withLock(dir, fn, { timeoutMs = 5000, staleMs = 30000 } = {}) {
+export async function withLock(dir, fn, { timeoutMs = 5000, staleMs = 30000, probe = NO_PROBE } = {}) {
   const lockDir = `${dir}.lock`;
-  await acquireLock(lockDir, timeoutMs, staleMs);
+  await acquireLock(lockDir, timeoutMs, staleMs, probe);
 
   try {
     return await fn();
