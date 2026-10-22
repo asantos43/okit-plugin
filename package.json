@@ -5,6 +5,9 @@
   "description": "Plugin for AI coding clients that spreads work over the client's own subagents",
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "okit": "src/cli.js"
+  },
   "engines": {
     "node": ">=20"
   },

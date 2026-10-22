@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `PROCESS` spawn mode: `src/spawn-process.js` builds the headless command of `claude-code`, `codex` and `opencode` as a pure value and starts it without a shell, `src/autostart.js` generates the systemd, cron, launchd and schtasks plans, and the `okit` CLI (`daemon start|stop|status|pause|resume|run-once`, `autostart install|uninstall|show`) drives both.
+
 - Inbox and standing-order stores on top of `src/state.js`: `inboxAdd`, `inboxList`, `inboxSetStatus`, `orderAdd`, `orderRemove`, `orderList`, `orderLint`, `orderRender`, plus the state paths in `src/store.js`.
 - Effort classification (`classify`), actor-profile choice with the low-quota downgrade (`profilePick`) and the concurrency cap over live runs (`canSpawn`, `acquireSlot`, `releaseSlot`, `limitsStatus`).
 - State layer: atomic JSON file writes and a stale-aware directory lock.

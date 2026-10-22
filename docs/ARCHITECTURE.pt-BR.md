@@ -129,6 +129,8 @@ Nunca estimar, interpolar nem trazer um número de outro cliente. Uma leitura ve
 - Uma instalação nativa do Claude Code não tem sandbox: assumir que um subagente pode tocar a worktree inteira, então usar `worktree: true` como padrão no Windows.
 - Passagem manual antes de uma versão: instalar o plugin, adicionar um item na caixa, delegar um passo, ler o voto da crítica, consolidar, reiniciar o cliente, confirmar que o estado sobreviveu.
 
+O modo `PROCESS` inicia os clientes sem shell; no Windows os shims `.cmd` exigem resolver antes o executável de verdade (item em aberto da passagem do Windows).
+
 ## 7. Limite de concorrência
 | Escopo | Padrão | Lido de |
 | :- | :- | :- |
@@ -222,11 +224,29 @@ Dois modos por adaptador, e o `spawn()` do adaptador devolve o modo que usou. Pl
 | Modo | Quando | Como |
 | :- | :- | :- |
 | `NATIVE` | padrão em uma sessão interativa | o subagente do próprio cliente: a chamada da ferramenta Agent no Claude Code, `spawn_agent` no Codex, a ferramenta Task no opencode |
-| `PROCESS` | o daemon e qualquer outra execução sem tela | a CLI sem tela: `claude -p`, `codex exec`, `opencode run` (as flags exatas a verificar por cliente) |
+| `PROCESS` | o daemon e qualquer outra execução sem tela | a CLI sem tela: `claude -p`, `codex exec`, `opencode run` (flags verificadas em 2026-10-22, abaixo) |
 
 Em `NATIVE` o núcleo não está no laço, então o teto é garantido pelas ferramentas MCP `acquire_slot` e `release_slot` em volta de `classify` e `profile_pick`. Em `PROCESS` o daemon reserva a vaga antes de o iniciador rodar, e a execução é um processo filho do daemon.
 
-### 12.1 Ferramentas MCP
+### 12.1 `PROCESS`, verificado em 2026-10-22
+`src/spawn-process.js` monta o comando como um valor puro e o inicia com `child_process.spawn` e um vetor de argumentos. Nenhum shell, em momento algum: o briefing é o último argumento posicional de cada cliente, então nada dele é lido como sintaxe de shell. O filho recebe `OKWORK_NO_DAEMON=1`, para uma execução iniciada pelo daemon nunca iniciar um daemon.
+
+| Cliente | Comando |
+| :- | :- |
+| `claude-code` | `claude -p <briefing> --model <model> --effort <effort> --output-format json --permission-mode <mode> --add-dir <dir>` |
+| `codex` | `codex exec --cd <dir> --model <model> --sandbox <workspace-write\|read-only\|danger-full-access> --json --skip-git-repo-check -c model_reasoning_effort=<effort> <briefing>` |
+| `opencode` | `opencode run --dir <dir> --model <provider/model> --variant <effort> --format json <briefing>` |
+
+- Claude Code 2.1.303: o modo de permissão é uma opção (`acceptEdits` por padrão); `--dangerously-skip-permissions` existe e nunca é o que passamos. `--max-budget-usd` existe, `--max-turns` não existe, então `maxTurns` não vai para a linha de comando — `maxMinutes` é o único limite de relógio de parede.
+- Codex 0.163: `--skip-git-repo-check` porque a worktree escolhida pelo mantenedor não precisa ser um repositório git. `-o <file>` gravaria a última mensagem em um arquivo e fica a cargo de quem chama.
+- opencode 1.19: o modelo é o id completo `provider/model` e o esforço é uma variante do provedor.
+
+O diretório de trabalho é o `appliesTo` da demanda quando ele é uma única pasta absoluta existente; um nome de projeto, vários projetos ou `global` mantêm a execução onde o daemon foi iniciado. O processo é detachado, as duas saídas vão para `runs/<runId>.out`, e `runs/<runId>.json` é escrito com `status: live` — o arquivo que `limits.js` já conta — e ganha `endedAt` e `exitCode` na saída. `maxMinutes` envia `SIGTERM` por `child.kill()`; o iniciador não mata mais nada.
+
+### 12.2 Início automático e a CLI
+`src/autostart.js` gera planos, nunca age: `systemd` (uma unidade de usuário `okit-daemon.service`), `cron` (uma linha `@reboot`), `launchd` (o agente `com.okit.daemon`) e `schtasks` (uma tarefa a cada login). `detectAutostart(platform)` escolhe a que esta plataforma usa e `applyAutostart(plan, { run })` roda os comandos de uma ação por um `run` injetado, para que `show` imprima o plano inteiro antes de qualquer ação. No Windows os caminhos guardados usam barras para frente e nenhum shell.
+
+### 12.3 Ferramentas MCP
 `src/mcp/server.js` é o servidor MCP: JSON-RPC 2.0 sobre JSON delimitado por quebras de linha no stdio, escrito à mão e sem dependências. `src/mcp/tools.js` guarda a tabela, uma ferramenta por função do núcleo, e cada manipulador valida os próprios argumentos de novo porque o `inputSchema` é documentação e nunca a única porta de entrada. Só quadros de protocolo vão para a saída padrão; o diagnóstico vai para a saída de erro.
 
 | Ferramenta | Entrada | Embrulha | Uma linha |
