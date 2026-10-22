@@ -40,11 +40,17 @@ Raiz: `node:path.join(os.homedir(), '.okwork')`, sobrescrevível com `OKWORK_HOM
 config.json               limites por cliente, regras de texto curto, caminhos dos adaptadores
 inbox.json                itens da caixa
 orders.json               ordens permanentes
+templates.json            modelos recorrentes
 quota/<client>.json       uma leitura de cota por cliente
 runs/<runId>.json         um arquivo por execução delegada
 locks/<name>.lock/        diretórios de trava criados com mkdir
-logs/<date>.jsonl         eventos append-only
+logs/<date>.jsonl         eventos append-only, um registro de decisão por passagem do daemon
+daemon.pid.json           pid e hora de início do daemon em execução
+daemon.paused             arquivo de pausa, escrito por daemonPause
+daemon.stop               chave de parada, lida pelo daemon
 ```
+
+Arquivos do lado do projeto ficam ao lado do projeto, não nesta raiz: `<projectRoot>/.okwork/orders.json` para a camada de projeto das ordens permanentes (`projectOrdersPath`), mais o `CLAUDE.md` do próprio projeto (Claude Code) ou `AGENTS.md` (Codex, opencode).
 
 - Escrita: serializar para `<file>.<pid>.<random>.tmp`, depois `fs.rename` sobre o destino, para que nenhum leitor veja arquivo pela metade. Em `EPERM` ou `EBUSY` (Windows), tentar o rename de novo algumas vezes antes de falhar.
 - Trava: `fs.mkdir` na pasta `<name>.lock`, que guarda `owner.json` `{pid, startedAt}`; `EEXIST` significa ocupado; liberar com `rmdir`.
@@ -132,14 +138,120 @@ Nunca estimar, interpolar nem trazer um número de outro cliente. Uma leitura ve
 
 O núcleo conta execuções vivas em `runs/<runId>.json` (`status: live`) em vez de confiar que o cliente respeita o teto. `spawn` espera até 60 s por uma vaga e então devolve `busy`; nunca inicia uma execução acima do teto. A contagem cai quando `collect` volta, quando um resultado chega e em uma execução mais velha que 30 min. O Codex se limita sozinho com `agents.max_concurrent_threads_per_session`; deixar no mesmo número para os dois concordarem.
 
-## 8. Plano do MVP
+## 8. Agendamentos e recorrência
+`src/schedule.js` é puro: um instante injetado, nada de I/O. `src/templates.js` guarda uma demanda que o próprio agendamento abre, um item da caixa por período.
+
+| Forma | Exemplo | Normalizado em |
+| :- | :- | :- |
+| cron de 5 campos | `*/15 9-17 * * mon-fri` | `kind: cron` com os cinco conjuntos de campos |
+| diária | `daily 06:00` | `kind: daily`, `hour`, `minute` |
+| semanal | `weekly mon-fri 09:30` | `kind: weekly`, `days` |
+| mensal | `monthly day 1 08:00` | `kind: monthly`, `day` |
+| evento | `after each deploy` | `kind: event`, `event` |
+
+Regras: um campo cron aceita `*`, listas (`1,2`), intervalos (`1-5`), passos (`*/15`) e nomes de três letras (`mon-fri`, `jan`); domingo é 0 ou 7 na entrada e sempre 0 dentro; dois campos de dia restritos casam por qualquer um deles e um campo livre casa com todo dia, como no cron; um dia mensal maior que um mês curto roda no último dia daquele mês. Qualquer outra coisa lança um `TypeError` nomeando todas as formas aceitas.
+
+| Função | Pergunta que responde |
+| :- | :- |
+| `parseSchedule(text)` | Que texto é este? Um agendamento normalizado, ou um `TypeError`. |
+| `nextRun(schedule, afterMs, { timeZone })` | Primeiro instante estritamente depois de `afterMs`; `null` para um evento e para um agendamento sem vaga dentro do limite de busca. |
+| `isInWindow(win, nowMs, { timeZone })` | O instante está dentro de uma janela `{from, to}` de horários `HH:MM`, que pode cruzar a meia-noite? Sem janela, sempre. |
+| `eventFires(schedule, eventName)` | Um agendamento de evento dispara neste evento nomeado? |
+| `evaluateDue(template, nowMs, ctx)` | Este modelo deve rodar agora? |
+
+`evaluateDue` devolve `{ due, action, reason, period }`, com `action` entre `run`, `skip` (uma decisão que não muda) e `defer` (esperar a próxima passagem). `period` é o instante ISO da vaga, ou `event:<name>:<id>`. As guardas são lidas nesta ordem: `paused`, a vaga deste período, `window`, `minQuotaPct`, `onlyWhenIdle`, `skipIfOpen`, `maxRunsPerPeriod`. Sem histórico, um modelo espera pela primeira vaga do dia corrente em vez de disparar por uma que já passou; com histórico, `catchup: run` (o padrão) serve a vaga perdida mais antiga e `catchup: skip` serve só a atual. Um evento precisa de um id, ou passaria a vida inteira com a mesma chave de período: sem `eventId` a execução é recusada. A vaga é lida no relógio de parede de `timeZone` (padrão `UTC`), então uma hora repetida roda na primeira passagem e uma hora pulada vai para o próximo minuto válido.
+
+## 9. Modelos recorrentes
+| Função | Efeito |
+| :- | :- |
+| `templateAdd(root, input, { now })` | Guarda um modelo e a ordem permanente que deixa ele rodar sem ninguém assistindo; o nome precisa estar livre. |
+| `templateList(root, { name })` | Ordem de criação; um nome desconhecido lança erro. |
+| `templateSet(root, name, patch)` | Edita um campo, pausa, retoma ou renomeia; uma renomeação retagueia os filhos abertos e revoga a ordem antiga. |
+| `templateRemove(root, name)` | Remove o registro e revoga sua ordem permanente com um motivo. |
+| `due(root, nowMs, ctx)` | Decide todos os modelos neste instante e não escreve nada. |
+| `plan(root, nowMs, ctx)` | O ensaio geral: as decisões mais as demandas que seriam criadas. |
+| `openDue(root, nowMs, ctx)` | Abre um filho por modelo vencido, uma vez por período; a checagem e a escrita dividem uma trava, então uma segunda chamada no mesmo período e dois chamadores em corrida não criam nada a mais. |
+
+Campos obrigatórios: `name`, `schedule` e `demand` (`title`, mais `kind`, `body`, `accept`, `ext` opcionais). Guardas opcionais: `window`, `timeZone`, `minQuotaPct`, `onlyWhenIdle` (padrão falso), `skipIfOpen` (padrão verdadeiro), `catchup` (`run` ou `skip`), `maxRunsPerPeriod`, `paused` e `appliesTo`. Cada filho carrega `ext.template` e `ext.period` e herda o `appliesTo` do modelo, para que um armazenamento global de modelos ainda saiba a qual caixa cada execução pertence.
+
+## 10. Ordens permanentes
+Uma ordem é uma linha que o mantenedor escreve uma vez e o Diretor lê a cada demanda. O JSON continua sendo a fonte; `orderRender` é só uma visão.
+
+| Função | Efeito |
+| :- | :- |
+| `orderAdd(root, { text, scope, layer, until, origin, appliesTo }, { projectRoot })` | Adiciona uma ordem ativa; `until` precisa ser uma data no futuro. |
+| `orderRemove(root, id, { reason })` | Revoga: `active: false` com `revokedAt` e `revokedReason`. Nada é apagado, então o histórico sobrevive. |
+| `orderList(root, { activeOnly, appliesTo, now }, { projectRoot })` | As duas camadas fundidas, a global primeiro; o mesmo texto em um projeto substitui o global no lugar. `activeOnly` descarta revogadas e vencidas. |
+| `orderLint(root, { projectRoot, now })` | O que quem lê os arquivos tropeçaria: texto vazio, escopo desconhecido, data ilegível, id repetido, ordem ativa com `until` passado, duas ordens vivas com o mesmo texto. |
+| `orderRender(orders)` | Markdown para leitura humana. |
+
+Duas camadas: `global` (padrão) em `orders.json` na raiz do estado, e `project` em `<projectRoot>/.okwork/orders.json`; a camada é escolhida por `projectRoot` quando `layer` está ausente. Os ids são `G000001` na camada global e `O000001` na de projeto. `scope` é `all` ou `effort:simple`, `effort:normal`, `effort:hard`; `origin` é texto livre, com padrão `maintainer`, e um modelo escreve `template:<name>`. A ordem de um modelo é criada junto com o registro, movida em uma renomeação e revogada com motivo na remoção, então a ordem que permitia a execução deixa de permitir.
+
+## 11. O daemon
+O daemon é a metade sem tela: ninguém assiste, então todo limite que ele respeita é técnico. O núcleo não inicia nada por conta própria — `spawn` é injetado, então um teste o conduz e um adaptador o conduz de verdade.
+
+A ordem de uma passagem, `tick`:
+
+| # | Passo | Regra |
+| :- | :- | :- |
+| 1 | Pausa | `daemon.paused` existe: o registro diz `paused`, nada é aberto e nada é iniciado. O laço continua rodando. |
+| 2 | Chave de parada | `daemon.stop` existe: o registro diz `stopped: kill switch`, e `daemonRun` sai do laço. |
+| 3 | Piso de cota | Todos os clientes das demandas pendentes abaixo de `daemon.minQuotaPct` param a passagem. Um cliente sem leitura não está abaixo do piso, então um cliente não medido nunca paralisa o daemon. |
+| 4 | Modelos vencidos | `openDue` com a pior leitura da passagem: a cota mais baixa e a menor ociosidade dos clientes que ele conhece. |
+| 5 | Demandas pendentes, mais antiga primeiro | A caixa lista das mais novas para as mais antigas, então a fila é invertida e uma demanda que espera atrás de outras nunca passa fome. Um período atende uma execução por vez: enquanto um irmão do mesmo `ext.template` e `ext.period` está `delegated` ou `criticised`, os outros esperam. |
+| 6 | Teto | Por demanda: `classify` quando o item não tem `effort`, `profilePick`, depois `acquireSlot` antes de o iniciador rodar e `releaseSlot` se ele recusar, então uma recusa não custa nada. |
+| 7 | Uma linha de decisão | `{ at, opened, spawned, skipped, stopped?, paused? }` anexada como uma única linha JSON em `logs/<date>.jsonl`, para quem lê o fim do arquivo ver sempre uma passagem inteira. |
+
+O daemon nunca recusa uma demanda por conta própria: uma demanda é pulada apenas por um limite técnico (pausa, chave de parada, piso de cota, teto de concorrência) ou por falha do iniciador, e cada pulo diz qual foi.
+
+| Função | Efeito |
+| :- | :- |
+| `tick(root, deps)` | Uma passagem; devolve o registro de decisão e o anexa. |
+| `daemonRun(root, deps, { signal, sleep })` | O laço: toma a trava do daemon, escreve `daemon.pid.json`, dá uma passagem a cada `daemon.intervalSeconds`, roda a rotação dos logs uma vez por dia, sai na chave de parada ou em `signal.abort()`, e remove o arquivo de pid na saída. |
+| `daemonStatus(root, { now })` | Diz se está rodando, seu pid, quando começou, se está pausado e o último registro de decisão. |
+| `daemonPause(root)` / `daemonResume(root)` | Escrevem e removem o arquivo de pausa. |
+| `rotateLogs(root, keepDays, now)` | Remove `logs/*.jsonl` mais velhos que `daemon.logKeepDays` por hora de modificação e devolve os nomes removidos. |
+
+O iniciador é injetado: `deps` traz `now()`, `quota(client)`, `idle(client)` e `spawn(demand, { client, profile, limits, maxTurns, maxMinutes, runId })`. O `runId` que ele recebe é a vaga já reservada para a execução, então devolver o mesmo id é o caminho barato; devolver outro move a vaga para esse id, e quando esse id não pode ser tomado o original é tomado de novo.
+
+Ritmo: o intervalo é marcado por um relógio monotônico, então um salto do relógio de parede para frente ou para trás não muda nem o número de passagens nem a idempotência por período. Um daemon por raiz: `daemonRun` segura a trava `daemon` e lança erro quando outro já a segura. `daemonStatus` exige um pid vivo e um arquivo de pid que não esteja velho, então um daemon que morreu lido como parado mesmo com o arquivo de pid ainda em disco. Os padrões vivem em `daemon` no `config.json`: `intervalSeconds` 60, `minQuotaPct` 10, `logKeepDays` 14; um valor quebrado nunca para o laço.
+
+## 12. Modos de início
+Dois modos por adaptador, e o `spawn()` do adaptador devolve o modo que usou. Planejado: nenhum adaptador foi escrito ainda.
+
+| Modo | Quando | Como |
+| :- | :- | :- |
+| `NATIVE` | padrão em uma sessão interativa | o subagente do próprio cliente: a chamada da ferramenta Agent no Claude Code, `spawn_agent` no Codex, a ferramenta Task no opencode |
+| `PROCESS` | o daemon e qualquer outra execução sem tela | a CLI sem tela: `claude -p`, `codex exec`, `opencode run` (as flags exatas a verificar por cliente) |
+
+Em `NATIVE` o núcleo não está no laço, então o teto é garantido pelas ferramentas MCP `acquire_slot` e `release_slot` em volta de `classify` e `profile_pick`. Em `PROCESS` o daemon reserva a vaga antes de o iniciador rodar, e a execução é um processo filho do daemon.
+
+## 13. Autonomia
+Autonomia máxima é o padrão. O plugin não traz nenhuma lista fixa de ações proibidas: uma recusa vem de algo que o usuário escreveu ou de um limite técnico, nunca de uma regra que os mantenedores adivinharam.
+- As restrições são ordens permanentes. O usuário adiciona uma ("nunca dar push para `main`") e `orderRemove` a retira; nada mais pode adicionar restrição.
+- Os limites técnicos continuam configuráveis: o teto de concorrência (`limits.global`, `limits.perClient`, `staleMinutes`), o piso de cota (`daemon.minQuotaPct`, `lowQuotaPct`), a chave de parada (`daemon.stop`) e o arquivo de pausa.
+- O núcleo nunca inventa um modelo, um valor de esforço ou um número de cota que o cliente não informou, e nunca aumenta um teto por conta própria.
+
+## 14. Estado global e `appliesTo`
+Uma caixa, um conjunto de ordens permanentes, um armazenamento de modelos, em uma pasta (`OKWORK_HOME`, padrão `~/.okwork`), compartilhada por todos os projetos. O que pertence a um projeto fica nos arquivos do próprio projeto e o registro apenas o referencia, então um armazenamento compartilhado nunca precisa ser dividido.
+
+| Função | Efeito |
+| :- | :- |
+| `validateAppliesTo(value)` | Apara e tira duplicatas, mantém a forma recebida e nunca guarda o padrão: um registro sem o campo vale para todo projeto. |
+| `validateAppliesToFilter(value)` | O filtro de uma listagem: um projeto, ou só os registros compartilhados. Uma lista de projetos é recusada, porque a união seria ambígua. |
+| `inScope(record, wanted)` | Se um registro aparece para um projeto. |
+| `stateRoot(env)` / `paths(root)` / `projectOrdersPath(projectRoot)` | Onde o estado mora, com a sobrescrita do ambiente primeiro. |
+
+Então: ausente significa todos os projetos, um nome significa aquele projeto, uma lista significa cada um deles, e `global` junto com outro projeto é recusado porque não diz nada preciso. `inboxList`, `orderList` e `templateList` filtram por projeto e sempre incluem os registros compartilhados; `templateSet` com `appliesTo: 'global'` apaga o campo, então o modelo volta a ser compartilhado.
+
+## 15. Plano do MVP
 1. Claude Code primeiro, Linux e Windows: adaptador, servidor MCP, as quinze ferramentas, o armazenamento JSON.
 2. Codex depois no mesmo núcleo: o adaptador lê cota, então o controle de cota fica ligado.
 3. opencode por último: o adaptador mais o trabalho de esforço que ainda falta confirmar.
 
 Uma área de teste de ponta a ponta em um repositório descartável, rodada para cada adaptador, com duas demandas: uma `code` e uma fora de código (uma demanda curta de pesquisa ou redação). Cada uma passa por item na caixa, passo classificado, subagente delegado com modelo e esforço escolhidos, voto da crítica contra a própria lista `accept`, resultado consolidado. Afirmar que o resumo de um passo `simple` fica abaixo de 1 kB e que a segunda tentativa é mais curta que a primeira.
 
-## 9. Perguntas em aberto para o mantenedor
+## 16. Perguntas em aberto para o mantenedor
 - Os níveis de esforço diferem por cliente. Mapear `simple`/`normal`/`hard` em cada cliente, ou manter uma escala interna e deixar o adaptador traduzir?
 - `ultra` existe só no Codex. Aceitar um vocabulário de esforço menor para portabilidade?
 - O `/usage` do Claude Code mostra barras de plano só na sessão. Aceitar `source: user` ali, ou abrir mão do controle de cota nesse cliente?
