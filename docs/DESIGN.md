@@ -4,8 +4,9 @@ Status: design phase (pre-alpha).
 
 ## Goals
 
-- Spread work over the subagents the AI coding client already has.
-- Classify each task by effort so the right subagent gets it.
+- Spread work over the subagents the AI client already has.
+- Take any unit of delegable work, not only code: research, writing, documents, data cleanup, analysis, planning, reviews, file operations.
+- Classify each demand by effort so the right subagent gets it.
 - Choose the subagent's model and reasoning effort by class and by quota.
 - Keep a small inbox and standing orders for the Director.
 - Run on Linux, macOS and Windows with the same core.
@@ -21,8 +22,9 @@ Status: design phase (pre-alpha).
 
 ### 1. Effort classification
 
-Each task is classified as simple, normal or hard. The class drives the next
-step and is what the tests pin down.
+Each demand is classified as simple, normal or hard. The class is derived by
+default and the maintainer may override it. The class drives the next step and is
+what the tests pin down.
 
 ### 2. Subagent choice by class and quota
 
@@ -32,8 +34,8 @@ client does not expose.
 
 ### 3. Inbox and standing orders
 
-A small inbox holds pending tasks; standing orders hold instructions that apply
-to every task until removed. Both live in JSON files.
+A small inbox holds pending demands; standing orders hold instructions that apply
+to every demand until removed. Both live in JSON files.
 
 The Director delegates the work, critiques the subagent output and consolidates
 the results.
@@ -64,3 +66,6 @@ its client exposes. Core logic never imports a client directly.
   MCP servers? This still has to be verified.
 
 Portuguese version: [DESIGN.pt-BR.md](DESIGN.pt-BR.md).
+
+Architecture note: [ARCHITECTURE.md](ARCHITECTURE.md) (English) and
+[ARCHITECTURE.pt-BR.md](ARCHITECTURE.pt-BR.md).
