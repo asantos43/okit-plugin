@@ -40,11 +40,17 @@ Root: `node:path.join(os.homedir(), '.okwork')`, overridable with `OKWORK_HOME`.
 config.json               per-client limits, terse rules, adapter paths
 inbox.json                inbox items
 orders.json               standing orders
+templates.json            recurring templates
 quota/<client>.json       one quota reading per client
 runs/<runId>.json         one file per delegated run
 locks/<name>.lock/        mkdir lock directories
-logs/<date>.jsonl         append-only events
+logs/<date>.jsonl         append-only events, one decision record per daemon pass
+daemon.pid.json           pid and start time of the running daemon
+daemon.paused             pause file, written by daemonPause
+daemon.stop               kill switch, read by the daemon
 ```
+
+Project-side files live beside the project, not in this root: `<projectRoot>/.okwork/orders.json` for the project layer of standing orders (`projectOrdersPath`), plus the project's own `CLAUDE.md` (Claude Code) or `AGENTS.md` (Codex, opencode).
 
 - Write: serialise to `<file>.<pid>.<random>.tmp`, then `fs.rename` over the target, so a reader never sees half a file. On `EPERM` or `EBUSY` (Windows) retry the rename a few times before failing.
 - Lock: `fs.mkdir` the `<name>.lock` folder, which holds `owner.json` `{pid, startedAt}`; `EEXIST` means busy; release with `rmdir`.
@@ -132,14 +138,120 @@ Never estimate, interpolate or carry a number over from another client. A stale 
 
 The core counts live runs in `runs/<runId>.json` (`status: live`) rather than trusting the client to hold the cap. `spawn` waits up to 60 s for a free slot and then returns `busy`; it never starts a run over the cap. The count falls when `collect` returns, when a result arrives, and on a run older than 30 min. Codex caps itself with `agents.max_concurrent_threads_per_session`; set it to the same number so the two agree.
 
-## 8. MVP plan
+## 8. Schedules and recurrence
+`src/schedule.js` is pure: an injected instant, no I/O. `src/templates.js` stores a demand that its own schedule opens, one inbox child per period.
+
+| Form | Example | Normalized to |
+| :- | :- | :- |
+| 5-field cron | `*/15 9-17 * * mon-fri` | `kind: cron` with the five field sets |
+| daily | `daily 06:00` | `kind: daily`, `hour`, `minute` |
+| weekly | `weekly mon-fri 09:30` | `kind: weekly`, `days` |
+| monthly | `monthly day 1 08:00` | `kind: monthly`, `day` |
+| event | `after each deploy` | `kind: event`, `event` |
+
+Rules: a cron field takes `*`, lists (`1,2`), ranges (`1-5`), steps (`*/15`) and three-letter names (`mon-fri`, `jan`); Sunday is 0 or 7 on the way in and always 0 inside; two restricted day fields match on either one and a free field matches every day, as in cron; a monthly day longer than a short month runs on that month's last day. Anything else throws a `TypeError` naming every accepted form.
+
+| Function | Question it answers |
+| :- | :- |
+| `parseSchedule(text)` | What is this text? A normalized schedule, or a `TypeError`. |
+| `nextRun(schedule, afterMs, { timeZone })` | First instant strictly after `afterMs`; `null` for an event and for a schedule with no slot inside the search bound. |
+| `isInWindow(win, nowMs, { timeZone })` | Is the instant inside a `{from, to}` window of `HH:MM` times, which may cross midnight? No window means always. |
+| `eventFires(schedule, eventName)` | Does an event schedule fire on this named event? |
+| `evaluateDue(template, nowMs, ctx)` | Should this template run now? |
+
+`evaluateDue` returns `{ due, action, reason, period }`, with `action` one of `run`, `skip` (a decision that will not change) or `defer` (wait for the next pass). `period` is the ISO instant of the slot, or `event:<name>:<id>`. The guards are read in this order: `paused`, the slot for this period, `window`, `minQuotaPct`, `onlyWhenIdle`, `skipIfOpen`, `maxRunsPerPeriod`. Without history a template waits for the first slot of the current day instead of firing for one already gone; with history, `catchup: run` (the default) serves the oldest missed slot and `catchup: skip` serves only the current one. An event needs an id, or it would key one period for its whole life: without `eventId` the run is refused. The slot is read on the wall clock of `timeZone` (default `UTC`), so a repeated hour runs on its first pass and a skipped hour moves to the next valid minute.
+
+## 9. Recurring templates
+| Function | Effect |
+| :- | :- |
+| `templateAdd(root, input, { now })` | Stores a template and the standing order that lets it run unattended; the name must be free. |
+| `templateList(root, { name })` | Creation order; one name throws when unknown. |
+| `templateSet(root, name, patch)` | Edits a field, pauses, resumes or renames; a rename retags the open children and revokes the old order. |
+| `templateRemove(root, name)` | Removes the record and revokes its standing order with a reason. |
+| `due(root, nowMs, ctx)` | Decides every template at this instant and writes nothing. |
+| `plan(root, nowMs, ctx)` | The dry run: the decisions plus the demands that would be created. |
+| `openDue(root, nowMs, ctx)` | Opens one child per due template, once per period; the check and the write share one lock, so a second call in the same period and two racing callers create nothing more. |
+
+Required fields are `name`, `schedule` and `demand` (`title`, plus optional `kind`, `body`, `accept`, `ext`). Optional guards: `window`, `timeZone`, `minQuotaPct`, `onlyWhenIdle` (default false), `skipIfOpen` (default true), `catchup` (`run` or `skip`), `maxRunsPerPeriod`, `paused` and `appliesTo`. Every child carries `ext.template` and `ext.period` and inherits the template's `appliesTo`, so one shared template store still knows which inbox each run belongs to.
+
+## 10. Standing orders
+An order is a line the maintainer writes once and the Director reads with every demand. The JSON stays the source; `orderRender` is only a view.
+
+| Function | Effect |
+| :- | :- |
+| `orderAdd(root, { text, scope, layer, until, origin, appliesTo }, { projectRoot })` | Adds an active order; `until` must be a date in the future. |
+| `orderRemove(root, id, { reason })` | Revokes it: `active: false` with `revokedAt` and `revokedReason`. Nothing is deleted, so the history survives. |
+| `orderList(root, { activeOnly, appliesTo, now }, { projectRoot })` | Both layers merged, global first; the same text in a project replaces the global one in place. `activeOnly` drops revoked and expired orders. |
+| `orderLint(root, { projectRoot, now })` | What a reader of the files would trip on: empty text, unknown scope, unreadable dates, a repeated id, an active order past its `until`, two live orders with the same text. |
+| `orderRender(orders)` | Markdown for a human to read. |
+
+Two layers: `global` (default) in `orders.json` under the state root, and `project` in `<projectRoot>/.okwork/orders.json`; the layer is chosen by `projectRoot` when `layer` is absent. Ids are `G000001` in the global layer and `O000001` in the project one. `scope` is `all` or `effort:simple`, `effort:normal`, `effort:hard`; `origin` is free text, defaulting to `maintainer`, and a template writes `template:<name>`. A template's order is created with its record, moved on a rename and revoked with a reason on removal, so the order that allowed a run stops allowing it.
+
+## 11. The daemon
+The daemon is the headless half: nobody watches, so every bound it respects is a technical one. The core spawns nothing itself — `spawn` is injected, so a test drives it and an adapter drives it for real.
+
+The order of one pass, `tick`:
+
+| # | Step | Rule |
+| :- | :- | :- |
+| 1 | Pause | `daemon.paused` exists: the record says `paused`, nothing is opened and nothing is spawned. The loop keeps running. |
+| 2 | Kill switch | `daemon.stop` exists: the record says `stopped: kill switch`, and `daemonRun` leaves the loop. |
+| 3 | Quota floor | Every client of the pending demands below `daemon.minQuotaPct` stops the pass. A client with no reading is not below the floor, so an unmeasured client never paralyzes the daemon. |
+| 4 | Due templates | `openDue` with the worst reading of the pass: the lowest quota and the least idle of the clients it knows. |
+| 5 | Pending demands, oldest first | The inbox lists newest first, so the queue is reversed and a demand waiting behind newer ones never starves. A period serves one run at a time: while a sibling of the same `ext.template` and `ext.period` is still `delegated` or `criticised`, the others wait. |
+| 6 | Cap | Per demand: `classify` when the item has no `effort`, `profilePick`, then `acquireSlot` before the spawner runs and `releaseSlot` if it refuses, so a refusal costs nothing. |
+| 7 | One decision line | `{ at, opened, spawned, skipped, stopped?, paused? }` appended as a single JSON line to `logs/<date>.jsonl`, so a reader tailing the file always sees a whole pass. |
+
+The daemon never refuses a demand on its own: a demand is skipped only for a technical bound (paused, kill switch, quota floor, the concurrency cap) or a spawner failure, and every skip says which.
+
+| Function | Effect |
+| :- | :- |
+| `tick(root, deps)` | One pass; returns the decision record and appends it. |
+| `daemonRun(root, deps, { signal, sleep })` | The loop: takes the daemon lock, writes `daemon.pid.json`, ticks every `daemon.intervalSeconds`, rotates the logs once a day, leaves on the kill switch or on `signal.abort()`, and removes the pid file on the way out. |
+| `daemonStatus(root, { now })` | Whether it is running, its pid, when it started, whether it is paused and the last decision record. |
+| `daemonPause(root)` / `daemonResume(root)` | Write and remove the pause file. |
+| `rotateLogs(root, keepDays, now)` | Removes `logs/*.jsonl` older than `daemon.logKeepDays` by modification time and returns the names it removed. |
+
+The spawner is injected: `deps` carries `now()`, `quota(client)`, `idle(client)` and `spawn(demand, { client, profile, limits, maxTurns, maxMinutes, runId })`. The `runId` it is given is the slot already reserved for the run, so returning the same id is the cheap path; returning another one moves the slot to that id, and when that id cannot be taken the original is taken again.
+
+Pacing: the interval is paced on a monotonic clock, so a wall-clock jump forwards or backwards moves neither the number of passes nor the per-period idempotency. One daemon per root: `daemonRun` holds the `daemon` lock and throws when another already holds it. `daemonStatus` needs a live pid and a pid file that is not stale, so a daemon that crashed reads as stopped even while its pid file is still on disk. Defaults live under `daemon` in `config.json`: `intervalSeconds` 60, `minQuotaPct` 10, `logKeepDays` 14; a broken value never stops the loop.
+
+## 12. Spawn modes
+Two modes per adapter, and the adapter's `spawn()` returns the mode it used. Planned: no adapter is written yet.
+
+| Mode | When | How |
+| :- | :- | :- |
+| `NATIVE` | default in an interactive session | the client's own subagent: the Agent tool call for Claude Code, `spawn_agent` for Codex, the Task tool for opencode |
+| `PROCESS` | the daemon and any other headless run | the headless CLI: `claude -p`, `codex exec`, `opencode run` (exact flags to verify per client) |
+
+In `NATIVE` the core is not in the loop, so the cap is enforced by the MCP tools `acquire_slot` and `release_slot` around `classify` and `profile_pick`. In `PROCESS` the daemon reserves the slot itself before the spawner runs, and the run is a child process of the daemon.
+
+## 13. Autonomy
+Maximum autonomy is the default. The plugin ships no hard-coded list of forbidden actions: a refusal comes from something the user wrote or from a technical bound, never from a rule the maintainers guessed.
+- Restrictions are standing orders. The user adds one ("never push to `main`") and `orderRemove` takes it back; nothing else can add a restriction.
+- The technical bounds stay configurable: the concurrency cap (`limits.global`, `limits.perClient`, `staleMinutes`), the quota floor (`daemon.minQuotaPct`, `lowQuotaPct`), the kill switch (`daemon.stop`) and the pause file.
+- The core never invents a model, an effort value or a quota number the client did not report, and it never widens a cap on its own.
+
+## 14. Global state and `appliesTo`
+One inbox, one set of standing orders, one template store, in one folder (`OKWORK_HOME`, default `~/.okwork`), shared by every project. What belongs to a project lives in that project's own files and the record only references it, so a shared store never has to be split.
+
+| Function | Effect |
+| :- | :- |
+| `validateAppliesTo(value)` | Trims and deduplicates, keeps the shape given, and never stores the default: a record without the field applies everywhere. |
+| `validateAppliesToFilter(value)` | The filter of a list: one project, or the shared records alone. A list of projects is refused, since the union would be ambiguous. |
+| `inScope(record, wanted)` | Whether a record shows for a project. |
+| `stateRoot(env)` / `paths(root)` / `projectOrdersPath(projectRoot)` | Where the state lives, the environment override first. |
+
+So: absent means every project, one name means that project, a list means each of them, and `global` combined with another project is refused because it says nothing precise. `inboxList`, `orderList` and `templateList` filter by project and always include the shared records; `templateSet` with `appliesTo: 'global'` drops the field, so a template goes back to shared.
+
+## 15. MVP plan
 1. Claude Code first, Linux and Windows: adapter, MCP server, the fifteen tools, the JSON store.
 2. Codex second on the same core: the adapter reads quota, so quota control is on.
 3. opencode third: the adapter plus the effort work that still needs confirming.
 
 One end-to-end test area on a scratch repository, run for every adapter, with two demands: one `code` and one non-code (a short research or writing demand). Each goes inbox item, classified step, delegated subagent with a chosen model and effort, critic verdict against its own `accept` list, consolidated result. Assert a `simple` briefing stays under 1 kB and that a second attempt is terser than the first.
 
-## 9. Open questions for the maintainer
+## 16. Open questions for the maintainer
 - Effort levels differ per client. Map `simple`/`normal`/`hard` onto each client, or keep one internal scale and let the adapter translate?
 - `ultra` exists on Codex only. Accept a smaller effort vocabulary for portability?
 - Claude Code `/usage` shows plan bars only in-session. Accept `source: user` there, or drop quota control for that client?
