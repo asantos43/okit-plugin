@@ -1,5 +1,5 @@
-import { mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { appendFile, mkdir, stat } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 import { inScope, validateAppliesTo, validateAppliesToFilter } from './applies.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
@@ -11,8 +11,10 @@ export const SCOPES = ['all', 'effort:simple', 'effort:normal', 'effort:hard'];
 const DEFAULT_SCOPE = 'all';
 const DEFAULT_LAYER = 'global';
 const DEFAULT_ORIGIN = 'maintainer';
+const DEFAULT_RETENTION_DAYS = 90;
 const ID_WIDTH = 6;
 const ID_PREFIX = { global: 'G', project: 'O' };
+const DAY_MS = 86_400_000;
 
 const emptyStore = () => ({ version: 1, seq: 0, orders: [] });
 
@@ -50,6 +52,16 @@ function validateOrigin(origin) {
   const value = origin === undefined ? DEFAULT_ORIGIN : origin;
   if (!isText(value)) fail('origin must be a non-empty string when given');
   return value.trim();
+}
+
+/** Whole days of retention or the default, so a broken config never stops a reader. */
+function retentionDaysOf(config) {
+  const days = config?.orders?.retentionDays;
+  return Number.isInteger(days) && days >= 0 ? days : DEFAULT_RETENTION_DAYS;
+}
+
+async function readRetentionDays(root) {
+  return retentionDaysOf(await readJson(paths(root).config, {}));
 }
 
 // The layer decides the file: global orders share the root, project orders sit
@@ -98,6 +110,16 @@ function clockNow(now) {
   return time === undefined ? Date.now() : time;
 }
 
+// A caller holds the clock as an ISO string or as a timestamp: both are read,
+// and anything else is refused like any other date.
+function nowMs(now) {
+  if (typeof now === 'number') {
+    if (!Number.isFinite(now)) fail('now must be a timestamp when given');
+    return now;
+  }
+  return clockNow(now);
+}
+
 /**
  * Adds a standing order. `until` must be a date in the future and the order
  * stops being active after it. `appliesTo` names the projects it binds; absent
@@ -132,22 +154,28 @@ export async function orderAdd(root, { text, scope, layer, until, origin, applie
 
 /**
  * Revokes an order. Nothing is deleted: the row stays with `active: false` and
- * the reason, so the history survives.
+ * the reason, so the history survives. A second revoke is refused, so the first
+ * `revokedAt` and `revokedReason` are never overwritten.
  */
 export async function orderRemove(root, id, { reason } = {}, { projectRoot } = {}) {
   if (!isText(id)) fail('id must be a non-empty string');
   if (!isText(reason)) fail('reason must be a non-empty string');
   const wanted = id.trim();
   const at = new Date().toISOString();
+  const refused = `standing order ${wanted} is already revoked`;
 
   const files = [paths(root).orders];
   if (isText(projectRoot)) files.push(projectOrdersPath(projectRoot));
 
+  let revoked = false;
   for (const file of files) {
     try {
       return await mutate(file, (store) => {
         const order = store.orders.find((candidate) => candidate.id === wanted);
         if (!order) fail(`unknown standing order ${wanted}`);
+        // Marking twice has nothing left to mark and would erase the first
+        // reason, which is the only record of why the order went away.
+        if (order.active !== true) fail(refused);
         order.active = false;
         order.revokedAt = at;
         order.revokedReason = reason.trim();
@@ -156,8 +184,10 @@ export async function orderRemove(root, id, { reason } = {}, { projectRoot } = {
     } catch (error) {
       // Both layers are searched: the id alone does not say which one holds it.
       if (!(error instanceof TypeError)) throw error;
+      if (error.message === refused) revoked = true;
     }
   }
+  if (revoked) fail(refused);
   fail(`unknown standing order ${wanted}`);
 }
 
@@ -168,6 +198,24 @@ function isActiveNow(order, now) {
   if (typeof order.until !== 'string') return true;
   const until = Date.parse(order.until);
   return Number.isNaN(until) ? true : until > now;
+}
+
+/**
+ * The status of an order, derived from the row and never written to the file: an
+ * order is `revoked` once it was revoked, `expired` once its `until` is a past
+ * date and `active` otherwise. At the exact instant of `until` the order is
+ * already expired.
+ *
+ * @param {object} order a stored or listed standing order
+ * @param {string|number} [now] the clock, an ISO string or a timestamp
+ * @returns {'active'|'revoked'|'expired'}
+ */
+export function orderStatus(order, now) {
+  const current = nowMs(now);
+  if (order?.active !== true) return 'revoked';
+  if (typeof order.until !== 'string') return 'active';
+  const until = Date.parse(order.until);
+  return Number.isNaN(until) || until > current ? 'active' : 'expired';
 }
 
 // Case and spacing never make two orders different: the same words in both
@@ -188,8 +236,12 @@ async function readLayer(root, layer, projectRoot) {
  * dropped. `now` is injectable so expiry can be tested. `appliesTo` narrows the
  * result to one project plus the global orders; `global` lists the global ones
  * alone.
+ *
+ * Every order comes back with the derived `status` and, when it is inactive, the
+ * `purgeAfter` date it may be removed at. Both are added to a copy: the stored
+ * row keeps only what was written to it.
  */
-export async function orderList(root, { activeOnly = true, appliesTo, now } = {}, { projectRoot } = {}) {
+export async function orderList(root, { activeOnly = true, appliesTo, now, retentionDays } = {}, { projectRoot } = {}) {
   if (typeof activeOnly !== 'boolean') fail('activeOnly must be a boolean when given');
   const wanted = validateAppliesToFilter(appliesTo);
   const current = clockNow(now);
@@ -206,9 +258,99 @@ export async function orderList(root, { activeOnly = true, appliesTo, now } = {}
 
   const merged = [...winner.values()];
   const live = activeOnly ? merged.filter((order) => isActiveNow(order, current)) : merged;
-  return wanted === undefined ? live : live.filter((order) => inScope(order, wanted));
+  const selected = wanted === undefined ? live : live.filter((order) => inScope(order, wanted));
+
+  const retention = retentionDays === undefined ? await readRetentionDays(root) : retentionDays;
+  return selected.map((order) => {
+    const copy = { ...order, status: orderStatus(order, current) };
+    const due = purgeAfter(order, retention, current);
+    if (due !== undefined) copy.purgeAfter = due;
+    return copy;
+  });
 }
 
+
+/**
+ * The instant an inactive order may be purged: a revoked one counts from its
+ * revocation, an expired one from its own `until`, and both add the retention.
+ * An active order has nothing to purge, and an inactive row with no readable
+ * date is never purgeable, so a hand-edited row cannot vanish on a guess.
+ *
+ * @param {object} order a stored or listed standing order
+ * @param {number} [retentionDays] whole days kept, from `orders.retentionDays`
+ * @param {string|number} [now] the clock, an ISO string or a timestamp
+ * @returns {string|undefined} the ISO instant the order may be purged at
+ */
+export function purgeAfter(order, retentionDays = DEFAULT_RETENTION_DAYS, now) {
+  const status = orderStatus(order, now);
+  if (status === 'active') return undefined;
+  const base = status === 'revoked' ? order?.revokedAt : order?.until;
+  if (typeof base !== 'string') return undefined;
+  const time = Date.parse(base);
+  if (Number.isNaN(time)) return undefined;
+  const days = Number.isInteger(retentionDays) && retentionDays >= 0 ? retentionDays : DEFAULT_RETENTION_DAYS;
+  return new Date(time + days * DAY_MS).toISOString();
+}
+
+async function existsFile(file) {
+  try {
+    await stat(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function appendPurgeLog(root, at, ids) {
+  const day = new Date(at).toISOString().slice(0, 10);
+  const file = join(paths(root).logs, `${day}.jsonl`);
+  await mkdir(dirname(file), { recursive: true });
+  await appendFile(file, `${JSON.stringify({ at: new Date(at).toISOString(), purged: ids })}\n`, 'utf8');
+  return file;
+}
+
+/**
+ * Removes for good every inactive order whose retention has run out, in both
+ * layers: the row is dropped from the file and returned, so the caller can say
+ * what went away. An order inside its retention window and an active order are
+ * never touched. Every purge appends `{ at, purged: [ids] }` to
+ * `logs/<date>.jsonl`, so the trail of what was removed survives the removal.
+ *
+ * @param {string} root state root
+ * @param {{now?: string|number, retentionDays?: number}} [options] `retentionDays`
+ *   defaults to `orders.retentionDays` in `config.json`, itself 90 when absent
+ *   or broken
+ * @param {{projectRoot?: string}} [context] the project layer to purge too
+ * @returns {Promise<Array<{id: string, text: string, status: string, purgedAt: string}>>}
+ */
+export async function orderPurge(root, { now, retentionDays } = {}, { projectRoot } = {}) {
+  const current = nowMs(now);
+  const retention = retentionDays === undefined ? await readRetentionDays(root) : retentionDays;
+
+  const files = [paths(root).orders];
+  if (isText(projectRoot)) files.push(projectOrdersPath(projectRoot));
+
+  const removed = [];
+  for (const file of files) {
+    // A layer without its file is not created here: nothing to purge, nothing
+    // to write.
+    if (!await existsFile(file)) continue;
+    await mutate(file, (store) => {
+      const kept = [];
+      for (const order of store.orders) {
+        const due = purgeAfter(order, retention, current);
+        // The purge date arrived: the retention after it is over. A row with no
+        // purge date is kept, never guessed at.
+        if (due === undefined || Date.parse(due) > current) kept.push(order);
+        else removed.push({ id: order.id, text: order.text, status: orderStatus(order, current), purgedAt: new Date(current).toISOString() });
+      }
+      store.orders = kept;
+    });
+  }
+
+  if (removed.length > 0) await appendPurgeLog(root, current, removed.map((order) => order.id));
+  return removed;
+}
 
 /**
  * Reports what a reader of the files would trip on: unknown scopes, empty
@@ -261,7 +403,8 @@ export async function orderLint(root, { projectRoot, now } = {}) {
 
 /**
  * Renders orders as Markdown for a human to read. The JSON stays the source;
- * this is only a view the caller may write as orders.md.
+ * this is only a view the caller may write as orders.md. An order that is not
+ * active says why: the reason it was revoked or the date it expired.
  */
 export function orderRender(orders) {
   if (!Array.isArray(orders)) fail('orders must be an array');
@@ -283,7 +426,16 @@ export function orderRender(orders) {
       parts.push(`— applies to: ${targets}`);
     }
     if (order?.until) parts.push(`— until ${order.until}`);
-    if (order?.active === false) parts.push('— revoked');
+    // A listed order brings its own status; a raw row is read as written, so
+    // the clock only decides an expiry.
+    const status = ['active', 'revoked', 'expired'].includes(order?.status)
+      ? order.status
+      : orderStatus(order);
+    if (status === 'revoked') {
+      parts.push(isText(order?.revokedReason) ? `— revoked: ${order.revokedReason}` : '— revoked');
+    } else if (status === 'expired') {
+      parts.push(`— expired ${order?.until ?? ''}`.trimEnd());
+    }
     lines.push(`${parts.join(' ')}`);
   }
   lines.push('');

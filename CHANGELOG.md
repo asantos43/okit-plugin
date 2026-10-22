@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial repository structure.
 - `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE.pt-BR.md`: the architecture note answering the open questions in `docs/DESIGN.md`, with per-client claims sourced and dated.
 - Optional `appliesTo` on inbox demands, standing orders and templates (`src/applies.js`): one global inbox and one global set of orders serve many projects, a record without the field is shared, `inboxList` and `orderList` filter by project plus the global records, `orderRender` shows it, and every child a template opens inherits it.
+- Derived status and retention for standing orders: `orderStatus` computes `active`, `revoked` or `expired` from the row without storing it, `orderList` adds that status (and the `purgeAfter` date) to a copy, `orderRender` says why an order is not active, a second revoke is refused, and `purgeAfter`/`orderPurge` remove an inactive order for good once `orders.retentionDays` (default 90) is over, logging `{ at, purged: [ids] }` to `logs/<date>.jsonl`; the daemon pass reports `purged` in its decision line.
 - `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE.pt-BR.md`: sections for what the core now does — schedules and recurrence, recurring templates, standing orders, the daemon pass order, spawn modes, maximum autonomy and the global state with `appliesTo`.
 
 ### Fixed

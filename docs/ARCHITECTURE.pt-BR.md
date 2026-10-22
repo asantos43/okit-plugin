@@ -180,10 +180,23 @@ Uma ordem é uma linha que o mantenedor escreve uma vez e o Diretor lê a cada d
 | Função | Efeito |
 | :- | :- |
 | `orderAdd(root, { text, scope, layer, until, origin, appliesTo }, { projectRoot })` | Adiciona uma ordem ativa; `until` precisa ser uma data no futuro. |
-| `orderRemove(root, id, { reason })` | Revoga: `active: false` com `revokedAt` e `revokedReason`. Nada é apagado, então o histórico sobrevive. |
-| `orderList(root, { activeOnly, appliesTo, now }, { projectRoot })` | As duas camadas fundidas, a global primeiro; o mesmo texto em um projeto substitui o global no lugar. `activeOnly` descarta revogadas e vencidas. |
+| `orderRemove(root, id, { reason })` | Revoga: `active: false` com `revokedAt` e `revokedReason`. Nada é apagado, então o histórico sobrevive. Uma segunda revogação é recusada. |
+| `orderStatus(order, now)` | O status derivado de uma ordem: `revoked`, `expired` ou `active`. |
+| `orderList(root, { activeOnly, appliesTo, now }, { projectRoot })` | As duas camadas fundidas, a global primeiro; o mesmo texto em um projeto substitui o global no lugar. `activeOnly` descarta revogadas e vencidas. Cada ordem volta com o `status` derivado e, quando inativa, a data `purgeAfter`. |
 | `orderLint(root, { projectRoot, now })` | O que quem lê os arquivos tropeçaria: texto vazio, escopo desconhecido, data ilegível, id repetido, ordem ativa com `until` passado, duas ordens vivas com o mesmo texto. |
+| `purgeAfter(order, retentionDays, now)` | O instante em que uma ordem inativa pode ser expurgada, ou `undefined` para uma ativa. |
+| `orderPurge(root, { now, retentionDays }, { projectRoot })` | Remove para sempre, nas duas camadas, toda ordem inativa cuja retenção acabou, e anexa `{ at, purged: [ids] }` a `logs/<date>.jsonl`. |
 | `orderRender(orders)` | Markdown para leitura humana. |
+
+O status é computado a partir da linha e nunca é gravado no arquivo, então quem lê o JSON vê só o que foi escrito:
+
+| Status | Como é derivado |
+| :- | :- |
+| `revoked` | `active` não é `true`: a ordem foi revogada, e o motivo está em `revokedReason`. |
+| `expired` | `until` é uma data que não está no futuro. No instante exato de `until` a ordem já está vencida. |
+| `active` | Qualquer outra coisa: nunca revogada e ainda dentro do seu `until`. |
+
+Revogar marca, não apaga: a linha continua com `active: false`, `revokedAt` e `revokedReason`. Adicionar de novo o mesmo texto depois cria uma ordem nova com id novo, e uma segunda revogação do mesmo id é recusada para que o primeiro motivo sobreviva. Uma ordem inativa é então expurgada para sempre quando a retenção acaba, e a expurgo fica registrado: `purgeAfter` é `revokedAt` para uma ordem revogada e `until` para uma vencida, mais `orders.retentionDays` (padrão 90) no `config.json`; `orderPurge` remove a linha das duas camadas só quando essa data chega, e escreve `{ at, purged: [ids] }` em `logs/<date>.jsonl` para que o rastro do que saiu sobreviva à remoção. Um `orders.retentionDays` quebrado volta ao padrão em vez de travar quem lê.
 
 Duas camadas: `global` (padrão) em `orders.json` na raiz do estado, e `project` em `<projectRoot>/.okwork/orders.json`; a camada é escolhida por `projectRoot` quando `layer` está ausente. Os ids são `G000001` na camada global e `O000001` na de projeto. `scope` é `all` ou `effort:simple`, `effort:normal`, `effort:hard`; `origin` é texto livre, com padrão `maintainer`, e um modelo escreve `template:<name>`. A ordem de um modelo é criada junto com o registro, movida em uma renomeação e revogada com motivo na remoção, então a ordem que permitia a execução deixa de permitir.
 
@@ -197,10 +210,11 @@ A ordem de uma passagem, `tick`:
 | 1 | Pausa | `daemon.paused` existe: o registro diz `paused`, nada é aberto e nada é iniciado. O laço continua rodando. |
 | 2 | Chave de parada | `daemon.stop` existe: o registro diz `stopped: kill switch`, e `daemonRun` sai do laço. |
 | 3 | Piso de cota | Todos os clientes das demandas pendentes abaixo de `daemon.minQuotaPct` param a passagem. Um cliente sem leitura não está abaixo do piso, então um cliente não medido nunca paralisa o daemon. |
-| 4 | Modelos vencidos | `openDue` com a pior leitura da passagem: a cota mais baixa e a menor ociosidade dos clientes que ele conhece. |
-| 5 | Demandas pendentes, mais antiga primeiro | A caixa lista das mais novas para as mais antigas, então a fila é invertida e uma demanda que espera atrás de outras nunca passa fome. Um período atende uma execução por vez: enquanto um irmão do mesmo `ext.template` e `ext.period` está `delegated` ou `criticised`, os outros esperam. |
-| 6 | Teto | Por demanda: `classify` quando o item não tem `effort`, `profilePick`, depois `acquireSlot` antes de o iniciador rodar e `releaseSlot` se ele recusar, então uma recusa não custa nada. |
-| 7 | Uma linha de decisão | `{ at, opened, spawned, skipped, stopped?, paused? }` anexada como uma única linha JSON em `logs/<date>.jsonl`, para quem lê o fim do arquivo ver sempre uma passagem inteira. |
+| 4 | Retenção | `orderPurge` tira das duas camadas toda ordem inativa cujo `orders.retentionDays` já acabou e anexa `{ at, purged: [ids] }` a `logs/<date>.jsonl`. Um daemon pausado ou parado não expurga nada. |
+| 5 | Modelos vencidos | `openDue` com a pior leitura da passagem: a cota mais baixa e a menor ociosidade dos clientes que ele conhece. |
+| 6 | Demandas pendentes, mais antiga primeiro | A caixa lista das mais novas para as mais antigas, então a fila é invertida e uma demanda que espera atrás de outras nunca passa fome. Um período atende uma execução por vez: enquanto um irmão do mesmo `ext.template` e `ext.period` está `delegated` ou `criticised`, os outros esperam. |
+| 7 | Teto | Por demanda: `classify` quando o item não tem `effort`, `profilePick`, depois `acquireSlot` antes de o iniciador rodar e `releaseSlot` se ele recusar, então uma recusa não custa nada. |
+| 8 | Uma linha de decisão | `{ at, opened, spawned, skipped, purged, stopped?, paused? }` anexada como uma única linha JSON em `logs/<date>.jsonl`, para quem lê o fim do arquivo ver sempre uma passagem inteira. |
 
 O daemon nunca recusa uma demanda por conta própria: uma demanda é pulada apenas por um limite técnico (pausa, chave de parada, piso de cota, teto de concorrência) ou por falha do iniciador, e cada pulo diz qual foi.
 
@@ -214,7 +228,7 @@ O daemon nunca recusa uma demanda por conta própria: uma demanda é pulada apen
 
 O iniciador é injetado: `deps` traz `now()`, `quota(client)`, `idle(client)` e `spawn(demand, { client, profile, limits, maxTurns, maxMinutes, runId })`. O `runId` que ele recebe é a vaga já reservada para a execução, então devolver o mesmo id é o caminho barato; devolver outro move a vaga para esse id, e quando esse id não pode ser tomado o original é tomado de novo.
 
-Ritmo: o intervalo é marcado por um relógio monotônico, então um salto do relógio de parede para frente ou para trás não muda nem o número de passagens nem a idempotência por período. Um daemon por raiz: `daemonRun` segura a trava `daemon` e lança erro quando outro já a segura. `daemonStatus` exige um pid vivo e um arquivo de pid que não esteja velho, então um daemon que morreu lido como parado mesmo com o arquivo de pid ainda em disco. Os padrões vivem em `daemon` no `config.json`: `intervalSeconds` 60, `minQuotaPct` 10, `logKeepDays` 14; um valor quebrado nunca para o laço.
+Ritmo: o intervalo é marcado por um relógio monotônico, então um salto do relógio de parede para frente ou para trás não muda nem o número de passagens nem a idempotência por período. Um daemon por raiz: `daemonRun` segura a trava `daemon` e lança erro quando outro já a segura. `daemonStatus` exige um pid vivo e um arquivo de pid que não esteja velho, então um daemon que morreu lido como parado mesmo com o arquivo de pid ainda em disco. Os padrões vivem em `daemon` no `config.json`: `intervalSeconds` 60, `minQuotaPct` 10, `logKeepDays` 14; um valor quebrado nunca para o laço. A retenção das ordens permanentes mora ao lado, em `orders`: `retentionDays` 90, os dias inteiros que uma ordem inativa é guardada antes de ser expurgada, onde um valor quebrado volta ao padrão.
 
 ## 12. Modos de início
 Dois modos por adaptador, e o `spawn()` do adaptador devolve o modo que usou. Planejado: nenhum adaptador foi escrito ainda.
