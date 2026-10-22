@@ -28,6 +28,7 @@ export function paths(root) {
     config: join(base, 'config.json'),
     inbox: join(base, 'inbox.json'),
     orders: join(base, 'orders.json'),
+    templates: join(base, 'templates.json'),
     quota: join(base, 'quota'),
     runs: join(base, 'runs'),
     locks: join(base, 'locks'),

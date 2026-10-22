@@ -148,6 +148,29 @@ export async function inboxList(root, { status, client, limit } = {}) {
 
 
 /**
+ * Merges `values` into the `ext` of one item, so a stored caller can correct a
+ * tag it owns without touching the demand itself. Keys left out keep their
+ * value, and an item with no `ext` gains one.
+ */
+export async function inboxSetExt(root, id, values) {
+  if (!isText(id)) fail('id must be a non-empty string');
+  if (values === undefined || values === null || typeof values !== 'object' || Array.isArray(values)) {
+    fail('ext values must be an object when given');
+  }
+  const wanted = id.trim();
+
+  return mutate(root, (store) => {
+    const item = store.items.find((candidate) => candidate.id === wanted);
+    if (!item) fail(`unknown inbox item ${wanted}`);
+
+    item.ext = { ...item.ext, ...values };
+    item.updatedAt = new Date().toISOString();
+    return item;
+  });
+}
+
+
+/**
  * Moves one item to a new status. Unknown ids and moves outside the sequence
  * pending -> delegated -> criticised -> consolidated are refused.
  */
