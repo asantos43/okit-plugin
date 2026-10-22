@@ -1,0 +1,18 @@
+{
+  "name": "okit-plugin",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Plugin for AI coding clients that spreads work over the client's own subagents",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/asantos43/okit-plugin"
+  }
+}
