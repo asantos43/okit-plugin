@@ -226,6 +226,25 @@ Dois modos por adaptador, e o `spawn()` do adaptador devolve o modo que usou. Pl
 
 Em `NATIVE` o núcleo não está no laço, então o teto é garantido pelas ferramentas MCP `acquire_slot` e `release_slot` em volta de `classify` e `profile_pick`. Em `PROCESS` o daemon reserva a vaga antes de o iniciador rodar, e a execução é um processo filho do daemon.
 
+### 12.1 Ferramentas MCP
+`src/mcp/server.js` é o servidor MCP: JSON-RPC 2.0 sobre JSON delimitado por quebras de linha no stdio, escrito à mão e sem dependências. `src/mcp/tools.js` guarda a tabela, uma ferramenta por função do núcleo, e cada manipulador valida os próprios argumentos de novo porque o `inputSchema` é documentação e nunca a única porta de entrada. Só quadros de protocolo vão para a saída padrão; o diagnóstico vai para a saída de erro.
+
+| Ferramenta | Entrada | Embrulha | Uma linha |
+| :- | :- | :- | :- |
+| `acquire_slot` | `runId`, `client`, `waitMs?` | `acquireSlot` | Reserva uma vaga, ou responde `ok: false` com o teto que recusou. |
+| `release_slot` | `runId` | `releaseSlot` | Libera a vaga de uma execução. |
+| `limits_status` | nenhum | `limitsStatus` | Os tetos e as execuções vivas por cliente. |
+| `classify` | `title`, `body?`, `kind?` | `classify` | `simple`, `normal` ou `hard`, mais o porquê. |
+| `profile_pick` | `client`, `effort`, `quota?` | `profilePick` | Modelo, esforço de raciocínio e `maxTurns` vindos do `config.json`. |
+| `inbox_add` | `title`, `body?`, `kind?`, `accept?`, `effort?`, `client?`, `appliesTo?` | `inboxAdd` | Adiciona uma demanda e devolve o item guardado. |
+| `inbox_list` | `status?`, `client?`, `appliesTo?`, `limit?` | `inboxList` | Lista as demandas, das mais novas às mais antigas. |
+| `inbox_set_status` | `id`, `status` | `inboxSetStatus` | Move uma demanda ao longo da sequência. |
+| `order_add` | `text`, `scope?`, `until?`, `appliesTo?` | `orderAdd` | Adiciona uma ordem permanente. |
+| `order_list` | `appliesTo?` | `orderList` | Lista as ordens ativas agora. |
+| `order_remove` | `id`, `reason?` | `orderRemove` | Revoga uma ordem; o motivo tem um padrão da própria ferramenta. |
+
+Métodos: `initialize`, `notifications/initialized`, `ping`, `tools/list` e `tools/call`. Toda ferramenta responde `{content: [{type: 'text', text}], isError}`, onde `text` é o JSON do que o núcleo devolveu, então uma recusa (`ok: false`, um teto cheio) e um resultado se leem do mesmo jeito. Um método desconhecido é `-32601`, uma ferramenta desconhecida `-32602`, uma linha que não é JSON `-32700` com id nulo; em todos os casos o laço continua lendo.
+
 ## 13. Autonomia
 Autonomia máxima é o padrão. O plugin não traz nenhuma lista fixa de ações proibidas: uma recusa vem de algo que o usuário escreveu ou de um limite técnico, nunca de uma regra que os mantenedores adivinharam.
 - As restrições são ordens permanentes. O usuário adiciona uma ("nunca dar push para `main`") e `orderRemove` a retira; nada mais pode adicionar restrição.

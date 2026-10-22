@@ -226,6 +226,25 @@ Two modes per adapter, and the adapter's `spawn()` returns the mode it used. Pla
 
 In `NATIVE` the core is not in the loop, so the cap is enforced by the MCP tools `acquire_slot` and `release_slot` around `classify` and `profile_pick`. In `PROCESS` the daemon reserves the slot itself before the spawner runs, and the run is a child process of the daemon.
 
+### 12.1 MCP tools
+`src/mcp/server.js` is the MCP server: JSON-RPC 2.0 over newline-delimited JSON on stdio, hand-written and with zero dependencies. `src/mcp/tools.js` holds the table, one tool per core function, and each handler validates its own arguments again because the `inputSchema` is documentation and never the only gate. Only protocol frames go to stdout; diagnostics go to stderr.
+
+| Tool | Input | Wraps | One line |
+| :- | :- | :- | :- |
+| `acquire_slot` | `runId`, `client`, `waitMs?` | `acquireSlot` | Reserves a slot, or answers `ok: false` with the cap that refused it. |
+| `release_slot` | `runId` | `releaseSlot` | Frees the slot of a run. |
+| `limits_status` | none | `limitsStatus` | The caps and the live runs per client. |
+| `classify` | `title`, `body?`, `kind?` | `classify` | `simple`, `normal` or `hard`, plus why. |
+| `profile_pick` | `client`, `effort`, `quota?` | `profilePick` | Model, reasoning effort and `maxTurns` from `config.json`. |
+| `inbox_add` | `title`, `body?`, `kind?`, `accept?`, `effort?`, `client?`, `appliesTo?` | `inboxAdd` | Adds a demand and returns the stored item. |
+| `inbox_list` | `status?`, `client?`, `appliesTo?`, `limit?` | `inboxList` | Lists demands newest first. |
+| `inbox_set_status` | `id`, `status` | `inboxSetStatus` | Moves one demand along the sequence. |
+| `order_add` | `text`, `scope?`, `until?`, `appliesTo?` | `orderAdd` | Adds a standing order. |
+| `order_list` | `appliesTo?` | `orderList` | Lists the orders active now. |
+| `order_remove` | `id`, `reason?` | `orderRemove` | Revokes one order; the reason defaults to the tool's own. |
+
+Methods: `initialize`, `notifications/initialized`, `ping`, `tools/list` and `tools/call`. Every tool answers `{content: [{type: 'text', text}], isError}` where `text` is the JSON of what the core returned, so a refusal (`ok: false`, a full cap) and a result read the same way. An unknown method is `-32601`, an unknown tool `-32602`, a line that is not JSON `-32700` with a null id; in every case the loop keeps reading.
+
 ## 13. Autonomy
 Maximum autonomy is the default. The plugin ships no hard-coded list of forbidden actions: a refusal comes from something the user wrote or from a technical bound, never from a rule the maintainers guessed.
 - Restrictions are standing orders. The user adds one ("never push to `main`") and `orderRemove` takes it back; nothing else can add a restriction.
