@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Quota table (`src/status.js`): `statusTable` renders the Markdown table and the capacity line over the adapters' readings with a TTL cache, `shouldShowStatus` decides whether a task is big enough to show it, `okit status [--locale en|pt-BR]` prints it, the `status` MCP tool answers it, and the Director skill names it as the view to show before a big task and on request.
+- `okit daemon status --table [--locale en|pt-BR]`: the same quota table and capacity line under the daemon status lines, built by `daemonStatus(root, { table })` only when asked for, so a daemon pass never reads a quota for it and the default output is unchanged.
 - Claude Code adapter (`adapters/claude-code/index.js`): the five functions of `docs/ARCHITECTURE.md` section 4 — `spawn` returning the Agent tool call in `NATIVE` and reusing `makeSpawner` in `PROCESS`, `readQuota` without an invented number, `capabilities`, `installSkill` and `installHooks`.
 - `PROCESS` spawn mode: `src/spawn-process.js` builds the headless command of `claude-code`, `codex` and `opencode` as a pure value and starts it without a shell, `src/autostart.js` generates the systemd, cron, launchd and schtasks plans, and the `okit` CLI (`daemon start|stop|status|pause|resume|run-once`, `autostart install|uninstall|show`) drives both.
 

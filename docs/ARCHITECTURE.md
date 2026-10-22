@@ -129,7 +129,7 @@ Never estimate, interpolate or carry a number over from another client. A stale 
 
 The Status column is a word, never ANSI: `green` at or more than 15 points above `lowQuotaPct`, `yellow` from the floor up to that, `red` below it, and `off` when there is no reading or the source is `off` — which blocks nothing. The row word follows the tightest of the windows, and a `red` row quotes the standing order that names the quota or the floor, falling back to `lowQuotaPct` itself. Below the table one line says how many executors can launch now (`limits.perClient` minus the live runs of the client, and `limits.global` minus all of them, clamped at 0) and the floor in force. Every word lives in one `LABELS` table with `en` and `pt-BR`, chosen by `deps.locale`.
 
-Readings are cached per client for `ttlMs` (60 s by default) against `deps.now`, so two calls in a row cost one read. `shouldShowStatus({size, slices, executors})` is true for size `L`, `slices >= 2` or `executors > 1`, and the Director shows the table when it is.
+Readings are cached per client for `ttlMs` (60 s by default) against `deps.now`, so two calls in a row cost one read. `shouldShowStatus({size, slices, executors})` is true for size `L`, `slices >= 2` or `executors > 1`, and the Director shows the table when it is. `okit daemon status --table [--locale en|pt-BR]` prints the same table under its daemon lines, and a daemon pass never reads a quota for it: `daemonStatus(root, { table })` builds it only when those deps are handed in.
 
 ## 6. Windows rules
 - Build every path with `node:path`, never by concatenating separators; store them with forward slashes, the form Claude Code substitutes, so what we write matches what the client reads.

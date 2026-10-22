@@ -14,6 +14,7 @@ import { acquireSlot, releaseSlot } from './limits.js';
 import { DEFAULT_CONFIG, profilePick } from './profiles.js';
 import { orderPurge } from './orders.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
+import { statusTable } from './status.js';
 import { paths } from './store.js';
 import { openDue } from './templates.js';
 
@@ -400,17 +401,24 @@ async function readLastTick(root, now = Date.now()) {
  * stopped even while its pid file is still on disk.
  *
  * @param {string} root state root
- * @param {{now?: number}} [options] the clock that names today's log file
- * @returns {Promise<{running: boolean, pid: number|null, startedAt: string|null, paused: boolean, lastTick: object|null}>}
+ * @param {{now?: number, table?: object}} [options] the clock that names today's
+ *   log file, and the `statusTable` deps of a table the caller asked for
+ * @returns {Promise<{running: boolean, pid: number|null, startedAt: string|null, paused: boolean, lastTick: object|null, table?: object}>}
  */
 export async function daemonStatus(root, options = {}) {
   const owner = await readJson(pidFile(root), null);
   const paused = await exists(pauseFile(root));
   const lastTick = await readLastTick(root, options.now ?? Date.now());
   const startedAt = typeof owner?.startedAt === 'number' ? owner.startedAt : null;
+  // The table is a view someone asked for, never something a pass reads: with no
+  // `options.table` nothing is read and the result is the one of any other day.
+  const table = options.table === undefined ? null : await statusTable(root, options.table);
+  const shown = table === null
+    ? {}
+    : { table: { markdown: table.markdown, capacityLine: table.capacityLine } };
 
   if (typeof owner?.pid !== 'number') {
-    return { running: false, pid: null, startedAt: null, paused, lastTick };
+    return { running: false, pid: null, startedAt: null, paused, lastTick, ...shown };
   }
   return {
     running: isProcessAlive(owner.pid) && !isStale(startedAt),
@@ -418,6 +426,7 @@ export async function daemonStatus(root, options = {}) {
     startedAt: startedAt === null ? null : new Date(startedAt).toISOString(),
     paused,
     lastTick,
+    ...shown,
   };
 }
 

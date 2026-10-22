@@ -19,6 +19,8 @@ async function exists(file) {
 // Scratch state lives inside the repository, never in the system temp folder.
 const TMP = fileURLToPath(new URL('../.delegate/tmp/', import.meta.url));
 
+const T0 = 1_760_000_000_000;
+
 const CONFIG = {
   limits: { global: 4, perClient: 3 },
   profiles: {
@@ -77,6 +79,88 @@ test('daemon status of an idle root reports nothing running', async (t) => {
   assert.deepEqual(run.out, [
     'running: false', 'pid: -', 'started: -', 'paused: false', 'last pass: -',
   ]);
+});
+
+// Must pass / must refuse table (`okit daemon status`):
+// | case                    | must pass                              | must refuse                     |
+// | `--table`               | the table under the daemon lines       | -                               |
+// | `--table --locale pt-BR`| Portuguese words in the same table      | -                               |
+// | no flag                 | the five daemon lines, unchanged       | -                               |
+// | `--locale` alone        | -                                      | exit 2                          |
+// | `--locale fr`           | -                                      | exit 2                          |
+// | `--nope`, stray arg     | -                                      | exit 2                          |
+// | `daemon pause --table`  | -                                      | exit 2                          |
+
+test('daemon status --table prints the quota table under the daemon lines', async (t) => {
+  const root = await tempRoot(t);
+  const readings = { 'claude-code': { source: 'api', remainingPct: 64, windowMinutes: 300 } };
+  const calls = [];
+  const io = {
+    root,
+    now: () => T0,
+    quotaCache: new Map(),
+    readQuota: async (client) => {
+      calls.push(client);
+      return readings[client] ?? { source: 'off' };
+    },
+  };
+
+  const run = await cli(['daemon', 'status', '--table'], io);
+  assert.equal(run.code, 0);
+  assert.deepEqual(run.out.slice(0, 5), [
+    'running: false', 'pid: -', 'started: -', 'paused: false', 'last pass: -',
+  ]);
+  assert.equal(run.out[5], '', 'a blank line separates the two halves');
+  assert.equal(run.out[6], '| Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age) |');
+  assert.equal(run.out[8], '| claude-code | 64% | - | - | green | api (0s) |');
+  assert.equal(run.out[9], 'executors that can launch now: 3 per client, 4 in total; quota floor 15%');
+  assert.equal(run.out.length, 10, 'nothing else is printed');
+  assert.deepEqual(calls, ['claude-code']);
+
+  const pt = await cli(['daemon', 'status', '--table', '--locale', 'pt-BR'], io);
+  assert.equal(pt.code, 0);
+  assert.equal(pt.out[6], '| Assinatura | Restante 5h | Restante semana | Reseta em | Situação | Origem (idade) |');
+  assert.equal(pt.out[8], '| claude-code | 64% | - | - | verde | api (0s) |');
+  assert.equal(pt.out[9], 'executores que podem iniciar agora: 3 por cliente, 4 no total; piso de cota 15%');
+
+  // Without the flag nothing changes and no quota is read: the second table came
+  // from the shared cache, since both calls fall inside the TTL.
+  const plain = await cli(['daemon', 'status'], io);
+  assert.deepEqual(plain.out, [
+    'running: false', 'pid: -', 'started: -', 'paused: false', 'last pass: -',
+  ]);
+  assert.deepEqual(calls, ['claude-code'], 'two tables inside the TTL read once');
+});
+
+test('daemon status refuses a locale without the table and a flag on another action', async (t) => {
+  const root = await tempRoot(t);
+  const calls = [];
+  const io = {
+    root,
+    now: () => T0,
+    quotaCache: new Map(),
+    readQuota: async (client) => {
+      calls.push(client);
+      return { source: 'off' };
+    },
+  };
+
+  for (const argv of [
+    ['daemon', 'status', '--locale', 'pt-BR'],
+    ['daemon', 'status', '--locale=pt-BR'],
+    ['daemon', 'status', '--table', '--locale', 'fr'],
+    ['daemon', 'status', '--nope'],
+    ['daemon', 'status', '--table=true'],
+    ['daemon', 'status', '--table', 'extra'],
+    ['daemon', 'pause', '--table'],
+    ['daemon', 'run-once', '--table'],
+  ]) {
+    const run = await cli(argv, io);
+    assert.equal(run.code, 2, `${argv.join(' ')} exits 2`);
+    assert.deepEqual(run.out, [], `${argv.join(' ')} prints nothing`);
+    assert.ok(run.err.join('\n').startsWith('usage: okit daemon start|stop|status|pause|resume|run-once'), run.err.join('\n'));
+  }
+  assert.deepEqual(calls, [], 'a refused command reads no quota');
 });
 
 test('daemon stop writes the kill switch the loop leaves on', async (t) => {
