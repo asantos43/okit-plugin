@@ -4,7 +4,6 @@ import process from 'node:process';
 
 const ROOT_FOLDER = '.okwork';
 const HOME_ENV = 'OKWORK_HOME';
-const PROJECT_FOLDER = '.okwork';
 
 /**
  * Resolves the state root: the override in the environment when it is set,
@@ -34,12 +33,4 @@ export function paths(root) {
     locks: join(base, 'locks'),
     logs: join(base, 'logs'),
   };
-}
-
-/**
- * Path of the standing orders of one project, which live beside the project
- * rather than in the shared root.
- */
-export function projectOrdersPath(projectRoot) {
-  return join(resolve(projectRoot), PROJECT_FOLDER, 'orders.json');
 }

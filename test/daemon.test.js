@@ -653,8 +653,8 @@ test('a tick purges the standing orders whose retention is over and logs it', as
     version: 1,
     seq: 2,
     orders: [
-      { id: 'G000001', text: 'live', scope: 'all', layer: 'global', active: true, createdAt: old },
-      { id: 'G000002', text: 'gone', scope: 'all', layer: 'global', active: false, createdAt: old, revokedAt: old, revokedReason: 'obsolete' },
+      { id: 'G000001', text: 'live', scope: 'all', active: true, createdAt: old },
+      { id: 'G000002', text: 'gone', scope: 'all', active: false, createdAt: old, revokedAt: old, revokedReason: 'obsolete' },
     ],
   });
   // 10 day retention: on 2030-03-05 the 63 day old row is well past it.
@@ -685,7 +685,7 @@ test('a tick keeps an order whose retention is still running and never purges wh
   await writeJsonAtomic(paths(root).orders, {
     version: 1,
     seq: 1,
-    orders: [{ id: 'G000001', text: 'gone', scope: 'all', layer: 'global', active: false, createdAt: '2029-01-01T00:00:00.000Z', revokedAt: '2029-01-01T00:00:00.000Z', revokedReason: 'obsolete' }],
+    orders: [{ id: 'G000001', text: 'gone', scope: 'all', active: false, createdAt: '2029-01-01T00:00:00.000Z', revokedAt: '2029-01-01T00:00:00.000Z', revokedReason: 'obsolete' }],
   });
   const { deps } = fakeDeps();
 

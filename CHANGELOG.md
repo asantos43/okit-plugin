@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Plugin skills: `skills/okit-director/SKILL.md`, `skills/okit-executor/SKILL.md` and `skills/okit-critic/SKILL.md` for the client to install, plus `installSkillFiles` in `src/skills.js`, which copies a skill folder without ever overwriting a file that already differs.
 - MCP server over stdio (`src/mcp/server.js`, `src/mcp/tools.js`): JSON-RPC 2.0 hand-written with zero dependencies and the twelve tools (`acquire_slot`, `release_slot`, `limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`) that let a client's own subagents hold the concurrency cap and read and write the inbox and the standing orders.
 
+### Changed
+
+- Standing orders have one store again: the project layer is gone, so every order lives in `orders.json` under the state root with a `G` id and `appliesTo` is what selects the projects (`orderAdd` with a `layer` is refused with `layer is gone: use appliesTo`), `projectOrdersPath` left `src/store.js`, and `orderMigrateProjects(root, projectRoots)` copies each old `<projectRoot>/.okwork/orders.json` into the store once — lazily from `orderList`/`orderAdd` when a `projectRoot` is passed — with `appliesTo` set to that project, `origin` `migrated:project` and a fresh `G` id, renaming the old file to `orders.json.migrated` instead of deleting it.
+
 ### Fixed
 
 - A stale lock takeover no longer acts on a verdict read before an earlier lock was replaced, so a lock that is fresh but has no `owner.json` yet is never moved aside, and an owner that loses its folder before the owner file lands takes the lock again instead of failing.

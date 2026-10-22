@@ -50,7 +50,7 @@ daemon.paused             pause file, written by daemonPause
 daemon.stop               kill switch, read by the daemon
 ```
 
-Project-side files live beside the project, not in this root: `<projectRoot>/.okwork/orders.json` for the project layer of standing orders (`projectOrdersPath`), plus the project's own `CLAUDE.md` (Claude Code) or `AGENTS.md` (Codex, opencode).
+Project-side files live beside the project, not in this root: the project's own `CLAUDE.md` (Claude Code) or `AGENTS.md` (Codex, opencode). Standing orders are not one of them — they all live in `orders.json` here, bound to a project by `appliesTo`.
 
 - Write: serialise to `<file>.<pid>.<random>.tmp`, then `fs.rename` over the target, so a reader never sees half a file. On `EPERM` or `EBUSY` (Windows) retry the rename a few times before failing.
 - Lock: `fs.mkdir` the `<name>.lock` folder, which holds `owner.json` `{pid, startedAt}`; `EEXIST` means busy; release with `rmdir`.
@@ -191,13 +191,14 @@ An order is a line the maintainer writes once and the Director reads with every 
 
 | Function | Effect |
 | :- | :- |
-| `orderAdd(root, { text, scope, layer, until, origin, appliesTo }, { projectRoot })` | Adds an active order; `until` must be a date in the future. |
+| `orderAdd(root, { text, scope, until, origin, appliesTo }, { projectRoot })` | Adds an active order to the one store; `until` must be a date in the future. A `layer` is refused with `layer is gone: use appliesTo`. |
 | `orderRemove(root, id, { reason })` | Revokes it: `active: false` with `revokedAt` and `revokedReason`. Nothing is deleted, so the history survives. A second revoke is refused. |
 | `orderStatus(order, now)` | The derived status of one order: `revoked`, `expired` or `active`. |
-| `orderList(root, { activeOnly, appliesTo, now }, { projectRoot })` | Both layers merged, global first; the same text in a project replaces the global one in place. `activeOnly` drops revoked and expired orders. Every order comes back with its derived `status` and, when inactive, the `purgeAfter` date. |
-| `orderLint(root, { projectRoot, now })` | What a reader of the files would trip on: empty text, unknown scope, unreadable dates, a repeated id, an active order past its `until`, two live orders with the same text. |
+| `orderList(root, { activeOnly, appliesTo, now }, { projectRoot })` | Lists the one store. `activeOnly` drops revoked and expired orders. Every order comes back with its derived `status` and, when inactive, the `purgeAfter` date. |
+| `orderMigrateProjects(root, projectRoots)` | One-time migration of the old project-side file into the store; returns `{ moved, skipped }`. |
+| `orderLint(root, { now })` | What a reader of the file would trip on: empty text, unknown scope, unreadable dates, a repeated id, an active order past its `until`, two live orders with the same text. |
 | `purgeAfter(order, retentionDays, now)` | The instant an inactive order may be purged, or `undefined` for an active one. |
-| `orderPurge(root, { now, retentionDays }, { projectRoot })` | Removes for good, in both layers, every inactive order whose retention is over, and appends `{ at, purged: [ids] }` to `logs/<date>.jsonl`. |
+| `orderPurge(root, { now, retentionDays })` | Removes for good every inactive order whose retention is over, and appends `{ at, purged: [ids] }` to `logs/<date>.jsonl`. |
 | `orderRender(orders)` | Markdown for a human to read. |
 
 Status is computed from the row and is never written to the file, so a reader of the JSON sees only what was written:
@@ -208,9 +209,9 @@ Status is computed from the row and is never written to the file, so a reader of
 | `expired` | `until` is a date that is not in the future. At the exact instant of `until` the order is already expired. |
 | `active` | Anything else: never revoked and still inside its `until`. |
 
-Revoking marks, it does not delete: the row stays with `active: false`, `revokedAt` and `revokedReason`. Re-adding the same text later makes a new order with a new id, and a second revoke of the same id is refused so the first reason survives. An inactive order is then purged for good once its retention is over, and the purge is logged: `purgeAfter` is `revokedAt` for a revoked order and `until` for an expired one, plus `orders.retentionDays` (default 90) in `config.json`; `orderPurge` removes the row from both layers only once that date has arrived, and writes `{ at, purged: [ids] }` to `logs/<date>.jsonl` so the trail of what went survives the removal. A broken `orders.retentionDays` falls back to the default instead of stopping a reader.
+Revoking marks, it does not delete: the row stays with `active: false`, `revokedAt` and `revokedReason`. Re-adding the same text later makes a new order with a new id, and a second revoke of the same id is refused so the first reason survives. An inactive order is then purged for good once its retention is over, and the purge is logged: `purgeAfter` is `revokedAt` for a revoked order and `until` for an expired one, plus `orders.retentionDays` (default 90) in `config.json`; `orderPurge` removes the row from the one store only once that date has arrived, and writes `{ at, purged: [ids] }` to `logs/<date>.jsonl` so the trail of what went survives the removal. A broken `orders.retentionDays` falls back to the default instead of stopping a reader.
 
-Two layers: `global` (default) in `orders.json` under the state root, and `project` in `<projectRoot>/.okwork/orders.json`; the layer is chosen by `projectRoot` when `layer` is absent. Ids are `G000001` in the global layer and `O000001` in the project one. `scope` is `all` or `effort:simple`, `effort:normal`, `effort:hard`; `origin` is free text, defaulting to `maintainer`, and a template writes `template:<name>`. A template's order is created with its record, moved on a rename and revoked with a reason on removal, so the order that allowed a run stops allowing it.
+One store: every order lives in `orders.json` under the state root and an id is `G000001`. There is no project layer any more — a project is chosen by `appliesTo`, which names the project ids or paths the order binds, and an order without it binds every project. `orderAdd` with a `layer` is refused with `layer is gone: use appliesTo`. The one-time `orderMigrateProjects(root, projectRoots)` copies each `<projectRoot>/.okwork/orders.json` of the old layout into the store with `appliesTo` set to that project path, `origin` `migrated:project` and a fresh `G` id, keeping text, scope, `until`, `active` and the revoke fields; a row already copied is skipped (same text plus `appliesTo`), the copy happens before the old file is renamed to `orders.json.migrated` and it is never deleted. It runs lazily from `orderList`/`orderAdd` when a `projectRoot` is passed, which is the only remaining use of `projectRoot`. `scope` is `all` or `effort:simple`, `effort:normal`, `effort:hard`; `origin` is free text, defaulting to `maintainer`, and a template writes `template:<name>`. A template's order is created with its record, moved on a rename and revoked with a reason on removal, so the order that allowed a run stops allowing it.
 
 ## 11. The daemon
 The daemon is the headless half: nobody watches, so every bound it respects is a technical one. The core spawns nothing itself — `spawn` is injected, so a test drives it and an adapter drives it for real.
@@ -222,7 +223,7 @@ The order of one pass, `tick`:
 | 1 | Pause | `daemon.paused` exists: the record says `paused`, nothing is opened and nothing is spawned. The loop keeps running. |
 | 2 | Kill switch | `daemon.stop` exists: the record says `stopped: kill switch`, and `daemonRun` leaves the loop. |
 | 3 | Quota floor | Every client of the pending demands below `daemon.minQuotaPct` stops the pass. A client with no reading is not below the floor, so an unmeasured client never paralyzes the daemon. |
-| 4 | Retention | `orderPurge` drops from both layers every inactive order whose `orders.retentionDays` is over and appends `{ at, purged: [ids] }` to `logs/<date>.jsonl`. A paused or stopped daemon purges nothing. |
+| 4 | Retention | `orderPurge` drops from the one store every inactive order whose `orders.retentionDays` is over and appends `{ at, purged: [ids] }` to `logs/<date>.jsonl`. A paused or stopped daemon purges nothing. |
 | 5 | Due templates | `openDue` with the worst reading of the pass: the lowest quota and the least idle of the clients it knows. |
 | 6 | Pending demands, oldest first | The inbox lists newest first, so the queue is reversed and a demand waiting behind newer ones never starves. A period serves one run at a time: while a sibling of the same `ext.template` and `ext.period` is still `delegated` or `criticised`, the others wait. |
 | 7 | Cap | Per demand: `classify` when the item has no `effort`, `profilePick`, then `acquireSlot` before the spawner runs and `releaseSlot` if it refuses, so a refusal costs nothing. |
@@ -304,7 +305,7 @@ One inbox, one set of standing orders, one template store, in one folder (`OKWOR
 | `validateAppliesTo(value)` | Trims and deduplicates, keeps the shape given, and never stores the default: a record without the field applies everywhere. |
 | `validateAppliesToFilter(value)` | The filter of a list: one project, or the shared records alone. A list of projects is refused, since the union would be ambiguous. |
 | `inScope(record, wanted)` | Whether a record shows for a project. |
-| `stateRoot(env)` / `paths(root)` / `projectOrdersPath(projectRoot)` | Where the state lives, the environment override first. |
+| `stateRoot(env)` / `paths(root)` | Where the state lives, the environment override first. |
 
 So: absent means every project, one name means that project, a list means each of them, and `global` combined with another project is refused because it says nothing precise. `inboxList`, `orderList` and `templateList` filter by project and always include the shared records; `templateSet` with `appliesTo: 'global'` drops the field, so a template goes back to shared.
 

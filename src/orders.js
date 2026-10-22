@@ -1,20 +1,25 @@
-import { appendFile, mkdir, stat } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { appendFile, mkdir, rename, stat } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 
 import { inScope, validateAppliesTo, validateAppliesToFilter } from './applies.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
-import { paths, projectOrdersPath } from './store.js';
+import { paths } from './store.js';
 
-export const LAYERS = ['global', 'project'];
 export const SCOPES = ['all', 'effort:simple', 'effort:normal', 'effort:hard'];
 
 const DEFAULT_SCOPE = 'all';
-const DEFAULT_LAYER = 'global';
 const DEFAULT_ORIGIN = 'maintainer';
 const DEFAULT_RETENTION_DAYS = 90;
 const ID_WIDTH = 6;
-const ID_PREFIX = { global: 'G', project: 'O' };
+const ID_PREFIX = 'G';
 const DAY_MS = 86_400_000;
+
+// Where the project orders of the old layout still sit, and where the one-time
+// migration parks them afterwards: the file is renamed, never deleted.
+const PROJECT_FOLDER = '.okwork';
+const PROJECT_ORDERS_FILE = 'orders.json';
+const MIGRATED_SUFFIX = '.migrated';
+const MIGRATED_ORIGIN = 'migrated:project';
 
 const emptyStore = () => ({ version: 1, seq: 0, orders: [] });
 
@@ -64,23 +69,124 @@ async function readRetentionDays(root) {
   return retentionDaysOf(await readJson(paths(root).config, {}));
 }
 
-// The layer decides the file: global orders share the root, project orders sit
-// in <projectRoot>/.okwork/orders.json and are optional.
-function targetOf(root, layer, projectRoot) {
-  if (layer === 'project') {
-    if (!isText(projectRoot)) fail('layer "project" needs projectRoot');
-    return { layer, file: projectOrdersPath(projectRoot) };
-  }
-  return { layer: 'global', file: paths(root).orders };
+// Every order lives in the one global store; a project is chosen by appliesTo,
+// never by a second file.
+function ordersFile(root) {
+  return paths(root).orders;
 }
 
-// A project root alone selects the project layer; without one every order is
-// global, which is the default store.
-function validateLayer(layer, projectRoot) {
-  if (layer === undefined) return isText(projectRoot) ? 'project' : DEFAULT_LAYER;
-  if (!LAYERS.includes(layer)) fail(`layer must be one of ${LAYERS.join('|')}`);
-  if (layer === 'project' && !isText(projectRoot)) fail('layer "project" needs projectRoot');
-  return layer;
+// The old project-side file of one project, still read only by the migration.
+function legacyProjectFile(projectRoot) {
+  return join(resolve(projectRoot), PROJECT_FOLDER, PROJECT_ORDERS_FILE);
+}
+
+// `projectRoot` was a single path or a list, so both shapes are read here.
+function asList(value) {
+  if (Array.isArray(value)) return value.filter(isText).map((entry) => entry.trim());
+  return isText(value) ? [value.trim()] : [];
+}
+
+// The projects a row applies to, lowercased, so a filter matches whatever shape
+// the field was stored in.
+function targetsOf(order) {
+  const value = order?.appliesTo;
+  if (value === undefined || value === null) return new Set();
+  const list = Array.isArray(value) ? value : [value];
+  return new Set(list.filter(isText).map((entry) => entry.trim().toLowerCase()));
+}
+
+function hasMigratedRow(orders, text, projectPath) {
+  const wanted = text.trim().toLowerCase();
+  const project = projectPath.toLowerCase();
+  return orders.some((order) => textKey(order) === wanted && targetsOf(order).has(project));
+}
+
+/**
+ * One-time migration of the project-side orders of the old layout into the one
+ * global store: every row of `<projectRoot>/.okwork/orders.json` is copied with
+ * `appliesTo` pointing at that project, `origin` `migrated:project` and a fresh
+ * `G` id, keeping text, scope, until, active and the revoke fields. A row already
+ * copied is skipped, matched by its text plus appliesTo, so a second call moves
+ * nothing. The copy happens first and the old file is then renamed to
+ * `orders.json.migrated`: it is never deleted, and the rename is what makes the
+ * work happen once.
+ *
+ * This is the only remaining use of `projectRoot`: nothing else reads a project
+ * folder. Callers pass one and `orderList`/`orderAdd` run it lazily, so old
+ * callers keep working.
+ *
+ * @param {string} root state root
+ * @param {string|string[]} projectRoots project roots to migrate, in any number
+ * @returns {Promise<{moved: number, skipped: number}>} rows copied and rows already there
+ */
+export async function orderMigrateProjects(root, projectRoots) {
+  const file = ordersFile(root);
+  const sources = [];
+  for (const projectRoot of asList(projectRoots)) {
+    const legacy = legacyProjectFile(projectRoot);
+    if (await existsFile(legacy)) sources.push({ legacy, projectPath: resolve(projectRoot) });
+  }
+
+  const counts = { moved: 0, skipped: 0 };
+  if (sources.length === 0) return counts;
+
+  // Only the files that really had orders are read again on the next call, and a
+  // file with nothing in it is left exactly as it was found.
+  const touched = [];
+  await mutate(file, async (store) => {
+    for (const source of sources) {
+      const rows = await readLegacyRows(source.legacy);
+      if (rows.length === 0) continue;
+      touched.push(source.legacy);
+      for (const row of rows) {
+        // The first row of a text wins: a repeated one inside the same project
+        // file is already in the store by the time it is read.
+        if (hasMigratedRow(store.orders, isText(row?.text) ? row.text : '', source.projectPath)) {
+          counts.skipped += 1;
+          continue;
+        }
+        store.seq += 1;
+        store.orders.push(migratedRow(store, row, source.projectPath));
+        counts.moved += 1;
+      }
+    }
+  });
+
+  // The rows are in the global store before the old file moves aside, so an
+  // interrupted run re-reads the file and skips what it already copied.
+  for (const legacy of touched) await rename(legacy, `${legacy}${MIGRATED_SUFFIX}`);
+  return counts;
+}
+
+// Reads the rows of a legacy file without ever failing a reader: a file that is
+// not there, unreadable or not a list of orders is simply nothing to migrate.
+async function readLegacyRows(legacy) {
+  const store = await readJson(legacy, emptyStore());
+  return Array.isArray(store?.orders) ? store.orders : [];
+}
+
+// The copy of one project row in the global store, with the fields that decide
+// its life kept as they were read.
+function migratedRow(store, row, projectPath) {
+  const copy = {
+    text: row?.text,
+    scope: row?.scope ?? DEFAULT_SCOPE,
+    origin: MIGRATED_ORIGIN,
+    appliesTo: projectPath,
+  };
+  if (typeof row?.until === 'string') copy.until = row.until;
+  // A row without a readable createdAt still needs one: the purge window and the
+  // view both count from it, and a guess is better than none for a copied row.
+  copy.createdAt = typeof row?.createdAt === 'string' && !Number.isNaN(Date.parse(row.createdAt))
+    ? row.createdAt
+    : new Date().toISOString();
+  // `active` is copied only when it is a flag: a row that never had one reads as
+  // revoked, and saying otherwise would revive it.
+  if (typeof row?.active === 'boolean') copy.active = row.active;
+  if (isText(row?.revokedAt)) copy.revokedAt = row.revokedAt;
+  if (isText(row?.revokedReason)) copy.revokedReason = row.revokedReason;
+  copy.id = nextId(store.seq);
+  return copy;
 }
 
 async function loadStore(file) {
@@ -102,7 +208,7 @@ async function mutate(file, fn) {
   });
 }
 
-const nextId = (layer, seq) => `${ID_PREFIX[layer]}${String(seq).padStart(ID_WIDTH, '0')}`;
+const nextId = (seq) => `${ID_PREFIX}${String(seq).padStart(ID_WIDTH, '0')}`;
 
 
 function clockNow(now) {
@@ -124,13 +230,19 @@ function nowMs(now) {
  * Adds a standing order. `until` must be a date in the future and the order
  * stops being active after it. `appliesTo` names the projects it binds; absent
  * or `global`, it binds every project and the field is left out.
+ *
+ * There is one store, so `layer` is gone: any value is refused and the caller is
+ * pointed at `appliesTo`. A `projectRoot` in the options is only read to migrate
+ * the orders of the old project-side layout, so old callers keep working; the
+ * new order itself is global unless it names its projects in `appliesTo`.
  */
 export async function orderAdd(root, { text, scope, layer, until, origin, appliesTo } = {}, { projectRoot } = {}) {
+  if (layer !== undefined) fail('layer is gone: use appliesTo');
+  if (isText(projectRoot)) await orderMigrateProjects(root, projectRoot);
   const current = clockNow();
   const order = {
     text: isText(text) ? text.trim() : fail('text must be a non-empty string'),
     scope: validateScope(scope),
-    layer: validateLayer(layer, projectRoot),
     origin: validateOrigin(origin),
   };
   const expiry = validateUntil(until, current);
@@ -138,12 +250,9 @@ export async function orderAdd(root, { text, scope, layer, until, origin, applie
   const appliesToValue = validateAppliesTo(appliesTo);
   if (appliesToValue !== undefined) order.appliesTo = appliesToValue;
 
-  const { layer: resolvedLayer, file } = targetOf(root, order.layer, projectRoot);
-  order.layer = resolvedLayer;
-
-  return mutate(file, (store) => {
+  return mutate(ordersFile(root), (store) => {
     store.seq += 1;
-    order.id = nextId(order.layer, store.seq);
+    order.id = nextId(store.seq);
     order.createdAt = new Date(current).toISOString();
     order.active = true;
     store.orders.push(order);
@@ -153,42 +262,27 @@ export async function orderAdd(root, { text, scope, layer, until, origin, applie
 
 
 /**
- * Revokes an order. Nothing is deleted: the row stays with `active: false` and
- * the reason, so the history survives. A second revoke is refused, so the first
- * `revokedAt` and `revokedReason` are never overwritten.
+ * Revokes an order of the one store. Nothing is deleted: the row stays with
+ * `active: false` and the reason, so the history survives. A second revoke is
+ * refused, so the first `revokedAt` and `revokedReason` are never overwritten.
  */
-export async function orderRemove(root, id, { reason } = {}, { projectRoot } = {}) {
+export async function orderRemove(root, id, { reason } = {}) {
   if (!isText(id)) fail('id must be a non-empty string');
   if (!isText(reason)) fail('reason must be a non-empty string');
   const wanted = id.trim();
   const at = new Date().toISOString();
-  const refused = `standing order ${wanted} is already revoked`;
 
-  const files = [paths(root).orders];
-  if (isText(projectRoot)) files.push(projectOrdersPath(projectRoot));
-
-  let revoked = false;
-  for (const file of files) {
-    try {
-      return await mutate(file, (store) => {
-        const order = store.orders.find((candidate) => candidate.id === wanted);
-        if (!order) fail(`unknown standing order ${wanted}`);
-        // Marking twice has nothing left to mark and would erase the first
-        // reason, which is the only record of why the order went away.
-        if (order.active !== true) fail(refused);
-        order.active = false;
-        order.revokedAt = at;
-        order.revokedReason = reason.trim();
-        return order;
-      });
-    } catch (error) {
-      // Both layers are searched: the id alone does not say which one holds it.
-      if (!(error instanceof TypeError)) throw error;
-      if (error.message === refused) revoked = true;
-    }
-  }
-  if (revoked) fail(refused);
-  fail(`unknown standing order ${wanted}`);
+  return mutate(ordersFile(root), (store) => {
+    const order = store.orders.find((candidate) => candidate.id === wanted);
+    if (!order) fail(`unknown standing order ${wanted}`);
+    // Marking twice has nothing left to mark and would erase the first reason,
+    // which is the only record of why the order went away.
+    if (order.active !== true) fail(`standing order ${wanted} is already revoked`);
+    order.active = false;
+    order.revokedAt = at;
+    order.revokedReason = reason.trim();
+    return order;
+  });
 }
 
 
@@ -218,46 +312,32 @@ export function orderStatus(order, now) {
   return Number.isNaN(until) || until > current ? 'active' : 'expired';
 }
 
-// Case and spacing never make two orders different: the same words in both
-// layers are one order, so the key is the trimmed lowercase text.
+// Case and spacing never make two orders different: the same words are one
+// order, so the key is the trimmed lowercase text.
 function textKey(order) {
   return typeof order?.text === 'string' ? order.text.trim().toLowerCase() : '';
 }
 
-async function readLayer(root, layer, projectRoot) {
-  if (layer === 'global') return (await loadStore(paths(root).orders)).orders;
-  if (!isText(projectRoot)) return [];
-  return (await loadStore(projectOrdersPath(projectRoot))).orders;
-}
-
 /**
- * Lists standing orders from both layers: global first, project after. When
- * the same text exists in both, the project one wins and the global one is
- * dropped. `now` is injectable so expiry can be tested. `appliesTo` narrows the
- * result to one project plus the global orders; `global` lists the global ones
- * alone.
+ * Lists the standing orders of the one store. `now` is injectable so expiry can
+ * be tested. `appliesTo` narrows the result to one project plus the global
+ * orders; `global` lists the global ones alone.
  *
  * Every order comes back with the derived `status` and, when it is inactive, the
  * `purgeAfter` date it may be removed at. Both are added to a copy: the stored
  * row keeps only what was written to it.
+ *
+ * A `projectRoot` in the options only triggers the one-time migration of the old
+ * project-side file, so callers from before the single store keep working.
  */
 export async function orderList(root, { activeOnly = true, appliesTo, now, retentionDays } = {}, { projectRoot } = {}) {
   if (typeof activeOnly !== 'boolean') fail('activeOnly must be a boolean when given');
   const wanted = validateAppliesToFilter(appliesTo);
   const current = clockNow(now);
+  if (isText(projectRoot)) await orderMigrateProjects(root, projectRoot);
 
-  const globalOrders = await readLayer(root, 'global');
-  const projectOrders = await readLayer(root, 'project', projectRoot);
-
-  // The project layer is read after the global one, so setting the same key
-  // again replaces the global order with the project one in place.
-  const winner = new Map();
-  for (const order of [...globalOrders, ...projectOrders]) {
-    winner.set(textKey(order), order);
-  }
-
-  const merged = [...winner.values()];
-  const live = activeOnly ? merged.filter((order) => isActiveNow(order, current)) : merged;
+  const stored = (await loadStore(ordersFile(root))).orders;
+  const live = activeOnly ? stored.filter((order) => isActiveNow(order, current)) : stored;
   const selected = wanted === undefined ? live : live.filter((order) => inScope(order, wanted));
 
   const retention = retentionDays === undefined ? await readRetentionDays(root) : retentionDays;
@@ -310,31 +390,27 @@ async function appendPurgeLog(root, at, ids) {
 }
 
 /**
- * Removes for good every inactive order whose retention has run out, in both
- * layers: the row is dropped from the file and returned, so the caller can say
- * what went away. An order inside its retention window and an active order are
- * never touched. Every purge appends `{ at, purged: [ids] }` to
+ * Removes for good every inactive order of the store whose retention has run
+ * out: the row is dropped from the file and returned, so the caller can say what
+ * went away. An order inside its retention window and an active order are never
+ * touched. Every purge appends `{ at, purged: [ids] }` to
  * `logs/<date>.jsonl`, so the trail of what was removed survives the removal.
  *
  * @param {string} root state root
  * @param {{now?: string|number, retentionDays?: number}} [options] `retentionDays`
  *   defaults to `orders.retentionDays` in `config.json`, itself 90 when absent
  *   or broken
- * @param {{projectRoot?: string}} [context] the project layer to purge too
  * @returns {Promise<Array<{id: string, text: string, status: string, purgedAt: string}>>}
  */
-export async function orderPurge(root, { now, retentionDays } = {}, { projectRoot } = {}) {
+export async function orderPurge(root, { now, retentionDays } = {}) {
   const current = nowMs(now);
   const retention = retentionDays === undefined ? await readRetentionDays(root) : retentionDays;
-
-  const files = [paths(root).orders];
-  if (isText(projectRoot)) files.push(projectOrdersPath(projectRoot));
+  const file = ordersFile(root);
 
   const removed = [];
-  for (const file of files) {
-    // A layer without its file is not created here: nothing to purge, nothing
-    // to write.
-    if (!await existsFile(file)) continue;
+  // A root without the file is not created here: nothing to purge, nothing to
+  // write.
+  if (await existsFile(file)) {
     await mutate(file, (store) => {
       const kept = [];
       for (const order of store.orders) {
@@ -357,43 +433,37 @@ export async function orderPurge(root, { now, retentionDays } = {}, { projectRoo
  * text, bad dates, repeated ids, an active order past its until and two live
  * orders with the same text.
  */
-export async function orderLint(root, { projectRoot, now } = {}) {
+export async function orderLint(root, { now } = {}) {
   const current = clockNow(now);
   const problems = [];
-  const add = (layer, code, message, id) => problems.push({ layer, code, message, id: id ?? null });
+  const add = (code, message, id) => problems.push({ code, message, id: id ?? null });
 
-  const layers = await Promise.all([
-    readLayer(root, 'global'),
-    readLayer(root, 'project', projectRoot),
-  ]);
+  const orders = (await loadStore(ordersFile(root))).orders;
 
-  const seenIds = new Map();
-  const liveTexts = new Map();
-  for (const [index, orders] of layers.entries()) {
-    const layer = index === 0 ? 'global' : 'project';
-    for (const order of orders) {
-      const id = typeof order.id === 'string' ? order.id : '(no id)';
-      if (!isText(order.text)) add(layer, 'empty-text', `${id} has no text`, order.id);
-      if (!SCOPES.includes(order.scope)) add(layer, 'unknown-scope', `${id} has an unknown scope: ${order.scope}`, order.id);
-      if (order.until !== undefined && Number.isNaN(Date.parse(order.until))) {
-        add(layer, 'bad-date', `${id} has an unreadable until: ${order.until}`, order.id);
-      }
-      if (typeof order.createdAt === 'string' && Number.isNaN(Date.parse(order.createdAt))) {
-        add(layer, 'bad-date', `${id} has an unreadable createdAt: ${order.createdAt}`, order.id);
-      }
-      if (seenIds.has(order.id)) {
-        add(layer, 'duplicate-id', `id ${order.id} appears in both layers`, order.id);
-      } else {
-        seenIds.set(order.id, layer);
-      }
-      if (order.active === true && !isActiveNow(order, current)) {
-        add(layer, 'expired-active', `${id} is active but its until has passed`, order.id);
-      }
-      if (isActiveNow(order, current) && isText(order.text)) {
-        const key = textKey(order);
-        if (liveTexts.has(key)) add(layer, 'duplicate-active-text', `${id} repeats a live order: ${order.text}`, order.id);
-        else liveTexts.set(key, id);
-      }
+  const seenIds = new Set();
+  const liveTexts = new Set();
+  for (const order of orders) {
+    const id = typeof order.id === 'string' ? order.id : '(no id)';
+    if (!isText(order.text)) add('empty-text', `${id} has no text`, order.id);
+    if (!SCOPES.includes(order.scope)) add('unknown-scope', `${id} has an unknown scope: ${order.scope}`, order.id);
+    if (order.until !== undefined && Number.isNaN(Date.parse(order.until))) {
+      add('bad-date', `${id} has an unreadable until: ${order.until}`, order.id);
+    }
+    if (typeof order.createdAt === 'string' && Number.isNaN(Date.parse(order.createdAt))) {
+      add('bad-date', `${id} has an unreadable createdAt: ${order.createdAt}`, order.id);
+    }
+    if (seenIds.has(order.id)) {
+      add('duplicate-id', `id ${order.id} appears more than once`, order.id);
+    } else {
+      seenIds.add(order.id);
+    }
+    if (order.active === true && !isActiveNow(order, current)) {
+      add('expired-active', `${id} is active but its until has passed`, order.id);
+    }
+    if (isActiveNow(order, current) && isText(order.text)) {
+      const key = textKey(order);
+      if (liveTexts.has(key)) add('duplicate-active-text', `${id} repeats a live order: ${order.text}`, order.id);
+      else liveTexts.add(key);
     }
   }
 
