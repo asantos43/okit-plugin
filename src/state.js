@@ -1,0 +1,206 @@
+import { randomBytes } from 'node:crypto';
+import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
+import process from 'node:process';
+
+const RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY']);
+const RENAME_MAX_ATTEMPTS = 5;
+const RENAME_BACKOFF_MS = 10;
+const LOCK_POLL_MS = 25;
+const LOCK_OWNER_FILE = 'owner.json';
+
+const sleep = (ms) => new Promise((resolve) => {
+  setTimeout(resolve, ms);
+});
+
+/**
+ * Reads a JSON file, returning `fallback` when the file does not exist.
+ */
+export async function readJson(file, fallback) {
+  let raw;
+  try {
+    raw = await readFile(file, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return fallback;
+    throw new Error(`Cannot read ${file}: ${error.message}`, { cause: error });
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Invalid JSON in ${file}: ${error.message}`, { cause: error });
+  }
+}
+
+/**
+ * Writes the data and flushes it to disk before the file is closed, so the
+ * rename below can never expose a half-written file.
+ */
+async function writeAndSync(file, data) {
+  const handle = await open(file, 'w');
+  try {
+    await handle.writeFile(data);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+// Windows keeps a short-lived handle on a file that was just closed, so a
+// single rename can fail with EPERM/EBUSY even when nothing else uses the file.
+async function renameWithRetry(from, to) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await rename(from, to);
+      return;
+    } catch (error) {
+      const retryable = RENAME_RETRY_CODES.has(error.code) && attempt < RENAME_MAX_ATTEMPTS;
+      if (!retryable) throw error;
+      await sleep(RENAME_BACKOFF_MS);
+    }
+  }
+}
+
+/**
+ * Writes JSON atomically: a sibling temporary file is synced and then renamed
+ * over the target, which is atomic on every supported platform.
+ */
+export async function writeJsonAtomic(file, value) {
+  const folder = dirname(file);
+  const temp = join(folder, `${basename(file)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
+  await mkdir(folder, { recursive: true });
+
+  try {
+    await writeAndSync(temp, `${JSON.stringify(value, null, 2)}\n`);
+    await renameWithRetry(temp, file);
+  } catch (error) {
+    await rm(temp, { force: true });
+    throw new Error(`Cannot write ${file}: ${error.message}`, { cause: error });
+  }
+}
+
+// ESRCH means the pid is gone; EPERM means it exists but belongs to someone
+// else. Any other error is treated as alive to avoid stealing a live lock.
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code !== 'ESRCH';
+  }
+}
+
+// A lock folder whose owner file is unreadable or malformed is reported as
+// unknown rather than fatal: the wait loop still ends with a clear timeout.
+async function readLockOwner(lockDir) {
+  try {
+    const owner = await readJson(join(lockDir, LOCK_OWNER_FILE), null);
+    return owner && typeof owner.pid === 'number' ? owner : null;
+  } catch {
+    return null;
+  }
+}
+
+function isSameOwner(a, b) {
+  if (!a || !b) return a === b;
+  return a.pid === b.pid && a.startedAt === b.startedAt;
+}
+
+// A process that died between mkdir and the owner write leaves a lock folder
+// with no owner. Its mtime is the only age evidence left and no pid can vouch
+// for it, so only the clock decides when it is stale.
+async function lockStartedAt(lockDir, owner) {
+  if (owner && typeof owner.startedAt === 'number') return owner.startedAt;
+  try {
+    return (await stat(lockDir)).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+// Renaming a stale lock aside is the only race-free takeover: exactly one
+// waiter moves the folder and the others get ENOENT and loop. Deleting it in
+// place would let a waiter erase the fresh lock of whoever took over first.
+async function parkStaleLock(lockDir, seen, startedAt) {
+  const parked = `${lockDir}.stale.${process.pid}.${randomBytes(4).toString('hex')}`;
+  try {
+    await rename(lockDir, parked);
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'EEXIST') return false;
+    throw error;
+  }
+
+  const actual = await readLockOwner(parked);
+  const sameLock = isSameOwner(seen, actual)
+    && await lockStartedAt(parked, actual) === startedAt;
+  if (!sameLock || (actual && isProcessAlive(actual.pid))) {
+    // We moved a lock that is not the stale one we judged: give it back.
+    try {
+      await rename(parked, lockDir);
+    } catch {
+      // Someone else took the path; leave the folder alone. Its owner then
+      // fails loudly instead of silently running unlocked.
+    }
+    return false;
+  }
+
+  await rm(parked, { recursive: true, force: true });
+  return true;
+}
+
+// A lock left behind by a crashed process would block everyone forever, so an
+// old lock whose owner is dead is moved aside and taken over.
+async function removeStaleLock(lockDir, staleMs) {
+  const owner = await readLockOwner(lockDir);
+  const startedAt = await lockStartedAt(lockDir, owner);
+  if (startedAt === null || Date.now() - startedAt <= staleMs) return false;
+  if (owner && isProcessAlive(owner.pid)) return false;
+  return parkStaleLock(lockDir, owner, startedAt);
+}
+
+function describeOwner(owner) {
+  return owner ? `pid ${owner.pid} since ${new Date(owner.startedAt).toISOString()}` : 'an unknown process';
+}
+
+async function acquireLock(lockDir, timeoutMs, staleMs) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      // mkdir without recursive fails with EEXIST, which is the atomic
+      // mutual exclusion primitive available on Linux, macOS and Windows.
+      await mkdir(lockDir);
+      return;
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
+
+    if (await removeStaleLock(lockDir, staleMs)) continue;
+    if (Date.now() >= deadline) {
+      const owner = await readLockOwner(lockDir);
+      throw new Error(`Lock ${lockDir} is held by ${describeOwner(owner)} after ${timeoutMs} ms`);
+    }
+    await sleep(LOCK_POLL_MS);
+  }
+}
+
+/**
+ * Runs `fn` while holding an exclusive lock on `dir`, then releases it.
+ */
+export async function withLock(dir, fn, { timeoutMs = 5000, staleMs = 30000 } = {}) {
+  const lockDir = `${dir}.lock`;
+  await acquireLock(lockDir, timeoutMs, staleMs);
+
+  const owner = { pid: process.pid, startedAt: Date.now() };
+  try {
+    await writeFile(join(lockDir, LOCK_OWNER_FILE), `${JSON.stringify(owner, null, 2)}\n`, 'utf8');
+  } catch (error) {
+    await rm(lockDir, { recursive: true, force: true });
+    throw new Error(`Cannot write the owner of ${lockDir}: ${error.message}`, { cause: error });
+  }
+
+  try {
+    return await fn();
+  } finally {
+    await rm(lockDir, { recursive: true, force: true });
+  }
+}
