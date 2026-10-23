@@ -19,7 +19,7 @@ import { orderAdd, orderList, orderRemove } from '../orders.js';
 import { DEFAULT_CONFIG } from '../profiles.js';
 import { installSkillFiles } from '../skills.js';
 import { buildCommand, makeSpawner } from '../spawn-process.js';
-import { withLock, writeJsonAtomic } from '../state.js';
+import { ATOMIC_WRITE_RETRY_BUDGET_MS, isTransientError, withLock, writeJsonAtomic } from '../state.js';
 import { statusTable } from '../status.js';
 import { paths } from '../store.js';
 import { openDue, templateAdd, templateList, templateRemove, templateSet } from '../templates.js';
@@ -75,11 +75,19 @@ async function deadPid() {
 
 // Polls a condition of the disk or of a running loop, so a check waits for what
 // it needs instead of guessing a pause.
-async function waitFor(cond) {
-  for (let attempt = 0; attempt < 400; attempt += 1) {
+const POLL_MS = 2;
+const POLL_ATTEMPTS = 400;
+// The daemon writes its pid file while this check reads it in a loop, and
+// Windows refuses the rename while the reader holds the file open. The read
+// that loses the race with the rename is a refusal, not a failure, and the wait
+// covers the whole budget of the write that is being waited for.
+const PID_WRITE_POLL_ATTEMPTS = Math.ceil(ATOMIC_WRITE_RETRY_BUDGET_MS / POLL_MS) + POLL_ATTEMPTS;
+
+async function waitFor(cond, attempts = POLL_ATTEMPTS) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (await cond()) return true;
     await new Promise((resolve) => {
-      setTimeout(resolve, 2);
+      setTimeout(resolve, POLL_MS);
     });
   }
   return false;
@@ -230,10 +238,21 @@ async function daemonStatusCheck(deps) {
     signal: controller.signal,
     sleep: async () => { await held; },
   });
-  await waitFor(async () => (await daemonStatus(root, { now: deps.now() })).running);
-  const live = await daemonStatus(root, { now: deps.now() });
-  need(live.running === true && live.pid === process.pid, `the live loop must read as running, got ${live.running}`);
-  need(live.lastTick !== null, 'the live loop must have left its decision line');
+  // This check reads the pid file in a loop while the daemon renames its own
+  // over it, and Windows refuses that rename while the reader holds the file
+  // open. The read that loses the race is a refusal to wait out, not a failure.
+  const status = async () => {
+    try {
+      return await daemonStatus(root, { now: deps.now() });
+    } catch (error) {
+      if (!isTransientError(error)) throw error;
+      return null;
+    }
+  };
+  await waitFor(async () => (await status())?.running === true, PID_WRITE_POLL_ATTEMPTS);
+  const live = await status();
+  need(live !== null && live.running === true && live.pid === process.pid, `the live loop must read as running, got ${live?.running}`);
+  need(live?.lastTick !== null, 'the live loop must have left its decision line');
 
   controller.abort();
   release();

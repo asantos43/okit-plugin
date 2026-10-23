@@ -9,16 +9,60 @@ import process from 'node:process';
 // pause that grows, and only a real answer (EEXIST, ENOENT) or an unexpected code
 // stops the wait and goes back to the caller.
 const TRANSIENT_CODES = new Set(['EPERM', 'EBUSY']);
+// A refusal is a lost attempt, not a broken lock: the contender tries again
+// until its own timeout says the lock is still held, and the timeout names the
+// code it was refused with. Windows refuses a folder another process is
+// removing or taking with EPERM, EBUSY or EACCES.
+const LOCK_REFUSAL_CODES = new Set([...TRANSIENT_CODES, 'EACCES']);
 // Emptied but not yet removed: another contender wrote an entry back between
 // the unlink and the rmdir, so the folder that answered is not the one this
 // holder emptied.
 const REPOPULATED_CODE = 'ENOTEMPTY';
-const TRANSIENT_MAX_ATTEMPTS = 8;
-const TRANSIENT_BACKOFF_MS = 10;
-const TRANSIENT_BACKOFF_CAP_MS = 200;
+
+// The whole wall-clock a retry policy can spend: what a caller has to wait
+// before the last attempt is over.
+function retryBudgetMs(retry) {
+  let total = 0;
+  for (let attempt = 1; attempt < retry.maxAttempts; attempt += 1) {
+    total += Math.min(retry.backoffMs * attempt, retry.backoffCapMs);
+  }
+  return total;
+}
+
+export const TRANSIENT_MAX_ATTEMPTS = 8;
+export const TRANSIENT_BACKOFF_MS = 10;
+export const TRANSIENT_BACKOFF_CAP_MS = 200;
+export const TRANSIENT_RETRY = Object.freeze({
+  maxAttempts: TRANSIENT_MAX_ATTEMPTS,
+  backoffMs: TRANSIENT_BACKOFF_MS,
+  backoffCapMs: TRANSIENT_BACKOFF_CAP_MS,
+});
+// A file that another process reads while it is replaced is refused for as
+// long as that reader holds it, and the reader of `daemon.pid.json` polls it
+// in a loop. The atomic write waits out more attempts than the lock does, and
+// every limit of it comes from the transient ones above.
+export const ATOMIC_WRITE_ATTEMPT_MULTIPLIER = 4;
+export const ATOMIC_WRITE_ATTEMPTS = TRANSIENT_MAX_ATTEMPTS * ATOMIC_WRITE_ATTEMPT_MULTIPLIER;
+export const ATOMIC_WRITE_BACKOFF_MS = TRANSIENT_BACKOFF_MS;
+export const ATOMIC_WRITE_BACKOFF_CAP_MS = TRANSIENT_BACKOFF_CAP_MS;
+export const ATOMIC_WRITE_RETRY = Object.freeze({
+  maxAttempts: ATOMIC_WRITE_ATTEMPTS,
+  backoffMs: ATOMIC_WRITE_BACKOFF_MS,
+  backoffCapMs: ATOMIC_WRITE_BACKOFF_CAP_MS,
+});
+// The whole wall-clock the atomic write can spend waiting out refusals.
+export const ATOMIC_WRITE_RETRY_BUDGET_MS = retryBudgetMs(ATOMIC_WRITE_RETRY);
 const LOCK_POLL_MS = 25;
 const LOCK_OWNER_FILE = 'owner.json';
 const LOCK_CLAIM_PREFIX = `${LOCK_OWNER_FILE}.claim.`;
+
+/**
+ * Whether an error is one of the refusals Windows answers for as long as a
+ * handle lasts, so a caller can wait it out instead of failing.
+ */
+export function isTransientError(error) {
+  return TRANSIENT_CODES.has(error?.code) || TRANSIENT_CODES.has(error?.cause?.code);
+}
 
 // Two test seams: `probe` drives the interleaving a takeover has to survive, and
 // `faults` raises the code Windows would raise for one step of it, which is the
@@ -26,18 +70,18 @@ const LOCK_CLAIM_PREFIX = `${LOCK_OWNER_FILE}.claim.`;
 const NO_PROBE = () => {};
 const NO_FAULTS = () => null;
 
-const faultError = (step, code) => Object.assign(new Error(`${step} the lock: ${code}`), { code });
+const faultError = (step, code) => Object.assign(new Error(`${step}: ${code}`), { code });
 
-async function retryTransient(step, faults, call) {
+async function retryTransient(step, faults, call, retry = TRANSIENT_RETRY) {
   for (let attempt = 1; ; attempt += 1) {
     const injected = faults(step, attempt);
     try {
       if (injected !== null) throw faultError(step, injected);
       return await call();
     } catch (error) {
-      const retryable = TRANSIENT_CODES.has(error.code) && attempt < TRANSIENT_MAX_ATTEMPTS;
+      const retryable = TRANSIENT_CODES.has(error.code) && attempt < retry.maxAttempts;
       if (!retryable) throw error;
-      await sleep(Math.min(TRANSIENT_BACKOFF_MS * attempt, TRANSIENT_BACKOFF_CAP_MS));
+      await sleep(Math.min(retry.backoffMs * attempt, retry.backoffCapMs));
     }
   }
 }
@@ -81,20 +125,21 @@ async function writeAndSync(file, data) {
 
 // Windows keeps a short-lived handle on a file that was just closed, so a single
 // rename can fail with EPERM/EBUSY even when nothing else uses the file.
-const renameWithRetry = (from, to, faults = NO_FAULTS) => retryTransient('rename', faults, () => rename(from, to));
+const renameWithRetry = (from, to, faults = NO_FAULTS, retry) =>
+  retryTransient('rename', faults, () => rename(from, to), retry);
 
 /**
  * Writes JSON atomically: a sibling temporary file is synced and then renamed
  * over the target, which is atomic on every supported platform.
  */
-export async function writeJsonAtomic(file, value) {
+export async function writeJsonAtomic(file, value, { faults = NO_FAULTS, retry = ATOMIC_WRITE_RETRY } = {}) {
   const folder = dirname(file);
   const temp = join(folder, `${basename(file)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
   await mkdir(folder, { recursive: true });
 
   try {
     await writeAndSync(temp, `${JSON.stringify(value, null, 2)}\n`);
-    await renameWithRetry(temp, file);
+    await renameWithRetry(temp, file, faults, retry);
   } catch (error) {
     await rm(temp, { force: true });
     throw new Error(`Cannot write ${file}: ${error.message}`, { cause: error });
@@ -207,10 +252,10 @@ async function claimFolder(lockDir, staleMs, probe, faults) {
 // it checks that this is the same dead owner it judged.
 async function claimStaleLock(lockDir, staleMs, probe, faults) {
   const owner = await readLockOwner(lockDir);
-  if (!owner) return claimFolder(lockDir, staleMs, probe, faults);
-  if (isProcessAlive(owner.pid)) return false;
+  if (!owner) return { acquired: await claimFolder(lockDir, staleMs, probe, faults), refusal: null };
+  if (isProcessAlive(owner.pid)) return { acquired: false, refusal: null };
   const startedAt = await lockStartedAt(lockDir, owner);
-  if (startedAt === null || Date.now() - startedAt <= staleMs) return false;
+  if (startedAt === null || Date.now() - startedAt <= staleMs) return { acquired: false, refusal: null };
 
   await probe('verdict');
   const claim = join(lockDir, `${LOCK_CLAIM_PREFIX}${process.pid}.${randomBytes(4).toString('hex')}`);
@@ -219,12 +264,14 @@ async function claimStaleLock(lockDir, staleMs, probe, faults) {
   } catch (error) {
     // ENOENT: another taker took this claim first, or the folder is a new one
     // whose owner has not written its claim yet. Neither is ours to move.
-    if (error.code === 'ENOENT') return false;
+    if (error.code === 'ENOENT') return { acquired: false, refusal: null };
     // Nothing has been moved out of this folder, so the evidence every waiter
     // reads is still where this verdict found it: give the attempt up and let
     // the loop judge again rather than end the run over a refusal that outlived
-    // every retry, the same answer the owner write below gives.
-    if (TRANSIENT_CODES.has(error.code)) return false;
+    // every retry, the same answer the owner write below gives. The code comes
+    // back to the caller so the timeout can name the refusal instead of
+    // blaming a lock that is only held by a dead pid.
+    if (TRANSIENT_CODES.has(error.code)) return { acquired: false, refusal: error.code };
     throw error;
   }
 
@@ -238,7 +285,7 @@ async function claimStaleLock(lockDir, staleMs, probe, faults) {
     // Not the claim we judged: put it back, since whoever waits on that folder
     // decides from it, and the owner that wrote it does not read it back.
     await restoreClaim(lockDir, claim, raw, faults);
-    return false;
+    return { acquired: false, refusal: null };
   }
   // The claim has served its purpose, so the folder is ours to write into. A
   // folder that cannot drop it is still a folder with an owner file, which is
@@ -250,13 +297,13 @@ async function claimStaleLock(lockDir, staleMs, probe, faults) {
     await writeOwnerExclusive(lockDir, currentOwner(), faults);
   } catch (error) {
     await restoreClaim(lockDir, claim, raw, faults);
-    if (error.code === 'EEXIST' || error.code === 'ENOENT') return false;
+    if (error.code === 'EEXIST' || error.code === 'ENOENT') return { acquired: false, refusal: null };
     // The evidence is back, so the folder is claimable again and this process
     // has lost nothing but the attempt: the loop comes back and judges once more.
-    if (TRANSIENT_CODES.has(error.code)) return false;
+    if (TRANSIENT_CODES.has(error.code)) return { acquired: false, refusal: null };
     throw error;
   }
-  return true;
+  return { acquired: true, refusal: null };
 }
 
 // Puts a claim where the waiters of that folder read it. The rename is the fast
@@ -288,33 +335,47 @@ function describeOwner(owner) {
 // exclusion primitive available on Linux, macOS and Windows. The owner file
 // goes in right after, exclusively: a folder that a taker claimed in between
 // costs one more attempt and nothing else, since the callback has not run yet
-// and the folder is not ours to remove.
-async function tryCreateLock(lockDir, faults) {
+// and the folder is not ours to remove. Windows refuses the same call with
+// EPERM, EBUSY or EACCES while another process is removing or taking that
+// folder: the attempt is lost, not the lock broken, so the contender tries
+// again and the refusal is kept to name the timeout.
+async function tryCreateLock(lockDir, faults, attempt) {
   try {
+    const injected = faults('mkdir', attempt);
+    if (injected !== null) throw faultError('mkdir', injected);
     await mkdir(lockDir);
   } catch (error) {
-    if (error.code === 'EEXIST') return false;
+    if (error.code === 'EEXIST') return { acquired: false, refusal: null };
+    if (LOCK_REFUSAL_CODES.has(error.code)) return { acquired: false, refusal: error.code };
     throw error;
   }
 
   try {
     await writeOwnerExclusive(lockDir, currentOwner(), faults);
   } catch (error) {
-    if (error.code === 'EEXIST' || error.code === 'ENOENT') return false;
+    if (error.code === 'EEXIST' || error.code === 'ENOENT') return { acquired: false, refusal: null };
     await rm(lockDir, { recursive: true, force: true });
     throw new Error(`Cannot write the owner of ${lockDir}: ${error.message}`, { cause: error });
   }
-  return true;
+  return { acquired: true, refusal: null };
 }
 
 async function acquireLock(lockDir, timeoutMs, staleMs, probe, faults) {
   const deadline = Date.now() + timeoutMs;
+  let lastRefusal = null;
+  let mkdirAttempt = 0;
   for (;;) {
-    if (await tryCreateLock(lockDir, faults)) return;
-    if (await claimStaleLock(lockDir, staleMs, probe, faults)) return;
+    mkdirAttempt += 1;
+    const created = await tryCreateLock(lockDir, faults, mkdirAttempt);
+    if (created.acquired) return;
+    if (created.refusal !== null) lastRefusal = created.refusal;
+    const claimed = await claimStaleLock(lockDir, staleMs, probe, faults);
+    if (claimed.acquired) return;
+    if (claimed.refusal !== null) lastRefusal = claimed.refusal;
     if (Date.now() >= deadline) {
       const owner = await readLockOwner(lockDir);
-      throw new Error(`Lock ${lockDir} is held by ${describeOwner(owner)} after ${timeoutMs} ms`);
+      const refusal = lastRefusal === null ? '' : ` (last refusal: ${lastRefusal})`;
+      throw new Error(`Lock ${lockDir} is held by ${describeOwner(owner)} after ${timeoutMs} ms${refusal}`);
     }
     await sleep(LOCK_POLL_MS);
   }
@@ -327,8 +388,8 @@ async function acquireLock(lockDir, timeoutMs, staleMs, probe, faults) {
  * 'verdict' and 'claimed', which lets a test drive the interleaving a takeover
  * has to survive instead of waiting for one to show up under load. `faults` is
  * the same idea for the refusals Windows answers: it is asked for each attempt of
- * a step ('rename', 'owner', 'release') and returns the code to fail with, or
- * null.
+ * a step ('mkdir', 'rename', 'owner', 'release') and returns the code to fail
+ * with, or null.
  */
 export async function withLock(dir, fn, { timeoutMs = 5000, staleMs = 30000, probe = NO_PROBE, faults = NO_FAULTS } = {}) {
   const lockDir = `${dir}.lock`;

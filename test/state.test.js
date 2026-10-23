@@ -7,7 +7,9 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { readJson, withLock, writeJsonAtomic } from '../src/state.js';
+import {
+  ATOMIC_WRITE_ATTEMPTS, readJson, TRANSIENT_MAX_ATTEMPTS, withLock, writeJsonAtomic,
+} from '../src/state.js';
 
 const wait = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
@@ -54,6 +56,73 @@ test('writeJsonAtomic leaves no temporary file behind', async () => {
   await writeJsonAtomic(file, { a: 2 });
 
   assert.deepEqual(await readdir(dir), ['state.json']);
+  await rm(dir, { recursive: true, force: true });
+});
+
+// The rename of an atomic write is refused with EPERM while a reader holds the
+// file open, and the reader of `daemon.pid.json` polls it in a loop. The
+// atomic write waits out more attempts than the lock does, so a refusal that
+// outlives the transient budget still lands.
+const REFUSED_PAST_THE_TRANSIENT_BUDGET = TRANSIENT_MAX_ATTEMPTS + 1;
+
+test('an atomic write outlives a rename refused past the transient budget while a reader polls the file', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'daemon.pid.json');
+  await writeJsonAtomic(file, { pid: 1, startedAt: 0 });
+
+  let reading = true;
+  let reads = 0;
+  const reader = (async () => {
+    try {
+      while (reading) {
+        await readFile(file, 'utf8').then(() => { reads += 1; }, () => {});
+        await wait(1);
+      }
+    } finally {
+      reading = false;
+    }
+  })();
+
+  let attempts = 0;
+  try {
+    await writeJsonAtomic(file, { pid: 2, startedAt: 1 }, {
+      faults: (step, attempt) => {
+        assert.equal(step, 'rename');
+        attempts = attempt;
+        return attempt <= REFUSED_PAST_THE_TRANSIENT_BUDGET ? 'EPERM' : null;
+      },
+    });
+  } finally {
+    reading = false;
+    await reader;
+  }
+
+  assert.ok(
+    attempts > TRANSIENT_MAX_ATTEMPTS,
+    `the rename was refused ${attempts} times instead of more than ${TRANSIENT_MAX_ATTEMPTS}`,
+  );
+  assert.ok(reads > 0, 'the reader never held the file');
+  assert.deepEqual(await readJson(file, null), { pid: 2, startedAt: 1 });
+  await rm(dir, { recursive: true, force: true });
+});
+
+// A refusal that outlives the whole atomic budget is a failure that names the
+// file: the daemon has to report it instead of writing a pid file it cannot.
+test('an atomic write whose rename is refused for the whole budget fails naming the file', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'daemon.pid.json');
+
+  let attempts = 0;
+  await assert.rejects(
+    writeJsonAtomic(file, { pid: 1, startedAt: 0 }, {
+      retry: { maxAttempts: ATOMIC_WRITE_ATTEMPTS, backoffMs: 1, backoffCapMs: 1 },
+      faults: () => { attempts += 1; return 'EPERM'; },
+    }),
+    /Cannot write/,
+  );
+
+  assert.equal(attempts, ATOMIC_WRITE_ATTEMPTS);
+  assert.deepEqual(await readdir(dir), []);
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -250,6 +319,31 @@ test('withLock waits on an ownerless lock folder that is not old yet', async () 
   await rm(dir, { recursive: true, force: true });
 });
 
+// How many mkdir attempts a contender loses before it gets the folder: the
+// refusals Windows answers to a folder another process is taking or removing.
+const MKDIR_REFUSALS = 3;
+// How many refusals the takeover of a stale lock has to survive: its rename and
+// its owner write are both refused while the folder is busy.
+const TAKEOVER_REFUSALS = 2;
+
+test('withLock waits out a refused mkdir and still runs the callback', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+
+  for (const code of ['EPERM', 'EBUSY', 'EACCES']) {
+    let refused = 0;
+    const value = await withLock(file, () => code, {
+      timeoutMs: 2000,
+      faults: (step) => (step === 'mkdir' && refused < MKDIR_REFUSALS ? (refused += 1, code) : null),
+    });
+
+    assert.equal(value, code);
+    assert.equal(refused, MKDIR_REFUSALS, `mkdir was refused ${refused} times instead of ${MKDIR_REFUSALS}`);
+    assert.deepEqual(await readdir(dir), []);
+  }
+  await rm(dir, { recursive: true, force: true });
+});
+
 // The window a takeover opens has to close. It has moved the dead owner's
 // `owner.json` out of the folder and has not written its own yet, and a folder
 // with no owner file is judged by its mtime alone — which the rename just
@@ -351,6 +445,18 @@ function refusesFor(steps, count) {
 // judges the folder again, still inside the budget. Thrown out of `acquireLock`
 // instead, one refusal that lasts the whole budget ends the bump with a code no
 // caller of `withLock` has an answer for.
+test('withLock names the last mkdir refusal when the lock never opens', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+
+  await assert.rejects(withLock(file, () => 'never', {
+    timeoutMs: 120,
+    faults: (step) => (step === 'mkdir' ? 'EPERM' : null),
+  }), /last refusal: EPERM/);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 test('a takeover is taken over within the budget while its claim rename is refused', async () => {
   const dir = await tempDir();
   const file = join(dir, 'state.json');
@@ -370,6 +476,50 @@ test('a takeover is taken over within the budget while its claim rename is refus
   assert.equal(value, 'taken');
   assert.equal(refused, EVERY_ATTEMPT_REFUSED, `the claim rename was refused ${refused} times`);
   assert.deepEqual(await readdir(dir), []);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test('a stale lock of a dead pid is reclaimed while mkdir and rename refuse temporarily', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  const lockDir = `${file}.lock`;
+  await mkdir(lockDir, { recursive: true });
+  await writeFile(join(lockDir, 'owner.json'), JSON.stringify({ pid: await deadPid(), startedAt: Date.now() - 60_000 }), 'utf8');
+
+  let mkdirRefusals = 0;
+  let renameRefusals = 0;
+  const value = await withLock(file, () => 'taken', {
+    timeoutMs: 2000,
+    staleMs: 30_000,
+    faults: (step) => {
+      if (step === 'mkdir' && mkdirRefusals < TAKEOVER_REFUSALS) return (mkdirRefusals += 1, 'EPERM');
+      if (step === 'rename' && renameRefusals < TAKEOVER_REFUSALS) return (renameRefusals += 1, 'EBUSY');
+      return null;
+    },
+  });
+
+  assert.equal(value, 'taken');
+  assert.ok(mkdirRefusals >= 1, 'the mkdir refusal never reached the takeover');
+  assert.equal(renameRefusals, TAKEOVER_REFUSALS, `the claim rename was refused ${renameRefusals} times instead of ${TAKEOVER_REFUSALS}`);
+  assert.deepEqual(await readdir(dir), []);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test('a stale lock whose claim rename keeps failing names the refusal in the timeout', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  const lockDir = `${file}.lock`;
+  const owner = { pid: await deadPid(), startedAt: Date.now() - 60_000 };
+  await mkdir(lockDir, { recursive: true });
+  await writeFile(join(lockDir, 'owner.json'), JSON.stringify(owner), 'utf8');
+
+  await assert.rejects(withLock(file, () => 'never', {
+    timeoutMs: 120,
+    staleMs: 30_000,
+    faults: (step) => (step === 'rename' ? 'EPERM' : null),
+  }), /last refusal: EPERM/);
+
+  assert.deepEqual(await readJson(join(lockDir, 'owner.json'), null), owner);
   await rm(dir, { recursive: true, force: true });
 });
 

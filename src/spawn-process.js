@@ -153,8 +153,12 @@ const minutes = (value) => (typeof value === 'number' && Number.isFinite(value) 
 // run is retried instead, and the pause grows, so a refusal that is only a moment
 // long costs the run nothing.
 const TRANSIENT_CODES = new Set(['EPERM', 'EBUSY']);
-const RUN_FILE_ATTEMPTS = 8;
-const RUN_FILE_BACKOFF_MS = 10;
+export const RUN_FILE_ATTEMPTS = 8;
+export const RUN_FILE_BACKOFF_MS = 10;
+const STEP_RETRY_BUDGET_MS = RUN_FILE_BACKOFF_MS * RUN_FILE_ATTEMPTS * (RUN_FILE_ATTEMPTS - 1) / 2;
+// read + outer write waits + each atomic writer's rename waits. The atomic
+// writer in state.js uses the same eight-attempt, linear-backoff policy.
+export const RUN_FILE_RETRY_BUDGET_MS = STEP_RETRY_BUDGET_MS * (RUN_FILE_ATTEMPTS + 2);
 
 // Test seam: `transient(step, attempt)` returns the code Windows would answer for
 // that attempt of the run file, or null. It is what makes the retry testable on
@@ -170,9 +174,12 @@ async function attemptRunFile(step, transient, call) {
     const injected = transient(step, attempt);
     try {
       if (injected !== null) throw Object.assign(new Error(`${step} the run file: ${injected}`), { code: injected });
-      return await call();
+      return await call(attempt);
     } catch (error) {
-      const retryable = TRANSIENT_CODES.has(error.code) && attempt < RUN_FILE_ATTEMPTS;
+      // state.js preserves the filesystem error as cause when an atomic
+      // rename exhausts its retries; the wrapper itself has no code.
+      const code = error.code ?? error.cause?.code;
+      const retryable = TRANSIENT_CODES.has(code) && attempt < RUN_FILE_ATTEMPTS;
       if (!retryable) throw error;
       await sleep(RUN_FILE_BACKOFF_MS * attempt);
     }
@@ -193,10 +200,10 @@ const runFile = (runs, runId) => join(runs, `${runId}.json`);
  * through `child.kill()`; the spawner never kills a run on its own.
  *
  * @param {{spawn?: Function, now?: () => number, logDir?: string,
- *   env?: object, cwd?: string}} [options]
+ *   env?: object, cwd?: string, transient?: Function, faults?: Function}} [options]
  * @returns {(demand: object, opts: object) => Promise<{runId: string, pid: number|null, mode: string}>}
  */
-export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDir, env = process.env, cwd, transient = NO_TRANSIENT } = {}) {
+export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDir, env = process.env, cwd, transient = NO_TRANSIENT, faults = NO_TRANSIENT } = {}) {
   const runs = logDir ?? paths(stateRoot()).runs;
   const fallbackCwd = cwd ?? process.cwd();
 
@@ -258,7 +265,16 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
           // does not raise: the record below would carry the patch alone and
           // lose the client, the pid and the start of the run.
           if (run === null) reportRunFile(new Error('it was gone when the run ended'));
-          return attemptRunFile('write', transient, () => writeJsonAtomic(file, { ...(run ?? {}), endedAt: now(), ...patch }));
+          return attemptRunFile('write', transient, (attempt) => {
+            // Model state.js's exhausted rename at its public boundary, with
+            // the original filesystem code preserved in cause (not code).
+            const code = faults('rename', attempt);
+            if (code !== null) {
+              const cause = Object.assign(new Error(`rename: ${code}`), { code });
+              throw new Error(`Cannot write ${file}: ${cause.message}`, { cause });
+            }
+            return writeJsonAtomic(file, { ...(run ?? {}), endedAt: now(), ...patch });
+          });
         })
         .catch(reportRunFile);
     };
