@@ -6,7 +6,12 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { buildCommand, makeSpawner } from '../src/spawn-process.js';
+import {
+  buildCommand, makeSpawner, RUN_FILE_ATTEMPTS, RUN_FILE_BACKOFF_MS, RUN_FILE_RETRY_BUDGET_MS,
+} from '../src/spawn-process.js';
+
+const RUN_FILE_POLL_MS = RUN_FILE_BACKOFF_MS * 2;
+const RUN_FILE_DEADLINE_MS = RUN_FILE_RETRY_BUDGET_MS * 2;
 
 // Scratch state lives inside the repository, never in the system temp folder.
 const TMP = fileURLToPath(new URL('../.delegate/tmp/', import.meta.url));
@@ -40,7 +45,7 @@ const seenError = (error) => (error ? `${error.name}: ${error.message}` : 'none'
  * value and the last error go into the timeout message, which is the only thing
  * a Windows run has to work with.
  */
-async function until(check, deadlineMs = 2000) {
+async function until(check, deadlineMs = RUN_FILE_DEADLINE_MS) {
   const started = Date.now();
   let lastValue;
   let lastError;
@@ -55,7 +60,7 @@ async function until(check, deadlineMs = 2000) {
     if (Date.now() - started > deadlineMs) {
       throw new Error(`the condition never came true; last value: ${seenValue(lastValue)}; last error: ${seenError(lastError)}`);
     }
-    await sleep(5);
+    await sleep(RUN_FILE_POLL_MS);
   }
 }
 
@@ -251,6 +256,37 @@ test('a client that cannot be started fails the run instead of the daemon', asyn
   // The timer is gone with the run: nothing kills a process that never began.
   await sleep(40);
   assert.deepEqual(call.child.signals, []);
+});
+
+test('an exhausted end-of-run rename is retried while a concurrent reader polls', async (t) => {
+  const runs = await tempRuns(t);
+  const fake = fakeSpawn();
+  const attempts = [];
+  const spawner = makeSpawner({
+    spawn: fake.spawn, logDir: runs,
+    faults: (step, attempt) => {
+      assert.equal(step, 'rename');
+      attempts.push(attempt);
+      return attempt < RUN_FILE_ATTEMPTS ? (attempt % 2 ? 'EPERM' : 'EBUSY') : null;
+    },
+  });
+  await spawner(DEMAND, OPTIONS);
+  const file = join(runs, 'd-1.json');
+  let reads = 0;
+  const lines = await captureStderr(async () => {
+    fake.calls[0].child.emit('error', new Error('spawn claude ENOENT'));
+    const run = await until(async () => {
+      const value = JSON.parse(await readFile(file, 'utf8'));
+      reads += 1;
+      return value.status === 'failed' ? value : null;
+    });
+    assert.equal(run.error, 'spawn claude ENOENT');
+    assert.equal(run.runId, OPTIONS.runId);
+    assert.equal(run.client, OPTIONS.client);
+  });
+  assert.ok(reads > 1, 'the reader overlaps the rename retries');
+  assert.deepEqual(attempts, Array.from({ length: RUN_FILE_ATTEMPTS }, (_, i) => i + 1));
+  assert.deepEqual(lines, []);
 });
 
 // The end of a run is written once, so a refusal there was final: the read and
