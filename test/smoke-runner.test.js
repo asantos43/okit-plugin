@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -263,7 +263,10 @@ test('an injected failing check exits 1 with its id, error, command and environm
     'os', 'node', 'cwd', 'pluginRoot', 'stateRoot', 'configRoot', 'okitHome', 'pid',
   ]);
   assert.equal(failed.environment.pid, 4242);
-  assert.equal(failed.environment.stateRoot, run.artifacts.jsonl.split(`${'/'}logs${'/'}smoke`)[0]);
+  // The state root is the jsonl's own grand-grand parent: the artifacts land in
+  // `<stateRoot>/logs/smoke/<file>`, spelled with `dirname` so the expectation
+  // follows the separators of the host, `/` on Linux and macOS, `\` on Windows.
+  assert.equal(failed.environment.stateRoot, dirname(dirname(dirname(run.artifacts.jsonl))));
   assert.ok(out.includes(`fail X2 fails ${failed.durationMs}ms`));
   assert.equal(out.at(-4), 'passed: 1 failed: 1 skipped: 0');
 
