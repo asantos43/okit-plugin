@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
 
 import adapter, { capabilities, configRoot, installHooks, installSkill, readQuota, spawn } from '../adapters/claude-code/index.js';
@@ -41,9 +41,27 @@ function fakeSpawn() {
   return { calls, spawn };
 }
 
-after(async () => {
-  await Promise.all([...roots, ...temps].map((dir) => rm(dir, { recursive: true, force: true })));
-});
+/**
+ * Every folder this file made, once each.
+ *
+ * `root` pushes into both `roots` and `temps`, so the two lists overlap on
+ * purpose: a root is also a temp. Removing the union as it stands runs two
+ * concurrent recursive removals over the same tree, and on Windows the second
+ * one gets `EPERM` from `rmdir` on a folder the first is still emptying
+ * (`...\okit-keep-XXXX\skills\okit-critic\refs`). `force` hides the missing
+ * folder but not the refused one. Deduplicating is what makes the cleanup
+ * platform-correct; `maxRetries` only covers a handle that a virus scanner
+ * still holds for a moment.
+ */
+function madeDirs() {
+  return [...new Set([...roots, ...temps])];
+}
+
+async function removeAll(dirs) {
+  await Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })));
+}
+
+after(() => removeAll(madeDirs()));
 
 // | case                          | must pass                       | must refuse                    |
 // | :-                            | :-                             | :-                             |
@@ -144,8 +162,11 @@ test('capabilities are the values of section 4.1 and cannot be edited by a calle
 });
 
 test('configRoot prefers the argument, then the environment, then the home', () => {
-  assert.equal(configRoot({ root: '/tmp/somewhere', env: { CLAUDE_CONFIG_DIR: '/tmp/other' } }), '/tmp/somewhere');
-  assert.equal(configRoot({ env: { CLAUDE_CONFIG_DIR: '/tmp/other' } }), '/tmp/other');
+  // `configRoot` resolves what it is given, so the expectation is spelled the
+  // way the host spells a resolved path: `/tmp/somewhere` on Linux, macOS and
+  // `C:\tmp\somewhere` on Windows. Hard-coding the posix text fails there.
+  assert.equal(configRoot({ root: '/tmp/somewhere', env: { CLAUDE_CONFIG_DIR: '/tmp/other' } }), resolve('/tmp/somewhere'));
+  assert.equal(configRoot({ env: { CLAUDE_CONFIG_DIR: '/tmp/other' } }), resolve('/tmp/other'));
   assert.match(configRoot({ env: {} }), /[/\\]\.claude$/);
 });
 
@@ -250,6 +271,22 @@ test('installHooks refuses a config that is not an object and a file it cannot r
   await writeFile(file, '[]', 'utf8');
   await assert.rejects(() => installHooks({ hooks: {} }, { root: dest }), /is not a hook config: expected a JSON object/);
   assert.equal(await readFile(file, 'utf8'), '[]');
+});
+
+test('the cleanup list holds one entry per folder, and a listed folder is gone', async () => {
+  // The regression guard for the Windows `EPERM`: what made the removal fail was
+  // never a read-only file, it was a folder removed twice at the same time.
+  const dir = await temp('twice');
+  await mkdir(join(dir, 'refs'), { recursive: true });
+  await writeFile(join(dir, 'refs', 'notes.md'), 'notes\n', 'utf8');
+
+  const listed = madeDirs();
+  assert.equal(listed.filter((made) => made === dir).length, 1, 'a folder is listed once');
+  assert.equal(new Set(listed).size, listed.length, 'no folder is listed twice');
+  assert.ok(roots.every((made) => temps.includes(made)), 'every root is also a temp, so the union is what matters');
+
+  await removeAll([dir, dir]);
+  await assert.rejects(() => readdir(dir), { code: 'ENOENT' }, 'the folder is really gone');
 });
 
 test('the default export is the five functions of section 4', () => {

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import {
@@ -18,10 +19,21 @@ const WINDOWS = { node: 'C:\\tools\\node.exe', script: 'C:\\repo\\src\\cli.js' }
 
 const command = (plan, action) => plan[action].map(({ command, args }) => [command, ...args].join(' '));
 
+// Every plan builds its path with `join`, so the expectation is spelled with
+// `join` too: the fake home is posix-shaped on purpose (it is a string, not a
+// real machine), but `join` still separates with `\` on Windows.
+const SERVICE = 'okit-daemon.service';
+const PLIST = 'com.okit.daemon.plist';
+const CRON = 'okit-daemon.cron';
+const unitPath = join('/home/u', '.config', 'systemd', 'user', SERVICE);
+const cronPath = join('/home/u', '.okwork', 'autostart', CRON);
+const plistPath = join('/home/u', 'Library', 'LaunchAgents', PLIST);
+const daemonOut = join('/home/u', '.okwork', 'logs', 'daemon.out');
+
 test('the systemd plan writes a user unit and enables it', () => {
   const plan = systemdPlan(OPTIONS);
   assert.equal(plan.kind, 'systemd');
-  assert.equal(plan.path, '/home/u/.config/systemd/user/okit-daemon.service');
+  assert.equal(plan.path, unitPath);
   assert.match(plan.content, /^ExecStart="\/usr\/bin\/node" "\/repo\/src\/cli\.js" daemon start$/m);
   assert.match(plan.content, /^WorkingDirectory=\/home\/u\/\.okwork$/m);
   assert.match(plan.content, /^WantedBy=default\.target$/m);
@@ -33,31 +45,31 @@ test('the systemd plan writes a user unit and enables it', () => {
   ]);
   assert.deepEqual(command(plan, 'uninstall'), [
     'systemctl --user disable --now okit-daemon.service',
-    'rm -f /home/u/.config/systemd/user/okit-daemon.service',
+    `rm -f ${unitPath}`,
   ]);
 });
 
 test('the cron plan is one @reboot line inside the state root', () => {
   const plan = cronPlan(OPTIONS);
-  assert.equal(plan.path, '/home/u/.okwork/autostart/okit-daemon.cron');
+  assert.equal(plan.path, cronPath);
   assert.equal(plan.content, '@reboot "/usr/bin/node" "/repo/src/cli.js" daemon start'
-    + ' >> "/home/u/.okwork/logs/daemon.out" 2>&1 # okit-daemon\n');
-  assert.deepEqual(command(plan, 'install'), ['crontab /home/u/.okwork/autostart/okit-daemon.cron']);
+    + ` >> "${daemonOut}" 2>&1 # okit-daemon\n`);
+  assert.deepEqual(command(plan, 'install'), [`crontab ${cronPath}`]);
   assert.deepEqual(command(plan, 'uninstall'), ['crontab -r']);
 });
 
 test('the launchd plan is a com.okit.daemon agent with arguments, not a command string', () => {
   const plan = launchdPlan(OPTIONS);
-  assert.equal(plan.path, '/home/u/Library/LaunchAgents/com.okit.daemon.plist');
+  assert.equal(plan.path, plistPath);
   assert.match(plan.content, /<key>Label<\/key>\n  <string>com\.okit\.daemon<\/string>/);
   assert.match(plan.content, /<key>ProgramArguments<\/key>\n  <array>\n    <string>\/usr\/bin\/node<\/string>\n    <string>\/repo\/src\/cli\.js<\/string>\n    <string>daemon<\/string>\n    <string>start<\/string>\n  <\/array>/);
   assert.match(plan.content, /<key>RunAtLoad<\/key>\n  <true\/>/);
   assert.ok(plan.content.endsWith('</plist>\n'));
   assert.deepEqual(command(plan, 'install'),
-    ['launchctl load -w /home/u/Library/LaunchAgents/com.okit.daemon.plist']);
+    [`launchctl load -w ${plistPath}`]);
   assert.deepEqual(command(plan, 'uninstall'), [
-    'launchctl unload -w /home/u/Library/LaunchAgents/com.okit.daemon.plist',
-    'rm -f /home/u/Library/LaunchAgents/com.okit.daemon.plist',
+    `launchctl unload -w ${plistPath}`,
+    `rm -f ${plistPath}`,
   ]);
 });
 
