@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `okit smoke` / `npm run smoke` (`src/smoke.js`, `src/smoke/`): the smoke runner of `docs/SMOKE.md` on a scratch home with 31 install, feature and uninstall checks, a JSON-lines record and a log per run, `--real`, `--keep`, `--only` and `--timeout`, and exit codes 0 (all passed), 1 (a check failed or timed out) and 2 (run refused).
 - Smoke test design (`docs/SMOKE.md`, `docs/SMOKE.pt-BR.md`): the `okit smoke` / `npm run smoke` runner, its flags, the scratch home rule, the 31 install, feature and uninstall checks with a timeout each, the result record, the artifacts, and the four-step implementation plan.
 - Quota table (`src/status.js`): `statusTable` renders the Markdown table and the capacity line over the adapters' readings with a TTL cache, `shouldShowStatus` decides whether a task is big enough to show it, `okit status [--locale en|pt-BR]` prints it, the `status` MCP tool answers it, and the Director skill names it as the view to show before a big task and on request.
 - `okit daemon status --table [--locale en|pt-BR]`: the same quota table and capacity line under the daemon status lines, built by `daemonStatus(root, { table })` only when asked for, so a daemon pass never reads a quota for it and the default output is unchanged.

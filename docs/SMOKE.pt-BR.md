@@ -4,7 +4,7 @@ Estado: design. Estende [ARCHITECTURE.md](ARCHITECTURE.md) e [DESIGN.md](DESIGN.
 
 ## Comandos
 
-`npm run smoke` roda o runner deste checkout e `okit smoke` o mesmo runner pelo binário instalado; os dois usam um home descartável.
+`npm run smoke` roda o runner deste checkout e `okit smoke` o mesmo runner pelo binário instalado; os dois usam um home descartável e respondem `0` quando todo check selecionado passou, `1` quando um falhou ou estourou o tempo e `2` quando a execução foi recusada.
 
 | Flag | Significado |
 | :- | :- |
