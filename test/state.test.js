@@ -97,7 +97,7 @@ test('withLock returns the value of the callback and removes the lock', async ()
 test('twenty concurrent withLock calls keep the counter exact', async () => {
   const dir = await tempDir();
   const file = join(dir, 'counter.json');
-  const calls = 20;
+  const calls = WIDEST_QUEUE;
   await writeJsonAtomic(file, { count: 0 });
 
   await Promise.all(Array.from({ length: calls }, () => bump(file, 1)));
@@ -309,6 +309,172 @@ test('a takeover waits out refusals of the owner write in one attempt', async ()
   await rm(dir, { recursive: true, force: true });
 });
 
+// One refusal per attempt `retryTransient` makes is the whole budget: the call
+// ends by throwing instead of waiting, which is what Windows does to a rename
+// that lands on a file antivirus is still reading.
+const EVERY_ATTEMPT_REFUSED = 8;
+
+// The two calls a bump makes around its own work that a busy Windows disk
+// refuses for its whole budget: the owner write that takes the lock and the
+// release that gives it back.
+const REFUSED_STEPS = new Set(['owner', 'release']);
+
+// The widest queue of contenders the tests below put in front of one lock: the
+// twenty concurrent bumps of the counter, more than the sixteen children of the
+// wider takeover race.
+const WIDEST_QUEUE = 20;
+
+// What a contender is given to reach the lock. Every call that waits out a
+// refusal spends its budget around the critical section, so the queue drains at
+// `queue × budget per bump`: with `owner` and `release` each refused for the
+// whole budget, one bump costs ~580 ms and the twenty behind it pay that twenty
+// times. Ten seconds cannot hold that, which is how a queue of live contenders
+// reports a lock "held by pid N after 10000 ms" while every one of them is
+// working and releasing.
+const BUMP_WAIT_MS = 30_000;
+
+// Refuses the first `count` attempts of each step in `steps`, counting per step
+// so that a second call to the same step starts over, as a new `retryTransient`
+// does.
+function refusesFor(steps, count) {
+  const attempts = new Map();
+  return (step) => {
+    if (!steps.has(step)) return null;
+    const seen = attempts.get(step) ?? 0;
+    attempts.set(step, seen + 1);
+    return seen < count ? 'EPERM' : null;
+  };
+}
+
+// A refusal of the rename that moves the dead owner's claim out is the same
+// answer as a refusal of the owner write: the attempt gives it up and the loop
+// judges the folder again, still inside the budget. Thrown out of `acquireLock`
+// instead, one refusal that lasts the whole budget ends the bump with a code no
+// caller of `withLock` has an answer for.
+test('a takeover is taken over within the budget while its claim rename is refused', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  const lockDir = `${file}.lock`;
+  await mkdir(lockDir, { recursive: true });
+  await writeFile(join(lockDir, 'owner.json'), JSON.stringify({ pid: await deadPid(), startedAt: Date.now() - 60_000 }), 'utf8');
+
+  // The first takeover attempt is refused from end to end; the folder is left
+  // exactly as it was found, so the next one finds the same dead owner.
+  let refused = 0;
+  const value = await withLock(file, () => 'taken', {
+    timeoutMs: 2000,
+    staleMs: 30_000,
+    faults: (step) => (step === 'rename' && refused < EVERY_ATTEMPT_REFUSED ? (refused += 1, 'EPERM') : null),
+  });
+
+  assert.equal(value, 'taken');
+  assert.equal(refused, EVERY_ATTEMPT_REFUSED, `the claim rename was refused ${refused} times`);
+  assert.deepEqual(await readdir(dir), []);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test('a bump whose release is refused still leaves no folder behind', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  let refused = 0;
+
+  // The release is the one call of the lifecycle that removes a file the holder
+  // has just written and closed: Windows, and antivirus behind it, answer EPERM
+  // to that delete for as long as they hold a handle. It ends the bump, and it
+  // ends it with the folder still there holding the owner of a process that is
+  // now gone and younger than `staleMs`, which no contender can take: the whole
+  // queue behind it waits out its own timeout for nothing.
+  const value = await withLock(file, () => 'bumped', {
+    faults: (step) => (step === 'release' && refused < 3 ? (refused += 1, 'EPERM') : null),
+  });
+
+  assert.equal(value, 'bumped');
+  assert.equal(refused, 3, `the release was refused ${refused} times instead of three`);
+  assert.deepEqual(await readdir(dir), []);
+  assert.equal(await withLock(file, () => 'free', { timeoutMs: 500 }), 'free');
+  await rm(dir, { recursive: true, force: true });
+});
+
+// The holder empties its own folder and only then removes it, and between those
+// two steps another contender can write its own owner file back in: the taker
+// judged the folder stale before the unlink landed, or the next owner's mkdir
+// lost the race and is retrying. ENOTEMPTY is that answer, not a failure of this
+// holder, and the entry that answered is the only evidence every waiter of that
+// folder reads — deleting it by retrying would take a lock from a live owner.
+test('a release that finds the folder refilled leaves the new owner alone', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  const lockDir = `${file}.lock`;
+
+  const value = await withLock(file, () => 'bumped', {
+    faults: (step) => (step === 'release' ? 'ENOTEMPTY' : null),
+  });
+
+  assert.equal(value, 'bumped');
+  // Whatever answered the rmdir is still there: it belongs to the contender
+  // that wrote it, and this holder never touches it.
+  assert.deepEqual(await readdir(dir), ['state.json.lock']);
+  await rm(dir, { recursive: true, force: true });
+});
+
+// A folder that a contender already removed is not a failure either, and the
+// next caller must not see a lock it has to wait out.
+test('a release whose folder is already gone still lets the next caller in', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  const lockDir = `${file}.lock`;
+
+  // The bump is the last thing that touches the folder, so the contender that
+  // got there first removes it there, and the release that follows finds nothing
+  // left to remove.
+  const value = await withLock(file, async () => {
+    await rm(lockDir, { recursive: true, force: true });
+    return 'bumped';
+  }, {
+    faults: (step) => (step === 'release' ? 'ENOENT' : null),
+  });
+
+  assert.equal(value, 'bumped');
+  assert.deepEqual(await readdir(dir), []);
+  assert.equal(await withLock(file, () => 'free', { timeoutMs: 500 }), 'free');
+  await rm(dir, { recursive: true, force: true });
+});
+
+// A release that fails for any other reason is still a failure: swallowing it
+// would report a lock as released that is still held.
+test('a release that fails for an unrelated reason still throws', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+
+  await assert.rejects(withLock(file, () => 'bumped', {
+    faults: (step) => (step === 'release' ? 'EACCES' : null),
+  }), /EACCES/);
+  await rm(dir, { recursive: true, force: true });
+});
+
+// Every call that waits out a Windows refusal spends its whole budget around the
+// critical section, so a queue of contenders drains at `queue × budget`, not at
+// the speed of the disk. The wait a contender is given has to cover that
+// product, or a queue of live contenders reports a lock "held by pid N after
+// 10000 ms" while every one of them is working and releasing.
+test('the wait a contender is given covers the retry budget of the queue', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  await writeJsonAtomic(file, { count: 0 });
+
+  // One refusal short of the budget, so every call is as slow as it can be and
+  // still succeeds: what one bump can cost the contenders behind it.
+  const startedAt = Date.now();
+  await bump(file, 1, BUMP_WAIT_MS, refusesFor(REFUSED_STEPS, EVERY_ATTEMPT_REFUSED - 1));
+  const worstBumpMs = Date.now() - startedAt;
+
+  assert.ok(
+    BUMP_WAIT_MS >= WIDEST_QUEUE * worstBumpMs,
+    `${WIDEST_QUEUE} bumps that each wait out ${worstBumpMs} ms cost ${WIDEST_QUEUE * worstBumpMs} ms of queue, more than the ${BUMP_WAIT_MS} ms a contender is given`,
+  );
+  await rm(dir, { recursive: true, force: true });
+});
+
 test('withLock fails with a clear message when the lock stays held', async () => {
   const dir = await tempDir();
   const file = join(dir, 'state.json');
@@ -340,14 +506,14 @@ test('withLock releases the lock when the callback throws', async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-async function bump(file, rounds, timeoutMs = 10_000) {
+async function bump(file, rounds, timeoutMs = BUMP_WAIT_MS, faults) {
   for (let round = 0; round < rounds; round += 1) {
     await withLock(file, async () => {
       const current = await readJson(file, { count: 0 });
       // The delay widens the window in which a lock-free update would be lost.
       await wait(10);
       await writeJsonAtomic(file, { count: current.count + 1 });
-    }, { timeoutMs });
+    }, { timeoutMs, faults });
   }
 }
 
