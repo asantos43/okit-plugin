@@ -35,6 +35,8 @@ Pull requests são bem-vindos. Leia [CONTRIBUTING.md](CONTRIBUTING.md) antes.
 
 Relatos de segurança não são issues públicas, veja [SECURITY.md](SECURITY.md).
 As notas de design estão em [docs/DESIGN.pt-BR.md](docs/DESIGN.pt-BR.md).
+O desenho do release está em [docs/RELEASING.pt-BR.md](docs/RELEASING.pt-BR.md)
+([English](docs/RELEASING.md)).
 
 ## Licença
 

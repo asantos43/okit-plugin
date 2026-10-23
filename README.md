@@ -33,6 +33,8 @@ Pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 Security reports are not public issues, see [SECURITY.md](SECURITY.md).
 The design notes live in [docs/DESIGN.md](docs/DESIGN.md).
+The release design is in [docs/RELEASING.md](docs/RELEASING.md)
+([Português](docs/RELEASING.pt-BR.md)).
 
 ## Licence
 
