@@ -7,7 +7,9 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { readJson, withLock, writeJsonAtomic } from '../src/state.js';
+import {
+  ATOMIC_WRITE_ATTEMPTS, readJson, TRANSIENT_MAX_ATTEMPTS, withLock, writeJsonAtomic,
+} from '../src/state.js';
 
 const wait = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
@@ -54,6 +56,73 @@ test('writeJsonAtomic leaves no temporary file behind', async () => {
   await writeJsonAtomic(file, { a: 2 });
 
   assert.deepEqual(await readdir(dir), ['state.json']);
+  await rm(dir, { recursive: true, force: true });
+});
+
+// The rename of an atomic write is refused with EPERM while a reader holds the
+// file open, and the reader of `daemon.pid.json` polls it in a loop. The
+// atomic write waits out more attempts than the lock does, so a refusal that
+// outlives the transient budget still lands.
+const REFUSED_PAST_THE_TRANSIENT_BUDGET = TRANSIENT_MAX_ATTEMPTS + 1;
+
+test('an atomic write outlives a rename refused past the transient budget while a reader polls the file', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'daemon.pid.json');
+  await writeJsonAtomic(file, { pid: 1, startedAt: 0 });
+
+  let reading = true;
+  let reads = 0;
+  const reader = (async () => {
+    try {
+      while (reading) {
+        await readFile(file, 'utf8').then(() => { reads += 1; }, () => {});
+        await wait(1);
+      }
+    } finally {
+      reading = false;
+    }
+  })();
+
+  let attempts = 0;
+  try {
+    await writeJsonAtomic(file, { pid: 2, startedAt: 1 }, {
+      faults: (step, attempt) => {
+        assert.equal(step, 'rename');
+        attempts = attempt;
+        return attempt <= REFUSED_PAST_THE_TRANSIENT_BUDGET ? 'EPERM' : null;
+      },
+    });
+  } finally {
+    reading = false;
+    await reader;
+  }
+
+  assert.ok(
+    attempts > TRANSIENT_MAX_ATTEMPTS,
+    `the rename was refused ${attempts} times instead of more than ${TRANSIENT_MAX_ATTEMPTS}`,
+  );
+  assert.ok(reads > 0, 'the reader never held the file');
+  assert.deepEqual(await readJson(file, null), { pid: 2, startedAt: 1 });
+  await rm(dir, { recursive: true, force: true });
+});
+
+// A refusal that outlives the whole atomic budget is a failure that names the
+// file: the daemon has to report it instead of writing a pid file it cannot.
+test('an atomic write whose rename is refused for the whole budget fails naming the file', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'daemon.pid.json');
+
+  let attempts = 0;
+  await assert.rejects(
+    writeJsonAtomic(file, { pid: 1, startedAt: 0 }, {
+      retry: { maxAttempts: ATOMIC_WRITE_ATTEMPTS, backoffMs: 1, backoffCapMs: 1 },
+      faults: () => { attempts += 1; return 'EPERM'; },
+    }),
+    /Cannot write/,
+  );
+
+  assert.equal(attempts, ATOMIC_WRITE_ATTEMPTS);
+  assert.deepEqual(await readdir(dir), []);
   await rm(dir, { recursive: true, force: true });
 });
 

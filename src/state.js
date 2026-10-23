@@ -18,12 +18,51 @@ const LOCK_REFUSAL_CODES = new Set([...TRANSIENT_CODES, 'EACCES']);
 // the unlink and the rmdir, so the folder that answered is not the one this
 // holder emptied.
 const REPOPULATED_CODE = 'ENOTEMPTY';
-const TRANSIENT_MAX_ATTEMPTS = 8;
-const TRANSIENT_BACKOFF_MS = 10;
-const TRANSIENT_BACKOFF_CAP_MS = 200;
+
+// The whole wall-clock a retry policy can spend: what a caller has to wait
+// before the last attempt is over.
+function retryBudgetMs(retry) {
+  let total = 0;
+  for (let attempt = 1; attempt < retry.maxAttempts; attempt += 1) {
+    total += Math.min(retry.backoffMs * attempt, retry.backoffCapMs);
+  }
+  return total;
+}
+
+export const TRANSIENT_MAX_ATTEMPTS = 8;
+export const TRANSIENT_BACKOFF_MS = 10;
+export const TRANSIENT_BACKOFF_CAP_MS = 200;
+export const TRANSIENT_RETRY = Object.freeze({
+  maxAttempts: TRANSIENT_MAX_ATTEMPTS,
+  backoffMs: TRANSIENT_BACKOFF_MS,
+  backoffCapMs: TRANSIENT_BACKOFF_CAP_MS,
+});
+// A file that another process reads while it is replaced is refused for as
+// long as that reader holds it, and the reader of `daemon.pid.json` polls it
+// in a loop. The atomic write waits out more attempts than the lock does, and
+// every limit of it comes from the transient ones above.
+export const ATOMIC_WRITE_ATTEMPT_MULTIPLIER = 4;
+export const ATOMIC_WRITE_ATTEMPTS = TRANSIENT_MAX_ATTEMPTS * ATOMIC_WRITE_ATTEMPT_MULTIPLIER;
+export const ATOMIC_WRITE_BACKOFF_MS = TRANSIENT_BACKOFF_MS;
+export const ATOMIC_WRITE_BACKOFF_CAP_MS = TRANSIENT_BACKOFF_CAP_MS;
+export const ATOMIC_WRITE_RETRY = Object.freeze({
+  maxAttempts: ATOMIC_WRITE_ATTEMPTS,
+  backoffMs: ATOMIC_WRITE_BACKOFF_MS,
+  backoffCapMs: ATOMIC_WRITE_BACKOFF_CAP_MS,
+});
+// The whole wall-clock the atomic write can spend waiting out refusals.
+export const ATOMIC_WRITE_RETRY_BUDGET_MS = retryBudgetMs(ATOMIC_WRITE_RETRY);
 const LOCK_POLL_MS = 25;
 const LOCK_OWNER_FILE = 'owner.json';
 const LOCK_CLAIM_PREFIX = `${LOCK_OWNER_FILE}.claim.`;
+
+/**
+ * Whether an error is one of the refusals Windows answers for as long as a
+ * handle lasts, so a caller can wait it out instead of failing.
+ */
+export function isTransientError(error) {
+  return TRANSIENT_CODES.has(error?.code) || TRANSIENT_CODES.has(error?.cause?.code);
+}
 
 // Two test seams: `probe` drives the interleaving a takeover has to survive, and
 // `faults` raises the code Windows would raise for one step of it, which is the
@@ -31,18 +70,18 @@ const LOCK_CLAIM_PREFIX = `${LOCK_OWNER_FILE}.claim.`;
 const NO_PROBE = () => {};
 const NO_FAULTS = () => null;
 
-const faultError = (step, code) => Object.assign(new Error(`${step} the lock: ${code}`), { code });
+const faultError = (step, code) => Object.assign(new Error(`${step}: ${code}`), { code });
 
-async function retryTransient(step, faults, call) {
+async function retryTransient(step, faults, call, retry = TRANSIENT_RETRY) {
   for (let attempt = 1; ; attempt += 1) {
     const injected = faults(step, attempt);
     try {
       if (injected !== null) throw faultError(step, injected);
       return await call();
     } catch (error) {
-      const retryable = TRANSIENT_CODES.has(error.code) && attempt < TRANSIENT_MAX_ATTEMPTS;
+      const retryable = TRANSIENT_CODES.has(error.code) && attempt < retry.maxAttempts;
       if (!retryable) throw error;
-      await sleep(Math.min(TRANSIENT_BACKOFF_MS * attempt, TRANSIENT_BACKOFF_CAP_MS));
+      await sleep(Math.min(retry.backoffMs * attempt, retry.backoffCapMs));
     }
   }
 }
@@ -86,20 +125,21 @@ async function writeAndSync(file, data) {
 
 // Windows keeps a short-lived handle on a file that was just closed, so a single
 // rename can fail with EPERM/EBUSY even when nothing else uses the file.
-const renameWithRetry = (from, to, faults = NO_FAULTS) => retryTransient('rename', faults, () => rename(from, to));
+const renameWithRetry = (from, to, faults = NO_FAULTS, retry) =>
+  retryTransient('rename', faults, () => rename(from, to), retry);
 
 /**
  * Writes JSON atomically: a sibling temporary file is synced and then renamed
  * over the target, which is atomic on every supported platform.
  */
-export async function writeJsonAtomic(file, value) {
+export async function writeJsonAtomic(file, value, { faults = NO_FAULTS, retry = ATOMIC_WRITE_RETRY } = {}) {
   const folder = dirname(file);
   const temp = join(folder, `${basename(file)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
   await mkdir(folder, { recursive: true });
 
   try {
     await writeAndSync(temp, `${JSON.stringify(value, null, 2)}\n`);
-    await renameWithRetry(temp, file);
+    await renameWithRetry(temp, file, faults, retry);
   } catch (error) {
     await rm(temp, { force: true });
     throw new Error(`Cannot write ${file}: ${error.message}`, { cause: error });
