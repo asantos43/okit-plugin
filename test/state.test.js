@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { fork, spawn } from 'node:child_process';
 import { mkdtemp, readdir, readFile, rm, utimes, writeFile, mkdir } from 'node:fs/promises';
+import { writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -308,7 +309,17 @@ if (process.env.STATE_TEST_CHILD) {
     process.stderr.write(`state-test child ${process.env.STATE_TEST_CHILD}: the run file cannot be read\n`);
     process.exit(3);
   }
-  await bump(process.env.STATE_TEST_FILE, Number(process.env.STATE_TEST_ROUNDS));
+  // A bump that throws leaves the child to die of an unhandled rejection, which
+  // prints its own message but not always before the pipes are gone: the parent
+  // then knows only the exit code. `writeSync` on fd 2 is the one write that is
+  // already out of the process when `exit` runs, so the reason and the stack
+  // reach the parent instead of vanishing with the child.
+  try {
+    await bump(process.env.STATE_TEST_FILE, Number(process.env.STATE_TEST_ROUNDS));
+  } catch (error) {
+    writeSync(2, `state-test child bump: ${error?.code ?? error?.name} ${error?.message}\n${error?.stack ?? ''}\n`);
+    process.exit(1);
+  }
   process.exit(0);
 }
 
@@ -339,7 +350,15 @@ function forkBumper(file, rounds, mode = 'bump') {
     child.once('error', reject);
     // 'close', not 'exit': the pipes are only drained when every stdio stream
     // is done, so on 'exit' the tail of a child that died can still be empty.
-    child.once('close', (code) => (code === 0 ? resolve() : reject(new Error(`child exited with ${code}${tail()}`))));
+    const startedAt = Date.now();
+    child.once('close', (code) => {
+      const elapsedMs = Date.now() - startedAt;
+      if (code === 0) return resolve();
+      // How long the child lived is the other half of the diagnosis: a child
+      // that died in a millisecond never reached the lock, and one that lived
+      // until the parent's own timeout is a lock nobody released.
+      reject(new Error(`child exited with ${code} after ${elapsedMs} ms${tail()}`));
+    });
   });
 }
 
@@ -354,6 +373,23 @@ test('a forked child that fails says why on the rejection', async () => {
   await assert.rejects(() => forkBumper(file, 1, 'unreadable'), (error) => {
     assert.match(error.message, /^child exited with 3/);
     assert.match(error.message, /state-test child unreadable: the run file cannot be read/);
+    return true;
+  });
+  await rm(dir, { recursive: true, force: true });
+});
+
+test('a forked child whose bump throws says what threw and how long it lived', async () => {
+  const dir = await tempDir();
+  // A run file that is a folder makes the child's own `readJson` throw, which
+  // is the shape of the failure that reached Windows as "exited with 1" and an
+  // empty stderr: the words are written with `writeSync` before the exit, so
+  // the parent must now receive them plus the time the child lived.
+  const folder = join(dir, 'counter.json');
+  await mkdir(folder, { recursive: true });
+
+  await assert.rejects(() => forkBumper(folder, 1), (error) => {
+    assert.match(error.message, /^child exited with 1 after \d+ ms: state-test child bump: /);
+    assert.match(error.message, /Cannot read/);
     return true;
   });
   await rm(dir, { recursive: true, force: true });

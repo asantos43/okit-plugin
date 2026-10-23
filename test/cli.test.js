@@ -300,7 +300,9 @@ test('autostart install writes the file and runs the plan, uninstall removes it'
   const install = await cli(['autostart', 'install', '--kind=systemd'], { root });
   assert.equal(install.code, 0);
   assert.equal(install.wrote.length, 1);
-  assert.ok(install.wrote[0].path.endsWith('systemd/user/okit-daemon.service'));
+  // The written path is joined with the separators of the host, so the
+  // expectation is spelled the same way: `/` on Linux and macOS, `\` on Windows.
+  assert.ok(install.wrote[0].path.endsWith(join('systemd', 'user', 'okit-daemon.service')));
   assert.deepEqual(install.ran.map(({ command, args }) => [command, ...args]), [
     ['systemctl', '--user', 'daemon-reload'],
     ['systemctl', '--user', 'enable', '--now', 'okit-daemon.service'],
