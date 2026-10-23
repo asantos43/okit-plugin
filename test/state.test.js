@@ -4,6 +4,7 @@ import { mkdtemp, readdir, readFile, rm, utimes, writeFile, mkdir } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { readJson, withLock, writeJsonAtomic } from '../src/state.js';
 
@@ -290,25 +291,73 @@ async function bump(file, rounds, timeoutMs = 10_000) {
   }
 }
 
-const SELF = new URL(import.meta.url).pathname;
+// `import.meta.url` is a URL, and the path part of a URL is percent-encoded
+// and slash-prefixed: on Windows it reads `/C:/Users/...`, which no process can
+// ever be started from, so `fork` fails and every forked child ends as
+// "exited with 1" with nothing to explain it. `fileURLToPath` is the only
+// spelling that is a real path on every platform.
+const SELF = fileURLToPath(import.meta.url);
 
 // The forked child runs this same file as its main module: it bumps the
 // counter and exits before any test below is registered.
 if (process.env.STATE_TEST_CHILD) {
+  // Any mode but the default bumps nothing and fails on purpose, so a test can
+  // prove the parent's rejection carries the child's own stderr without waiting
+  // for a real crash to be reproducible.
+  if (process.env.STATE_TEST_CHILD !== 'bump') {
+    process.stderr.write(`state-test child ${process.env.STATE_TEST_CHILD}: the run file cannot be read\n`);
+    process.exit(3);
+  }
   await bump(process.env.STATE_TEST_FILE, Number(process.env.STATE_TEST_ROUNDS));
   process.exit(0);
 }
 
-function forkBumper(file, rounds) {
+// The last slice of the child's stderr. A child that dies with its output
+// discarded can only say "exited with 1", which is the one message that never
+// explains anything: a `fork` that cannot resolve the module, a lock that never
+// frees, a syntax error in the very file the child runs. Two kilobytes is the
+// whole stack of one failure and nothing more.
+const STDERR_TAIL_BYTES = 2048;
+
+function stderrTail(child) {
+  const chunks = [];
+  child.stderr?.on('data', (chunk) => chunks.push(chunk));
+  return () => {
+    const seen = Buffer.concat(chunks).subarray(-STDERR_TAIL_BYTES).toString('utf8').trim();
+    return seen === '' ? '' : `: ${seen}`;
+  };
+}
+
+function forkBumper(file, rounds, mode = 'bump') {
   const child = fork(SELF, [], {
-    env: { ...process.env, STATE_TEST_CHILD: '1', STATE_TEST_FILE: file, STATE_TEST_ROUNDS: String(rounds) },
-    stdio: 'ignore',
+    env: { ...process.env, STATE_TEST_CHILD: mode, STATE_TEST_FILE: file, STATE_TEST_ROUNDS: String(rounds) },
+    // The child's stderr is a pipe the rejection message reads, never 'ignore'.
+    stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
   });
+  const tail = stderrTail(child);
   return new Promise((resolve, reject) => {
     child.once('error', reject);
-    child.once('exit', (code) => (code === 0 ? resolve() : reject(new Error(`child exited with ${code}`))));
+    // 'close', not 'exit': the pipes are only drained when every stdio stream
+    // is done, so on 'exit' the tail of a child that died can still be empty.
+    child.once('close', (code) => (code === 0 ? resolve() : reject(new Error(`child exited with ${code}${tail()}`))));
   });
 }
+
+// A failing child must name its own failure: the rejection carries the tail of
+// its stderr, so an unresolvable module or an unreadable run file is visible
+// without a second run of the suite. Before, `stdio` was 'ignore' and the only
+// message was "child exited with 1".
+test('a forked child that fails says why on the rejection', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'counter.json');
+
+  await assert.rejects(() => forkBumper(file, 1, 'unreadable'), (error) => {
+    assert.match(error.message, /^child exited with 3/);
+    assert.match(error.message, /state-test child unreadable: the run file cannot be read/);
+    return true;
+  });
+  await rm(dir, { recursive: true, force: true });
+});
 
 test('a forked child and the parent contend on the same lock', async () => {
   const dir = await tempDir();

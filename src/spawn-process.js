@@ -190,15 +190,28 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
 
     const file = runFile(runs, runId);
     const startedAt = now();
-    await writeJsonAtomic(file, {
-      runId, client: options.client, pid: child.pid ?? null, mode: 'PROCESS', status: 'live', startedAt,
-    });
+    // A run file that cannot be written, read back or found again is one line
+    // on stderr that names the file, never a mystery: the daemon's own error
+    // handling is not the only reader, and on Windows the file can be
+    // momentarily unreadable (EPERM/EBUSY) with no other trace of it.
+    const reportRunFile = (error) => {
+      process.stderr.write(`okit: run file ${file}: ${error.message}\n`);
+    };
+
+    try {
+      await writeJsonAtomic(file, {
+        runId, client: options.client, pid: child.pid ?? null, mode: 'PROCESS', status: 'live', startedAt,
+      });
+    } catch (error) {
+      reportRunFile(error);
+      throw error;
+    }
 
     // A client that is not installed makes `spawn` emit `'error'`, and an
     // emitter with no listener throws: without this the daemon would die on the
     // first demand nobody can run. The clock stops with the process, whichever
-    // way it ends, and a run file that cannot be written is a line on stderr,
-    // never an exception the daemon dies of.
+    // way it ends, and a run file that cannot be written after that is a line on
+    // stderr, never an exception the daemon dies of.
     let timer = null;
     const stopTimer = () => {
       if (timer !== null) clearTimeout(timer);
@@ -207,10 +220,14 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
     const record = (patch) => {
       stopTimer();
       readJson(file, null)
-        .then((run) => writeJsonAtomic(file, { ...(run ?? {}), endedAt: now(), ...patch }))
-        .catch((error) => {
-          process.stderr.write(`okit: could not record run ${runId}: ${error.message}\n`);
-        });
+        .then((run) => {
+          // A missing run file is a read that failed in the only way `readJson`
+          // does not raise: the record below would carry the patch alone and
+          // lose the client, the pid and the start of the run.
+          if (run === null) reportRunFile(new Error('it was gone when the run ended'));
+          return writeJsonAtomic(file, { ...(run ?? {}), endedAt: now(), ...patch });
+        })
+        .catch(reportRunFile);
     };
 
     child.on?.('error', (error) => record({ status: 'failed', error: error.message, exitCode: null }));

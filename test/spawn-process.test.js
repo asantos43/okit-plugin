@@ -18,13 +18,43 @@ const tempRuns = async (t) => {
   return dir;
 };
 
-/** Polls until `check` returns something, so a test never sleeps for a guess. */
+/** What a poll left behind, so a timeout says what it saw and not just that it timed out. */
+const seenValue = (value) => {
+  if (value === undefined) return 'undefined';
+  if (typeof value === 'string') return JSON.stringify(value);
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const seenError = (error) => (error ? `${error.name}: ${error.message}` : 'none');
+
+/**
+ * Polls until `check` returns something, so a test never sleeps for a guess.
+ *
+ * A throw is one more "not yet": on Windows a run file can be unreadable for a
+ * moment (EPERM/EBUSY while it is renamed), and a poll that gives up on the
+ * first error cannot tell that apart from a run that never happened. The last
+ * value and the last error go into the timeout message, which is the only thing
+ * a Windows run has to work with.
+ */
 async function until(check, deadlineMs = 2000) {
   const started = Date.now();
+  let lastValue;
+  let lastError;
   for (;;) {
-    const value = await check();
-    if (value) return value;
-    if (Date.now() - started > deadlineMs) throw new Error('the condition never came true');
+    try {
+      const value = await check();
+      lastValue = value;
+      if (value) return value;
+    } catch (error) {
+      lastError = error;
+    }
+    if (Date.now() - started > deadlineMs) {
+      throw new Error(`the condition never came true; last value: ${seenValue(lastValue)}; last error: ${seenError(lastError)}`);
+    }
     await sleep(5);
   }
 }
@@ -239,7 +269,41 @@ test('a run file that cannot be written is one line on stderr, not a throw', asy
     await sleep(30);
   });
   assert.equal(lines.length, 1, lines.join(''));
-  assert.match(lines[0], /^okit: could not record run d-1: Cannot (read|write) .*d-1\.json/);
+  assert.match(lines[0], /^okit: run file .*d-1\.json: Cannot (read|write) /);
+});
+
+test('a run file that cannot be written on start names the file and still throws', async (t) => {
+  const runs = await tempRuns(t);
+  // The run file is already a folder when the run starts, so the atomic rename
+  // over it fails on every platform and no writer has to be faked to see it.
+  await mkdir(join(runs, 'd-1.json'), { recursive: true });
+  const fake = fakeSpawn();
+  const spawner = makeSpawner({ spawn: fake.spawn, logDir: runs });
+
+  const lines = await captureStderr(async () => {
+    await assert.rejects(() => spawner(DEMAND, OPTIONS), { message: /Cannot write .*d-1\.json/ });
+  });
+  assert.equal(lines.length, 1, lines.join(''));
+  assert.match(lines[0], /^okit: run file .*d-1\.json: Cannot write /);
+});
+
+test('a run file that is gone when the run ends is reported, not lost in silence', async (t) => {
+  const runs = await tempRuns(t);
+  const fake = fakeSpawn();
+  const spawner = makeSpawner({ spawn: fake.spawn, now: () => 1_000, logDir: runs });
+  await spawner(DEMAND, OPTIONS);
+
+  // `readJson` answers a file that does not exist with the fallback instead of
+  // raising, so this read fails with no exception anywhere to catch it.
+  const file = join(runs, 'd-1.json');
+  await rm(file);
+
+  const lines = await captureStderr(async () => {
+    fake.calls[0].child.emit('exit', 0, null);
+    await sleep(30);
+  });
+  assert.equal(lines.length, 1, lines.join(''));
+  assert.match(lines[0], /^okit: run file .*d-1\.json: it was gone when the run ended/);
 });
 
 test('the working directory is the demand project when it is a folder', async (t) => {
@@ -269,4 +333,30 @@ test('a run without an id is refused rather than started untracked', async (t) =
   await assert.rejects(() => spawner(DEMAND, { ...OPTIONS, runId: undefined }),
     { name: 'TypeError', message: /runId/ });
   assert.equal(fake.calls.length, 0);
+});
+
+test('a poll that times out says the last value and the last error it saw', async () => {
+  // Nothing was ever seen: the value is `undefined` and there is no error.
+  await assert.rejects(() => until(() => null, 20), {
+    message: 'the condition never came true; last value: null; last error: none',
+  });
+
+  // A poll that only ever throws is a run that cannot be read, and the reason
+  // is the only thing a Windows run has: it must not be reduced to a timeout.
+  let calls = 0;
+  await assert.rejects(() => until(() => {
+    calls += 1;
+    if (calls === 1) return null;
+    throw new Error('EPERM: operation not permitted, rename');
+  }, 20), { message: /last value: null; last error: Error: EPERM: operation not permitted, rename/ });
+
+  // A value that arrives after a throw still ends the poll: the error was
+  // transient, which is exactly what a renamed run file looks like.
+  let attempt = 0;
+  const run = await until(() => {
+    attempt += 1;
+    if (attempt < 3) throw new Error('EBUSY: resource busy or locked');
+    return { status: 'done' };
+  }, 500);
+  assert.deepEqual(run, { status: 'done' });
 });
