@@ -9,6 +9,10 @@ import process from 'node:process';
 // pause that grows, and only a real answer (EEXIST, ENOENT) or an unexpected code
 // stops the wait and goes back to the caller.
 const TRANSIENT_CODES = new Set(['EPERM', 'EBUSY']);
+// Emptied but not yet removed: another contender wrote an entry back between
+// the unlink and the rmdir, so the folder that answered is not the one this
+// holder emptied.
+const REPOPULATED_CODE = 'ENOTEMPTY';
 const TRANSIENT_MAX_ATTEMPTS = 8;
 const TRANSIENT_BACKOFF_MS = 10;
 const TRANSIENT_BACKOFF_CAP_MS = 200;
@@ -216,6 +220,11 @@ async function claimStaleLock(lockDir, staleMs, probe, faults) {
     // ENOENT: another taker took this claim first, or the folder is a new one
     // whose owner has not written its claim yet. Neither is ours to move.
     if (error.code === 'ENOENT') return false;
+    // Nothing has been moved out of this folder, so the evidence every waiter
+    // reads is still where this verdict found it: give the attempt up and let
+    // the loop judge again rather than end the run over a refusal that outlived
+    // every retry, the same answer the owner write below gives.
+    if (TRANSIENT_CODES.has(error.code)) return false;
     throw error;
   }
 
@@ -318,7 +327,8 @@ async function acquireLock(lockDir, timeoutMs, staleMs, probe, faults) {
  * 'verdict' and 'claimed', which lets a test drive the interleaving a takeover
  * has to survive instead of waiting for one to show up under load. `faults` is
  * the same idea for the refusals Windows answers: it is asked for each attempt of
- * a step ('rename', 'owner') and returns the code to fail with, or null.
+ * a step ('rename', 'owner', 'release') and returns the code to fail with, or
+ * null.
  */
 export async function withLock(dir, fn, { timeoutMs = 5000, staleMs = 30000, probe = NO_PROBE, faults = NO_FAULTS } = {}) {
   const lockDir = `${dir}.lock`;
@@ -327,6 +337,28 @@ export async function withLock(dir, fn, { timeoutMs = 5000, staleMs = 30000, pro
   try {
     return await fn();
   } finally {
-    await rm(lockDir, { recursive: true, force: true });
+    // The release removes the owner file this holder has just written and
+    // closed, which is the one file of the lifecycle that Windows and the
+    // antivirus behind it refuse to delete for as long as they hold a handle.
+    // It is waited out like every other call, because a refusal here is not only
+    // this bump's problem: it leaves the folder behind holding the owner of a
+    // process that is now gone and younger than `staleMs`, which is longer than
+    // every caller's timeout, so every contender in the queue behind it would
+    // report a lock "held by pid N" that nobody can ever take.
+    await releaseLock(lockDir, faults);
+  }
+}
+
+// ENOTEMPTY means the folder answered the unlink but not the rmdir: something
+// wrote an entry back between them, so the folder that is left is not the one
+// this holder emptied — it is the next owner's, or a taker's claim. Retrying
+// would delete that entry, which is the one piece of evidence every waiter of
+// that folder reads, so it is reported as released and left alone. ENOENT means
+// a contender that got there first already removed it.
+async function releaseLock(lockDir, faults) {
+  try {
+    await retryTransient('release', faults, () => rm(lockDir, { recursive: true, force: true }));
+  } catch (error) {
+    if (error.code !== REPOPULATED_CODE && error.code !== 'ENOENT') throw error;
   }
 }
