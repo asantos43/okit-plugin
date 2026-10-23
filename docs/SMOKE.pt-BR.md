@@ -301,6 +301,22 @@ Três passos, cada um mergeado sozinho, cada um terminando com um `node --test` 
 
 **Passo 1 — o roteiro como dado.** Novo `src/smoke/scenario.js` com a lista ordenada de passos (id, nome, recurso, tipo, chamada, comportamento) e a exportação `SCENARIO`. Novo `test/smoke-scenario.test.js` afirma os 23 ids, a ordem deles, que todo id é único, que toda chamada de ferramenta nomeia uma ferramenta de `TOOL_NAMES` e que todo comportamento nomeia o fato de onde é julgado. As entradas conhecidas são montadas a partir do que o próprio núcleo exporta — os limiares do classificador de `CLASSIFIER_RULES`, os tetos do `config.json` —, então uma mudança no núcleo é uma mudança no roteiro e nunca uma quebra silenciosa.
 
+A tabela de dados também contém `judgedFrom`. As chamadas MCP usam `{ tool, arguments }`,
+com uma chamada `then` opcional; leituras sem operação usam `null`.
+`{ "$ref": "path" }` indica um valor fornecido pelo futuro runner, não um argumento
+MCP a enviar literalmente: `client`, `config` efetiva (padrões do núcleo mesclados
+com `config.json`), `quota`, valores anteriores de `C*.answer` e `fixtures` da execução.
+As fixtures fornecem ids únicos de execuções para os casos de slot, recusa e ausência,
+texto da inbox, o id de um novo item pendente, a classe do perfil e variantes de quota
+no piso ou abaixo de `config.lowQuotaPct`, além de um modelo recorrente vencido.
+Descritores de preparação (`action`, `tag`) e campos aninhados
+`preparation`/`cleanup` descrevem a preparação e a limpeza; todos usam `okit-smoke`.
+Só podem criar ou remover registros da própria execução; capacidade real insuficiente
+nunca deve ser obtida alterando outra execução ou a configuração da instalação.
+O corpus do classificador consulta os predicados das regras exportadas para as contagens de palavras.
+O Passo 1 exporta apenas dados compatíveis com JSON; resolver referências e executar
+essas operações pertence ao Passo 2.
+
 **Passo 2 — o runner e os drivers.** Novo `src/smoke/client.js` com os quatro drivers (skill, headless, demo, dry run), as variáveis de configuração do `config.json` e as flags que as sobrescrevem, a pré-checagem de cota, o teto, o modo `--rehearsal`, os códigos de saída da tabela acima (o portão `C1`–`C5` e a linha `PARCIAL`), o veredito lido direto dos arquivos e o escritor de artefatos reaproveitando `writeArtifacts` de `src/smoke/report.js`. Edição de `src/cli.js` para o grupo `client-smoke` e suas flags. `test/smoke-client.test.js` cobre os códigos, os motivos de `skip`, as variáveis e os nomes dos artefatos, com o cliente injetado para nenhum teste gastar cota.
 
 **Passo 3 — a skill.** Novo `skills/okit-smoke/SKILL.md` com o roteiro como briefing, e os registros marcados que os passos deixam para trás. A skill é o roteiro que o cliente lê; é a mesma lista que `src/smoke/scenario.js` guarda.

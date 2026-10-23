@@ -306,6 +306,21 @@ Three steps, each merged on its own, each ending with a green `node --test`.
 
 **Step 1 — the scenario as data.** New `src/smoke/scenario.js` with the ordered list of steps (id, name, resource, kind, call, behaviour) and the `SCENARIO` export. New `test/smoke-scenario.test.js` asserts the 23 ids, their order, that every id is unique, that every tool call names a tool of `TOOL_NAMES` and that every behaviour names the fact it is judged from. The known inputs are built from what the core itself exports — the classifier's thresholds from `CLASSIFIER_RULES`, the caps from `config.json` — so a change in the core is a change in the scenario and never a silent break.
 
+The data table also carries `judgedFrom`. MCP calls use `{ tool, arguments }`,
+with an optional `then` call; readings without an operation use `null`.
+`{ "$ref": "path" }` denotes a value supplied by the future runner, not an MCP
+argument to send literally: `client`, effective `config` (core defaults merged
+with `config.json`), `quota`, prior `C*.answer` values and run-owned `fixtures`.
+Fixtures supply unique slot/refused/absent run ids, inbox text, a fresh pending
+item id, profile effort and quota variants at/below `config.lowQuotaPct`, and a
+due template. Preparation descriptors (`action`, `tag`) and nested
+`preparation`/`cleanup` describe setup and teardown; all use `okit-smoke`.
+They may only create or remove run-owned records; insufficient real capacity
+must never be made by altering another run or the installation's config.
+The classifier corpus probes the exported rule predicates for word counts.
+Step 1 exports only JSON-compatible data; resolving references and executing
+these operations belongs to Step 2.
+
 **Step 2 — the runner and the drivers.** New `src/smoke/client.js` with the four drivers (skill, headless, demo, dry run), the configuration variables of `config.json` and the flags that override them, the quota pre-check, the ceiling, the `--rehearsal` mode, the exit codes of the table above (the `C1`–`C5` gate and the `PARCIAL` line), the verdict read straight from the files and the artifact writer reusing `writeArtifacts` of `src/smoke/report.js`. Edit `src/cli.js` for the `client-smoke` group and its flags. `test/smoke-client.test.js` covers the codes, the `skip` reasons, the variables and the artifact names, with the client injected so no quota is spent in the test.
 
 **Step 3 — the skill.** New `skills/okit-smoke/SKILL.md` with the scenario as the briefing, and the tagged records the steps leave behind. The skill is the scenario the client reads; it is the same list `src/smoke/scenario.js` holds.
