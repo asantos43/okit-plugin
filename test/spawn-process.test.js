@@ -253,6 +253,38 @@ test('a client that cannot be started fails the run instead of the daemon', asyn
   assert.deepEqual(call.child.signals, []);
 });
 
+// The end of a run is written once, so a refusal there was final: the read and
+// the rename both answer EPERM/EBUSY on Windows while a handle on the run file
+// lasts, and the patch was reported on stderr and never written, leaving the run
+// `live` for good. Both steps are retried, so a refusal that was only a moment
+// long costs the run nothing and the record keeps the fields read before it.
+test('a run file that refuses the read and the write once still ends with its record', async (t) => {
+  const runs = await tempRuns(t);
+  const fake = fakeSpawn();
+  const refused = [];
+  const spawner = makeSpawner({
+    spawn: fake.spawn,
+    now: () => 2_000,
+    logDir: runs,
+    transient: (step, attempt) => (attempt === 1 ? (refused.push(step), 'EPERM') : null),
+  });
+
+  await spawner(DEMAND, OPTIONS);
+  fake.calls[0].child.emit('error', new Error('spawn claude ENOENT'));
+
+  const file = join(runs, 'd-1.json');
+  const run = await until(async () => {
+    const value = JSON.parse(await readFile(file, 'utf8'));
+    return value.status === 'failed' ? value : null;
+  });
+
+  assert.deepEqual(refused, ['read', 'write']);
+  assert.deepEqual(run, {
+    runId: 'd-1', client: 'claude-code', pid: 4242, mode: 'PROCESS', status: 'failed',
+    startedAt: 2_000, endedAt: 2_000, error: 'spawn claude ENOENT', exitCode: null,
+  });
+});
+
 test('a run file that cannot be written is one line on stderr, not a throw', async (t) => {
   const runs = await tempRuns(t);
   const fake = fakeSpawn();

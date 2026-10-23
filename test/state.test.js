@@ -250,6 +250,65 @@ test('withLock waits on an ownerless lock folder that is not old yet', async () 
   await rm(dir, { recursive: true, force: true });
 });
 
+// The window a takeover opens has to close. It has moved the dead owner's
+// `owner.json` out of the folder and has not written its own yet, and a folder
+// with no owner file is judged by its mtime alone — which the rename just
+// refreshed — so nobody can take it before `staleMs`, which is longer than any
+// caller's timeout. A Windows refusal that outlives every retry must therefore
+// leave the folder the way it was found, with the dead owner's evidence back
+// where the next waiter reads it, instead of a lock no one can take.
+test('a takeover that cannot write its owner file leaves the lock claimable', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  const lockDir = `${file}.lock`;
+  const owner = { pid: await deadPid(), startedAt: Date.now() - 60_000 };
+  await mkdir(lockDir, { recursive: true });
+  await writeFile(join(lockDir, 'owner.json'), JSON.stringify(owner), 'utf8');
+
+  // Every attempt of the owner write is refused, as antivirus does.
+  await assert.rejects(withLock(file, () => 'taken', {
+    timeoutMs: 120,
+    staleMs: 30_000,
+    faults: (step) => (step === 'owner' ? 'EPERM' : null),
+  }), new RegExp(`held by pid ${owner.pid} `));
+
+  // The evidence is back, so the folder is a lock with an owner a waiter can
+  // read: the dead pid, and its age, instead of "an unknown process".
+  assert.deepEqual(await readJson(join(lockDir, 'owner.json'), null), owner);
+
+  const value = await withLock(file, () => 'taken', { staleMs: 30_000 });
+
+  assert.equal(value, 'taken');
+  assert.deepEqual(await readdir(dir), []);
+  await rm(dir, { recursive: true, force: true });
+});
+
+// One refusal is not a verdict, and waiting it out has to happen where the
+// takeover is: a refusal that ends the attempt sends the loop back to the clock,
+// which then re-judges the whole folder for as long as the handle lasts.
+test('a takeover waits out refusals of the owner write in one attempt', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  const lockDir = `${file}.lock`;
+  await mkdir(lockDir, { recursive: true });
+  await writeFile(join(lockDir, 'owner.json'), JSON.stringify({ pid: await deadPid(), startedAt: Date.now() - 60_000 }), 'utf8');
+
+  let verdicts = 0;
+  let refusals = 0;
+  const value = await withLock(file, () => 'taken', {
+    staleMs: 30_000,
+    probe: async (step) => {
+      if (step === 'verdict') verdicts += 1;
+    },
+    faults: (step) => (step === 'owner' && refusals < 3 ? (refusals += 1, 'EPERM') : null),
+  });
+
+  assert.equal(value, 'taken');
+  assert.equal(refusals, 3, `the owner write was refused ${refusals} times instead of three`);
+  assert.equal(verdicts, 1, `the takeover was judged ${verdicts} times instead of once`);
+  await rm(dir, { recursive: true, force: true });
+});
+
 test('withLock fails with a clear message when the lock stays held', async () => {
   const dir = await tempDir();
   const file = join(dir, 'state.json');
