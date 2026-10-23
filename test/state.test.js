@@ -250,6 +250,31 @@ test('withLock waits on an ownerless lock folder that is not old yet', async () 
   await rm(dir, { recursive: true, force: true });
 });
 
+// How many mkdir attempts a contender loses before it gets the folder: the
+// refusals Windows answers to a folder another process is taking or removing.
+const MKDIR_REFUSALS = 3;
+// How many refusals the takeover of a stale lock has to survive: its rename and
+// its owner write are both refused while the folder is busy.
+const TAKEOVER_REFUSALS = 2;
+
+test('withLock waits out a refused mkdir and still runs the callback', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+
+  for (const code of ['EPERM', 'EBUSY', 'EACCES']) {
+    let refused = 0;
+    const value = await withLock(file, () => code, {
+      timeoutMs: 2000,
+      faults: (step) => (step === 'mkdir' && refused < MKDIR_REFUSALS ? (refused += 1, code) : null),
+    });
+
+    assert.equal(value, code);
+    assert.equal(refused, MKDIR_REFUSALS, `mkdir was refused ${refused} times instead of ${MKDIR_REFUSALS}`);
+    assert.deepEqual(await readdir(dir), []);
+  }
+  await rm(dir, { recursive: true, force: true });
+});
+
 // The window a takeover opens has to close. It has moved the dead owner's
 // `owner.json` out of the folder and has not written its own yet, and a folder
 // with no owner file is judged by its mtime alone — which the rename just
@@ -351,6 +376,18 @@ function refusesFor(steps, count) {
 // judges the folder again, still inside the budget. Thrown out of `acquireLock`
 // instead, one refusal that lasts the whole budget ends the bump with a code no
 // caller of `withLock` has an answer for.
+test('withLock names the last mkdir refusal when the lock never opens', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+
+  await assert.rejects(withLock(file, () => 'never', {
+    timeoutMs: 120,
+    faults: (step) => (step === 'mkdir' ? 'EPERM' : null),
+  }), /last refusal: EPERM/);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 test('a takeover is taken over within the budget while its claim rename is refused', async () => {
   const dir = await tempDir();
   const file = join(dir, 'state.json');
@@ -370,6 +407,50 @@ test('a takeover is taken over within the budget while its claim rename is refus
   assert.equal(value, 'taken');
   assert.equal(refused, EVERY_ATTEMPT_REFUSED, `the claim rename was refused ${refused} times`);
   assert.deepEqual(await readdir(dir), []);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test('a stale lock of a dead pid is reclaimed while mkdir and rename refuse temporarily', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  const lockDir = `${file}.lock`;
+  await mkdir(lockDir, { recursive: true });
+  await writeFile(join(lockDir, 'owner.json'), JSON.stringify({ pid: await deadPid(), startedAt: Date.now() - 60_000 }), 'utf8');
+
+  let mkdirRefusals = 0;
+  let renameRefusals = 0;
+  const value = await withLock(file, () => 'taken', {
+    timeoutMs: 2000,
+    staleMs: 30_000,
+    faults: (step) => {
+      if (step === 'mkdir' && mkdirRefusals < TAKEOVER_REFUSALS) return (mkdirRefusals += 1, 'EPERM');
+      if (step === 'rename' && renameRefusals < TAKEOVER_REFUSALS) return (renameRefusals += 1, 'EBUSY');
+      return null;
+    },
+  });
+
+  assert.equal(value, 'taken');
+  assert.ok(mkdirRefusals >= 1, 'the mkdir refusal never reached the takeover');
+  assert.equal(renameRefusals, TAKEOVER_REFUSALS, `the claim rename was refused ${renameRefusals} times instead of ${TAKEOVER_REFUSALS}`);
+  assert.deepEqual(await readdir(dir), []);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test('a stale lock whose claim rename keeps failing names the refusal in the timeout', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'state.json');
+  const lockDir = `${file}.lock`;
+  const owner = { pid: await deadPid(), startedAt: Date.now() - 60_000 };
+  await mkdir(lockDir, { recursive: true });
+  await writeFile(join(lockDir, 'owner.json'), JSON.stringify(owner), 'utf8');
+
+  await assert.rejects(withLock(file, () => 'never', {
+    timeoutMs: 120,
+    staleMs: 30_000,
+    faults: (step) => (step === 'rename' ? 'EPERM' : null),
+  }), /last refusal: EPERM/);
+
+  assert.deepEqual(await readJson(join(lockDir, 'owner.json'), null), owner);
   await rm(dir, { recursive: true, force: true });
 });
 
