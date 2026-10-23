@@ -30,7 +30,12 @@ const PAUSED = 'paused';
 const BUSY = 'the concurrency cap is full';
 
 const DEFAULT_CLIENT = 'unknown';
-const LOCK_TIMEOUT_MS = 300;
+// One attempt, and no poll: a second daemon on the same root is a mistake, not a
+// queue, so it has to say who holds the lock instead of waiting for it. `0` is
+// that case in `withLock` — the lock is still created and still taken over when
+// its owner is dead, but a live owner is reported on the first try. Waiting would
+// make the refusal as slow as the disk is, since every poll costs two calls.
+const LOCK_TIMEOUT_MS = 0;
 const STOP_FILE = 'daemon.stop';
 const PAUSE_FILE = 'daemon.paused';
 const PID_FILE = 'daemon.pid.json';

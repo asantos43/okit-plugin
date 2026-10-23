@@ -438,7 +438,11 @@ test('a second daemonRun on the same root refuses the lock at once', async (t) =
   });
 
   const started = Date.now();
-  await assert.rejects(daemonRun(root, deps, { sleep: async () => {} }), /is held by/);
+  // `after 0 ms` is the try-once contract: the loser asks once and says who holds
+  // the lock. On the old 300 ms budget the refusal arrived only after a dozen
+  // polls, and every poll is two filesystem calls, so a Windows disk turned a
+  // 300 ms budget into the 2274 ms the Producer measured.
+  await assert.rejects(daemonRun(root, deps, { sleep: async () => {} }), /is held by pid \d+ since .+ after 0 ms/);
   const waited = Date.now() - started;
 
   // The refusal is prompt: the loser of the lock never waits out a full interval.

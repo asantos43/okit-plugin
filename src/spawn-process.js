@@ -146,6 +146,39 @@ function briefingOf(demand) {
 
 const minutes = (value) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null);
 
+// A run file that cannot be written on the first try is a run that never ends:
+// Windows answers EPERM/EBUSY while it holds a handle on the file the record
+// reads and the one the rename lands on, and a refusal that outlives every retry
+// is reported and then forgotten, so the run stays `live` for good. The end of a
+// run is retried instead, and the pause grows, so a refusal that is only a moment
+// long costs the run nothing.
+const TRANSIENT_CODES = new Set(['EPERM', 'EBUSY']);
+const RUN_FILE_ATTEMPTS = 8;
+const RUN_FILE_BACKOFF_MS = 10;
+
+// Test seam: `transient(step, attempt)` returns the code Windows would answer for
+// that attempt of the run file, or null. It is what makes the retry testable on
+// any platform.
+const NO_TRANSIENT = () => null;
+
+const sleep = (ms) => new Promise((resolve) => {
+  setTimeout(resolve, ms);
+});
+
+async function attemptRunFile(step, transient, call) {
+  for (let attempt = 1; ; attempt += 1) {
+    const injected = transient(step, attempt);
+    try {
+      if (injected !== null) throw Object.assign(new Error(`${step} the run file: ${injected}`), { code: injected });
+      return await call();
+    } catch (error) {
+      const retryable = TRANSIENT_CODES.has(error.code) && attempt < RUN_FILE_ATTEMPTS;
+      if (!retryable) throw error;
+      await sleep(RUN_FILE_BACKOFF_MS * attempt);
+    }
+  }
+}
+
 const runFile = (runs, runId) => join(runs, `${runId}.json`);
 
 /**
@@ -163,7 +196,7 @@ const runFile = (runs, runId) => join(runs, `${runId}.json`);
  *   env?: object, cwd?: string}} [options]
  * @returns {(demand: object, opts: object) => Promise<{runId: string, pid: number|null, mode: string}>}
  */
-export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDir, env = process.env, cwd } = {}) {
+export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDir, env = process.env, cwd, transient = NO_TRANSIENT } = {}) {
   const runs = logDir ?? paths(stateRoot()).runs;
   const fallbackCwd = cwd ?? process.cwd();
 
@@ -219,13 +252,13 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
     };
     const record = (patch) => {
       stopTimer();
-      readJson(file, null)
+      attemptRunFile('read', transient, () => readJson(file, null))
         .then((run) => {
           // A missing run file is a read that failed in the only way `readJson`
           // does not raise: the record below would carry the patch alone and
           // lose the client, the pid and the start of the run.
           if (run === null) reportRunFile(new Error('it was gone when the run ended'));
-          return writeJsonAtomic(file, { ...(run ?? {}), endedAt: now(), ...patch });
+          return attemptRunFile('write', transient, () => writeJsonAtomic(file, { ...(run ?? {}), endedAt: now(), ...patch }));
         })
         .catch(reportRunFile);
     };
