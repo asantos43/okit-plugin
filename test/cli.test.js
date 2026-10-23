@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import process from 'node:process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { main } from '../src/cli.js';
 import { inboxAdd } from '../src/inbox.js';
@@ -60,6 +63,58 @@ async function cli(argv, io = {}) {
     }),
   });
   return { code, out, err, ran, wrote };
+}
+
+const execFileAsync = promisify(execFile);
+
+// The `okit` this test drives as a child, and the platform a child needs to
+// start at all: nothing that names the state of the machine running the suite.
+const CLI = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+const PLATFORM_ENV = Object.fromEntries(
+  ['PATH', 'PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'LANG']
+    .map((name) => [name, process.env[name]])
+    .filter(([, value]) => value !== undefined),
+);
+
+/**
+ * A home, a temp folder and a state root of their own for a child `okit smoke`.
+ * The scratch home of a run is built under the temp folder, so the whole child
+ * stays inside the repository scratch `test/cli.test.js` already uses.
+ */
+async function smokeScope(t) {
+  await mkdir(TMP, { recursive: true });
+  const scope = await mkdtemp(join(TMP, 'cli-smoke-'));
+  t.after(() => rm(scope, { recursive: true, force: true }));
+  const folders = {
+    home: join(scope, 'home'), tmp: join(scope, 'tmp'), state: join(scope, 'state'),
+  };
+  for (const folder of Object.values(folders)) await mkdir(folder, { recursive: true });
+  return folders;
+}
+
+/** The environment of one child: its own home, its own temp, and what a case adds. */
+function childEnv(scope, extra = {}) {
+  return {
+    ...PLATFORM_ENV,
+    HOME: scope.home,
+    USERPROFILE: scope.home,
+    TMPDIR: scope.tmp,
+    TEMP: scope.tmp,
+    TMP: scope.tmp,
+    ...extra,
+  };
+}
+
+/**
+ * One `okit` as a child process. The exit code, the stdout and the stderr come
+ * back even when the code is not 0, since every code of `okit smoke` is a fact
+ * under test and a refusal is a line on stderr.
+ */
+async function childCli(argv, env) {
+  const done = await execFileAsync(process.execPath, [CLI, ...argv], { env, windowsHide: true })
+    .then((answer) => ({ ...answer, code: 0 }), (error) => ({ ...error, code: error.code }));
+  const lines = (text) => `${text ?? ''}`.split('\n').filter((line) => line !== '');
+  return { code: done.code, out: lines(done.stdout), err: lines(done.stderr) };
 }
 
 test('an unknown command prints the usage and exits 2', async () => {
@@ -332,4 +387,71 @@ test('a command that fails exits 1 and says why', async (t) => {
   });
   assert.equal(run.code, 1);
   assert.equal(run.err[0], 'okit: launchctl is not here');
+});
+
+// Must pass / must refuse (`okit smoke`, as a child process):
+// | case                                          | must pass                        | must refuse                  |
+// | `--only I1`                                   | code 0, one `pass`, scratch gone | -                            |
+// | `--real --only I4` over a config root that is a file | -                          | code 1, the `fail I4` record |
+// | `--only nope`                                 | -                                | code 2, the usage with it    |
+// | an `OKWORK_HOME` without `--real`             | -                                | code 2, one line, no usage   |
+
+test('the smoke group refuses an unknown --only id and an OKWORK_HOME it was not given', async (t) => {
+  const scope = await smokeScope(t);
+
+  const unknown = await childCli(['smoke', '--only', 'nope'], childEnv(scope));
+  assert.equal(unknown.code, 2, '--only nope exits 2');
+  assert.deepEqual(unknown.out, [], 'a refused run runs no check');
+  assert.match(unknown.err[0], /okit smoke: unknown check "NOPE"/);
+  // The refusal is a usage error, so the usage goes with it exactly as it goes
+  // with an unknown group: this line is what a `smoke.code` mapping would lose.
+  assert.ok(unknown.err[1]?.startsWith('usage: okit daemon start|stop|status|pause|resume|run-once'),
+    `the usage follows the refusal, got ${unknown.err.slice(1).join(' / ') || 'nothing'}`);
+
+  const chosen = await childCli(['smoke'], childEnv(scope, { OKWORK_HOME: scope.state }));
+  assert.equal(chosen.code, 2, 'a state root the user chose is refused without --real');
+  assert.deepEqual(chosen.out, []);
+  assert.equal(chosen.err.length, 1, 'this refusal says why and nothing else');
+  assert.match(chosen.err[0], /OKWORK_HOME is set; okit smoke uses a scratch home unless --real is given/);
+  assert.deepEqual(await readdir(scope.tmp), [], 'a refused run builds no scratch home');
+});
+
+test('smoke --only I1 runs one check of the install group and exits 0', async (t) => {
+  const scope = await smokeScope(t);
+  const run = await childCli(['smoke', '--only', 'I1'], childEnv(scope));
+
+  assert.equal(run.code, 0, run.err.join(' / '));
+  assert.equal(run.out[0], 'okit smoke');
+  assert.match(run.out[1], /^run: \d{8}T\d{6}Z-\d+$/);
+  assert.match(run.out[2], /^pass I1 files\.placed \d+ms$/);
+  assert.equal(run.out[3], 'passed: 1 failed: 0 skipped: 0');
+  assert.equal(run.out.length, 6, 'the two artifact paths close the output');
+  const runId = run.out[1].slice('run: '.length);
+  assert.ok(run.out[4].endsWith(join('logs', 'smoke', `smoke-${runId}.jsonl`)), run.out[4]);
+  assert.ok(run.out[5].endsWith(join('logs', 'smoke', `smoke-${runId}.log`)), run.out[5]);
+  assert.deepEqual(run.err, [], 'a passing run says nothing on stderr');
+  assert.deepEqual(await readdir(scope.tmp), [], 'without --keep the scratch home is taken away');
+});
+
+test('a check that cannot pass answers 1 and the record names it', async (t) => {
+  const scope = await smokeScope(t);
+  // The config root of `--real` is `CLAUDE_CONFIG_DIR`, so a file where a
+  // folder belongs is a failure a check cannot swallow: `I4` writes the skill
+  // there, and the run has to answer 1 with the record that says why.
+  const notAFolder = join(scope.home, 'claude-config-dir');
+  await writeFile(notAFolder, 'not a folder\n', 'utf8');
+
+  const run = await childCli(['smoke', '--real', '--only', 'I4'], childEnv(scope, {
+    OKWORK_HOME: scope.state,
+    CLAUDE_CONFIG_DIR: notAFolder,
+  }));
+
+  assert.equal(run.code, 1, 'a failed check is exit code 1');
+  assert.match(run.out[2], /^fail I4 skills\.installed \d+ms$/);
+  assert.equal(run.out[3], 'passed: 0 failed: 1 skipped: 0');
+  assert.deepEqual(run.err, [], 'a failed check is not an error of the CLI');
+
+  const log = await readFile(run.out.at(-1), 'utf8');
+  assert.match(log, /^fail I4 skills\.installed \d+ms$/m);
+  assert.match(log, /^error: \S.*$/m, 'the artifact carries the message of the failure');
 });

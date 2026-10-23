@@ -15,6 +15,7 @@ import { daemonPause, daemonResume, daemonRun, daemonStatus, tick } from './daem
 import { limitsStatus } from './limits.js';
 import { orderList } from './orders.js';
 import { DEFAULT_CONFIG } from './profiles.js';
+import { runSmoke } from './smoke.js';
 import { makeSpawner } from './spawn-process.js';
 import { adapterQuotaReader, clientsOf, LABELS, statusTable } from './status.js';
 import { readJson, writeJsonAtomic } from './state.js';
@@ -29,6 +30,7 @@ const USAGE = [
   '       okit daemon status [--table [--locale en|pt-BR]]',
   '       okit autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       okit status [--locale en|pt-BR]',
+  '       okit smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]',
   `OKWORK_HOME names the state root; --kind defaults to ${AUTOSTART_KINDS.join(', ')} by platform.`,
 ].join('\n');
 
@@ -258,6 +260,20 @@ async function daemonCommand(ctx, action, args) {
 }
 
 /**
+ * `okit smoke`: the runner of `docs/SMOKE.md` on a scratch home, which prints
+ * its own facts and answers 0, 1 or 2. The process defaults of `main` do not
+ * reach it: a smoke run must never start a client or run a `systemctl` on the
+ * machine it verifies, so `run` and `spawn` arrive only when a caller injected
+ * them, and the runner answers with its own stub otherwise.
+ */
+async function smokeCommand(ctx, args, io) {
+  const smoke = await runSmoke(args, { ...ctx, run: io.run, spawn: io.spawn });
+  // A flag or an `--only` id the runner refuses is a usage error, so the usage
+  // text goes with it exactly as it goes with an unknown group.
+  return smoke.usage === true ? ctx.unknown() : smoke.code;
+}
+
+/**
  * Runs one `okit` invocation and returns its exit code: 0 for a command that
  * did its work, 2 for an unknown command, flag or argument, 1 when the work
  * itself failed. Output is one plain line per fact.
@@ -266,7 +282,8 @@ async function daemonCommand(ctx, action, args) {
  * @param {{stdout?: Function, stderr?: Function, root?: string, env?: object,
  *   spawn?: Function, run?: Function, write?: Function, signal?: AbortSignal,
  *   sleep?: Function, now?: () => number, platform?: string, clients?: string[],
- *   readQuota?: Function, orders?: object[], quotaCache?: Map}} [io]
+ *   readQuota?: Function, orders?: object[], quotaCache?: Map,
+ *   tmpdir?: string, signals?: object, checks?: object[]}} [io]
  * @returns {Promise<number>} exit code
  */
 export async function main(argv = [], io = {}) {
@@ -302,6 +319,8 @@ export async function main(argv = [], io = {}) {
       // `okit status` takes no action, so the flag lands where one would be.
       return await statusCommand(ctx, action === undefined ? args : [action, ...args]);
     }
+    // `okit smoke` takes no action either, so its first flag lands where one would be.
+    if (group === 'smoke') return await smokeCommand(ctx, action === undefined ? args : [action, ...args], io);
     return ctx.unknown();
   } catch (error) {
     err(`okit: ${error.message}`);

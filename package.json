@@ -12,6 +12,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "smoke": "node src/cli.js smoke",
     "test": "node --test"
   },
   "repository": {

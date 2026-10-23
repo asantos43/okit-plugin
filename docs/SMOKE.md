@@ -4,7 +4,7 @@ Status: design. Extends [ARCHITECTURE.md](ARCHITECTURE.md) and [DESIGN.md](DESIG
 
 ## Commands
 
-`npm run smoke` runs the runner of this checkout and `okit smoke` the same runner through the installed bin; both use a scratch home.
+`npm run smoke` runs the runner of this checkout and `okit smoke` the same runner through the installed bin; both use a scratch home and answer `0` when every selected check passed, `1` when one failed or timed out and `2` when the run was refused.
 
 | Flag | Meaning |
 | :- | :- |
