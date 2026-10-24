@@ -184,6 +184,8 @@ Um roteiro, quatro maneiras de rodá-lo.
 | demo | `okit-plugin client-smoke --client claude-code --demo` | a narração de cada passo *enquanto* roda, depois o mesmo relatório de uma linha por check dos outros modos |
 | dry run | `okit-plugin client-smoke --client claude-code --dry-run` | o que o roteiro *chamaria*, passo a passo — sem cliente, sem modelo, sem cota |
 
+O runner sempre imprime duas linhas em volta da execução: `smoke: start client=claude-code mode=<mode>` antes de começar e `smoke: end exit=<code> artifacts=<folder>` quando termina, mesmo quando a execução é recusada ou falha. Quem perdeu a saída de uma execução ainda tem o código de saída e a pasta dos artefatos.
+
 A skill é o driver do roteiro; os modos headless e demo são o mesmo roteiro sem uma pessoa no laço, então uma execução em CI é a mesma execução de uma mesa. O dry run percorre a mesma lista e relata o que chamaria, sem chamar o modelo e sem gastar cota: é o jeito barato de conferir o próprio roteiro, e o jeito de ensaiar uma mudança no roteiro antes que ela custe algo. No modo headless o runner inicia o cliente com
 
 ```

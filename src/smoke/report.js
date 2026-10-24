@@ -15,6 +15,18 @@ const LOG_TAIL_LINES = 20;
 
 const LOG_FOLDER = ['logs', 'smoke'];
 
+/**
+ * The folder the two artifacts of a run land in, under the state root. The
+ * runner prints it, so a reader knows where to look even when the output of
+ * the run was lost.
+ *
+ * @param {string} stateRoot the root of the state
+ * @returns {string} the folder of the artifacts
+ */
+export function artifactsFolder(stateRoot) {
+  return join(stateRoot, ...LOG_FOLDER);
+}
+
 // The environment a run reports, from the same names the runner takes as
 // parameters: `stateRoot` and `okitHome` are the same folder under a scratch
 // home, and `OKWORK_HOME` is what names it when neither is given.
@@ -168,7 +180,7 @@ function humanText(header, records, environment, summary) {
  * @returns {Promise<{jsonl: string, log: string}>} the paths it wrote.
  */
 export async function writeArtifacts(stateRoot, runId, header, records, deps = {}) {
-  const folder = join(stateRoot, ...LOG_FOLDER);
+  const folder = artifactsFolder(stateRoot);
   const jsonl = join(folder, `smoke-${runId}.jsonl`);
   const log = join(folder, `smoke-${runId}.log`);
   const lines = [header, ...records].map((value) => JSON.stringify(value));

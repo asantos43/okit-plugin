@@ -7,7 +7,7 @@ import { loadConfig } from '../mcp/tools.js';
 import { DEFAULT_CONFIG } from '../profiles.js';
 import { readJson } from '../state.js';
 import { paths, stateRoot } from '../store.js';
-import { environmentOf, recordOf, runIdOf, writeArtifacts } from './report.js';
+import { artifactsFolder, environmentOf, recordOf, runIdOf, writeArtifacts } from './report.js';
 import { SCENARIO } from './scenario.js';
 import { judge, prepare, cleanup, finish, skip } from './client-checks.js';
 
@@ -16,6 +16,16 @@ const OVERRIDES = { '--max-usd': 'maxUsd', '--max-turns': 'maxTurns',
   '--max-minutes': 'maxMinutes', '--quota-floor': 'quotaFloorPct', '--timeout': 'checkTimeoutMs' };
 const INSTALLATION = SCENARIO.slice(0, SCENARIO.findIndex((step) => step.kind === 'call'));
 
+// The two lines the runner always prints: the start says what it is about to
+// do, the end says how it ended and where the artifacts are.
+const LINES = {
+  start: (client, mode) => `smoke: start client=${client} mode=${mode}`,
+  end: (code, artifacts) => `smoke: end exit=${code} artifacts=${artifacts}`,
+};
+
+// The flags of a run. The parse hands back the flags it understood and the
+// first refusal, instead of throwing, so the runner still prints its start
+// line before it reports the refusal.
 function flagsOf(args) {
   const flags = { client: 'claude-code', only: [], overrides: {} };
   const switches = ['rehearsal', 'dry-run', 'headless', 'demo', 'keep', 'allow-unknown-quota'];
@@ -30,18 +40,28 @@ function flagsOf(args) {
         if (value === undefined) continue;
         const number = Number(value);
         if (!Number.isFinite(number) || number < 0 || (key !== '--quota-floor' && number === 0)
-          || (key === '--max-turns' && !Number.isInteger(number))) throw new Error(`Invalid ${key}`);
+          || (key === '--max-turns' && !Number.isInteger(number))) return { flags, error: new Error(`Invalid ${key}`) };
         flags.overrides[OVERRIDES[key]] = number;
-      } else if (!value) throw new Error(`Missing ${key}`);
+      } else if (!value) return { flags, error: new Error(`Missing ${key}`) };
       else if (key === '--only') flags.only.push(...value.toUpperCase().split(','));
       else flags.client = value;
-    } else throw new Error(`Unknown flag ${args[index]}`);
+    } else return { flags, error: new Error(`Unknown flag ${args[index]}`) };
   }
-  if (flags.client !== 'claude-code') throw new Error(`Unknown client ${flags.client}`);
+  if (flags.client !== 'claude-code') return { flags, error: new Error(`Unknown client ${flags.client}`) };
   if (flags.only.some((id) => id !== 'C' && !SCENARIO.some((step) => step.id === id))) {
-    throw new Error('Unknown --only check');
+    return { flags, error: new Error('Unknown --only check') };
   }
-  return flags;
+  return { flags };
+}
+
+// The mode the run was asked for: the offline walks first, then the two real
+// modes, then the plain real run.
+function modeOf(flags) {
+  if (flags.rehearsal) return 'rehearsal';
+  if (flags['dry-run']) return 'dry-run';
+  if (flags.headless) return 'headless';
+  if (flags.demo) return 'demo';
+  return 'real';
 }
 
 // No shell; AbortSignal kills the child when a check or run deadline expires.
@@ -120,14 +140,39 @@ async function bounded(work, ms, parent) {
   }
 }
 
+/**
+ * Runs the in-client smoke and always says how it ended: the start line comes
+ * out before the run and the end line carries the exit code and the folder of
+ * the artifacts, even when the run was refused or failed.
+ *
+ * @param {string[]} [argv] the flags of the run
+ * @param {object} [io] the dependencies of the runner
+ * @returns {Promise<object>} the result of the run
+ */
 export async function runClientSmoke(argv = [], io = {}) {
   const out = io.out ?? io.stdout ?? ((line) => process.stdout.write(`${line}\n`));
   const err = io.err ?? io.stderr ?? out;
-  let flags;
-  try { flags = flagsOf(argv); } catch (error) { err(error.message); return { code: 2, records: [] }; }
   const sourceEnv = io.env ?? process.env;
   const root = io.root ?? stateRoot(sourceEnv);
-  const env = { ...sourceEnv, OKWORK_HOME: root };
+  let code = 1;
+  try {
+    const result = await runScenario(argv, { ...io, out, err, env: sourceEnv, root });
+    code = result.code;
+    return result;
+  } finally {
+    out(LINES.end(code, artifactsFolder(root)));
+  }
+}
+
+// The run itself: the flags, the quota, the client and the report.
+async function runScenario(argv, io) {
+  const out = io.out;
+  const err = io.err;
+  const root = io.root;
+  const { flags, error } = flagsOf(argv);
+  out(LINES.start(flags.client, modeOf(flags)));
+  if (error) { err(error.message); return { code: 2, records: [] }; }
+  const env = { ...io.env, OKWORK_HOME: root };
   const stored = await loadConfig(root);
   const budget = { ...DEFAULT_CONFIG.smoke, ...stored.smoke, ...flags.overrides };
   budget.maxTurns ??= SCENARIO.length;

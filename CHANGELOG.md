@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Make the in-client smoke always print its start and end lines with the exit code and the artifacts folder, and make the smoke skill capture the code and read the newest artifact instead of masking the failure (D53). / Fazer o smoke no cliente sempre imprimir as linhas de início e de fim com o código de saída e a pasta de artefatos, e fazer a skill de smoke capturar o código e ler o artefato mais novo em vez de mascarar a falha (D53).
 - Make install/update manage the user PATH idempotently, verify command resolution, preserve user edits on uninstall and document skill fallbacks (D47). / Fazer install/update gerenciarem o PATH do usuário com idempotência, verificar a resolução do comando, preservar edições do usuário no uninstall e documentar alternativas nas skills (D47).
 
 ## [0.2.2] - 2026-10-24
