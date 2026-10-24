@@ -41,6 +41,14 @@ export function releaseConfig(user = {}) {
     instructions: map(DEFAULTS.instructions, given.instructions),
     marketplace: { ...DEFAULTS.marketplace, ...(given.marketplace ?? {}) },
     modes: { ...DEFAULTS.modes, ...(given.modes ?? {}) },
+    checklist: {
+      ...DEFAULTS.checklist,
+      ...(isPlainObject(given.checklist) ? given.checklist : {}),
+      ...Object.fromEntries(['headings', 'labels', 'layers', 'layerLabels'].map((key) => [
+        key, map(DEFAULTS.checklist[key], given.checklist?.[key]),
+      ])),
+      proofBy: map(map(map(DEFAULTS.notes.proofBy, given.notes?.proofBy), DEFAULTS.checklist.proofBy), given.checklist?.proofBy),
+    },
     notes: {
       ...DEFAULTS.notes,
       ...(isPlainObject(given.notes) ? given.notes : {}),

@@ -44,7 +44,7 @@ Os nomes abaixo são modelos a implementar, não arquivos gerados por D26. `P` �
 
 Nomes de arquivos de esquema de marketplace seguem os clientes, sob raízes de saída configuradas. As entradas devem resolver a carga/versão exata por par; seleção automática de sistema é **não verificada**, não presumida ([D-Q1 / D-Q2](#decisions)). Identidades e metadados de saída devem coincidir com `package.json`, incluindo `license`, `repository`, `bin` e `engines`; sem constante duplicada de versão. Nova versão é decisão do Produtor, não deste documento.
 
-As notas vêm do histórico de mudanças da raiz em `CHANGELOG.md`, na seção `[Unreleased]`. O comando de notas extrai essa seção preservando o texto; não criar outro histórico. Registre mudanças em fragmentos de `changelog.d/` e reúna-os no release com `kit changelog collect`.
+As notas vêm do histórico de mudanças mantido à mão na raiz em `CHANGELOG.md`, na seção `[Unreleased]`. O comando de notas extrai essa seção preservando o texto; não criar outro histórico nem pasta de fragmentos. Manter as entradas mais novas primeiro dentro de cada categoria.
 
 O manifesto de hashes é escrito e conferido por `src/release/checksums.js`, conduzido por `scripts/checksums.js` (`npm run release:checksums -- write|verify`). Uma linha por arquivo traz o digest SHA-256 minúsculo, dois espaços e o nome exato, ordenadas por nome, LF e UTF-8, calculados sobre os bytes finais do arquivo sem mantê-lo em memória; o manifesto nunca carrega o próprio hash. A verificação recusa arquivo alterado, ausente ou não listado, linha malformada e caminho inseguro.
 
@@ -91,7 +91,26 @@ node scripts/release-notes.js [--out <dir>] [--version <version>] [--dry-run]
 
 Os textos, modelo de nome e caminho do histórico de `release.notes` combinam-se com os metadados do pacote e o plano de pares do build. A saída determinística inclui engines do Node, os nove nomes de cargas, nome do manifesto, instalação/atualização e provas e lacunas de cada par. Sem registro de provas, todos são `not proven` (não provado); Windows/macOS são do Produtor. O opcional `release.notes.proofFile` aponta para um objeto JSON relativo ao repositório com chaves `client:system` e valores `not proven`, `proven` ou `PARCIAL` (ou os rótulos configurados). Prova parcial sempre permanece nas lacunas.
 
-Histórico ausente, `[Unreleased]` ausente ou vazio (só subtítulos/comentários não contam), versão divergente ou prova inválida recusa com razão e não grava saída. As linhas preservam texto e espaços. O comando não publica nem calcula hashes das notas; os hashes finais de notas/checklist pertencem ao PR 4/publicação.
+Histórico ausente, `[Unreleased]` ausente ou vazio (só subtítulos/comentários não contam), versão divergente ou prova inválida recusa com razão e não grava saída. As linhas preservam texto e espaços. O comando não publica nem calcula hashes das notas; calcular hashes de notas/checklist somente após finalizar os registros, usando o comando de checksums.
+
+## Checklist de release
+
+O PR 4 é `scripts/release-checklist.js`, também `npm run release:checklist -- [flags]`:
+
+```sh
+node scripts/release-checklist.js [--out <dir>] [--version <version>] [--revision <revision>] [--dry-run]
+```
+
+| Flag | O que faz |
+| :- | :- |
+| `--out <dir>` | Grava o checklist aqui; o padrão é a pasta configurada de saída do release. |
+| `--version <version>` | Deve coincidir com `package.json.version`; usa essa versão por padrão. |
+| `--revision <revision>` | Registra a revisão conferida; sem a flag, deixa em branco para preencher. |
+| `--dry-run` | Lista destino e nomes dos nove pares configurados sem gravar. |
+
+`release.checklist` configura modelo de nome, título, campos, textos das camadas e linha de assinatura. Os assinantes herdam `release.notes.proofBy`, com substituições opcionais em `release.checklist.proofBy`; são lidos o mesmo JSON opcional de prova e os mesmos rótulos de estado das notas. Cada par do build recebe uma seção desmarcada com ambiente, instalação/atualização, ambas as camadas de smoke, campos explícitos de salto/driver ausente e locais das evidências. Windows/macOS exigem assinatura do Produtor. O comando prepara registros; não executa smoke nem publica.
+
+Os SHA-256 dos payloads vêm do manifesto de checksums na pasta de saída quando presente; caso contrário ficam em branco. Nenhum hash é calculado aqui: calcular hashes de notas/checklist só após finalizar. Versão divergente, par/prova/manifesto inválido ou checklist existente com conteúdo diferente recusa com razão e não grava nada. Repetições idênticas são permitidas; não existe `--force`, preservando provas preenchidas. Guardar registros concluídos em `docs/`, conforme D-Q7.
 
 ## Proof per pair
 
@@ -141,6 +160,6 @@ Pré-requisitos: Produtor responde às perguntas aplicáveis; adaptadores/manife
 | 1 — Build local (feito) | Adicionar script local em `scripts/`, com entrada em `package.json`; consumir metadados e configuração de pares/saída, preservar caminhos comuns e gerar metadados de cliente escolhidos. | Executar localmente em revisão conferida; nove cargas identificadas; inspecionar conteúdo, identidade, LF, permissões e resolução de caminhos. Cliente/sistema desconhecido ou adaptador ausente recusa; sem efeito de publicação. |
 | 2 — Checksums (feito) | Adicionar geração/verificação de manifesto SHA-256 dos bytes finais usando módulos nativos do Node: `src/release/checksums.js` e `scripts/checksums.js`. | Cada arquivo listado confere; arquivo alterado/ausente recusa; sem hash de si mesmo. |
 | 3 — Notas (done) | Gerar notas da versão a partir da seção `[Unreleased]` do histórico da raiz e metadados dos pares. | Versão e nomes coincidem com pacote/build; histórico ausente recusa; aparecem lacunas e instruções de instalação/atualização. |
-| 4 — Checklist | Gerar modelo de nove registros e documentar coleta das evidências do candidato instalado. | Ambas as camadas por par, Produtor assina Windows/macOS; skips e drivers ausentes ficam visíveis. Calcular hashes de notas/checklist só após finalizar registros. |
+| 4 — Checklist (done) | Gerar modelo de nove registros e documentar coleta das evidências do candidato instalado. | Ambas as camadas por par, Produtor assina Windows/macOS; skips e drivers ausentes ficam visíveis. Calcular hashes de notas/checklist só após finalizar registros. |
 
 Após esses PRs, obter do Produtor a versão do candidato, montar localmente e coletar provas nas máquinas reais. O pedido explícito posterior do Produtor é o gatilho separado para confirmar essa versão, extrair suas mudanças do histórico da raiz, finalizar notas/checksums/checklist, criar tag e publicar artefatos comprovados. Alterar versão ou carga invalida seu hash e exige nova prova.

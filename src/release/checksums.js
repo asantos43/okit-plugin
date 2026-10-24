@@ -133,7 +133,7 @@ export async function writeManifest({ dir = '.', files, out } = {}) {
  * Reads the manifest lines. A line that is not `<digest>  <name>` is reported
  * as `malformed-line` instead of being ignored.
  */
-function parseManifest(raw, problems) {
+export function parseManifest(raw, problems = []) {
   const entries = [];
   const lines = raw.split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
