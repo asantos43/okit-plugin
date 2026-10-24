@@ -1,6 +1,6 @@
 {
   "name": "okit-plugin",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Plugin for AI coding clients that spreads work over the client's own subagents",
   "license": "MIT",
