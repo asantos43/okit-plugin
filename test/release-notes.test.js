@@ -35,8 +35,11 @@ test('repository package, MCP fallback and release notes versions agree', async 
   const changes = parseUnreleased(raw).lines.filter((line) => line.startsWith('- '));
   assert.ok(changes.length > 0);
   for (const change of changes) assert.ok(result.notes.includes(change));
-  const previous = raw.split('## [0.1.0] - 2026-10-24\n')[1].split('## [0.0.0]')[0];
-  for (const change of previous.split('\n').filter((line) => line.startsWith('- '))) {
+  const previous = raw.split(/^## /m).find((section) => /^\[(?!Unreleased\])/.test(section));
+  assert.ok(previous, 'the latest released section must exist');
+  const previousChanges = previous.split('\n').filter((line) => line.startsWith('- '));
+  assert.ok(previousChanges.length > 0);
+  for (const change of previousChanges) {
     assert.ok(!result.notes.includes(change));
   }
 });

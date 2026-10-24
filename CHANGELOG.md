@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Rename the plugin command to configurable `okit-plugin`, migrate owned legacy links while preserving the kit, and exclude plugin executables from kit detection (D43). / Renomear o comando do plugin para `okit-plugin` configurável, migrar links legados próprios preservando o kit e excluir executáveis do plugin da detecção do kit.
+
+## [0.2.0] - 2026-10-24
+
+### Added
+
 - Add a configurable read-only kit detector, `okit kit --require`, and kit results in install/update/status with D1 overlap guidance (D39).
 - Adicionar detector do kit configurável e somente leitura, `okit kit --require` e resultado em install/update/status com orientação de sobreposição D1 (D39).
 - Add atomic inbox ownership by client/session, configurable stale age, bilingual holder views, claim/release MCP tools and confirmed human Producer takeover with ownership history (D42). / Adicionar posse atômica da inbox, obsolescência configurável, exibição bilíngue e tomada confirmada pelo Produtor com histórico.

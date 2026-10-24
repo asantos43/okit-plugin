@@ -13,7 +13,7 @@ const PROTOCOL_VERSION = '2025-06-18';
 // Versions this server speaks; anything else gets the default back.
 const SUPPORTED_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const SERVER_NAME = 'okit';
-const FALLBACK_VERSION = '0.2.0';
+const FALLBACK_VERSION = '0.2.1';
 const PACKAGE_URL = new URL('../../package.json', import.meta.url);
 
 const PARSE_ERROR = -32700;
