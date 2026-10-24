@@ -8,6 +8,19 @@ export const DEFAULT_CONFIG = {
   staleMinutes: 30,
   // profiles: { <client>: { simple: { model, effort, maxTurns }, ... } }
   profiles: {},
+  postCompact: {
+    enabled: true,
+    timeoutSec: 5,
+    maxLines: 20,
+    sections: { inbox: true, orders: true, status: true },
+    inboxStatuses: ['delegated', 'criticised', 'pending'],
+    text: {
+      heading: 'okit: context after compaction',
+      inbox: 'Inbox',
+      orders: 'Standing orders',
+      status: 'Status: {open} open inbox items; {orders} active standing orders',
+    },
+  },
   smoke: {
     quotaFloorPct: 20,
     maxUsd: 1,

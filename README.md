@@ -29,6 +29,29 @@ structure and the documents. There is no working code yet.
 - Platforms: Linux, macOS and Windows.
 - Core: Node.js >= 20, zero dependencies, state in plain JSON files.
 
+## Restore context after compaction (Claude Code)
+
+`okit hook post-compact` reads the hook JSON (`cwd`) from stdin and prints a
+project-scoped summary of open inbox work, active standing-order titles and a
+status count. Order titles use `title` when present, otherwise the first line of
+`text`; bodies and environment values are never included. Missing/invalid state,
+invalid input, errors and timeouts produce no output and exit 0.
+
+Configure `postCompact` in the plugin state's `config.json` (`OKWORK_HOME`):
+`enabled` (default `true`), `timeoutSec` (`5`), `maxLines` (`20`),
+`sections` (`inbox`, `orders`, `status`, all `true`), `inboxStatuses` and `text`.
+Defaults live in `src/profiles.js`; partial section/text overrides are merged.
+Set `postCompact.enabled=false` to disable output.
+
+There is no general install command yet. Import `installPostCompactHook` from
+`adapters/claude-code/index.js` and call it with `{ root: clientConfigRoot,
+config: pluginConfig }` (optional `command` override; default
+`okit hook post-compact` requires `okit` on PATH). It merges a `SessionStart`
+entry with matcher `compact` and the configured timeout into `hooks/hooks.json`,
+preserving user entries; repeating the same installation does not write.
+Configuration/input loading uses the default deadline until the configured
+deadline is known; that deadline is measured from hook start.
+
 ## Contributing
 
 Pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.

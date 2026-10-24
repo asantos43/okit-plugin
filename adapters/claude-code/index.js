@@ -12,6 +12,7 @@ import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 
 import { installSkillFiles } from '../../src/skills.js';
+import { postCompactConfig } from '../../src/hook-post-compact.js';
 import { makeSpawner } from '../../src/spawn-process.js';
 import { readJson } from '../../src/state.js';
 import { paths, stateRoot } from '../../src/store.js';
@@ -275,4 +276,18 @@ export async function installHooks(files, opts = {}) {
   return { path: file, written };
 }
 
-export default { CLIENT, spawn, readQuota, capabilities, installSkill, installHooks, configRoot };
+/** Builds the compact-only entry; command may name an installed absolute CLI. */
+export function postCompactHooks({ config, command = 'okit hook post-compact' } = {}) {
+  const settings = postCompactConfig(config);
+  return { SessionStart: [{ matcher: 'compact', hooks: [{
+    type: 'command', command: text(command, 'command'), timeout: settings.timeoutSec,
+  }] }] };
+}
+
+/** No general installer exists yet; packaging callers install this explicitly. */
+export function installPostCompactHook(opts = {}) {
+  return installHooks(postCompactHooks(opts), opts);
+}
+
+export default { CLIENT, spawn, readQuota, capabilities, installSkill, installHooks, configRoot,
+  postCompactHooks, installPostCompactHook };
