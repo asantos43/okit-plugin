@@ -6,12 +6,29 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { main } from '../src/cli.js';
+import { inboxAdd, inboxList } from '../src/inbox.js';
 import { createServer } from '../src/mcp/server.js';
 import { TOOLS } from '../src/mcp/tools.js';
 import { shouldShowStatus, statusTable } from '../src/status.js';
 
 // Scratch state lives inside the repository, never in the system temp folder.
 const TMP = fileURLToPath(new URL('../.delegate/tmp/', import.meta.url));
+
+test('status displays qualified demands and preserves the JSON id', async (t) => {
+  const root = await tempRoot(t);
+  const item = await inboxAdd(root, { title: 'visible demand' });
+  const bare = await statusTable(root);
+  assert.equal(bare.demands[0].ref, item.id);
+  await writeFile(join(root, 'project.json'), JSON.stringify({ name: 'registered' }));
+  const table = await statusTable(root);
+  assert.equal(table.demands[0].id, item.id);
+  assert.equal(table.demands[0].ref, `${item.id} (registered)`);
+  assert.ok(table.markdown.includes(`| ${item.id} (registered) | pending | visible demand |`));
+  const out = [];
+  assert.equal(await main(['status'], { root, stdout: (line) => out.push(line) }), 0);
+  assert.ok(out.some((line) => line.includes(`${item.id} (registered)`)));
+  assert.equal((await inboxList(root))[0].ref, undefined);
+});
 
 const T0 = 1_760_000_000_000;
 const clock = (start = T0) => {

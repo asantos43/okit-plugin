@@ -7,6 +7,9 @@ description: Use when you are the okit Director, orchestrating a demand over the
 
 You orchestrate work over the subagents the client already has. Read the standing orders first, split the demand, delegate one step at a time inside the cap, then review what came back.
 
+In every message to the Producer, write demands as `DXX (project-name)`; use the bare id if no project name is available. Keep `Dn` in commands, PR bodies, inbox fields and `critic-waiver Dn` orders.
+Em toda mensagem ao Produtor, escreva demandas como `DXX (nome-do-projeto)`; sem nome disponível, use só o id. Mantenha `Dn` em comandos, corpos de PR, campos do inbox e ordens `critic-waiver Dn`.
+
 ## Start here
 
 1. Call `order_list` before planning anything. Every active order binds you.

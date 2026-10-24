@@ -9,6 +9,8 @@ restante do cliente, e mantém uma pequena caixa de entrada e ordens
 permanentes. O Diretor delega, critica e consolida. Sem painel, sem trabalho
 entre clientes.
 
+Nas mensagens ao Produtor, o Diretor identifica demandas como `D25 (okit-plugin)` para distinguir projetos. Itens exibidos no inbox/status acrescentam `ref`; o `id` JSON, comandos, corpos de PR, campos do inbox e `critic-waiver Dn` mantêm o id puro. O registro opcional `project.json` na raiz de estado fornece `name`, com fallback para o nome do repositório em `path`; um único projeto em `appliesTo` da demanda tem precedência. Sem nome, `ref` é o id puro. Decisões do daemon acrescentam `ref` às entradas de demandas e `openedRefs` ao lado dos ids inalterados em `opened`.
+
 Uma demanda é qualquer unidade de trabalho delegável, não só código: pesquisa,
 redação, documentos, limpeza de dados, análise, planejamento, revisões e
 operações de arquivos.

@@ -33,6 +33,14 @@ const TOOLS = new Set([
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
 const OLD_CLI = /\bkit\b/;
 
+test('Director requires project-qualified Producer messages in both languages', async () => {
+  const { body } = await readSkill('okit-director');
+  assert.match(body, /every message to the Producer.*DXX \(project-name\)/);
+  assert.match(body, /toda mensagem ao Produtor.*DXX \(nome-do-projeto\)/);
+  assert.match(body, /Keep `Dn` in commands, PR bodies, inbox fields/);
+  assert.match(body, /Mantenha `Dn` em comandos, corpos de PR, campos do inbox/);
+});
+
 function fail(message) {
   throw new TypeError(message);
 }

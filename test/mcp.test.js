@@ -252,6 +252,12 @@ test('inbox_add, inbox_list and inbox_set_status share one inbox', async () => {
   const scoped = await server.call('inbox_list', { appliesTo: 'mcp-server' });
   // Newest first, and the item without appliesTo is shared, so it shows too.
   assert.deepEqual(server.data(scoped).map((each) => each.id), [shared.id, item.id]);
+  assert.equal(server.data(scoped)[1].ref, `${item.id} (mcp-server)`);
+  assert.equal(server.data(scoped)[0].ref, shared.id);
+  await writeFile(join(dir, 'project.json'), JSON.stringify({ name: 'registered' }));
+  const named = server.data(await server.call('inbox_list', { appliesTo: 'global' }));
+  assert.equal(named[0].id, shared.id);
+  assert.equal(named[0].ref, `${shared.id} (registered)`);
 
   const sharedOnly = server.data(await server.call('inbox_list', { appliesTo: 'global' }));
   assert.deepEqual(sharedOnly.map((each) => each.title), ['keep the docs in step']);
