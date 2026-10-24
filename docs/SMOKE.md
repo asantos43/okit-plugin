@@ -185,6 +185,8 @@ One scenario, four ways to run it.
 | demo | `okit-plugin client-smoke --client claude-code --demo` | the narration of each step *while* it runs, then the same one-line-per-check report as the other modes |
 | dry run | `okit-plugin client-smoke --client claude-code --dry-run` | what the scenario *would* call, step by step — no client, no model, no quota |
 
+The runner always prints two lines around the run: `smoke: start client=claude-code mode=<mode>` before it starts and `smoke: end exit=<code> artifacts=<folder>` when it ends, even when the run was refused or failed. A reader that lost the output of a run still has the exit code and the folder of the artifacts.
+
 The skill is the driver of the scenario; the headless and demo modes are the same scenario without a human in the loop, so a run in CI is the same run as a run on a desk. The dry run walks the same list and reports what it would call, without calling the model and without spending quota: it is the cheap way to check the scenario itself, and the way to rehearse a change to the scenario before it costs anything. In headless mode the runner starts the client with
 
 ```

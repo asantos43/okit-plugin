@@ -204,6 +204,20 @@ test('skills allow naming the kit but never use it for plugin commands', async (
   }
 });
 
+// Must pass / must refuse table, the smoke skill:
+// | case                          | must pass                                                     | must refuse         |
+// | a body that masks the code    | -                                                            | '|| true' anywhere  |
+// | a body that captures the code | 'echo "exit=$?"', the end line of the runner, the artifacts | -                   |
+test('the smoke skill captures the exit code and never masks it', async () => {
+  const { body } = await readSkill('okit-smoke');
+  assert.doesNotMatch(body, /\|\|\s*true/, 'the smoke skill must never mask the exit code');
+  assert.match(body, /echo "exit=\$\?"/, 'the skill must capture the exit code of the run');
+  assert.match(body, /smoke: end/, 'the skill must read the end line of the runner');
+  assert.match(body, /newest artifact/, 'the skill must read the newest artifact when the output is empty');
+  assert.match(body, /artifact paths/, 'the skill must report the artifact paths');
+  assert.match(body, /actual process exit code/, 'the skill must report the real exit code');
+});
+
 // Must pass / must refuse table, installSkillFiles:
 // | case                          | must pass                                | must refuse                |
 // | empty destination             | every file written, paths with '/'       | -                          |

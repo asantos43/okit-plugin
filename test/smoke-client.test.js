@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { main } from '../src/cli.js';
 import { tick } from '../src/daemon.js';
@@ -190,6 +190,52 @@ test('client money exhaustion and permission denial skip with fixed reasons', as
     assert.equal(result.records.find((entry) => entry.id === 'C6').error, reason);
     assert.equal(result.code, 0);
   }
+});
+
+// Must pass / must refuse table, the two lines the runner always prints:
+// | case                 | must pass                                                                   | must refuse |
+// | a normal run         | 'smoke: start client=claude-code mode=real' and 'smoke: end exit=0 artifacts=<folder>' as the last line | - |
+// | an offline dry run   | the same two lines, with mode=dry-run and exit=0                            | - |
+// | an unknown quota     | the same two lines, with exit=2                                             | - |
+// | an unknown flag      | the end line with exit=2                                                   | - |
+function assertRunnerLines(lines, { mode, code, folder }) {
+  const start = lines.findIndex((line) => line.startsWith('smoke: start '));
+  const end = lines.findIndex((line) => line.startsWith('smoke: end '));
+  assert.ok(start >= 0, `the runner must print a start line: ${JSON.stringify(lines)}`);
+  assert.ok(end > start, `the runner must print an end line after the start one: ${JSON.stringify(lines)}`);
+  assert.equal(lines[start], `smoke: start client=claude-code mode=${mode}`);
+  assert.equal(lines[end], `smoke: end exit=${code} artifacts=${folder}`);
+  assert.equal(lines.at(-1), lines[end], 'the end line must be the last line of the output');
+}
+
+test('the runner always prints its start and end lines', async (t) => {
+  const normal = await fixture(t);
+  const result = await runClientSmoke([], normal.io);
+  assert.equal(result.code, 0);
+  assertRunnerLines(normal.lines, { mode: 'real', code: 0, folder: join(normal.root, 'logs', 'smoke') });
+
+  const offline = await fixture(t);
+  assert.equal((await runClientSmoke(['--dry-run'], offline.io)).code, 0);
+  assertRunnerLines(offline.lines, { mode: 'dry-run', code: 0, folder: join(offline.root, 'logs', 'smoke') });
+
+  const refused = await fixture(t);
+  await rm(join(refused.root, 'quota/claude-code.json'));
+  assert.equal((await runClientSmoke([], refused.io)).code, 2);
+  assertRunnerLines(refused.lines, { mode: 'real', code: 2, folder: join(refused.root, 'logs', 'smoke') });
+
+  const unknown = await fixture(t);
+  assert.equal((await runClientSmoke(['--wat'], unknown.io)).code, 2);
+  assertRunnerLines(unknown.lines, { mode: 'real', code: 2, folder: join(unknown.root, 'logs', 'smoke') });
+});
+
+test('the end line names the folder the artifacts landed in', async (t) => {
+  const f = await fixture(t);
+  const result = await runClientSmoke([], f.io);
+  const folder = join(f.root, 'logs', 'smoke');
+  const end = f.lines.find((line) => line.startsWith('smoke: end '));
+  assert.ok(end.endsWith(`artifacts=${folder}`));
+  assert.equal(dirname(result.artifacts.jsonl), folder);
+  assert.equal(dirname(result.artifacts.log), folder);
 });
 
 test('rehearsal and dry run walk SCENARIO and expose configured maximum without calling a client', async (t) => {
