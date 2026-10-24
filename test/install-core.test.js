@@ -13,7 +13,7 @@ import { latestRelease } from '../src/install/release.js';
 import { downloadRelease } from '../src/install/download.js';
 import { extract } from '../src/install/extract.js';
 import { place, readRecord, readRecords, saveRecord } from '../src/install/place.js';
-import { applyLink } from '../src/install/link.js';
+import { applyLink, managePath } from '../src/install/link.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { register } from '../src/install/register.js';
 import { installerCommand } from '../src/install/index.js';
@@ -69,6 +69,103 @@ test('plugin and kit commands execute their own tool in a temporary HOME', async
   assert.equal((await execute('okit', [], { env })).stdout.trim(), 'kit 3.2.1');
   const run = ({ command, args }) => execute(command, args, { env });
   assert.equal((await detectKit({ ...f.deps, env, run })).state, 'installed');
+});
+
+// PATH corpus: must pass: new shell, repeat, rollback, user edits, candidates.
+// Must refuse: duplicate blocks, editing profiles with --no-path or PATH present.
+test('managed PATH resolves and executes skill command, repeats and rolls back without duplication', async (t) => {
+  const f = await fixture(t);
+  f.io.env.SHELL = '/bin/bash';
+  const profile = join(f.home, '.profile');
+  const rc = join(f.home, '.bashrc');
+  await fs.writeFile(profile, '# user login\n');
+  await fs.writeFile(rc, '# user rc\n');
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.output.join('\n'));
+  const installed = await fs.readFile(profile, 'utf8');
+  assert.ok(installed.includes(f.config.path.begin));
+  assert.ok((await fs.readFile(rc, 'utf8')).includes(f.config.path.begin));
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0);
+  assert.equal(await fs.readFile(profile, 'utf8'), installed);
+  f.setVersion('2.0.0');
+  assert.equal(await main(['update'], f.io), 0);
+  assert.equal(await main(['update', '--rollback'], f.io), 0);
+  assert.equal(await fs.readFile(profile, 'utf8'), installed);
+  const record = await readRecord(f.destination, 'codex', fs);
+  await fs.writeFile(join(record.path, record.bin), `#!${process.execPath}\nrequire('node:fs').writeSync(1, process.argv.slice(2).join(' ')+'\\n');\n`, { mode: 0o755 });
+  const result = await execute('/bin/sh', ['-ec', '. "$1"; . "$1"; command -v okit-plugin; okit-plugin client-smoke --dry-run; printf "%s" "$PATH"', 'sh', profile], { env: { HOME: f.home, PATH: '' } });
+  assert.equal(result.stdout, `${join(f.bin, 'okit-plugin')}\nclient-smoke --dry-run\n${f.bin}`);
+  assert.ok(f.output.some((line) => line.includes(`Verificação do PATH: ${join(f.bin, 'okit-plugin')}`)));
+});
+
+test('uninstall removes only owned PATH blocks and keeps later user edits', async (t) => {
+  const f = await fixture(t);
+  const profile = join(f.home, '.profile');
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0);
+  await fs.appendFile(profile, '# user appended\n');
+  assert.equal(await main(['uninstall'], f.io), 0);
+  assert.equal(await fs.readFile(profile, 'utf8'), '# user appended\n');
+  assert.equal(await fs.stat(join(f.destination, f.config.path.stateFile)).catch(() => null), null);
+});
+
+for (const mode of ['present', 'no-path', 'disabled']) test(`PATH ${mode} leaves profiles untouched`, async (t) => {
+  const f = await fixture(t);
+  const profile = join(f.home, '.profile');
+  await fs.writeFile(profile, '# untouched\n');
+  if (mode === 'present') { await fs.mkdir(f.bin); f.io.env.PATH = f.bin; }
+  if (mode === 'disabled') {
+    await fs.writeFile(join(f.root, 'config.json'), JSON.stringify({ install: { ...f.config, path: { enabled: false } } }));
+  }
+  const args = ['install', '--client', 'codex', ...(mode === 'no-path' ? ['--no-path'] : [])];
+  assert.equal(await main(args, f.io), 0);
+  assert.equal(await fs.readFile(profile, 'utf8'), '# untouched\n');
+  assert.equal(await fs.stat(join(f.home, '.bashrc')).catch(() => null), null);
+  assert.equal(await fs.stat(join(f.destination, f.config.path.stateFile)).catch(() => null), null);
+});
+
+test('installer selects a writable configured candidate already on PATH', async (t) => {
+  const f = await fixture(t);
+  const candidate = join(f.home, 'chosen');
+  await fs.mkdir(candidate);
+  f.io.env.PATH = candidate;
+  await fs.writeFile(join(f.root, 'config.json'), JSON.stringify({ install: {
+    ...f.config, linkDirectory: null, path: { candidates: [['absent'], ['chosen']] },
+  } }));
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0);
+  assert.equal((await readRecord(f.destination, 'codex', fs)).linkDirectory, candidate);
+  assert.ok(await fs.lstat(join(candidate, f.config.command)));
+  assert.equal(await fs.stat(join(f.home, '.profile')).catch(() => null), null);
+});
+
+for (const shell of ['bash', 'zsh', 'fish']) test(`${shell} creates its configured login profile when none exists`, async (t) => {
+  const f = await fixture(t);
+  f.io.env.SHELL = `/bin/${shell}`;
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0);
+  const profile = join(f.home, f.config.path.shells[shell].login);
+  const content = await fs.readFile(profile, 'utf8');
+  assert.ok(content.includes(f.config.path.begin));
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0);
+  assert.equal(await fs.readFile(profile, 'utf8'), content);
+});
+
+for (const owned of [true, false]) test(`Windows user PATH preserves existing entries; owns addition=${owned}`, async (t) => {
+  const f = await fixture(t);
+  const calls = [];
+  const deps = { ...f.deps, platform: 'win32', pathExecute: async (command, args) => {
+    assert.equal(command, f.config.path.windowsExecutable);
+    const script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
+    calls.push(script);
+    assert.match(script, /GetEnvironmentVariable\('Path','User'\)/);
+    assert.match(script, /SetEnvironmentVariable\('Path',\(\$next -join ';'\),'User'\)/);
+    return { stdout: owned ? 'true\n' : 'false\n' };
+  } };
+  await managePath(deps);
+  await managePath(deps);
+  assert.equal(calls.length, owned ? 1 : 2);
+  assert.match(calls[0], /-icontains \$bin/);
+  assert.match(calls[0], /\$next=@\(\$parts\)\+\$bin/);
+  await managePath(deps, true);
+  assert.equal(calls.length, owned ? 2 : 2);
+  if (owned) assert.match(calls.at(-1), /Where-Object \{ \$_ -ine \$bin \}/);
 });
 
 // Must pass / must refuse corpus:
@@ -310,7 +407,7 @@ test('three clients keep independent records, updates, rollback and shared link'
   for (const client of clients) assert.equal(await main(['install', '--client', client], f.io), 0);
   const initial = await readRecords(f.destination, fs);
   assert.deepEqual(Object.keys(initial), clients);
-  assert.equal((await fs.readdir(f.destination)).filter((name) => name.endsWith('.json')).length, 3);
+  assert.equal((await fs.readdir(f.destination)).filter((name) => name.endsWith('.json') && name !== f.config.path.stateFile).length, 3);
   for (const client of clients) assert.ok(await fs.stat(initial[client].path));
   f.setVersion('2.0.0');
   const before = await tree(f.home);

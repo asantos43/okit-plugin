@@ -28,7 +28,7 @@ async function bootstrap(defaults) {
     if (['--client', '--dest'].includes(key)) {
       if (!args[i + 1] || args[i + 1].startsWith('--')) fail(`Missing value for ${key}`);
       flags[key] = args[++i];
-    } else if (['--dry-run', '--yes', '--no-link', '--autostart', '--prerelease', '--check', '--rollback', '--purge'].includes(key)) flags[key] = true;
+    } else if (['--dry-run', '--yes', '--no-link', '--no-path', '--autostart', '--prerelease', '--check', '--rollback', '--purge'].includes(key)) flags[key] = true;
     else fail(`Unknown flag: ${key}`);
   }
   const platform = process.platform;
@@ -57,7 +57,7 @@ async function bootstrap(defaults) {
     for (const key of Object.keys(flags)) {
       if (key === '--dest') continue;
       if (key === '--client') { forwarded.push(key, flags[key]); continue; }
-      if (!['--check', '--rollback', '--dry-run', '--yes', '--purge'].includes(key)) fail(`Unsupported ${action} flag: ${key}`);
+      if (!['--check', '--rollback', '--dry-run', '--yes', '--purge', '--no-path'].includes(key)) fail(`Unsupported ${action} flag: ${key}`);
       forwarded.push(key);
     }
     invoke(join(record.path, 'src/cli.js'), action, forwarded);
@@ -129,7 +129,10 @@ async function bootstrap(defaults) {
     if (!asset || !manifest) fail(`Missing release asset: ${!asset ? name : manifestName}`);
     console.log(`Release: ${version}${selected.prerelease ? ' (pre-release fallback)' : ''}\nAsset: ${name}\nDestination: ${destination}`);
     console.log('SHA-256 detects altered bytes; it does not authenticate the source.');
-    if (record?.version === version && record.client === client) { console.log('up to date'); return; }
+    if (record?.version === version && record.client === client) {
+      invoke(join(record.path, 'src/cli.js'), 'install', ['--client', client, '--from', record.path, '--dest', destination,
+        ...['--dry-run', '--no-link', '--no-path'].filter((key) => flags[key])]); return;
+    }
     if (flags['--dry-run']) { console.log('Would download, verify, extract and install; no destination writes.'); return; }
     const archive = join(temporary, name), hashes = join(temporary, manifestName);
     download(manifest.browser_download_url, hashes);
@@ -147,7 +150,7 @@ async function bootstrap(defaults) {
     await fs.mkdir(extracted);
     if (platform === 'win32') ps('& { param($file,$dest) $ErrorActionPreference="Stop"; Expand-Archive -LiteralPath $file -DestinationPath $dest }', [archive, extracted]);
     else run('tar', ['-xzf', archive, '-C', extracted]);
-    for (const key of ['--dry-run', '--yes', '--no-link', '--autostart', '--prerelease']) if (flags[key]) forwarded.push(key);
+    for (const key of ['--dry-run', '--yes', '--no-link', '--no-path', '--autostart', '--prerelease']) if (flags[key]) forwarded.push(key);
     invoke(join(extracted, 'src/cli.js'), 'install', ['--client', client, '--from', extracted, '--dest', destination, '--repo', config.REPO, ...forwarded]);
   } finally { await fs.rm(temporary, { recursive: true, force: true }); }
 }

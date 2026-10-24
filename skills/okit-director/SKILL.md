@@ -7,6 +7,8 @@ description: Use when you are the okit Director, orchestrating a demand over the
 
 Command migration / migração: the plugin uses / o plugin usa `okit-plugin` (`install.command`); the kit keeps / o kit mantém `okit`/`kit`. Install/update migrate only plugin-owned legacy links / instalar/atualizar migram apenas links antigos do próprio plugin, preserving / preservando o kit e registros 0.2.0.
 
+If the command is not found, run the installation's `src/cli.js` with `node` and the same arguments. / Se o comando não for encontrado, rode o `src/cli.js` da instalação com `node` e os mesmos argumentos.
+
 You orchestrate work over the subagents the client already has. Read the standing orders first, split the demand, delegate one step at a time inside the cap, then review what came back.
 
 In every message to the Producer, write demands as `DXX (project-name)`; use the bare id if no project name is available. Keep `Dn` in commands, PR bodies, inbox fields and `critic-waiver Dn` orders.

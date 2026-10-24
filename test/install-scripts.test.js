@@ -21,7 +21,7 @@ async function fixture(t) {
   await fs.writeFile(join(bin, 'claude'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const state = { bad: false, missing: false, pre: false, requests: [] };
   const name = `${pkg.name}-1.2.3-claude-code-linux-x64.tar.gz`;
-  const cli = `const fs=require('fs'),p=require('path');const a=process.argv.slice(2);const get=k=>a[a.indexOf(k)+1];const dest=get('--dest')||process.env.OKIT_DEST;console.log('delegated '+a[0]);if(a[0]==='install'){fs.mkdirSync(dest,{recursive:true});const target=p.join(dest,'active');fs.cpSync(get('--from'),target,{recursive:true});fs.writeFileSync(p.join(dest,'install.json'),JSON.stringify({path:target,version:'1.2.3',client:'claude-code'}));}if(a[0]==='uninstall')fs.rmSync(dest,{recursive:true,force:true});`;
+  const cli = `const fs=require('fs'),p=require('path');const a=process.argv.slice(2);const get=k=>a[a.indexOf(k)+1];const dest=get('--dest')||process.env.OKIT_DEST;console.log('delegated '+a[0]);if(a[0]==='install'){fs.mkdirSync(dest,{recursive:true});const target=p.join(dest,'active');const from=get('--from');if(from&&p.resolve(from)===p.resolve(target))console.log('up to date');else fs.cpSync(from,target,{recursive:true});fs.writeFileSync(p.join(dest,'install.json'),JSON.stringify({path:target,version:'1.2.3',client:'claude-code'}));}if(a[0]==='uninstall')fs.rmSync(dest,{recursive:true,force:true});`;
   const bytes = tarGz([{ path: 'package.json', mode: 0o644, data: JSON.stringify({ name: pkg.name, version: '1.2.3' }) }, { path: 'src/cli.js', mode: 0o755, data: cli }]);
   let base;
   const release = () => ({ tag_name: 'v1.2.3', prerelease: state.pre, published_at: '2026-10-24', assets: [

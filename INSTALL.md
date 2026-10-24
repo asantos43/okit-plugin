@@ -4,6 +4,10 @@ The plugin command is now `okit-plugin` (configurable via `install.command`); th
 
 ## Install
 
+Install/update choose a writable candidate already on PATH (`~/.local/bin`, then `~/bin`). Otherwise the default candidate gets an idempotent managed PATH block in existing bash (`.bashrc`, `.profile`), zsh (`.zshrc`, `.zprofile`) or fish (`.config/fish/config.fish`) profiles selected by `$SHELL`; if none exists, the login profile is created. Windows appends to the user environment PATH without administrator privileges. Uninstall removes only the recorded block/entry, after the last client is removed; rollback preserves it.
+
+Use `--no-path` on install/update (also through the bootstrap scripts), or set `install.path.enabled: false`, to receive a manual instruction without profile/environment edits. `install.path` configures `candidates`, `shells`, `fallbackShell`, `begin`, `end`, `stateFile`, Windows settings and bilingual `messages`; `install.linkDirectory` overrides directory selection. The final message shows the link, edited profiles or existing PATH, and command resolution with the resulting PATH. Open a new terminal (or `source` the reported profile) and restart the AI client so it inherits PATH. If a skill cannot find the command, run the installation's `src/cli.js` with Node and the same arguments.
+
 Each client package includes all runtime adapters by default so `status` can load
 every client. `release.sharedAdapters: null` inherits the paths in `release.adapters`;
 an explicit path list overrides the shared selection. The selected client's adapter

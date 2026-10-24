@@ -10,6 +10,10 @@ O comando do plugin agora é `okit-plugin` (configurável em `install.command`);
 
 ## Install
 
+Install/update escolhem um candidato gravável já no PATH (`~/.local/bin`, depois `~/bin`). Caso contrário, o candidato padrão ganha um bloco gerenciado idempotente nos perfis existentes de bash (`.bashrc`, `.profile`), zsh (`.zshrc`, `.zprofile`) ou fish (`.config/fish/config.fish`), conforme `$SHELL`; se nenhum existir, o perfil de login é criado. No Windows, o diretório é acrescentado ao PATH do usuário sem administrador. Uninstall remove apenas o bloco/entrada registrado, após remover o último cliente; rollback o preserva.
+
+Use `--no-path` em install/update (também nos scripts de instalação), ou `install.path.enabled: false`, para receber a instrução manual sem editar perfis/ambiente. `install.path` configura `candidates`, `shells`, `fallbackShell`, `begin`, `end`, `stateFile`, parâmetros Windows e `messages` bilíngues; `install.linkDirectory` sobrepõe a seleção. A mensagem final mostra o link, perfis alterados ou PATH existente e a resolução com o PATH resultante. Abra um terminal novo (ou rode `source` no perfil informado) e reinicie o cliente de IA para ele herdar o PATH. Se uma skill não encontrar o comando, execute o `src/cli.js` da instalação com Node e os mesmos argumentos.
+
 Leia o script antes de executá-lo. Node >=20 deve estar no PATH
 ([obter Node](https://nodejs.org/)). Só Linux foi exercitado pelo Diretor;
 Windows e macOS aguardam as provas do Produtor em máquinas reais.

@@ -15,12 +15,12 @@ import { activate, backup, rollback } from './update.js';
 import { uninstall } from './uninstall.js';
 import { localSource } from './source.js';
 import { detectKit } from './kit.js';
-import { applyLink } from './link.js';
+import { applyLink, chooseLinkDirectory } from './link.js';
 
 const packageDirectory = fileURLToPath(new URL('../../', import.meta.url));
 const allowed = {
-  install: ['client', 'from', 'prerelease', 'repo', 'dest', 'no-link', 'autostart', 'dry-run', 'yes'],
-  update: ['client', 'check', 'rollback', 'dry-run'], uninstall: ['client', 'purge', 'yes', 'dry-run'],
+  install: ['client', 'from', 'prerelease', 'repo', 'dest', 'no-link', 'no-path', 'autostart', 'dry-run', 'yes'],
+  update: ['client', 'check', 'rollback', 'dry-run', 'no-path'], uninstall: ['client', 'purge', 'yes', 'dry-run'],
 };
 function flagsOf(command, args) {
   const flags = {};
@@ -56,6 +56,9 @@ export async function installerCommand(command, args, ctx, io = {}) {
       fetch: io.fetch ?? globalThis.fetch, tty: io.tty ?? Boolean(process.stdin.isTTY),
       read: io.read ?? read, dryRun: Boolean(flags['dry-run']),
       writeJsonAtomic: io.fs ? undefined : writeJsonAtomic };
+    deps.pathSetup = true;
+    deps.noPath = Boolean(flags['no-path']);
+    deps.bin = await chooseLinkDirectory(deps);
     let records = await readRecords(deps.destination, fs, config);
     if (!Object.keys(records).length && !flags.dest) {
       const runtime = await readRecords(dirname(packageDirectory.replace(/[\\/]$/, '')), fs, config);

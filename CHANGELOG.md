@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Make install/update manage the user PATH idempotently, verify command resolution, preserve user edits on uninstall and document skill fallbacks (D47). / Fazer install/update gerenciarem o PATH do usuário com idempotência, verificar a resolução do comando, preservar edições do usuário no uninstall e documentar alternativas nas skills (D47).
 - Include the adapters imported by `src` in every client package through configurable shared adapter paths (D46). / Incluir em cada pacote de cliente os adaptadores importados por `src`, por caminhos de adaptadores compartilhados configuráveis (D46).
 
 ## [0.2.1] - 2026-10-24

@@ -4,8 +4,23 @@ import { join, resolve } from 'node:path';
 export function installConfig(user = {}) {
   const base = DEFAULT_CONFIG.install;
   const value = { ...base, ...user };
-  for (const key of ['clients', 'headers', 'systems', 'architectures', 'dataRoots', 'kit']) {
+  for (const key of ['clients', 'headers', 'systems', 'architectures', 'dataRoots', 'kit', 'path']) {
     value[key] = { ...base[key], ...user[key] };
+  }
+  value.path.messages = { ...base.path.messages, ...user.path?.messages };
+  value.path.shells = { ...base.path.shells, ...user.path?.shells };
+  const path = value.path;
+  if (typeof path.enabled !== 'boolean' || !Array.isArray(path.candidates) || !path.candidates.length
+    || path.candidates.some((parts) => !Array.isArray(parts) || !parts.length || parts.some((part) => typeof part !== 'string' || !part || /[\r\n\0]/.test(part)))) throw new TypeError('Invalid install.path candidates/enabled');
+  for (const key of ['begin', 'end', 'stateFile', 'fallbackShell', 'windowsExecutable', 'windowsVariable']) {
+    if (typeof path[key] !== 'string' || !path[key].trim() || /[\r\n\0]/.test(path[key])) throw new TypeError(`Invalid install.path.${key}`);
+  }
+  if (path.begin === path.end || /[\\/]/.test(path.stateFile) || !path.shells[path.fallbackShell]) throw new TypeError('Invalid install.path markers/state/fallback');
+  for (const shell of Object.values(path.shells)) {
+    if (!Array.isArray(shell.files) || !shell.files.length || [...shell.files, shell.login].some((name) => typeof name !== 'string' || !name.trim() || /[\r\n\0]/.test(name))) throw new TypeError('Invalid install.path.shells');
+  }
+  for (const message of Object.values(path.messages)) {
+    if (typeof message !== 'string' || !message.trim()) throw new TypeError('Invalid install.path.messages');
   }
   const kit = value.kit;
   const strings = (items) => Array.isArray(items) && items.every((item) => typeof item === 'string' && item.trim() && !/[\r\n\0]/.test(item));

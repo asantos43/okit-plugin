@@ -12,6 +12,8 @@ Use o [install.sh](install.sh) da release no Linux/macOS ou
 [install.ps1](install.ps1) no PowerShell do Windows. Leia os scripts e siga
 [INSTALL.pt-BR.md](INSTALL.pt-BR.md) para requisitos, flags, downloads verificados e atualizações.
 Depois, use `okit-plugin update --check`, `okit-plugin update` ou `okit-plugin update --rollback`.
+
+Install/update disponibilizam o comando nas novas shells por um candidato gravável já no PATH ou pelos perfis gerenciados (Windows: PATH do usuário). Abra um terminal novo ou carregue o perfil informado com source, depois reinicie o cliente de IA. `--no-path` recusa edições do PATH; uninstall remove só a adição do instalador. Configuração e instrução alternativa: [INSTALL](INSTALL.pt-BR.md).
 A matriz tem nove pares cliente × sistema; existir um pacote não comprova
 uso real. Veja as [provas por par](docs/RELEASING.pt-BR.md#proof-per-pair).
 Cada pacote inclui todos os adaptadores de execução por padrão (`release.sharedAdapters: null`
@@ -20,8 +22,8 @@ herda `release.adapters`), além dos metadados de instalação do cliente seleci
 ## Usage — Uso
 
 ```text
-okit-plugin install [--from <dir>] [--client <c>] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--autostart] [--dry-run] [--yes]
-okit-plugin update [--check] [--rollback] [--dry-run]
+okit-plugin install [--from <dir>] [--client <c>] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--no-path] [--autostart] [--dry-run] [--yes]
+okit-plugin update [--check] [--rollback] [--dry-run] [--no-path]
 okit-plugin uninstall [--purge] [--yes] [--dry-run]
 okit-plugin daemon start|stop|status|pause|resume|run-once
 okit-plugin daemon status [--table [--locale en|pt-BR]]
