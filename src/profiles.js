@@ -10,6 +10,7 @@ export const DEFAULT_CONFIG = {
     headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'okit-installer' },
     timeoutMs: 15000, maxDownloadBytes: 128 * 1024 * 1024, maxExtractBytes: 512 * 1024 * 1024,
     directory: 'okit-plugin', destination: null, linkDirectory: null,
+    recordName: 'install.{client}.json',
     dataRoots: { linux: ['XDG_DATA_HOME', '.local', 'share'], darwin: [null, 'Library', 'Application Support'], win32: ['LOCALAPPDATA', 'AppData', 'Local'] },
     linkParts: ['.local', 'bin'], windowsLinkParts: ['AppData', 'Local', 'bin'],
     systems: { linux: 'linux', darwin: 'macos', win32: 'windows' },

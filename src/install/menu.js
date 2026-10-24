@@ -19,6 +19,11 @@ export async function chooseClient(client, deps) {
     name, detected: Boolean(await (deps.detect ?? detect)(settings.executable, deps)),
   })));
   if (client) {
+    if (client === 'all') {
+      const found = entries.filter((item) => item.detected).map((item) => item.name);
+      if (!found.length) throw new TypeError('No detected clients');
+      return found;
+    }
     if (!entries.some((item) => item.name === client)) throw new TypeError(`Invalid client ${client}; choose: ${entries.map((item) => item.name).join(', ')}`);
     return client;
   }
@@ -29,7 +34,10 @@ export async function chooseClient(client, deps) {
     deps.out(`Selected the only detected client: ${found[0].name}`);
     return found[0].name;
   }
-  const answer = await deps.read('Client number: ');
-  if (!/^[1-9][0-9]*$/.test(answer) || !entries[Number(answer) - 1]) throw new TypeError('Invalid client number');
-  return entries[Number(answer) - 1].name;
+  const answer = (await deps.read('Client numbers (1,3) or all: ')).trim();
+  if (answer === 'all') return entries.map((item) => item.name);
+  const numbers = answer.split(',').map((value) => value.trim());
+  if (numbers.some((value) => !/^[1-9][0-9]*$/.test(value) || !entries[Number(value) - 1])) throw new TypeError('Invalid client number');
+  const names = [...new Set(numbers.map((value) => entries[Number(value) - 1].name))];
+  return names.length === 1 ? names[0] : names;
 }

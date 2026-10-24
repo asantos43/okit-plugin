@@ -4,7 +4,8 @@ import { register, loadAdapter, registrationPlan } from './register.js';
 import { applyLink } from './link.js';
 
 export async function backup(record, deps) {
-  const folder = join(deps.destination, 'backups', String(deps.now()));
+  const base = join(deps.destination, 'backups', String(deps.now()));
+  const folder = deps.backupPerClient ? join(base, record.client) : base;
   const sources = [deps.root, ...(deps.config.backupPaths ?? [])];
   if (deps.clientRoot) sources.push(deps.clientRoot);
   else try {
@@ -31,7 +32,9 @@ export async function activate(record, previous, deps, action = 'update') {
 
 export async function rollback(current, deps) {
   if (!current?.previous) throw new TypeError('No previous version retained');
-  const record = { ...current.previous, previous: { ...current, previous: null } };
+  if (current.previous.client !== current.client) throw new TypeError('Previous version belongs to another client');
+  const record = { ...current.previous, link: current.link, linkDirectory: current.linkDirectory,
+    autostart: current.autostart, previous: { ...current, previous: null } };
   deps.out(`Rollback: ${current.version} -> ${record.version}`);
   registrationPlan(record, deps, 'update').forEach((item) => deps.out(`command: ${[item.command, ...item.args].join(' ')}`));
   if (deps.dryRun) return 0;

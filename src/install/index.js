@@ -9,7 +9,7 @@ import { installConfig, installPaths, clientRoot } from './config.js';
 import { chooseClient } from './menu.js';
 import { latestRelease } from './release.js';
 import { downloadRelease } from './download.js';
-import { place, readRecord } from './place.js';
+import { place, readRecords } from './place.js';
 import { registrationPlan } from './register.js';
 import { activate, backup, rollback } from './update.js';
 import { uninstall } from './uninstall.js';
@@ -18,7 +18,7 @@ import { localSource } from './source.js';
 const packageDirectory = fileURLToPath(new URL('../../', import.meta.url));
 const allowed = {
   install: ['client', 'from', 'prerelease', 'repo', 'dest', 'no-link', 'autostart', 'dry-run', 'yes'],
-  update: ['check', 'rollback', 'dry-run'], uninstall: ['purge', 'yes', 'dry-run'],
+  update: ['client', 'check', 'rollback', 'dry-run'], uninstall: ['client', 'purge', 'yes', 'dry-run'],
 };
 function flagsOf(command, args) {
   const flags = {};
@@ -40,7 +40,6 @@ async function read(question) {
 }
 
 export async function installerCommand(command, args, ctx, io = {}) {
-  let started = false;
   try {
     const flags = flagsOf(command, args);
     const fs = io.fs ?? filesystem;
@@ -55,11 +54,41 @@ export async function installerCommand(command, args, ctx, io = {}) {
       fetch: io.fetch ?? globalThis.fetch, tty: io.tty ?? Boolean(process.stdin.isTTY),
       read: io.read ?? read, dryRun: Boolean(flags['dry-run']),
       writeJsonAtomic: io.fs ? undefined : writeJsonAtomic };
-    let current = await readRecord(deps.destination, fs);
-    if (!current && !flags.dest) {
-      const runtime = await readRecord(dirname(packageDirectory.replace(/[\\/]$/, '')), fs);
-      if (runtime?.path === packageDirectory.replace(/[\\/]$/, '')) { current = runtime; deps.destination = runtime.destination; }
+    let records = await readRecords(deps.destination, fs, config);
+    if (!Object.keys(records).length && !flags.dest) {
+      const runtime = await readRecords(dirname(packageDirectory.replace(/[\\/]$/, '')), fs, config);
+      const installed = Object.values(runtime).find((record) => record.path === packageDirectory.replace(/[\\/]$/, ''));
+      if (installed) { deps.destination = installed.destination; records = runtime; }
     }
+    const selection = command === 'install' ? await chooseClient(flags.client, deps)
+      : flags.client ? [flags.client] : Object.keys(records);
+    const clients = Array.isArray(selection) ? selection : [selection];
+    if (!clients.length) throw new TypeError('No installation record found');
+    if (command !== 'install' && clients.some((client) => !records[client])) throw new TypeError(`Client not registered: ${flags.client}`);
+    if (flags.purge && (!flags.yes || clients.length !== Object.keys(records).length)) throw new TypeError('--purge requires --yes and no remaining clients');
+    const results = [];
+    for (const client of clients) {
+      ctx.out(`Client: ${client}`);
+      const purge = flags.purge && client === clients.at(-1) && results.every(({ code }) => code === 0);
+      const shared = Object.values(await readRecords(deps.destination, fs, config));
+      const code = await runClient(command, { ...flags, purge, client }, ctx, io, {
+        ...deps, backupPerClient: clients.length > 1,
+        sharedLink: shared.some((record) => record.link), sharedAutostart: shared.some((record) => record.autostart),
+      }, user, records[client]);
+      results.push({ client, code });
+    }
+    results.forEach(({ client, code }) => ctx.out(`${client}: ${code === 0 ? 'success' : 'failed'}`));
+    return results.every(({ code }) => code === 0) ? 0 : results.every(({ code }) => code === 2) ? 2 : 1;
+  } catch (error) {
+    (ctx.err ?? ctx.out)(`refused: ${error.message}`);
+    return error instanceof TypeError ? 2 : 1;
+  }
+}
+
+async function runClient(command, flags, ctx, io, deps, user, current) {
+  let started = false;
+  const { fs, config } = deps;
+  try {
     if (current) {
       deps.bin = current.linkDirectory ?? deps.bin;
       if (command !== 'install') deps.config = installConfig({ ...current.settings, ...user.install });
@@ -73,11 +102,12 @@ export async function installerCommand(command, args, ctx, io = {}) {
     }
     if (flags.rollback) {
       if (!current?.previous) throw new TypeError('No previous version retained');
+      if (current.previous.client !== current.client) throw new TypeError('Previous version belongs to another client');
       started = !deps.dryRun;
       return await rollback(current, deps);
     }
     if (command === 'update' && !current) throw new TypeError('No installation record found');
-    const client = command === 'update' ? current.client : await chooseClient(flags.client, deps);
+    const client = flags.client;
     deps.clientRoot = io.clientRoot ?? clientRoot(client, deps);
     const pkg = io.pkg ?? JSON.parse(await fs.readFile(join(packageDirectory, 'package.json'), 'utf8'));
     const release = { ...DEFAULT_CONFIG.release, ...user.release,
@@ -120,8 +150,8 @@ export async function installerCommand(command, args, ctx, io = {}) {
         await backup(current, deps);
       }
       const { record } = await place(selected, downloaded, { client, system, arch, repo, bin,
-        link: !flags['no-link'] && (current?.link ?? true), linkDirectory: deps.bin,
-        autostart: Boolean(flags.autostart || current?.autostart), wasRunning,
+        link: deps.sharedLink || (!flags['no-link'] && (current?.link ?? true)), linkDirectory: deps.bin,
+        autostart: Boolean(flags.autostart || current?.autostart || deps.sharedAutostart), wasRunning,
         prerelease: Boolean(flags.prerelease), settings: deps.config }, deps);
       await activate(record, current, deps, command === 'update' ? 'update' : 'install');
       if (command === 'update') {
