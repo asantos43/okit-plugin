@@ -11,6 +11,9 @@ export function installConfig(user = {}) {
   for (const key of ['timeoutMs', 'maxDownloadBytes', 'maxExtractBytes']) {
     if (!Number.isSafeInteger(value[key]) || value[key] <= 0) throw new TypeError(`Invalid install.${key}`);
   }
+  if (typeof value.recordName !== 'string' || !value.recordName.includes('{client}') || /[\\/]/.test(value.recordName)) {
+    throw new TypeError('install.recordName must be a filename containing {client}');
+  }
   return value;
 }
 

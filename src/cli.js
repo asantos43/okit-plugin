@@ -30,9 +30,9 @@ const AUTOSTART_ACTIONS = ['install', 'uninstall', 'show'];
 
 const USAGE = [
   'usage: okit daemon start|stop|status|pause|resume|run-once',
-  '       okit install [--from <dir>] [--client <c>] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--autostart] [--dry-run] [--yes]',
-  '       okit update [--check] [--rollback] [--dry-run]',
-  '       okit uninstall [--purge] [--yes] [--dry-run]',
+  '       okit install [--from <dir>] [--client <c>|all] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--autostart] [--dry-run] [--yes]',
+  '       okit update [--client <c>] [--check] [--rollback] [--dry-run]',
+  '       okit uninstall [--client <c>] [--purge] [--yes] [--dry-run]',
   '       okit daemon status [--table [--locale en|pt-BR]]',
   '       okit autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       okit status [--locale en|pt-BR]',

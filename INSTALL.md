@@ -29,7 +29,7 @@ release (or warns when falling back to the newest pre-release), downloads the
 exact client/system/architecture archive and checksum manifest into a temporary
 folder, verifies SHA-256 before extraction, and invokes the Node installer with
 `install --from`. It copies the package into a fixed user data directory, records
-`install.json`, registers the client, creates a command link and optionally sets
+one `install.<client>.json` per client, registers the client, creates a shared command link and optionally sets
 autostart. Updates retain backups, activate the new version and run `okit smoke`.
 Temporary files are removed on success and failure. Linux uses
 `${XDG_DATA_HOME:-$HOME/.local/share}/okit-plugin`; macOS uses
@@ -71,6 +71,23 @@ For manual installation, download the matching archive and checksum manifest,
 verify the archive hash, extract it, then run
 `node src/cli.js install --from . --client <name>` in that folder. Alternatively,
 `node src/cli.js install --client <name>` downloads the latest release.
+
+The Node installer supports several clients on one machine. `okit install --client all`
+downloads and verifies a separate package for every detected client; its interactive
+menu also accepts `1,3` or `all`. `--client <name>` changes only that client.
+`okit update`, `update --check`, `update --rollback` and `uninstall` act on all
+registered clients by default; add `--client <name>` to select one. An unregistered
+client is refused before changes. Each client has its own retained versions and smoke
+check; one failure allows the others to finish. The summary lists each result
+(exit 0: all succeeded, 1: failure, 2: refused before starting).
+
+Record names come from `install.recordName`. Legacy `install.json` is read under its
+client and migrated on the first write, preserving its previous-version chain.
+The command link, autostart and state are shared; removing one client preserves the
+others and redirects shared paths to a remaining package. The final uninstall removes
+the link. `--purge --yes` is refused if any client would remain. All operations support
+`--dry-run` without writes. Use the Node CLI for these lifecycle commands: the unchanged
+bootstrap scripts still locate legacy `install.json` records.
 
 Can I delete the downloaded folder afterwards? **Yes** after using the script or
 `okit install --from`: client references point to the fixed installed directory.

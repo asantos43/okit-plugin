@@ -12,10 +12,12 @@ import { chooseClient, detect } from '../src/install/menu.js';
 import { latestRelease } from '../src/install/release.js';
 import { downloadRelease } from '../src/install/download.js';
 import { extract } from '../src/install/extract.js';
-import { place, readRecord } from '../src/install/place.js';
+import { place, readRecord, readRecords, saveRecord } from '../src/install/place.js';
 import { applyLink } from '../src/install/link.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { register } from '../src/install/register.js';
+import { installerCommand } from '../src/install/index.js';
+import { rollback } from '../src/install/update.js';
 import * as moduleAdapter from '../adapters/opencode/index.js';
 
 // Must pass / must refuse corpus:
@@ -25,6 +27,8 @@ import * as moduleAdapter from '../adapters/opencode/index.js';
 // | checksum mismatch/missing line, paths/links, size/timeout | | before placement |
 // | ambiguous menu, invalid client, purge without yes | | before mutation |
 // | dry-run, edited skill/module, foreign command link | preserve tree/edits | overwrite |
+// | registered client, shared settings, own chain | synchronize/preserve other folders | |
+// | unregistered client, previous from another client | | before mutation |
 
 async function fixture(t) {
   const home = await fs.mkdtemp(join(tmpdir(), 'install-test-'));
@@ -45,17 +49,19 @@ async function fixture(t) {
   const payload = () => tarGz([
     { path: 'package.json', mode: 0o644, data: JSON.stringify({ ...pkg, version }) },
     { path: 'src/cli.js', mode: 0o755, data: '#!/usr/bin/env node\n' },
+    { path: 'skills/example/SKILL.md', mode: 0o644, data: 'fake skill' },
   ]);
-  const name = () => `sample-${version}-claude-code-linux-x64.tar.gz`;
+  const clients = Object.keys(config.clients);
+  const name = (client = 'claude-code') => `sample-${version}-${client}-linux-x64.tar.gz`;
   const selected = () => ({ tag_name: `v${version}`, prerelease, published_at: '2026-10-24', assets: [
-    { name: name(), browser_download_url: 'https://fake.invalid/package' },
+    ...clients.map((client) => ({ name: name(client), browser_download_url: `https://fake.invalid/package/${client}` })),
     { name: `sample-${version}-checksums.sha256`, browser_download_url: 'https://fake.invalid/manifest' },
   ] });
   const fetch = async (url) => {
     if (url.endsWith('/latest')) return prerelease ? new Response('', { status: 404 }) : Response.json(selected());
     if (url.endsWith('/releases')) return Response.json([selected()]);
-    if (url.endsWith('/package')) return new Response(payload());
-    if (url.endsWith('/manifest')) return new Response(`${badHash ? '0'.repeat(64) : createHash('sha256').update(payload()).digest('hex')}  ${missing ? 'other.tar.gz' : name()}\n`);
+    if (url.includes('/package/')) return new Response(payload());
+    if (url.endsWith('/manifest')) return new Response(clients.map((client) => `${badHash ? '0'.repeat(64) : createHash('sha256').update(payload()).digest('hex')}  ${missing ? 'other.tar.gz' : name(client)}\n`).join(''));
     throw new Error(`Unexpected request ${url}`);
   };
   deps.fetch = fetch;
@@ -119,6 +125,199 @@ test('detect checks executable permission and configured PATH', async (t) => {
   assert.equal(await detect('fake-client', options), join(home, 'fake-client'));
   await fs.chmod(join(home, 'fake-client'), 0o644);
   assert.equal(await detect('fake-client', options), null);
+});
+
+test('multiple client menu selections and detected all', async (t) => {
+  const { deps } = await fixture(t);
+  assert.deepEqual(await chooseClient(null, { ...deps, tty: true, read: async () => '1,3,1' }), ['claude-code', 'opencode']);
+  assert.deepEqual(await chooseClient(null, { ...deps, tty: true, read: async () => 'all' }), Object.keys(deps.config.clients));
+  assert.deepEqual(await chooseClient('all', { ...deps, detect: async () => true }), Object.keys(deps.config.clients));
+  await assert.rejects(chooseClient('all', deps), /No detected/);
+});
+
+test('legacy record migrates on write with previous chain intact', async (t) => {
+  const f = await fixture(t);
+  await fs.mkdir(f.destination);
+  const legacy = { client: 'codex', version: '2', previous: { client: 'codex', version: '1', previous: null } };
+  await fs.writeFile(join(f.destination, 'install.json'), JSON.stringify(legacy));
+  assert.deepEqual(await readRecord(f.destination, 'codex', fs), legacy);
+  await saveRecord(f.destination, legacy, f.deps);
+  assert.deepEqual(await readRecords(f.destination, fs), { codex: legacy });
+  await assert.rejects(fs.stat(join(f.destination, 'install.json')), { code: 'ENOENT' });
+});
+
+test('record naming is configurable and refuses a shared filename', async (t) => {
+  const f = await fixture(t);
+  assert.throws(() => installConfig({ recordName: 'shared.json' }), /recordName/);
+  const config = installConfig({ ...f.config, recordName: 'record-{client}.json' });
+  await fs.mkdir(f.destination);
+  await saveRecord(f.destination, { client: 'codex', version: '1' }, { ...f.deps, config });
+  assert.equal((await readRecord(f.destination, 'codex', fs, config)).version, '1');
+  assert.deepEqual(await fs.readdir(f.destination), ['record-codex.json']);
+});
+
+test('install all continues after failed package; unknown registered client refuses', async (t) => {
+  const f = await fixture(t);
+  const before = await tree(f.home);
+  for (const args of [['update'], ['update', '--check'], ['update', '--rollback'], ['uninstall']]) {
+    assert.equal(await main([...args, '--client', 'codex'], f.io), 2);
+    assert.deepEqual(await tree(f.home), before);
+  }
+  const fetch = async (url, opts) => {
+    if (url.endsWith('/package/codex')) throw new Error('fake package failure');
+    return f.io.fetch(url, opts);
+  };
+  const io = { ...f.io, fetch, detect: async () => true, loadAdapter: async () => moduleAdapter };
+  assert.equal(await main(['install', '--client', 'all', '--dry-run'], io), 0);
+  assert.deepEqual(await tree(f.home), before);
+  assert.equal(await main(['install', '--client', 'all'], io), 1);
+  assert.ok(await readRecord(f.destination, 'claude-code', fs));
+  assert.ok(await readRecord(f.destination, 'opencode', fs));
+  assert.equal(await readRecord(f.destination, 'codex', fs), null);
+  assert.ok(f.output.includes('codex: failed'));
+});
+
+test('unregistered client refuses update and uninstall before touching files', async (t) => {
+  const f = await fixture(t);
+  assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0);
+  const before = await tree(f.home);
+  for (const command of ['update', 'uninstall']) {
+    f.output.length = 0;
+    assert.equal(await main([command, '--client', 'codex'], f.io), 2);
+    assert.ok(f.output.some((line) => line.includes('Client not registered: codex')));
+    assert.deepEqual(await tree(f.home), before);
+    assert.deepEqual(f.events, []);
+    assert.deepEqual(f.commands, []);
+  }
+});
+
+for (const route of ['direct', 'installerCommand']) test(`cross-client previous refuses rollback via ${route}`, async (t) => {
+  const f = await fixture(t);
+  for (const client of ['claude-code', 'codex']) assert.equal(await main(['install', '--client', client], f.io), 0);
+  const records = await readRecords(f.destination, fs);
+  const corrupt = { ...records.codex, previous: records['claude-code'] };
+  await saveRecord(f.destination, corrupt, f.deps);
+  const before = await tree(f.home);
+  if (route === 'direct') {
+    await assert.rejects(rollback(corrupt, f.io), {
+      name: 'TypeError', message: 'Previous version belongs to another client',
+    });
+  } else {
+    assert.equal(await installerCommand('update', ['--rollback', '--client', 'codex'], f.deps, f.io), 2);
+    assert.ok(f.output.includes('refused: Previous version belongs to another client'));
+  }
+  assert.deepEqual(await tree(f.home), before);
+  assert.deepEqual(f.events, []);
+  assert.deepEqual(f.commands, []);
+});
+
+test('second client synchronizes shared link and autostart into existing record', async (t) => {
+  const f = await fixture(t);
+  assert.equal(await main(['install', '--client', 'claude-code', '--no-link'], f.io), 0);
+  const first = await readRecord(f.destination, 'claude-code', fs);
+  assert.equal(first.autostart, false);
+  assert.equal(first.link, false);
+  assert.equal(await main(['install', '--client', 'codex', '--autostart'], f.io), 0);
+  const records = await readRecords(f.destination, fs);
+  assert.equal(records.codex.autostart, true);
+  assert.equal(records.codex.link, true);
+  assert.equal(records.codex.linkDirectory, f.bin);
+  assert.deepEqual(records['claude-code'], { ...first, autostart: true,
+    link: records.codex.link, linkDirectory: records.codex.linkDirectory });
+  assert.equal(await fs.readlink(join(f.bin, 'okit')), join(records.codex.path, records.codex.bin));
+});
+
+for (const corruption of ['protected path', 'foreign client']) test(`uninstall preserves cross-client previous with ${corruption}`, async (t) => {
+  const f = await fixture(t);
+  for (const client of ['claude-code', 'codex']) assert.equal(await main(['install', '--client', client], f.io), 0);
+  const records = await readRecords(f.destination, fs);
+  const retained = corruption === 'protected path' ? records.codex.path : join(f.destination, 'orphan-codex');
+  if (corruption === 'foreign client') {
+    await fs.mkdir(retained);
+    await fs.writeFile(join(retained, 'sentinel'), 'keep foreign history');
+  }
+  const ownPrevious = join(f.destination, 'old-claude-code');
+  await fs.mkdir(ownPrevious);
+  await saveRecord(f.destination, { ...records['claude-code'], previous: {
+    ...records['claude-code'], path: ownPrevious, previous: {
+      ...records.codex, client: corruption === 'protected path' ? 'claude-code' : 'codex', path: retained,
+    },
+  } }, f.deps);
+  const before = await tree(retained);
+  assert.equal(await main(['uninstall', '--client', 'claude-code'], f.io), 0);
+  assert.deepEqual(await tree(retained), before);
+  assert.deepEqual(await readRecord(f.destination, 'codex', fs), records.codex);
+  assert.equal(await readRecord(f.destination, 'claude-code', fs), null);
+  for (const path of [records['claude-code'].path, ownPrevious]) await assert.rejects(fs.stat(path), { code: 'ENOENT' });
+});
+
+test('three clients keep independent records, updates, rollback and shared link', async (t) => {
+  const f = await fixture(t);
+  f.io.loadAdapter = async () => moduleAdapter;
+  const clients = Object.keys(f.config.clients);
+  for (const client of clients) assert.equal(await main(['install', '--client', client], f.io), 0);
+  const initial = await readRecords(f.destination, fs);
+  assert.deepEqual(Object.keys(initial), clients);
+  assert.equal((await fs.readdir(f.destination)).filter((name) => name.endsWith('.json')).length, 3);
+  for (const client of clients) assert.ok(await fs.stat(initial[client].path));
+  f.setVersion('2.0.0');
+  const before = await tree(f.home);
+  assert.equal(await main(['update', '--dry-run'], f.io), 0);
+  assert.deepEqual(await tree(f.home), before);
+  assert.equal(await main(['update', '--check'], f.io), 0);
+  assert.equal(await main(['uninstall', '--purge', '--yes', '--dry-run'], f.io), 0);
+  assert.deepEqual(await tree(f.home), before);
+  const downloads = [];
+  const fetch = async (url, opts) => { if (url.includes('/package/')) downloads.push(url); return f.io.fetch(url, opts); };
+  assert.equal(await main(['update'], { ...f.io, fetch }), 0);
+  assert.equal(new Set(downloads).size, 3); assert.equal(downloads.length, 3);
+  assert.equal(f.events.filter((event) => event === 'smoke').length, 3);
+  const updated = await readRecords(f.destination, fs);
+  assert.equal(await main(['update', '--rollback', '--client', 'codex'], f.io), 0);
+  let records = await readRecords(f.destination, fs);
+  assert.equal(records.codex.version, '1.0.0');
+  assert.deepEqual(records['claude-code'], updated['claude-code']);
+  assert.deepEqual(records.opencode, updated.opencode);
+  f.setVersion('3.0.0');
+  assert.equal(await main(['update', '--client', 'codex'], f.io), 0);
+  records = await readRecords(f.destination, fs);
+  assert.equal(records.codex.version, '3.0.0');
+  assert.deepEqual(records.opencode, updated.opencode);
+  const protectedTree = await tree(f.home);
+  assert.equal(await main(['uninstall', '--client', 'codex', '--purge', '--yes'], f.io), 2);
+  assert.deepEqual(await tree(f.home), protectedTree);
+  assert.equal(await main(['uninstall', '--client', 'codex'], f.io), 0);
+  assert.equal(await readRecord(f.destination, 'codex', fs), null);
+  for (const client of ['claude-code', 'opencode']) {
+    assert.deepEqual(await readRecord(f.destination, client, fs), updated[client]);
+    assert.ok(await fs.stat(updated[client].path));
+    assert.ok(await fs.stat(updated[client].previous.path));
+  }
+  assert.ok(await fs.stat(join(f.bin, 'okit')));
+  assert.equal(await main(['uninstall'], f.io), 0);
+  assert.deepEqual(await readRecords(f.destination, fs), {});
+  assert.equal(await fs.lstat(join(f.bin, 'okit')).catch(() => null), null);
+});
+
+test('update all continues after smoke failure and synchronizes shared settings', async (t) => {
+  const f = await fixture(t);
+  const io = { ...f.io, detect: async () => true, loadAdapter: async () => moduleAdapter };
+  assert.equal(await main(['install', '--client', 'all', '--autostart'], io), 0);
+  f.setVersion('2.0.0');
+  const checked = [];
+  assert.equal(await main(['update'], { ...io, smoke: async (record) => {
+    checked.push(record.client); return { code: record.client === 'codex' ? 1 : 0 };
+  } }), 1);
+  assert.deepEqual(checked, Object.keys(f.config.clients));
+  const records = await readRecords(f.destination, fs);
+  for (const record of Object.values(records)) {
+    assert.equal(record.version, '2.0.0'); assert.equal(record.autostart, true);
+    assert.equal(record.previous.client, record.client);
+  }
+  assert.equal(await main(['uninstall', '--client', 'opencode'], io), 0);
+  const target = await fs.readlink(join(f.bin, 'okit'));
+  assert.ok(await fs.stat(target));
+  assert.ok(f.events.filter((event) => event === 'autostart').length > 3);
 });
 
 test('latest release supports prerelease-only and rejects wrong system/architecture by filename', async (t) => {
@@ -229,7 +428,7 @@ test('uninstall preserves user state; purge requires yes', async (t) => {
 
 test('all dry-run routes preserve the entire tree and never download assets', async (t) => {
   const f = await fixture(t);
-  const fetch = async (url, options) => { assert.ok(!/\/(package|manifest)$/.test(url)); return f.io.fetch(url, options); };
+  const fetch = async (url, options) => { assert.ok(!/\/(package\/|manifest$)/.test(url)); return f.io.fetch(url, options); };
   let before = await tree(f.home);
   assert.equal(await main(['install', '--dry-run', '--client', 'claude-code'], { ...f.io, fetch }), 0);
   assert.deepEqual(await tree(f.home), before);

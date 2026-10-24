@@ -28,7 +28,7 @@ O script confere Node, sistema e arquitetura, consulta a última release estáve
 do GitHub (ou avisa ao usar o pré-lançamento mais recente), baixa o pacote exato
 e o manifesto para uma pasta temporária, confere SHA-256 antes de extrair e chama
 o núcleo Node com `install --from`. O núcleo copia para um destino fixo, grava
-`install.json`, registra o cliente, cria o link de comando e opcionalmente
+um `install.<client>.json` por cliente, registra o cliente, cria o link compartilhado e opcionalmente
 configura autostart. Atualizações guardam backup e versão anterior, ativam a nova
 e rodam `okit smoke`. O temporário é apagado em sucesso e falha.
 No Linux: `${XDG_DATA_HOME:-$HOME/.local/share}/okit-plugin`; macOS:
@@ -69,6 +69,25 @@ Revise com `okit uninstall --dry-run`, depois execute `okit uninstall`. Para tam
 Instalação manual: baixe pacote e manifesto, confira SHA-256, extraia e rode
 `node src/cli.js install --from . --client <nome>` nessa pasta. Sem `--from`,
 `node src/cli.js install --client <nome>` baixa a última release.
+
+O instalador Node suporta vários clientes na mesma máquina. `okit install --client all`
+baixa e verifica um pacote separado para cada cliente detectado; o menu interativo
+também aceita `1,3` ou `all`. `--client <nome>` altera só esse cliente.
+`okit update`, `update --check`, `update --rollback` e `uninstall` agem em todos os
+registrados por padrão; acrescente `--client <nome>` para selecionar um. Cliente não
+registrado é recusado antes de alterações. Cada cliente tem versões retidas e smoke
+próprios; uma falha permite que os demais terminem. O resumo lista cada resultado
+(saída 0: todos passaram, 1: falha, 2: recusado antes de começar).
+
+Os nomes dos registros vêm de `install.recordName`. O `install.json` antigo é lido
+como registro do seu cliente e migrado na primeira escrita, mantendo toda a cadeia
+de versões anteriores. Link, autostart e estado são compartilhados; remover um cliente
+preserva os demais e redireciona caminhos compartilhados para um pacote restante.
+A última desinstalação remove o link. `--purge --yes` é recusado se algum cliente
+for permanecer. Todas as operações aceitam `--dry-run` sem gravar. Use o CLI Node para
+esses comandos: os scripts de bootstrap permanecem localizando registros antigos
+`install.json`.
+
 Posso apagar a pasta depois? **SIM** com script ou `okit install --from`: o plugin
 fica registrado no destino fixo. Na instalação manual direta com
 `claude plugin marketplace add <pasta>`, **a pasta precisa ficar**.
