@@ -1,6 +1,6 @@
 {
   "name": "okit-plugin",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Plugin for AI coding clients that spreads work over the client's own subagents",
   "license": "MIT",
@@ -17,7 +17,8 @@
     "test": "node --test",
     "release:checksums": "node scripts/checksums.js",
     "release:notes": "node scripts/release-notes.js",
-    "release:checklist": "node scripts/release-checklist.js"
+    "release:checklist": "node scripts/release-checklist.js",
+    "release:publish": "node scripts/release-publish.js"
   },
   "repository": {
     "type": "git",

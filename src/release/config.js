@@ -35,6 +35,7 @@ export function releaseConfig(user = {}) {
   const map = (base, extra) => ({ ...base, ...(isPlainObject(extra) ? extra : {}) });
   return {
     ...merged,
+    publish: map(DEFAULTS.publish, given.publish),
     formats: map(DEFAULTS.formats, given.formats),
     adapters: map(DEFAULTS.adapters, given.adapters),
     clientFiles: map(DEFAULTS.clientFiles, given.clientFiles),

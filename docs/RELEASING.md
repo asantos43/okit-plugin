@@ -1,6 +1,6 @@
 # Release design
 
-Status: D26 design; the local build of PR 1 exists (`scripts/build-release.js`). There is still no publish command, and nothing is published.
+Status: D31 implemented: build, checksums, notes, checklist and explicit publication command. Nothing was published by this work.
 Extends [ARCHITECTURE.md](ARCHITECTURE.md) and [SMOKE.md](SMOKE.md), including the D25 real-client scenario. Portuguese: [RELEASING.pt-BR.md](RELEASING.pt-BR.md).
 
 ## What a release is
@@ -69,7 +69,7 @@ node scripts/build-release.js [--out <dir>] [--pair <client>:<system>] [--arch <
 | `--arch <arch>` | Builds only that architecture, e.g. `x64`. Without it every configured architecture is built. |
 | `--dry-run` | Lists the pairs it would build and the ones it refuses, and writes nothing. |
 
-The name of each archive is the configured name model filled with the package name, the version, the client, the system, the architecture and the extension, so `<P>-<V>-<C>-<S>-<A>.<E>`: `okit-plugin-0.0.0-claude-code-linux-x64.tar.gz`. The name, the version, the licence, the repository, the bin and the engines come from `package.json`; the payload carries the package metadata, the licence, the required `src/`, the skills, the adapter of the chosen client, the client metadata and the installation instructions of the clients the configuration names, and never the state, the credentials, `.git`, `.delegate`, `test/` or the development-only material.
+The name of each archive is the configured name model filled with the package name, the version, the client, the system, the architecture and the extension, so `<P>-<V>-<C>-<S>-<A>.<E>`: `okit-plugin-0.1.0-claude-code-linux-x64.tar.gz`. The name, the version, the licence, the repository, the bin and the engines come from `package.json`; the payload carries the package metadata, the licence, the required `src/`, the skills, the adapter of the chosen client, the client metadata and the installation instructions of the clients the configuration names, and never the state, the credentials, `.git`, `.delegate`, `test/` or the development-only material.
 
 The archives are deterministic: the entries are sorted, the modification time is `SOURCE_DATE_EPOCH` or the date of the commit, the modes are explicit (`0755` for the command of the package, `0644` for the rest) and the lines end with LF. Two builds of the same source produce the same bytes.
 
@@ -111,6 +111,22 @@ node scripts/release-checklist.js [--out <dir>] [--version <version>] [--revisio
 `release.checklist` configures the filename template, title, fields, layer texts and signature line. Pair signers inherit `release.notes.proofBy`, with optional `release.checklist.proofBy` overrides; the same optional proof JSON and status labels as notes are read. Each build pair gets an unchecked section with environment, installation/update, both smoke layers, explicit skip/absent-driver fields and evidence locations. Windows/macOS require the Producer signature. This command prepares evidence records; it runs no smoke and publishes nothing.
 
 Payload SHA-256 values come from the checksum manifest in the output directory when present; otherwise they remain blank. No hashes are calculated here: hash notes/checklist only after final completion. A mismatched version, invalid pair/proof/manifest or existing checklist with different contents refuses with a reason and writes nothing. Identical reruns are allowed; there is no `--force`, so filled evidence is preserved. Keep completed proof records under `docs/` as required by D-Q7.
+
+## Publishing
+
+```sh
+npm run release:publish -- [--dry-run] [--out <dir>]
+npm run release:publish -- --publish [--out <dir>]
+```
+
+Dry-run is the default: it prepares local files and prints the title, tag, target SHA, pre-release status, exact attachments and full shell-quoted `gh` command; it creates no tag or release. Both modes require a clean tree, fetch `origin/main`, compare HEAD with it and refuse an existing local or remote tag. Fetch and remote tag lookup require network access; no publication happens without `--publish`. Run from a committed checkout.
+
+The command reuses the nine-pair build, writes a payload checksum manifest, generates notes and the checklist (including payload hashes and source SHA), then writes the final manifest covering payloads, notes and checklist and verifies it. Refused pairs/versions, invalid proofs, changed checklists and checksum failures stop publication. Only the generated allowlist is attached; unrelated output files fail checksum verification.
+
+`release.publish` configures the GitHub executable (`executable: 'gh'`), git executable (`gitExecutable: 'git'`), remote (`remote: 'origin'`), branch (`branch: 'main'`), minimum client × system count (`requiredPairs: 9`), tag prefix, title template, output directory, attachment groups (`payloads`, `notes`, `checklist`, `checksums`) and pre-release notice. Destination comes from the configured remote with URL userinfo removed; package name/version come from `package.json` (D-Q6: 0.1.0). Use a separate output folder per candidate; completed evidence stays in `docs/` per D-Q7.
+
+With `--publish`, verified files go to `gh release create` with the tag, configured repository, target SHA, title and notes file, with `--` before attachment paths. `--prerelease` is mandatory when the number of distinct built client × system pairs is below `requiredPairs` or any pair lacks the configured proven status in `release.notes.proofFile`; reducing clients/systems does not reduce that minimum. Missing/partial proofs remain in the notes with the configured warning. This command does not establish real-client proof.
+Immediately before invoking GitHub, git checks run again: a dirty tree (including generated changes in tracked output paths), changed SHA or existing tag refuses publication. `SAFE_TAG` restricts the assembled tag to a single Git ref component beginning with a letter, digit or underscore, followed by letters, digits, dots, underscores, pluses or hyphens; consecutive dots, trailing dots and a `.lock` suffix are forbidden. `GIT_TAG_NAMESPACE` names the Git protocol prefix `refs/tags/`. Failures after GitHub starts return nonzero with `publish failed (the release may be partly created): tag <tag>: <error>`; inspect the remote release before retrying. Validation refusals retain `refused: …`.
 
 ## Proof per pair
 
@@ -161,5 +177,6 @@ Prerequisites: Producer answers the applicable questions; missing client adapter
 | 2 — Checksums (done) | Add final-byte SHA-256 manifest generation/verification using Node built-ins: `src/release/checksums.js` and `scripts/checksums.js`. | Every listed file verifies; modified/missing files refuse; no self-hash. |
 | 3 — Notes (done) | Generate version-specific notes from the root history's `[Unreleased]` section and pair metadata. | Version and filenames match package/build; missing history refuses; known gaps and install/update instructions appear. |
 | 4 — Checklist (done) | Generate the nine-row record template and document collection of installed-candidate evidence. | Both layers recorded per pair, Producer signs Windows/macOS; skips and absent drivers remain visible. Hash notes/checklist only after records are final. |
+| D31 — Publishing (done) | Add default dry-run and explicit verified GitHub publication; version 0.1.0. | Fake GitHub tests; clean origin/main revision, absent tag, verified final manifest; pre-release until nine proven pairs. |
 
 After these PRs, have the Producer select the candidate version, build locally and collect real-machine proof. The Producer's later explicit release request is the separate trigger to confirm that version, extract its changes from the root history, finalize notes/checksums/checklist, tag and publish the proven artifacts. A version or payload change invalidates its digest and requires fresh proof.
