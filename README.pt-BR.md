@@ -67,7 +67,18 @@ O estado fica em `~/.okwork`; `OKWORK_HOME` substitui essa raiz. Edite ali o
 `lowQuotaPct: 15`, `limits: {global: 3, clients: {}}`, `staleMinutes: 30`
 e `profiles` vazio. Preencha `profiles.<client>.simple|normal|hard` com `model`,
 `effort`, `maxTurns`; não há modelo padrão. Todos os adaptadores leem a cota do
-usuário em `quota/<client>.json`. `postCompact` vem habilitado, `timeoutSec: 5`,
+usuário em `quota/<client>.json`.
+Registre o percentual restante mostrado em `/usage` do cliente com
+`okit-plugin quota set claude-code 80 [--window-minutes n]`; os clientes são os que
+a raiz configura (`claude-code`, `codex` e `opencode` quando ela não configura nenhum),
+e o percentual deve ser numérico, entre 0 e 100.
+Consulte com `okit-plugin quota show [client]`. O comando grava atomicamente
+`remainingPct`, `windowMinutes` opcional e `recordedAt` sob `OKWORK_HOME`.
+O smoke avisa após `smoke.quotaMaxAgeMinutes` (padrão 30) e considera a cota
+desconhecida após `smoke.quotaExpireMinutes` (padrão 120), configuráveis em
+`config.json`. Registros sem `recordedAt` continuam válidos. Em `quota-unknown`,
+informe uma leitura atual e repita; use `--allow-unknown-quota` só por pedido explícito.
+`postCompact` vem habilitado, `timeoutSec: 5`,
 `maxLines: 20`, todas as seções habilitadas. Padrões de `smoke`:
 `quotaFloorPct: 20`, `maxUsd: 1`, `maxTurns: null` (cenário completo),
 `maxMinutes: 15`, `checkTimeoutMs: 60000`.

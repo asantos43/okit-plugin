@@ -100,6 +100,8 @@ const USAGE = [
   '       {command} daemon status [--table [--locale en|pt-BR]]',
   '       {command} autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       {command} status [--locale en|pt-BR]',
+  '       {command} quota set <client> <pct> [--window-minutes n]',
+  '       {command} quota show [client]',
   '       {command} inbox list [--locale en|pt-BR]',
   '       {command} inbox take <id> [--producer-takeover] [--client <c>] [--session <s>] [--worktree <path>] [--yes]',
   '       {command} inbox release <id> [--client <c>] [--session <s>]',
@@ -210,6 +212,38 @@ async function autostartCommand(ctx, action, args) {
 async function readConfig(root) {
   const stored = await readJson(paths(root).config, {});
   return configOf(stored);
+}
+
+async function quotaCommand(ctx, action, args) {
+  const readers = adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env });
+  // The clients of this root, the same list the quota table shows: the ones
+  // the configuration names, or the known clients when it names none. A
+  // client outside that list has no reading and no record.
+  const known = clientsOf(await readConfig(ctx.root), ctx.clients);
+  const invalid = () => {
+    ctx.err('Invalid quota arguments / Argumentos de cota inválidos');
+    return ctx.unknown();
+  };
+  if (action === 'show') {
+    if (args.length > 1 || (args.length && !known.includes(args[0]))) return invalid();
+    for (const client of args.length ? args : known) {
+      ctx.out(`Quota / Cota ${client}: ${JSON.stringify(await readers(client))}`);
+    }
+    return 0;
+  }
+  if (action !== 'set' || !known.includes(args[0])) return invalid();
+  const pct = Number(args[1]);
+  if (!args[1]?.trim() || !Number.isFinite(pct) || pct < 0 || pct > 100) return invalid();
+  const value = { remainingPct: pct, recordedAt: new Date(ctx.now()).toISOString() };
+  if (args.length !== 2) {
+    const window = Number(args[3]);
+    if (args.length !== 4 || args[2] !== '--window-minutes' || !args[3]?.trim()
+      || !Number.isFinite(window) || window <= 0) return invalid();
+    value.windowMinutes = window;
+  }
+  await writeJsonAtomic(join(paths(ctx.root).quota, `${args[0]}.json`), value);
+  ctx.out(`Quota recorded / Cota registrada: ${args[0]} ${pct}%`);
+  return 0;
 }
 
 /**
@@ -435,6 +469,7 @@ export async function main(argv = [], io = {}) {
   try {
     ctx.command = io.command ?? (await readConfig(ctx.root).catch(() => DEFAULT_CONFIG)).install.command;
     if (group === 'inbox') return await inboxCommand(ctx, action, args, io);
+    if (group === 'quota') return await quotaCommand(ctx, action, args);
     if (group === 'kit') {
       const flags = argv.slice(1);
       if (flags.some((flag) => flag !== '--require')) return ctx.unknown();

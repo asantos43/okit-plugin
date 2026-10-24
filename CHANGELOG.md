@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add atomic `quota set`/`quota show`, configurable smoke quota aging, Producer guidance and tests (D48). / Adicionar `quota set`/`quota show` atômicos, validade configurável da cota no smoke, orientação ao Produtor e testes (D48).
+
 ### Fixed
 
 - Include the adapters imported by `src` in every client package through configurable shared adapter paths (D46). / Incluir em cada pacote de cliente os adaptadores importados por `src`, por caminhos de adaptadores compartilhados configuráveis (D46).

@@ -54,6 +54,8 @@ export const DEFAULT_CONFIG = {
   },
   smoke: {
     quotaFloorPct: 20,
+    quotaMaxAgeMinutes: 30,
+    quotaExpireMinutes: 120,
     maxUsd: 1,
     // null means the full scenario length (resolved by the runner).
     maxTurns: null,
