@@ -1,6 +1,6 @@
 # Desenho do release
 
-Status: desenho D26; o build local do PR 1 existe (`scripts/build-release.js`). Ainda não há comando de publicação, e nada é publicado.
+Status: D31 implementada: build, checksums, notas, checklist e comando explícito de publicação. Nada foi publicado por este trabalho.
 Estende [ARCHITECTURE.md](ARCHITECTURE.md) e [SMOKE.md](SMOKE.md), incluindo o cenário D25 no cliente real. Inglês: [RELEASING.md](RELEASING.md).
 
 ## What a release is
@@ -69,7 +69,7 @@ node scripts/build-release.js [--out <dir>] [--pair <cliente>:<sistema>] [--arch
 | `--arch <arquitetura>` | Monta só essa arquitetura, por exemplo `x64`. Sem ela, monta todas as arquiteturas configuradas. |
 | `--dry-run` | Lista os pares que montaria e os que recusa, sem gravar nada. |
 
-O nome de cada arquivo é o modelo de nome da configuração preenchido com o nome do pacote, a versão, o cliente, o sistema, a arquitetura e a extensão, ou seja `<P>-<V>-<C>-<S>-<A>.<E>`: `okit-plugin-0.0.0-claude-code-linux-x64.tar.gz`. O nome, a versão, a licença, o repositório, o bin e os engines vêm de `package.json`; a carga leva os metadados do pacote, a licença, o `src/` necessário, as skills, o adaptador do cliente escolhido, os metadados do cliente e as instruções de instalação dos clientes que a configuração nomeia, e nunca o estado, as credenciais, `.git`, `.delegate`, `test/` ou o material só de desenvolvimento.
+O nome de cada arquivo é o modelo de nome da configuração preenchido com o nome do pacote, a versão, o cliente, o sistema, a arquitetura e a extensão, ou seja `<P>-<V>-<C>-<S>-<A>.<E>`: `okit-plugin-0.1.0-claude-code-linux-x64.tar.gz`. O nome, a versão, a licença, o repositório, o bin e os engines vêm de `package.json`; a carga leva os metadados do pacote, a licença, o `src/` necessário, as skills, o adaptador do cliente escolhido, os metadados do cliente e as instruções de instalação dos clientes que a configuração nomeia, e nunca o estado, as credenciais, `.git`, `.delegate`, `test/` ou o material só de desenvolvimento.
 
 Os arquivos são determinísticos: as entradas são ordenadas, a data de modificação é `SOURCE_DATE_EPOCH` ou a data do commit, os modos são explícitos (`0755` para o comando do pacote, `0644` para o resto) e as linhas terminam em LF. Duas construções da mesma fonte produzem os mesmos bytes.
 
@@ -111,6 +111,22 @@ node scripts/release-checklist.js [--out <dir>] [--version <version>] [--revisio
 `release.checklist` configura modelo de nome, título, campos, textos das camadas e linha de assinatura. Os assinantes herdam `release.notes.proofBy`, com substituições opcionais em `release.checklist.proofBy`; são lidos o mesmo JSON opcional de prova e os mesmos rótulos de estado das notas. Cada par do build recebe uma seção desmarcada com ambiente, instalação/atualização, ambas as camadas de smoke, campos explícitos de salto/driver ausente e locais das evidências. Windows/macOS exigem assinatura do Produtor. O comando prepara registros; não executa smoke nem publica.
 
 Os SHA-256 dos payloads vêm do manifesto de checksums na pasta de saída quando presente; caso contrário ficam em branco. Nenhum hash é calculado aqui: calcular hashes de notas/checklist só após finalizar. Versão divergente, par/prova/manifesto inválido ou checklist existente com conteúdo diferente recusa com razão e não grava nada. Repetições idênticas são permitidas; não existe `--force`, preservando provas preenchidas. Guardar registros concluídos em `docs/`, conforme D-Q7.
+
+## Publishing — Publicação
+
+```sh
+npm run release:publish -- [--dry-run] [--out <dir>]
+npm run release:publish -- --publish [--out <dir>]
+```
+
+Dry-run é o padrão: prepara arquivos locais e imprime título, tag, SHA alvo, estado de pré-lançamento, anexos exatos e comando `gh` completo com escape para shell; não cria tag nem release. Ambos os modos exigem árvore limpa, fazem fetch de `origin/main`, comparam HEAD com essa revisão e recusam tag local ou remota existente. Fetch e consulta remota de tag exigem rede; só `--publish` publica. Executar de um checkout com alterações já commitadas.
+
+O comando reutiliza o build dos nove pares, escreve manifesto das cargas, gera notas e checklist (com hashes das cargas e SHA da revisão), escreve o manifesto final cobrindo cargas, notas e checklist e o verifica. Pares/versões recusados, provas inválidas, checklist alterado e falhas nos checksums impedem publicação. Só a lista gerada é anexada; arquivos estranhos na saída fazem a verificação recusar.
+
+`release.publish` configura executável GitHub (`executable: 'gh'`), executável git (`gitExecutable: 'git'`), remoto (`remote: 'origin'`), branch (`branch: 'main'`), mínimo de pares cliente × sistema (`requiredPairs: 9`), prefixo da tag, modelo de título, pasta de saída, grupos de anexos (`payloads`, `notes`, `checklist`, `checksums`) e aviso de pré-lançamento. O destino vem do remoto configurado, removendo userinfo da URL; nome/versão vêm de `package.json` (D-Q6: 0.1.0). Usar pasta própria por candidato; provas concluídas ficam em `docs/`, conforme D-Q7.
+
+Com `--publish`, os arquivos verificados vão para `gh release create` com tag, repositório configurado, SHA alvo, título e arquivo de notas, com `--` antes dos caminhos dos anexos. `--prerelease` é obrigatório quando o número de pares distintos cliente × sistema construídos for menor que `requiredPairs` ou algum par não tiver o rótulo provado em `release.notes.proofFile`; reduzir clientes/sistemas não reduz esse mínimo. Provas ausentes/parciais permanecem nas notas com o aviso configurado. O comando não estabelece prova em cliente real.
+Imediatamente antes de chamar o GitHub, o git é verificado novamente: árvore suja (incluindo alterações geradas em caminhos de saída versionados), SHA alterado ou tag existente recusa publicação. `SAFE_TAG` restringe a tag montada a um componente de ref Git iniciado por letra, dígito ou sublinhado, seguido por letras, dígitos, pontos, sublinhados, sinais de mais ou hífens; pontos consecutivos, ponto final e sufixo `.lock` são proibidos. `GIT_TAG_NAMESPACE` nomeia o prefixo de protocolo Git `refs/tags/`. Falhas após iniciar o GitHub retornam código diferente de zero com `publish failed (the release may be partly created): tag <tag>: <erro>`; inspecionar o release remoto antes de repetir. Recusas de validação mantêm `refused: …`.
 
 ## Proof per pair
 
@@ -161,5 +177,6 @@ Pré-requisitos: Produtor responde às perguntas aplicáveis; adaptadores/manife
 | 2 — Checksums (feito) | Adicionar geração/verificação de manifesto SHA-256 dos bytes finais usando módulos nativos do Node: `src/release/checksums.js` e `scripts/checksums.js`. | Cada arquivo listado confere; arquivo alterado/ausente recusa; sem hash de si mesmo. |
 | 3 — Notas (done) | Gerar notas da versão a partir da seção `[Unreleased]` do histórico da raiz e metadados dos pares. | Versão e nomes coincidem com pacote/build; histórico ausente recusa; aparecem lacunas e instruções de instalação/atualização. |
 | 4 — Checklist (done) | Gerar modelo de nove registros e documentar coleta das evidências do candidato instalado. | Ambas as camadas por par, Produtor assina Windows/macOS; skips e drivers ausentes ficam visíveis. Calcular hashes de notas/checklist só após finalizar registros. |
+| D31 — Publicação (done) | Adicionar dry-run padrão e publicação explícita verificada no GitHub; versão 0.1.0. | Testes com GitHub falso; revisão limpa em origin/main, tag ausente, manifesto final verificado; pré-lançamento até nove pares provados. |
 
 Após esses PRs, obter do Produtor a versão do candidato, montar localmente e coletar provas nas máquinas reais. O pedido explícito posterior do Produtor é o gatilho separado para confirmar essa versão, extrair suas mudanças do histórico da raiz, finalizar notas/checksums/checklist, criar tag e publicar artefatos comprovados. Alterar versão ou carga invalida seu hash e exige nova prova.

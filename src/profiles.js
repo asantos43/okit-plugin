@@ -36,6 +36,18 @@ export const DEFAULT_CONFIG = {
   // client-required file names and the name model. Every value here is a
   // default the user configuration and the build flags may replace.
   release: {
+    publish: {
+      executable: 'gh',
+      gitExecutable: 'git',
+      remote: 'origin',
+      branch: 'main',
+      requiredPairs: 9,
+      tagPrefix: 'v',
+      title: '{package} {version}',
+      outputDir: 'dist/publish',
+      attachments: ['payloads', 'notes', 'checklist', 'checksums'],
+      prereleaseNotice: 'Pre-release: some client/system pairs are not yet proven.',
+    },
     outputDir: 'dist/release',
     clients: ['claude-code', 'codex', 'opencode'],
     systems: ['linux', 'windows', 'macos'],
