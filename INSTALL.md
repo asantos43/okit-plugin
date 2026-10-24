@@ -51,6 +51,27 @@ Use the same destination for lifecycle commands. Core settings remain in
 `config.json` under `OKWORK_HOME`; API/repository overrides in the bootstrap apply
 to its download, while explicit `update` uses the installed core's configuration.
 
+### Orchestration kit
+
+Install the orchestration kit separately using the installation guide shipped with
+your kit distribution. Put its executable on PATH or set `install.kit.path` to
+the executable file. This plugin only checks its version; it never installs or
+changes the kit. The reported path identifies the executable, not its home or
+configuration directory; those cannot be inferred reliably from a version probe.
+
+Run `okit kit [--require]`. The English `kit: …` line reports `installed`, `absent`
+or `broken`; only `--require` (or configured `require: true`) makes an unsuccessful
+check exit 1. Install/update, including `--dry-run`, and status also print the line.
+When installed, see the [D1 overlap rules](docs/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
+
+In `OKWORK_HOME/config.json`, configure `install.kit`:
+`executables: ["okit", "kit"]`, `path: null` (PATH only),
+`versionArgs: ["--version"]`, `timeoutMs: 3000`, `require: false`,
+`hint` (installation instructions shown when absent), and `overlap` (D1 pointer).
+A configured path takes precedence over PATH. Invalid/failed version output or
+a deadline exceeded is `broken`; the version process is killed on timeout.
+The deadline must be a positive integer. These values merge with `DEFAULT_CONFIG.install`.
+
 ## Update
 
 Repeat the quick command to update automatically, or run `okit update`.

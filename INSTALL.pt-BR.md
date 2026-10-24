@@ -50,6 +50,28 @@ nos comandos de manutenção. As configurações do núcleo ficam no `config.jso
 sob `OKWORK_HOME`; os overrides de API do bootstrap valem para seu download;
 `update` explícito usa a configuração do núcleo instalado.
 
+### Kit de orquestração
+
+Instale o kit separadamente conforme o guia de instalação da sua distribuição
+do kit. Coloque o executável no PATH ou configure `install.kit.path` com o caminho
+do arquivo. O plugin consulta somente a versão; nunca instala nem altera o kit.
+O caminho identifica o executável, não as pastas de home/configuração do kit,
+que não podem ser inferidas com segurança por essa consulta.
+
+Execute `okit kit [--require]`. A linha `kit: …`, em inglês, informa `installed`,
+`absent` ou `broken`. Apenas `--require` (ou `require: true` configurado) retorna 1
+quando a consulta não confirma instalação. Install/update, inclusive `--dry-run`,
+e status também imprimem a linha. Quando instalado, consulte as
+[regras D1](docs/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
+
+Em `OKWORK_HOME/config.json`, configure `install.kit`:
+`executables: ["okit", "kit"]`, `path: null` (somente PATH),
+`versionArgs: ["--version"]`, `timeoutMs: 3000`, `require: false`,
+`hint` (instruções quando ausente) e `overlap` (referência D1).
+O caminho configurado tem prioridade. Versão inválida, falha ou prazo excedido
+resultam em `broken`; o processo de versão é morto no timeout.
+O prazo deve ser inteiro positivo. Os valores complementam `DEFAULT_CONFIG.install`.
+
 ## Update
 
 Atualize repetindo o comando rápido ou com `okit update`. `okit update --check`

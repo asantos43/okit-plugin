@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add a configurable read-only kit detector, `okit kit --require`, and kit results in install/update/status with D1 overlap guidance (D39).
+- Adicionar detector do kit configurável e somente leitura, `okit kit --require` e resultado em install/update/status com orientação de sobreposição D1 (D39).
 - Add atomic inbox ownership by client/session, configurable stale age, bilingual holder views, claim/release MCP tools and confirmed human Producer takeover with ownership history (D42). / Adicionar posse atômica da inbox, obsolescência configurável, exibição bilíngue e tomada confirmada pelo Produtor com histórico.
 - Add per-client installer records, multi-client selection, independent update/rollback/uninstall, shared links and legacy migration (D40). / Adicionar registros por cliente, seleção múltipla, atualização/volta/desinstalação independentes, link compartilhado e migração legada.
 - Add per-client concurrency overrides that replace the global default, validated positive limits, legacy alias warnings and live/cap status with its source (D41). / Adicionar tetos por cliente que suplantam o padrão global, validação, avisos do apelido antigo e status vivas/teto com origem.

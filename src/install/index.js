@@ -14,6 +14,7 @@ import { registrationPlan } from './register.js';
 import { activate, backup, rollback } from './update.js';
 import { uninstall } from './uninstall.js';
 import { localSource } from './source.js';
+import { detectKit } from './kit.js';
 
 const packageDirectory = fileURLToPath(new URL('../../', import.meta.url));
 const allowed = {
@@ -78,6 +79,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
       results.push({ client, code });
     }
     results.forEach(({ client, code }) => ctx.out(`${client}: ${code === 0 ? 'success' : 'failed'}`));
+    if (command === 'install' || command === 'update') ctx.out((await detectKit(deps)).message);
     return results.every(({ code }) => code === 0) ? 0 : results.every(({ code }) => code === 2) ? 2 : 1;
   } catch (error) {
     (ctx.err ?? ctx.out)(`refused: ${error.message}`);
