@@ -13,6 +13,7 @@
   },
   "scripts": {
     "smoke": "node src/cli.js smoke",
+    "release:build": "node scripts/build-release.js",
     "test": "node --test",
     "release:checksums": "node scripts/checksums.js"
   },

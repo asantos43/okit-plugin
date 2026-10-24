@@ -1,13 +1,13 @@
 # Desenho do release
 
-Status: desenho D26; esta mudança não cria script de build nem comando de publicação.
+Status: desenho D26; o build local do PR 1 existe (`scripts/build-release.js`). Ainda não há comando de publicação, e nada é publicado.
 Estende [ARCHITECTURE.md](ARCHITECTURE.md) e [SMOKE.md](SMOKE.md), incluindo o cenário D25 no cliente real. Inglês: [RELEASING.md](RELEASING.md).
 
 ## What a release is
 
 Um candidato tem nove artefatos identificados separadamente por cliente × sistema, com a mesma revisão e versão do pacote. São pacotes de fontes Node, não executáveis autônomos: o Node deve atender a `package.json.engines.node`. O pacote é ESM, sem dependências e privado; publicar no registro npm não é a estratégia de instalação.
 
-Inspeção do repositório: `package.json.bin` identifica a CLI; `src/` e `skills/` contêm a carga comum. Só `adapters/claude-code/index.js` está implementado; Codex e opencode têm diretórios reservados. Nenhum manifesto de cliente ou entrada de marketplace é versionado. O runner dentro do cliente continua como desenho em [SMOKE.md](SMOKE.md), não como pré-requisito de release já entregue e executável.
+Inspeção do repositório: `package.json.bin` identifica a CLI; `src/` e `skills/` contêm a carga comum. Os três adaptadores de cliente estão implementados: `adapters/claude-code/index.js`, `adapters/codex/index.js` e `adapters/opencode/index.js`. Nenhum manifesto de cliente ou entrada de marketplace é versionado. O runner dentro do cliente continua como desenho em [SMOKE.md](SMOKE.md), não como pré-requisito de release já entregue e executável.
 
 | Cliente | Formato de instalação conferido; artefato pretendido | Decisão / implementação pendente |
 | :- | :- | :- |
@@ -33,11 +33,11 @@ Preservar UTF-8/LF na carga e nos logs em todos os sistemas. Conferir bits de ex
 
 ## Artifacts
 
-Os nomes abaixo são modelos a implementar, não arquivos gerados por D26. `P` é uma codificação segura para arquivos de `package.json.name`, `V` é sua `version`, e `C`/`S` são identificadores de cliente/sistema da configuração de release. Diretório de saída, formato/extensão `E`, codificação do nome e arquiteturas aceitas vêm da configuração conforme [D-Q5](#decisions); nunca rotular uma arquitetura como se cobrisse todas.
+Os nomes abaixo são modelos a implementar, não arquivos gerados por D26. `P` é uma codificação segura para arquivos de `package.json.name`, `V` é sua `version`, `C`/`S` são identificadores de cliente/sistema da configuração de release e `A` é a arquitetura. Diretório de saída, formato/extensão `E`, codificação do nome e arquiteturas aceitas vêm da configuração conforme [D-Q5](#decisions); nunca rotular uma arquitetura como se cobrisse todas.
 
 | Saída | Nome derivado | Conteúdo |
 | :- | :- | :- |
-| Carga por par (nove) | `<P>-<V>-<C>-<S>.<E>` | Metadados do pacote, licença, `src/` necessário, skills e adaptador selecionado, manifestos/configuração do cliente e instruções de instalação. Preservar caminhos relativos referenciados; excluir estado, credenciais e material só de desenvolvimento. |
+| Carga por par (nove) | `<P>-<V>-<C>-<S>-<A>.<E>` | Metadados do pacote, licença, `src/` necessário, skills e adaptador selecionado, manifestos/configuração do cliente e instruções de instalação. Preservar caminhos relativos referenciados; excluir estado, credenciais e material só de desenvolvimento. |
 | Manifesto de hashes | `<P>-<V>-checksums.sha256` | SHA-256 e nome exato de cada carga e metadados de marketplace, notas e checklist acompanhantes; exclui a si mesmo. Calcular sobre bytes finais após empacotar. |
 | Notas | `<P>-<V>-release-notes.md` | Mudanças dessa versão no histórico da raiz, pré-requisitos, nomes por par, instalação/atualização, estado das provas e lacunas conhecidas. |
 | Checklist de provas | `<P>-<V>-release-checklist.md` | Nove registros com revisão, hash, ambiente, comandos, códigos de saída e links das evidências. |
@@ -53,6 +53,27 @@ Fluxo do usuário: obter par e manifesto de hashes da página de releases do Git
 Para Claude Code, registrar marketplace aprovado com `claude plugin marketplace add <source>`, instalar com `claude plugin install <entry>@<marketplace>` e atualizar com `claude plugin update <entry>@<marketplace>`, usando identidades geradas. [Instalação/atualização](https://code.claude.com/docs/en/discover-plugins). Para Codex, registrar fonte escolhida com `codex plugin marketplace add <source>` e instalar por `/plugins`; usar marketplace/versão compartilhados e validar a rota de atualização no cliente instalado ([D-Q2](#decisions)). [Autoria](https://developers.openai.com/plugins/build/plugins). Para opencode, o fluxo local pretendido coloca módulo e carga referenciada no escopo configurado e registra skills/MCP separadamente; usar módulo global e prova por eventos nativos ([D-Q3](#decisions)); implementação de substituição/atualização continua pendente.
 
 Antes de atualizar, parar daemon anterior, guardar backup do estado configurado e skills/hooks editados, verificar nova carga, trocar referências do cliente e registro no PATH, regenerar caminhos de autostart movidos, reiniciar e repetir provas. Instaladores atuais recusam skills divergentes e preservam entradas de hooks do usuário: não prometer sobrescrita na atualização. Fazer backup do estado e dos skills editados pelo usuário e permitir volta à versão anterior ([D-Q6](#decisions)).
+
+## O build local
+
+O PR 1 é o script `scripts/build-release.js`, também `npm run release:build`. Ele monta as cargas dos pares na máquina que o executa, grava-as na pasta de saída e não publica nada: sem tag, sem envio, sem rede. Os valores que ele usa — os clientes, os sistemas, as arquiteturas, o formato de arquivo por sistema, a pasta de saída, os arquivos que entram no pacote, os nomes de arquivo exigidos pelo cliente e o modelo de nome — estão no bloco `release` do `DEFAULT_CONFIG`, e a configuração do usuário pode substituí-los.
+
+```
+node scripts/build-release.js [--out <dir>] [--pair <cliente>:<sistema>] [--arch <arquitetura>] [--dry-run]
+```
+
+| Flag | O que faz |
+| :- | :- |
+| `--out <dir>` | Grava os arquivos em `<dir>`. Sem ela, vão para a pasta de saída configurada, sob o repositório. |
+| `--pair <cliente>:<sistema>` | Monta só esse cliente e esse sistema, por exemplo `claude-code:linux`. Sem ela, monta todos os pares configurados. |
+| `--arch <arquitetura>` | Monta só essa arquitetura, por exemplo `x64`. Sem ela, monta todas as arquiteturas configuradas. |
+| `--dry-run` | Lista os pares que montaria e os que recusa, sem gravar nada. |
+
+O nome de cada arquivo é o modelo de nome da configuração preenchido com o nome do pacote, a versão, o cliente, o sistema, a arquitetura e a extensão, ou seja `<P>-<V>-<C>-<S>-<A>.<E>`: `okit-plugin-0.0.0-claude-code-linux-x64.tar.gz`. O nome, a versão, a licença, o repositório, o bin e os engines vêm de `package.json`; a carga leva os metadados do pacote, a licença, o `src/` necessário, as skills, o adaptador do cliente escolhido, os metadados do cliente e as instruções de instalação dos clientes que a configuração nomeia, e nunca o estado, as credenciais, `.git`, `.delegate`, `test/` ou o material só de desenvolvimento.
+
+Os arquivos são determinísticos: as entradas são ordenadas, a data de modificação é `SOURCE_DATE_EPOCH` ou a data do commit, os modos são explícitos (`0755` para o comando do pacote, `0644` para o resto) e as linhas terminam em LF. Duas construções da mesma fonte produzem os mesmos bytes.
+
+Um par que não pode ser montado é recusado com a razão, e nenhum pacote vazio é gravado no lugar: um cliente cujo adaptador falta, um cliente ou sistema desconhecido, um sistema sem formato de arquivo. Um cliente que tem adaptador é montado, como qualquer outro; os três adaptadores de cliente deste repositório (`claude-code`, `codex` e `opencode`) montam seus pares. O comando então lista os pares recusados e responde com um código diferente de zero.
 
 ## Proof per pair
 
@@ -99,7 +120,7 @@ Pré-requisitos: Produtor responde às perguntas aplicáveis; adaptadores/manife
 
 | PR | Entrega pequena | Aceite |
 | :- | :- | :- |
-| 1 — Build local | Adicionar script local em `scripts/`, com entrada em `package.json`; consumir metadados e configuração de pares/saída, preservar caminhos comuns e gerar metadados de cliente escolhidos. | Executar localmente em revisão conferida; nove cargas identificadas; inspecionar conteúdo, identidade, LF, permissões e resolução de caminhos. Cliente/sistema desconhecido ou adaptador ausente recusa; sem efeito de publicação. |
+| 1 — Build local (feito) | Adicionar script local em `scripts/`, com entrada em `package.json`; consumir metadados e configuração de pares/saída, preservar caminhos comuns e gerar metadados de cliente escolhidos. | Executar localmente em revisão conferida; nove cargas identificadas; inspecionar conteúdo, identidade, LF, permissões e resolução de caminhos. Cliente/sistema desconhecido ou adaptador ausente recusa; sem efeito de publicação. |
 | 2 — Checksums (feito) | Adicionar geração/verificação de manifesto SHA-256 dos bytes finais usando módulos nativos do Node: `src/release/checksums.js` e `scripts/checksums.js`. | Cada arquivo listado confere; arquivo alterado/ausente recusa; sem hash de si mesmo. |
 | 3 — Notas | Gerar notas da versão a partir da seção `[Unreleased]` do histórico da raiz mantido à mão e metadados dos pares. | Versão e nomes coincidem com pacote/build; histórico ausente recusa; aparecem lacunas e instruções de instalação/atualização. |
 | 4 — Checklist | Gerar modelo de nove registros e documentar coleta das evidências do candidato instalado. | Ambas as camadas por par, Produtor assina Windows/macOS; skips e drivers ausentes ficam visíveis. Calcular hashes de notas/checklist só após finalizar registros. |
