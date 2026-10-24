@@ -477,13 +477,15 @@ const TOOL_ARGS = {
   profile_pick: () => ({ client: 'claude-code', effort: 'simple' }),
   inbox_add: () => ({ title: 'the smoke demand', client: 'claude-code' }),
   inbox_list: () => ({}),
+  inbox_claim: (state) => ({ id: state.demand, client: 'claude-code', session: 'smoke' }),
+  inbox_release: (state) => ({ id: state.demand, client: 'claude-code', session: 'smoke' }),
   inbox_set_status: (state) => ({ id: state.demand, status: 'delegated' }),
   order_add: () => ({ text: 'the smoke order' }),
   order_list: () => ({}),
   order_remove: (state) => ({ id: state.order, reason: 'the smoke run is over' }),
 };
 
-// E14: all twelve tools answer `tools/call`, an unknown tool and a bad line are
+// E14: every tool answers `tools/call`, an unknown tool and a bad line are
 // protocol errors, and the loop keeps reading after both.
 async function mcpTools(deps) {
   await writeConfig(deps);

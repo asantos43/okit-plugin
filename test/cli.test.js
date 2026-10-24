@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { main } from '../src/cli.js';
-import { inboxAdd } from '../src/inbox.js';
+import { inboxAdd, inboxClaim, inboxList } from '../src/inbox.js';
 
 async function exists(file) {
   try {
@@ -66,6 +66,74 @@ async function cli(argv, io = {}) {
 }
 
 const execFileAsync = promisify(execFile);
+
+test('TTY approval transfers, but a concurrent holder change requires fresh inspection', async (t) => {
+  const root = await tempRoot(t);
+  const item = await inboxAdd(root, { title: 'confirm' });
+  await inboxClaim(root, item.id, { client: 'first' });
+  const args = ['inbox', 'take', item.id, '--producer-takeover'];
+  const io = { root, stdin: { isTTY: true }, confirm: async () => true };
+  assert.equal((await cli(args, io)).code, 0);
+  const changed = await cli(args, { ...io, confirm: async () => {
+    await cli([...args, '--client', 'other', '--yes'], { root });
+    return true;
+  } });
+  assert.equal(changed.code, 1);
+  assert.match(changed.err.join('\n'), /hold changed/);
+  assert.equal((await inboxList(root))[0].hold.client, 'other');
+});
+
+// | case | must pass | must refuse |
+// | takeover | awareness flag + yes / TTY approval | no flag / no TTY / declined |
+// | situation | dirty worktree before confirmation | ownership changed during prompt |
+test('inbox CLI requires awareness and confirmation, shows dirty worktree and records history', async (t) => {
+  const root = await tempRoot(t);
+  const item = await inboxAdd(root, { title: 'owned' });
+  await inboxClaim(root, item.id, { client: 'claude-code', session: 's1', worktree: root });
+  const take = ['inbox', 'take', item.id];
+  assert.equal((await cli(take, { root })).code, 1);
+  const run = async (command) => {
+    assert.deepEqual(command.args, ['status', '--porcelain']);
+    assert.equal(command.cwd, root);
+    assert.equal(command.timeout, 5000);
+    return { stdout: ' M dirty.js\n' };
+  };
+  const declined = await cli([...take, '--producer-takeover'], { root, run, stdin: { isTTY: false } });
+  assert.equal(declined.code, 1);
+  assert.match(declined.err.join('\n'), /TTY or --yes/);
+  assert.match(declined.out.join('\n'), /claude-code.*session \/ sessão: s1/);
+  assert.match(declined.out.join('\n'), /mudanças não commitadas: yes \/ sim/);
+  assert.equal((await cli([...take, '--producer-takeover'], { root, run, stdin: { isTTY: true }, confirm: async () => false })).code, 1);
+  assert.equal((await inboxList(root))[0].hold.client, 'claude-code');
+  const yes = await cli([...take, '--producer-takeover', '--client', 'codex', '--yes'], { root, run });
+  assert.equal(yes.code, 0);
+  const held = (await inboxList(root))[0];
+  assert.equal(held.hold.via, 'producer');
+  assert.equal(held.heldBefore[0].reason, 'producer takeover');
+  assert.equal(held.heldBefore[0].session, 's1');
+  assert.match((await cli(['inbox', 'list'], { root })).out.join('\n'), /taken by codex/);
+  assert.equal((await cli(['inbox', 'release', item.id, '--client', 'codex'], { root })).code, 0);
+});
+
+// | case | must pass | must refuse |
+// | stale hold | preserve the other client's hold | take without producer takeover |
+test('inbox CLI refuses a stale hold without producer takeover', async (t) => {
+  const root = await tempRoot(t);
+  const holdStaleMinutes = 1;
+  await writeFile(join(root, 'config.json'), JSON.stringify({ ...CONFIG, inbox: { holdStaleMinutes } }));
+  const item = await inboxAdd(root, { title: 'stale owned' });
+  const hold = {
+    client: 'claude-code', session: 'old-session', worktree: root, via: 'claim',
+    takenAt: new Date(Date.now() - 2 * holdStaleMinutes * 60_000).toISOString(),
+  };
+  await writeFile(join(root, 'inbox.json'), JSON.stringify({ seq: 1, items: [{ ...item, hold }] }));
+
+  const result = await cli(['inbox', 'take', item.id, '--client', 'codex'], { root });
+
+  assert.notEqual(result.code, 0);
+  assert.match(result.err.join('\n'), /held by/);
+  assert.deepEqual((await inboxList(root))[0].hold, hold);
+});
 
 // The `okit` this test drives as a child, and the platform a child needs to
 // start at all: nothing that names the state of the machine running the suite.

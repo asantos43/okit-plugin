@@ -8,7 +8,20 @@ O inbox guarda demandas com `id`, `title`, `body`, `kind`, `accept`, `effort`, `
 
 ## 2. MCP tools
 
-O núcleo expõe 12 ferramentas MCP em `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planejamento, briefing, crítica e consolidação são orientações das skills; não são ferramentas MCP.
+O núcleo expõe 14 ferramentas MCP em `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_claim`, `inbox_release`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planejamento, briefing, crítica e consolidação são orientações das skills; não são ferramentas MCP.
+
+Itens podem ter `hold: {client, session, worktree, takenAt, via}`;
+`via` vale `claim` ou `producer`. `heldBefore` guarda donos anteriores com
+`releasedAt` e `reason` (incluindo `stale` e `producer takeover`). Itens antigos sem
+posse continuam válidos. Toda mutação usa a trava da inbox e escrita atômica.
+A identidade é cliente mais sessão. O mesmo dono repete idempotentemente; outro dono
+ativo é recusado. A obsolescência usa `inbox.holdStaleMinutes` (padrão 120, inteiro >= 1).
+Liberação pelo dono ou obsoleta e `consolidated`/`failed` limpam a posse. Delegação aceita
+`holder` opcional; quando fornecido, deve corresponder ao dono existente. Chamadas antigas o omitem.
+Listagem MCP e status mostram a posse em inglês ou português. Só `okit inbox take`
+com `--producer-takeover` força transferência, após mostrar a situação (incluindo Git
+com `inbox.gitTimeoutMs`, padrão 5000) e confirmação TTY ou `--yes`.
+O dono confirmado é comparado novamente sob a trava para recusar mudanças intervenientes.
 
 ## 3. State on disk
 Raiz: `node:path.join(os.homedir(), '.okwork')`, sobrescrevível com `OKWORK_HOME`. Nunca dentro do diretório de um plugin de cliente: a raiz do plugin se move a cada atualização.
@@ -225,8 +238,10 @@ O diretório de trabalho é o `appliesTo` da demanda quando ele é uma única pa
 | `classify` | `title`, `body?`, `kind?` | `classify` | `simple`, `normal` ou `hard`, mais o porquê. |
 | `profile_pick` | `client`, `effort`, `quota?` | `profilePick` | Modelo, esforço de raciocínio e `maxTurns` vindos do `config.json`. |
 | `inbox_add` | `title`, `body?`, `kind?`, `accept?`, `effort?`, `client?`, `appliesTo?` | `inboxAdd` | Adiciona uma demanda e devolve o item guardado. |
-| `inbox_list` | `status?`, `client?`, `appliesTo?`, `limit?` | `inboxList` | Lista as demandas, das mais novas às mais antigas. |
-| `inbox_set_status` | `id`, `status` | `inboxSetStatus` | Move uma demanda ao longo da sequência. |
+| `inbox_list` | `status?`, `client?`, `appliesTo?`, `limit?`, `locale?` | `inboxList` | Lista as demandas e seus donos, das mais novas às mais antigas. |
+| `inbox_claim` | `id`, `client`, `session?`, `worktree?` | `inboxClaim` | Assume demanda sem dono ou obsoleta. |
+| `inbox_release` | `id`, `client`, `session?` | `inboxRelease` | Libera posse própria ou obsoleta. |
+| `inbox_set_status` | `id`, `status`, `holder?` | `inboxSetStatus` | Move uma demanda ao longo da sequência. |
 | `order_add` | `text`, `scope?`, `until?`, `appliesTo?` | `orderAdd` | Adiciona uma ordem permanente. |
 | `order_list` | `appliesTo?` | `orderList` | Lista as ordens ativas agora. |
 | `order_remove` | `id`, `reason?` | `orderRemove` | Revoga uma ordem; o motivo tem um padrão da própria ferramenta. |

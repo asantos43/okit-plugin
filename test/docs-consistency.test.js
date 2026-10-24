@@ -30,6 +30,7 @@ test('documented tool, check and pair counts match the source', async () => {
   const readme = await read('README.md');
   const said = (pattern) => Number(readme.match(pattern)?.[1]);
   assert.equal(said(/exposes (\d+) tools/), TOOL_NAMES.length);
+  assert.equal(Number((await read('README.pt-BR.md')).match(/expõe (\d+) ferramentas/)[1]), TOOL_NAMES.length);
   assert.equal(said(/`smoke` runs (\d+) isolated checks/),
     INSTALL_CHECKS.length + FEATURE_CHECKS.length + UNINSTALL_CHECKS.length);
   assert.equal(said(/`client-smoke` has (\d+) scenario checks/), SCENARIO.length);

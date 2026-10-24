@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { inboxAdd, inboxList, inboxSetExt, inboxSetStatus } from '../src/inbox.js';
+import { inboxAdd, inboxClaim, inboxRelease, inboxList, inboxSetExt, inboxSetStatus } from '../src/inbox.js';
+import { configOf } from '../src/profiles.js';
 
 async function tempRoot() {
   return mkdtemp(join(tmpdir(), 'inbox-test-'));
@@ -14,6 +15,59 @@ const add = (root, extra = {}) => inboxAdd(root, {
   title: 'write the report',
   accept: ['the file exists'],
   ...extra,
+});
+
+// | case | must pass | must refuse |
+// | concurrent claims | one winner; same owner repeats | other active session |
+// | release | owner or stale | other active owner |
+// | terminal status | clears hold, records history | foreign delegated holder |
+test('atomic holds identify the winner and protect release and delegation', async (t) => {
+  const root = await tempRoot();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const item = await add(root);
+  assert.equal((await inboxList(root))[0].hold, undefined);
+  const owners = [{ client: 'codex', session: 'one', worktree: 'a' }, { client: 'codex', session: 'two', worktree: 'b' }];
+  const outcomes = await Promise.allSettled(owners.map((owner) => inboxClaim(root, item.id, owner)));
+  assert.equal(outcomes.filter((r) => r.status === 'fulfilled').length, 1);
+  const hold = (await inboxList(root))[0].hold;
+  assert.match(outcomes.find((r) => r.status === 'rejected').reason.message, /held by codex .* since/);
+  assert.deepEqual((await inboxClaim(root, item.id, hold)).hold, hold);
+  const other = owners.find((o) => o.session !== hold.session);
+  await assert.rejects(inboxRelease(root, item.id, other), /held by/);
+  await assert.rejects(inboxSetStatus(root, item.id, 'delegated', { holder: other }), /held by/);
+  await inboxSetStatus(root, item.id, 'delegated', { holder: hold });
+  assert.equal((await inboxRelease(root, item.id, hold)).hold, undefined);
+});
+
+test('stale configured holds transfer and release with previous ownership history', async (t) => {
+  const root = await tempRoot();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const item = await add(root);
+  await writeFile(join(root, 'config.json'), JSON.stringify({ inbox: { holdStaleMinutes: 1 } }));
+  const old = { client: 'claude-code', session: 'old', worktree: 'wt', takenAt: new Date(Date.now() - 61_000).toISOString(), via: 'claim' };
+  const save = () => writeFile(join(root, 'inbox.json'), JSON.stringify({ seq: 1, items: [{ ...item, hold: old }] }));
+  await save();
+  const claimed = await inboxClaim(root, item.id, { client: 'opencode' });
+  assert.equal(claimed.stale, true);
+  assert.equal(claimed.heldBefore[0].reason, 'stale');
+  assert.equal(claimed.heldBefore[0].session, 'old');
+  assert.ok(claimed.heldBefore[0].releasedAt);
+  await save();
+  assert.equal((await inboxRelease(root, item.id, { client: 'codex' })).hold, undefined);
+  for (const value of [0, -1, 1.5, '120']) assert.throws(() => configOf({ inbox: { holdStaleMinutes: value } }), /integer >= 1/);
+});
+
+test('consolidated and failed clear hold and retain history', async (t) => {
+  const root = await tempRoot();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const final of ['consolidated', 'failed']) {
+    const item = await add(root);
+    await inboxClaim(root, item.id, { client: 'codex' });
+    if (final === 'consolidated') for (const status of ['delegated', 'criticised']) await inboxSetStatus(root, item.id, status);
+    const done = await inboxSetStatus(root, item.id, final);
+    assert.equal(done.hold, undefined);
+    assert.equal(done.heldBefore[0].reason, final);
+  }
 });
 
 // Must pass / must refuse table:

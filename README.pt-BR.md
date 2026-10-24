@@ -30,9 +30,18 @@ okit client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsa
   [--max-usd [n]] [--max-turns [n]] [--max-minutes [n]] [--quota-floor [pct]] [--timeout [ms]]
 ```
 
-O servidor MCP por stdio expõe 12 ferramentas: `acquire_slot`, `release_slot`,
+O servidor MCP por stdio expõe 14 ferramentas: `acquire_slot`, `release_slot`,
 `limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
-`inbox_set_status`, `order_add`, `order_list`, `order_remove`.
+`inbox_set_status`, `inbox_claim`, `inbox_release`, `order_add`, `order_list`, `order_remove`.
+
+`okit inbox list [--locale en|pt-BR]` e MCP `inbox_list` mostram o dono de cada demanda.
+`okit inbox take <id> --client codex --session <s> --worktree <path>` toma posse atomicamente;
+outro cliente/sessão ativo é recusado. `okit inbox release <id> --client codex --session <s>` libera a posse.
+Só a CLI humana permite `okit inbox take <id> --producer-takeover [--client <c>] [--yes]`:
+mostra dono, sessão, worktree, data, obsolescência e mudanças Git não commitadas antes
+da confirmação TTY (ou `--yes`). A transferência guarda `heldBefore` com motivo `producer takeover`.
+`inbox.holdStaleMinutes` tem padrão 120 (inteiro >= 1); posses obsoletas guardam motivo `stale`.
+`inbox.gitTimeoutMs` tem padrão 5000 (inteiro >= 1). Estados finais limpam a posse.
 As skills Director, Executor, Critic e Smoke orientam delegação e verificação.
 `smoke` roda 31 checks isolados; `client-smoke` tem 23 checks de cenário e seu
 driver real suporta Claude Code. Dry-run e rehearsal são percursos offline.

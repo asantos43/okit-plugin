@@ -86,7 +86,7 @@ async function mcpRegistered(deps) {
   need(hello?.result?.serverInfo?.name === 'okit', 'initialize must answer with the okit server');
   const listed = await handleLine(frame(2, 'tools/list'), context);
   const names = listed?.result?.tools?.map((tool) => tool.name) ?? [];
-  need(names.length === 12, `tools/list must name 12 tools, got ${names.length}`);
+  need(names.length === TOOL_NAMES.length, `tools/list must name ${TOOL_NAMES.length} tools, got ${names.length}`);
   for (const name of TOOL_NAMES) need(names.includes(name), `tools/list must name ${name}`);
 }
 

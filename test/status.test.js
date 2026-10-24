@@ -6,13 +6,23 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { main } from '../src/cli.js';
-import { inboxAdd, inboxList } from '../src/inbox.js';
+import { inboxAdd, inboxClaim, inboxList } from '../src/inbox.js';
 import { createServer } from '../src/mcp/server.js';
 import { TOOLS } from '../src/mcp/tools.js';
 import { shouldShowStatus, statusTable } from '../src/status.js';
 
 // Scratch state lives inside the repository, never in the system temp folder.
 const TMP = fileURLToPath(new URL('../.delegate/tmp/', import.meta.url));
+
+test('status shows holder and stale age in both languages', async (t) => {
+  const root = await tempRoot(t);
+  const item = await inboxAdd(root, { title: 'held' });
+  const held = await inboxClaim(root, item.id, { client: 'codex', session: 's', worktree: 'wt' });
+  const now = () => Date.parse(held.hold.takenAt) + 61_000;
+  const config = { inbox: { holdStaleMinutes: 1 } };
+  assert.match((await statusTable(root, { config, now })).markdown, /taken by codex \(wt\) since .*stale/);
+  assert.match((await statusTable(root, { config, now, locale: 'pt-BR' })).markdown, /em posse de codex \(wt\) desde .*obsoleta/);
+});
 
 test('status displays qualified demands and preserves the JSON id', async (t) => {
   const root = await tempRoot(t);

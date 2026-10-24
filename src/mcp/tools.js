@@ -3,7 +3,7 @@
 // again, because a client is free to send whatever it likes.
 import { classify, EFFORT_CLASSES } from '../classify.js';
 import { projectName, withDemandRef } from '../demand-ref.js';
-import { inboxAdd, inboxList, inboxSetStatus, STATUSES } from '../inbox.js';
+import { inboxAdd, inboxClaim, inboxRelease, inboxList, inboxSetStatus, holdText, STATUSES } from '../inbox.js';
 import { acquireSlot, limitsStatus, releaseSlot } from '../limits.js';
 import { orderAdd, orderList, orderRemove, SCOPES } from '../orders.js';
 import { configOf as normalizeConfig, profilePick } from '../profiles.js';
@@ -341,12 +341,14 @@ const inboxListTool = {
       client: { type: 'string', description: 'Only items of this client.' },
       appliesTo: { type: 'string', description: 'Project name, or "global" for the shared items alone.' },
       limit: { type: 'integer', minimum: 0, description: 'How many items at most.' },
+      locale: { type: 'string', enum: LOCALES },
     },
     required: [],
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
-    const a = argsOf('inbox_list', args, ['status', 'client', 'appliesTo', 'limit']);
+    const a = argsOf('inbox_list', args, ['status', 'client', 'appliesTo', 'limit', 'locale']);
+    optionalChoice('inbox_list', a, 'locale', LOCALES);
     const items = await inboxList(ctx.root, {
       status: optionalChoice('inbox_list', a, 'status', STATUSES),
       client: optionalText('inbox_list', a, 'client'),
@@ -354,9 +356,28 @@ const inboxListTool = {
       limit: optionalCount('inbox_list', a, 'limit'),
     });
     const name = await projectName(ctx.root);
-    return reply(items.map((item) => withDemandRef(item, name)));
+    const config = await readJson(paths(ctx.root).config, {});
+    return reply(items.map((item) => ({ ...withDemandRef(item, name), owner: holdText(item, config, a.locale) })));
   },
 };
+
+function holdTool(name, operation) {
+  const keys = name === 'inbox_claim' ? ['id', 'client', 'session', 'worktree'] : ['id', 'client', 'session'];
+  return {
+    name,
+    description: name === 'inbox_claim' ? 'Claims an inbox item atomically; refuses another active holder.' : 'Releases an owned or stale hold.',
+    inputSchema: { type: 'object', properties: Object.fromEntries(keys.map((key) => [key, { type: 'string' }])), required: ['id', 'client'], additionalProperties: false },
+    handler: async (args, ctx) => {
+      const a = argsOf(name, args, keys);
+      const owner = { client: requiredText(name, a, 'client') };
+      for (const key of keys.slice(2)) {
+        const value = optionalText(name, a, key);
+        if (value !== undefined) owner[key] = value;
+      }
+      return reply(await operation(ctx.root, requiredText(name, a, 'id'), owner));
+    },
+  };
+}
 
 const inboxSetStatusTool = {
   name: 'inbox_set_status',
@@ -366,16 +387,23 @@ const inboxSetStatusTool = {
     properties: {
       id: { type: 'string', description: 'Inbox item id, as returned by inbox_add.' },
       status: { type: 'string', enum: STATUSES, description: 'Status to move the item to.' },
+      holder: { type: 'object', properties: { client: { type: 'string' }, session: { type: 'string' } }, required: ['client'], additionalProperties: false },
     },
     required: ['id', 'status'],
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
-    const a = argsOf('inbox_set_status', args, ['id', 'status']);
+    const a = argsOf('inbox_set_status', args, ['id', 'status', 'holder']);
+    if (a.holder !== undefined) {
+      argsOf('holder', a.holder, ['client', 'session']);
+      requiredText('holder', a.holder, 'client');
+      optionalText('holder', a.holder, 'session');
+    }
     return reply(await inboxSetStatus(
       ctx.root,
       requiredText('inbox_set_status', a, 'id'),
       optionalChoice('inbox_set_status', a, 'status', STATUSES),
+      { holder: a.holder },
     ));
   },
 };
@@ -456,6 +484,8 @@ export const TOOLS = [
   profilePickTool,
   inboxAddTool,
   inboxListTool,
+  holdTool('inbox_claim', inboxClaim),
+  holdTool('inbox_release', inboxRelease),
   inboxSetStatusTool,
   orderAddTool,
   orderListTool,

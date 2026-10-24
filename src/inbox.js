@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { inScope, validateAppliesTo, validateAppliesToFilter } from './applies.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
 import { paths } from './store.js';
+import { configOf } from './profiles.js';
 
 export const STATUSES = ['pending', 'delegated', 'criticised', 'consolidated', 'failed'];
 export const EFFORTS = ['simple', 'normal', 'hard'];
@@ -25,6 +26,29 @@ const MOVES = new Map([
 ]);
 
 const emptyStore = () => ({ version: 1, seq: 0, items: [] });
+
+export function holdIsStale(hold, config, now = Date.now()) {
+  return Boolean(hold) && now - Date.parse(hold.takenAt) > configOf(config).inbox.holdStaleMinutes * 60_000;
+}
+
+const sameHolder = (a, b) => a?.client === b?.client && a?.session === b?.session;
+const heldMessage = (item) => `${item.id} held by ${item.hold.client} (${item.hold.worktree ?? '-'}) since ${item.hold.takenAt}`;
+
+function clearHold(item, reason) {
+  if (!item.hold) return;
+  const { client, session, worktree, takenAt } = item.hold;
+  (item.heldBefore ??= []).push({ client, session, worktree, takenAt, releasedAt: new Date().toISOString(), reason });
+  delete item.hold;
+}
+
+export function holdText(item, config, locale = 'en', now = Date.now()) {
+  if (!item.hold) return '-';
+  const h = item.hold;
+  const stale = holdIsStale(h, config, now);
+  return locale === 'pt-BR'
+    ? `em posse de ${h.client} (${h.worktree ?? '-'}) desde ${h.takenAt}${stale ? ' — obsoleta' : ''}`
+    : `taken by ${h.client} (${h.worktree ?? '-'}) since ${h.takenAt}${stale ? ' — stale' : ''}`;
+}
 
 function fail(message) {
   throw new TypeError(message);
@@ -87,6 +111,33 @@ async function mutate(root, fn) {
 }
 
 const nextId = (seq) => `${ID_PREFIX}${String(seq).padStart(ID_WIDTH, '0')}`;
+
+async function changeHold(root, id, owner, { release = false, producer = false, expectedHold, allowStale = true } = {}) {
+  if (!isText(id)) fail('id must be a non-empty string');
+  if (!isText(owner?.client)) fail('client must be a non-empty string');
+  for (const key of ['session', 'worktree']) {
+    if (owner[key] !== undefined && !isText(owner[key])) fail(`${key} must be a non-empty string`);
+  }
+  return mutate(root, async (store) => {
+    const item = store.items.find((entry) => entry.id === id.trim());
+    if (!item) fail(`unknown inbox item ${id}`);
+    const config = await readJson(paths(root).config, {});
+    const stale = holdIsStale(item.hold, config);
+    if (producer && JSON.stringify(item.hold) !== JSON.stringify(expectedHold)) fail('hold changed; inspect situation again');
+    if (item.hold && !sameHolder(item.hold, owner) && (!stale || !allowStale) && !producer) fail(heldMessage(item));
+    if (!release && item.hold && sameHolder(item.hold, owner) && !producer && !stale) return { ...item, stale: false };
+    clearHold(item, producer ? 'producer takeover' : stale ? 'stale' : 'released');
+    if (!release) item.hold = { ...owner, takenAt: new Date().toISOString(), via: producer ? 'producer' : 'claim' };
+    item.updatedAt = new Date().toISOString();
+    return { ...item, stale };
+  });
+}
+
+export const inboxClaim = (root, id, owner, options) => changeHold(root, id, owner, { allowStale: options?.allowStale ?? true });
+export const inboxRelease = (root, id, owner) => changeHold(root, id, owner, { release: true });
+// Only the human CLI exposes this operation; expectedHold guards the confirmation interval.
+export const inboxProducerTakeover = (root, id, owner, expectedHold) =>
+  changeHold(root, id, owner, { producer: true, expectedHold });
 
 
 /**
@@ -182,7 +233,7 @@ export async function inboxSetExt(root, id, values) {
  * Moves one item to a new status. Unknown ids and moves outside the sequence
  * pending -> delegated -> criticised -> consolidated are refused.
  */
-export async function inboxSetStatus(root, id, status) {
+export async function inboxSetStatus(root, id, status, { holder } = {}) {
   if (!isText(id)) fail('id must be a non-empty string');
   if (!STATUSES.includes(status)) fail(`status must be one of ${STATUSES.join('|')}`);
   const wanted = id.trim();
@@ -196,6 +247,8 @@ export async function inboxSetStatus(root, id, status) {
       fail(`cannot move ${wanted} from ${item.status} to ${status}`);
     }
 
+    if (status === 'delegated' && holder && item.hold && !sameHolder(item.hold, holder)) fail(heldMessage(item));
+    if (['consolidated', 'failed'].includes(status)) clearHold(item, status);
     item.status = status;
     item.updatedAt = new Date().toISOString();
     return item;

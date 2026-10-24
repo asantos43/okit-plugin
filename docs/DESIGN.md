@@ -37,6 +37,12 @@ client does not expose.
 A small inbox holds pending demands; standing orders hold instructions that apply
 to every demand until removed. Both live in JSON files.
 
+An atomic inbox hold identifies the client/session, worktree and time. Another active
+holder is refused; age comes from `inbox.holdStaleMinutes` (120 by default).
+Claim/release and terminal statuses preserve prior holders in `heldBefore`.
+Only the human CLI can force a Producer takeover, after showing the situation and
+requiring `--producer-takeover` plus TTY confirmation or `--yes`; MCP cannot force it.
+
 The Director delegates the work, critiques the subagent output and consolidates
 the results.
 
