@@ -1,60 +1,67 @@
 # okit-plugin
 
-[Installation and updates](INSTALL.md)
-
 A plugin for AI clients (Claude Code, Codex, opencode) that helps a Director
-agent spread delegable work over the client's own subagents.
+spread demands over the client’s own subagents. Node.js >=20, zero dependencies,
+with JSON state.
 
-The Director classifies each demand by effort (simple, normal, hard), picks the
-subagent's model and reasoning effort by class and by the client's remaining
-quota, and keeps a small inbox and standing orders. The Director delegates,
-critiques and consolidates. No panel, no work across clients.
+## Install — Instalar
 
-In messages to the Producer, the Director identifies demands as `D25 (okit-plugin)` to distinguish projects. Displayed inbox/status items add `ref` while JSON `id`, commands, PR bodies, inbox fields and `critic-waiver Dn` keep the bare id. The state root's optional `project.json` record supplies `name`, falling back to the repository basename in `path`; a demand's single `appliesTo` project takes precedence. Without a name, `ref` is the bare id. Daemon decisions add `ref` to demand entries and `openedRefs` beside the unchanged `opened` ids.
+Use the release's [install.sh](install.sh) on Linux/macOS or
+[install.ps1](install.ps1) in Windows PowerShell. Read the scripts and follow
+[INSTALL.md](INSTALL.md) for prerequisites, flags, verified downloads and updates.
+Use `okit update --check`, `okit update` or `okit update --rollback` afterwards.
+The release matrix has nine client × system pairs; availability of an archive
+does not prove real-client operation. See [proof per pair](docs/RELEASING.md#proof-per-pair).
 
-A demand is any unit of delegable work, not only code: research, writing,
-documents, data cleanup, analysis, planning, reviews and file operations.
+## Usage — Uso
 
-**Status: design phase (pre-alpha).** This repository currently holds only the
-structure and the documents. There is no working code yet.
+```text
+okit install [--from <dir>] [--client <c>] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--autostart] [--dry-run] [--yes]
+okit update [--check] [--rollback] [--dry-run]
+okit uninstall [--purge] [--yes] [--dry-run]
+okit daemon start|stop|status|pause|resume|run-once
+okit daemon status [--table [--locale en|pt-BR]]
+okit autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
+okit status [--locale en|pt-BR]
+okit hook post-compact
+okit smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]
+okit client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]
+  [--only <C ids>] [--keep] [--allow-unknown-quota]
+  [--max-usd [n]] [--max-turns [n]] [--max-minutes [n]] [--quota-floor [pct]] [--timeout [ms]]
+```
 
-## Planned features
+The stdio MCP server exposes 12 tools: `acquire_slot`, `release_slot`,
+`limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
+`inbox_set_status`, `order_add`, `order_list`, `order_remove`.
+The Director, Executor, Critic and Smoke skills guide delegation and verification.
+`smoke` runs 31 isolated checks; `client-smoke` has 23 scenario checks and its
+real driver supports Claude Code. Dry-run and rehearsal are offline walks.
+See [SMOKE.md](docs/SMOKE.md) for budgets and evidence requirements.
 
-- Effort classification of each incoming demand.
-- Subagent choice by effort class and by remaining client quota.
-- A small inbox plus standing orders kept by the Director.
-- A delegation, critique and consolidation loop.
+## Configuration — Configuração
 
-## Supported clients and platforms
+State defaults to `~/.okwork`; `OKWORK_HOME` overrides it. Edit `config.json`
+there. Defaults in [src/profiles.js](src/profiles.js) include `lowQuotaPct: 15`,
+`limits: {global: 4, perClient: 3}`, `staleMinutes: 30`, and empty `profiles`.
+Set `profiles.<client>.simple|normal|hard` with `model`, `effort`, `maxTurns`;
+no default model is supplied. All adapters read user quota from `quota/<client>.json`.
+`postCompact` defaults to enabled, `timeoutSec: 5`, `maxLines: 20`, all sections
+enabled. `smoke` defaults: `quotaFloorPct: 20`, `maxUsd: 1`, `maxTurns: null`
+(full scenario), `maxMinutes: 15`, `checkTimeoutMs: 60000`.
 
-- Clients: Claude Code, Codex, opencode.
-- Platforms: Linux, macOS and Windows.
-- Core: Node.js >= 20, zero dependencies, state in plain JSON files.
+## Uninstall — Desinstalar
 
-## Restore context after compaction (Claude Code)
+Run `okit uninstall --dry-run` to review, then `okit uninstall` to stop the
+daemon, unregister the client and remove recorded versions and the command link.
+State/configuration remain; `okit uninstall --purge --yes` removes the state root.
+Use the installation destination and state root from the installation record.
+These are documentation steps; there is no separate uninstall script.
 
-`okit hook post-compact` reads the hook JSON (`cwd`) from stdin and prints a
-project-scoped summary of open inbox work, active standing-order titles and a
-status count. Order titles use `title` when present, otherwise the first line of
-`text`; bodies and environment values are never included. Missing/invalid state,
-invalid input, errors and timeouts produce no output and exit 0.
+## Development — Desenvolvimento
 
-Configure `postCompact` in the plugin state's `config.json` (`OKWORK_HOME`):
-`enabled` (default `true`), `timeoutSec` (`5`), `maxLines` (`20`),
-`sections` (`inbox`, `orders`, `status`, all `true`), `inboxStatuses` and `text`.
-Defaults live in `src/profiles.js`; partial section/text overrides are merged.
-Set `postCompact.enabled=false` to disable output.
-
-There is no general install command yet. Import `installPostCompactHook` from
-`adapters/claude-code/index.js` and call it with `{ root: clientConfigRoot,
-config: pluginConfig }` (optional `command` override; default
-`okit hook post-compact` requires `okit` on PATH). It merges a `SessionStart`
-entry with matcher `compact` and the configured timeout into `hooks/hooks.json`,
-preserving user entries; repeating the same installation does not write.
-Configuration/input loading uses the default deadline until the configured
-deadline is known; that deadline is measured from hook start.
-
-## Contributing
+Run `node --test test/docs-consistency.test.js` for documentation checks and
+`node --test` for the complete suite. Release commands are documented in the
+release guide below.
 
 Pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
@@ -63,7 +70,7 @@ The design notes live in [docs/DESIGN.md](docs/DESIGN.md).
 The release design is in [docs/RELEASING.md](docs/RELEASING.md)
 ([Português](docs/RELEASING.pt-BR.md)).
 
-## Licence
+## License — Licença
 
 MIT. See [LICENSE](LICENSE).
 

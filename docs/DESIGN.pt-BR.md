@@ -1,8 +1,8 @@
 # Design
 
-Status: fase de design (pré-alfa).
+Implementação: veja os módulos atuais em [ARCHITECTURE.pt-BR.md](ARCHITECTURE.pt-BR.md).
 
-## Objetivos
+## Goals
 
 - Distribuir o trabalho pelos subagentes que o cliente de IA já tem.
 - Aceitar qualquer unidade de trabalho delegável, não só código: pesquisa, redação, documentos, limpeza de dados, análise, planejamento, revisões, operações de arquivos.
@@ -13,13 +13,13 @@ Status: fase de design (pré-alfa).
 - Rodar em Linux, macOS e Windows com o mesmo núcleo.
 - Sem dependências, estado em arquivos JSON simples.
 
-## Não objetivos
+## Non-goals
 
 - Sem painel.
 - Sem trabalho entre clientes.
-- Sem estado fora de arquivos JSON simples.
+- Sem banco de dados; registros em JSON e logs de eventos em JSONL.
 
-## As três partes
+## The three pieces
 
 ### 1. Classificação de esforço
 
@@ -30,7 +30,7 @@ o que os testes fixam.
 ### 2. Escolha do subagente por classe e cota
 
 A classe define um modelo base e um esforço de raciocínio; a cota restante do
-cliente sobe ou desce a escolha final. O Diretor nunca inventa um modelo que o
+cliente pode rebaixar a escolha final em uma classe. O Diretor nunca inventa um modelo que o
 cliente não exponha.
 
 ### 3. Caixa de entrada e ordens permanentes
@@ -42,7 +42,7 @@ em arquivos JSON.
 O Diretor delega o trabalho, critica a saída do subagente e consolida os
 resultados.
 
-## Adaptadores por cliente
+## Per-client adapters
 
 Um núcleo em Node, três adaptadores finos:
 
@@ -54,7 +54,7 @@ Cada adaptador mapeia os conceitos de modelo, raciocínio e subagente do núcleo
 para o que o cliente expõe. A lógica do núcleo nunca importa um cliente
 diretamente.
 
-## Regras para Windows
+## Windows rules
 
 - Construir todo caminho com `node:path`; nunca concatenar separadores à mão.
 - Não depender de shell; executar comandos diretamente.
@@ -63,9 +63,9 @@ diretamente.
 - Travas: criar um diretório com `mkdir` e removê-lo ao final; exclusivo em
   todas as plataformas suportadas.
 
-## Perguntas em aberto
+## Open questions
 
-- Como cada cliente expõe a cota restante?
+- Os adaptadores leem a cota informada pelo usuário no estado; não consultam API de cota.
 - Os aplicativos de terminal e de desktop de cada cliente suportam plugins,
   hooks e servidores MCP? Ainda é preciso verificar.
 

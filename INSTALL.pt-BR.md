@@ -1,5 +1,7 @@
 # Instalar e atualizar
 
+## Install
+
 Leia o script antes de executá-lo. Node >=20 deve estar no PATH
 ([obter Node](https://nodejs.org/)). Só Linux foi exercitado pelo Diretor;
 Windows e macOS aguardam as provas do Produtor em máquinas reais.
@@ -38,6 +40,8 @@ Flags: `--client <nome>`, `--dest <pasta>`, `--prerelease`, `--dry-run`, `--yes`
 o pacote nem gravar no destino. Repetir o comando atualiza a instalação registrada;
 na mesma versão, informa “up to date”.
 
+## Configuration
+
 Cada valor do bloco marcado aceita `OKIT_<CHAVE>`: `REPO`, `API`, `CLIENTS`
 (mapa JSON nome/executável), `NAME` (modelo do pacote), `COMMAND`, `MIN_NODE`,
 `PACKAGE`, `MANIFEST`, `TAG_PREFIX`, `DIRECTORY`, `DEST`, `DATA_ROOTS`, `SYSTEMS`,
@@ -46,6 +50,8 @@ nos comandos de manutenção. As configurações do núcleo ficam no `config.jso
 sob `OKWORK_HOME`; os overrides de API do bootstrap valem para seu download;
 `update` explícito usa a configuração do núcleo instalado.
 
+## Update
+
 Atualize repetindo o comando rápido ou com `okit update`. `okit update --check`
 consulta disponibilidade; `okit update --rollback` volta à versão retida.
 Os scripts baixados também aceitam `update --check` e `update --rollback`:
@@ -53,6 +59,12 @@ localizam `install.json` e chamam o CLI instalado, sem baixar nada no shell.
 `sh install.sh uninstall` / `./install.ps1 uninstall` fazem o mesmo.
 `okit uninstall` preserva estado e configuração; `--purge --yes` apaga também
 a raiz de estado configurada.
+
+## Uninstall
+
+Revise com `okit uninstall --dry-run`, depois execute `okit uninstall`. Para também apagar estado/configuração, use `okit uninstall --purge --yes`. Use a mesma raiz de estado e o destino registrado da instalação. Não há script separado de desinstalação; os scripts de instalação existentes encaminham a ação para o CLI.
+
+## Manual installation
 
 Instalação manual: baixe pacote e manifesto, confira SHA-256, extraia e rode
 `node src/cli.js install --from . --client <nome>` nessa pasta. Sem `--from`,

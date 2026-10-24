@@ -24,7 +24,7 @@ You judge what came back. The executor's report is a claim; the worktree is the 
 
 - One real mutation per fix: name the file, the place in it and the one change you want. Never send a vague "improve this".
 - Say what proves the fix landed: the check that must go green, or the behaviour that must change.
-- Record the verdict with `inbox_set_status` and keep the findings with it.
+- Report the verdict and findings to the Director. Use `inbox_set_status` only for a valid status transition; it accepts `id` and `status`, not a verdict or findings payload.
 
 ## Judgement
 

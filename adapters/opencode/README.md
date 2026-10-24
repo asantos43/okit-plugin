@@ -26,7 +26,7 @@ The default export includes `CLIENT` and all six functions.
 Evidence collected on 2026-10-24, installed client 1.19.4. Only help/debug
 commands ran; no model, network request or real-client proof was requested.
 
-| Fato | Comando que provou / evidência | Lacuna |
+| Fact | Command / evidence | Gap |
 | :- | :- | :- |
 | Process flags, provider/model syntax, JSON events | `opencode --help`; `opencode run --help` | No real model run; Task/NATIVE bridge remains unimplemented and is refused. |
 | Variant examples: high, max, minimal | `opencode run --help` | Provider-dependent availability; no model catalogue queried offline. |

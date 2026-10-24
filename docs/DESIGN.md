@@ -1,6 +1,6 @@
 # Design
 
-Status: design phase (pre-alpha).
+Implementation: see [ARCHITECTURE.md](ARCHITECTURE.md) for the current modules.
 
 ## Goals
 
@@ -16,7 +16,7 @@ Status: design phase (pre-alpha).
 
 - No panel.
 - No work across clients.
-- No state outside plain JSON files.
+- No database dependency; records use JSON and event logs use JSONL.
 
 ## The three pieces
 
@@ -29,7 +29,7 @@ what the tests pin down.
 ### 2. Subagent choice by class and quota
 
 The class sets a base model and reasoning effort; the client's remaining quota
-raises or lowers the final choice. The Director never invents a model that the
+can lower the final choice by one class. The Director never invents a model that the
 client does not expose.
 
 ### 3. Inbox and standing orders
@@ -61,7 +61,7 @@ its client exposes. Core logic never imports a client directly.
 
 ## Open questions
 
-- How does each client expose its remaining quota?
+- Bundled adapters read user-supplied quota from the core state; no quota API is queried.
 - Do the terminal and desktop apps of each client support plugins, hooks and
   MCP servers? This still has to be verified.
 

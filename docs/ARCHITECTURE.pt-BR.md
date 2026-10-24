@@ -1,39 +1,16 @@
 # Arquitetura
 
-Status: fase de design (pré-alfa). Estende [DESIGN.md](DESIGN.md); responde às perguntas em aberto. Um núcleo em Node (>=20, sem dependências), três adaptadores finos, um servidor MCP sobre o núcleo.
+Estende [DESIGN.md](DESIGN.md); responde às perguntas em aberto. Um núcleo em Node (>=20, sem dependências), três adaptadores finos, um servidor MCP sobre o núcleo.
 
-## 1. Subconjunto: o contrato mínimo
-| Registro | Campos |
-| :- | :- |
-| Item da caixa | `id`, `title`, `body`, `kind` (texto livre: `research`, `writing`, `documents`, `data`, `analysis`, `planning`, `review`, `files`, `code`, ...), `accept` (lista de verificações em palavras simples, cada uma opcionalmente um comando), `effort` (simple\|normal\|hard), `client`, `appliesTo` (id ou caminho de um projeto, uma lista deles, ou ausente para todos), `status` (pending\|delegated\|criticised\|consolidated\|failed), `stepIds`, `ext.<kind>` (extras tipados opcionais), `createdAt` |
-| Ordem permanente | `id`, `text`, `scope` (all\|effort:simple\|effort:normal\|effort:hard), `appliesTo` (id ou caminho de um projeto, uma lista deles, ou ausente para todos), `active` |
-| Classe de esforço | `simple`, `normal`, `hard`; classificada por padrão a partir de `title`, `body` e `kind`; o mantenedor pode sobrescrever no item |
-| Perfil do ator | `client`, `agentId`, `model`, `effort`, `maxTurns`, `worktree` |
-| Leitura de cota | `client`, `source` (api\|user\|off), `remainingPct`, `windowMinutes`, `readAt` |
-| Resumo do passo | `stepId`, `itemId`, `title`, `goal`, `accept`, `contextRefs`, `terseLevel`, `outLevel` |
-| Voto da crítica | `stepId`, `verdict` (pass\|revise\|reject), `findings`, `attempt` (1\|2) |
+## 1. Core contract
 
-Regras: uma demanda é qualquer unidade de trabalho delegável, não só código: pesquisa, redação, documentos, limpeza de dados, análise, planejamento, revisões, operações de arquivos e conteúdo. `kind` é texto livre, então um novo tipo não exige mudar o núcleo. Detalhes só de código (branch, PR, comando de teste) ficam em `ext.<kind>` como extras tipados opcionais, nunca campos obrigatórios. Existe uma caixa global e um conjunto global de ordens permanentes, então é o `appliesTo` que separa o que é de cada projeto: uma demanda ou ordem que nomeia projetos pertence a eles, uma sem o campo vale para todos, e `'global'` é o padrão que nunca é gravado. O `accept` de um passo é uma fatia da lista do item. O resumo carrega só o que muda; o contexto repetido é referenciado por `contextRefs`, nunca reenviado. `terseLevel` sobe em uma tentativa repetida, `outLevel` cai a cada ida e volta. O núcleo nunca inventa um modelo, um nível de esforço ou um número de cota que o cliente não informou.
+O inbox guarda demandas com `id`, `title`, `body`, `kind`, `accept`, `effort`, `client`, `appliesTo`, `status`, `stepIds`, `ext`, `createdAt`. `kind` é texto livre. Ordens ficam em um único arquivo, filtradas por `appliesTo`. Briefing, crítica e consolidação são instruções das skills e não APIs adicionais do núcleo.
 
-## 2. API do núcleo e as mesmas como ferramentas MCP
-Uma função Node por ferramenta, com o mesmo nome no MCP.
+## 2. MCP tools
 
-| Ferramenta | Entrada | Saída | Uma linha |
-| :- | :- | :- | :- |
-| `inboxAdd` / `inboxList` / `inboxSetStatus` | `title`, `body`, `kind?`, `accept?`, `effort?`, `client?`, `appliesTo?` / `status?`, `client?`, `appliesTo?`, `limit?` / `id`, `status` | `item` / `items[]` / `item` | Adiciona uma demanda e a classifica quando `effort` falta; lista, por projeto com `appliesTo`; move uma. |
-| `orderAdd` / `orderRemove` / `orderList` | `text`, `scope?`, `appliesTo?` / `id` / `appliesTo?` | `order` / `removed` / `orders[]` | Adiciona, remove e lista ordens permanentes, por projeto com `appliesTo`. |
-| `classify` | `title`, `body`, `kind?` | `effort`, `reasons[]` | Devolve simple, normal ou hard e o porquê. |
-| `planStep` | `itemId`, `count?` | `steps[]` | Divide uma demanda em passos, cada um com uma classe e sua fatia de `accept`. |
-| `profilePick` | `client`, `effort`, `quota?` | `actor` | Escolhe modelo, nível de esforço e `maxTurns`. |
-| `brief` | `stepId`, `terseLevel?`, `outLevel?` | `briefing` | Monta o resumo do passo. |
-| `quotaRead` / `quotaSet` | `client` / `client`, `remainingPct`, `windowMinutes` | `quota` | Pergunta ao adaptador, ou guarda o número que o usuário deu uma vez. |
-| `spawn` / `collect` | `stepId`, `actor?` / `runId` | `runId`, `pid?` / `result`, `tokens?` | Lança o subagente; espera e devolve o resultado. |
-| `criticise` | `stepId`, `result` | `verdict` | Confere o passo contra o `accept` da própria demanda: um comando, uma lista de verificação ou uma leitura crítica. |
-| `consolidate` | `itemId` | `summary`, `findings[]` | Junta os resultados dos passos em uma resposta. |
+O núcleo expõe 12 ferramentas MCP em `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planejamento, briefing, crítica e consolidação são orientações das skills; não são ferramentas MCP.
 
-Regras do classificador, modelos de texto curto, o armazenamento JSON e a trava ficam internos.
-
-## 3. Estado em disco
+## 3. State on disk
 Raiz: `node:path.join(os.homedir(), '.okwork')`, sobrescrevível com `OKWORK_HOME`. Nunca dentro do diretório de um plugin de cliente: a raiz do plugin se move a cada atualização.
 
 ```
@@ -57,8 +34,8 @@ Arquivos do lado do projeto ficam ao lado do projeto, não nesta raiz: o `CLAUDE
 - Trava velha: uma trava é velha quando passa de `staleMs` (padrão 30 s) **e** seu pid está morto; sem `owner.json` legível, usa-se o `mtime` da pasta e não há checagem de pid. A tomada reivindica a pasta do dono morto no lugar: renomeia o `owner.json` do dono morto para fora da pasta (só um rename pode vencer) e depois cria o seu próprio `owner.json` de forma exclusiva (`wx`), para que dois concorrentes não vençam os dois. A pasta nunca é movida para o lado. Uma recusa do Windows que dure mais que as tentativas de qualquer passo dessa reivindicação abandona a tentativa e deixa a pasta como foi encontrada, para que o laço de espera a julgue de novo em vez de a aquisição terminar num código cru.
 - Um escritor por arquivo: caixa, ordens e execuções são arquivos separados, para que dois passos do mesmo item não se bloqueiem.
 
-## 4. Interface do adaptador
-Cada adaptador fornece exatamente estas cinco funções. O núcleo importa um adaptador, nunca um cliente.
+## 4. Adapter interface
+Cada adaptador fornece estas cinco operações, além dos auxiliares documentados. O núcleo importa um adaptador, nunca um cliente.
 
 | Função | Entrada | Saída |
 | :- | :- | :- |
@@ -66,63 +43,24 @@ Cada adaptador fornece exatamente estas cinco funções. O núcleo importa um ad
 | `readQuota()` | nenhuma | `{ source, remainingPct?, windowMinutes? }` |
 | `capabilities()` | nenhuma | `{ models[], efforts[], skills, hooks, mcp, desktop, windows }` |
 | `installSkill(name, files)` | pasta da skill | `{ path }` |
-| `installHooks(files)` | configuração de hook | `{ path }` |
+| `installHooks(files)` | configuração do cliente ou caminho do módulo | `{ path }` |
 
-### 4.1 Claude Code
-| Alegação | Valor | Fonte (verificada em 2026-10-22) |
+### 4.1 Os adaptadores incluídos
+
+| Adaptador | Modos | Instalação de hooks |
 | :- | :- | :- |
-| Empacotamento | diretório de plugin com `.claude-plugin/plugin.json` opcional; padrão `skills/`, `agents/`, `hooks/hooks.json`, `.mcp.json`, `bin/` | https://code.claude.com/docs/en/plugins/manifest-reference |
-| Instalação | `/plugin install <nome>@<marketplace>`; no shell `claude plugin marketplace add` e depois `claude plugin install`, `--scope project\|local`; `--plugin-dir` por uma sessão | https://code.claude.com/docs/en/plugins/install |
-| Skills, hooks e MCP | os três sim: `skills/<name>/SKILL.md`, `hooks/hooks.json` (a forma exec evita aspas de shell), `.mcp.json` ou `mcpServers` no manifesto com `${CLAUDE_PLUGIN_ROOT}` em `command`, `args`, `env` | https://code.claude.com/docs/en/plugins/manifest-reference |
-| Modelo e esforço do subagente | frontmatter `model` (`sonnet`, `opus`, `haiku`, `fable`, um id completo, `inherit`) e `effort` (`low`, `medium`, `high`, `xhigh`, `max`, os níveis dependem do modelo); a ferramenta Agent também aceita `model` por chamada, e `effort` por chamada exige v2.1.292 | https://code.claude.com/docs/en/sub-agents |
-| Limites de subagente de plugin | `hooks`, `mcpServers` e `permissionMode` são ignorados em subagentes de plugin; envie-os no plugin | https://code.claude.com/docs/en/sub-agents |
-| App de desktop | navegador de plugins no botão `+`, com escopo de usuário, projeto ou local; sem plugins em sessões de nuvem ou WSL; hooks e skills das configurações valem também no desktop; o app lê os mesmos arquivos de configuração que a CLI | https://code.claude.com/docs/en/desktop |
-| MCP e subagentes no desktop | `~/.claude.json` e `.mcp.json` funcionam nos dois, o desktop acrescenta `claude_desktop_config.json` que a CLI não lê; um painel de subagentes e um painel de tarefas de segundo plano listam os subagentes em execução | https://code.claude.com/docs/en/desktop |
-| Windows | Windows 10 1809+ ou Server 2019+ nativos; instaladores para PowerShell e CMD; Git for Windows opcional; sem sandbox nativo, com sandbox no WSL 2; os caminhos de plugin substituídos usam barra direta | https://code.claude.com/docs/en/setup |
-| Cota | `/usage` é apenas na sessão e mostra barras de plano; não há endpoint documentado e legível por máquina de plano por usuário. As APIs de analítica exigem chave de administrador | https://code.claude.com/docs/en/costs |
+| Claude Code | Descritor NATIVE; PROCESS | Mescla entradas JSON |
+| Codex | Descritor NATIVE; PROCESS | Recusa explícita, sem I/O |
+| opencode | PROCESS | Copia um módulo JS global |
 
-Decisão do adaptador: lançar pela chamada da ferramenta Agent com `model` e `effort`; manter `maxTurns` no frontmatter do agente. Não ler número de cota; perguntar ao usuário uma vez.
+`adapters/claude-code/index.js` são as cinco funções desta seção para um cliente, e é o adaptador que o núcleo importa em vez da CLI. `spawn` devolve `{mode: 'NATIVE', runId, agentCall: {model, effort, prompt}}` sem iniciar processo, e em `PROCESS` reaproveita `makeSpawner` de `src/spawn-process.js`. `readQuota` responde `{source: 'user'}` e só acrescenta `remainingPct`/`windowMinutes` a partir de `quota/claude-code.json`. `installSkill` copia para `<root>/skills/<name>/` por `installSkillFiles`, `installHooks` combina `<root>/hooks/hooks.json` sem descartar entrada alguma do usuário, e a raiz é `opts.root`, depois `CLAUDE_CONFIG_DIR`, depois `~/.claude`. Codex também implementa descritores nativos e processos; opencode suporta só PROCESS. A instalação de hooks do Codex recusa; opencode instala um módulo JS.
 
-### 4.2 Codex
-| Alegação | Valor | Fonte (verificada em 2026-10-22) |
-| :- | :- | :- |
-| Empacotamento e instalação | plugin com `plugin.json`; um marketplace é `.agents/plugins/marketplace.json` (do repositório) ou `~/.agents/plugins/marketplace.json` (pessoal); `codex plugin add`, `codex plugin marketplace add`, navegador `/plugins` | https://developers.openai.com/codex/plugins |
-| Skills | sim, `SKILL.md`; carregadas de `.agents/skills`, `$REPO_ROOT/.agents/skills`, `~/.agents/skills`, `/etc/codex/skills` | https://developers.openai.com/codex/build-skills |
-| Hooks | sim, `hooks.json` ou `[hooks]` em `config.toml`; os eventos incluem `SubagentStart` e `SubagentStop`; plugins usam `hooks/hooks.json`, com `PLUGIN_ROOT` e `PLUGIN_DATA` | https://developers.openai.com/codex/hooks |
-| MCP | sim, `[mcp_servers.<nome>]` em `config.toml`; stdio e Streamable HTTP; `codex mcp add`, `codex mcp list` | https://developers.openai.com/codex/extend/mcp |
-| Modelo e esforço do subagente | arquivo por agente `.codex/agents/<nome>.toml` com `model` e `model_reasoning_effort`; `agents.default_subagent_model` e `agents.default_subagent_reasoning_effort`; valores `low`, `medium`, `high`, `xhigh`, `max`, `ultra`, com disponibilidade dependente do modelo | https://developers.openai.com/codex/agent-configuration/subagents |
-| Lançamento | `spawn_agent`, `send_input`, `resume_agent`, `wait_agent`, `close_agent` sob `features.multi_agent`; `/subagents` lista; `agents.max_concurrent_threads_per_session` limita | https://developers.openai.com/codex/agent-configuration/subagents |
-| App de desktop | Codex é a superfície Code do app de desktop do ChatGPT; macOS, Windows e Linux; MCP e skills suportados; plugins no app de desktop e na CLI, não na extensão de IDE | https://developers.openai.com/codex/app |
-| Hooks no desktop | `UNVERIFIED`: confirmar se `[features] hooks` dispara no app de desktop antes de depender disso. Conferir https://developers.openai.com/codex/hooks para o comportamento no desktop | |
-| Windows | app nativo do Windows; `winget install --id 9PLM9XGG6VKS -s msstore`; WSL opcional, WSL 1 removido no Codex 0.115; handlers de hook recebem `command_windows` | https://developers.openai.com/codex/windows/windows-app |
-| Cota | o JSON-RPC do `codex app-server` tem `account/rateLimits/read` (`usedPercent`, `windowDurationMins`, `rateLimits`) e `account/usage/read` | https://developers.openai.com/codex/app-server |
-
-Decisão do adaptador: o único cliente com cota documentada e legível por máquina. Ler, e cair em perguntar ao usuário quando a chamada falhar.
-
-### 4.3 opencode
-| Alegação | Valor | Fonte (verificada em 2026-10-22) |
-| :- | :- | :- |
-| Empacotamento e instalação | um plugin é um módulo JS ou TS em `.opencode/plugins/` do projeto ou `~/.config/opencode/plugins/` global, ou um pacote npm no array `plugin` de `opencode.json`; `opencode plugin <módulo>`, com `--global` e `--force`; configuração global em `~/.config/opencode/opencode.json` | https://opencode.ai/docs/plugins/ |
-| Skills | sim, `SKILL.md` em `.opencode/skills/<nome>/`, `~/.config/opencode/skills/<nome>/`, `.claude/skills/<nome>/` ou `.agents/skills/<nome>/` | https://opencode.ai/docs/skills/ |
-| Hooks | `UNVERIFIED`: não existe chave `hooks` no esquema publicado; eventos de ciclo de vida são apenas chaves de evento de plugin. Conferir https://opencode.ai/config.json para uma chave `hooks` antes de planejar em cima dela | |
-| MCP | sim, o objeto `mcp` com `type: local` (`command`, `cwd`, `environment`, `timeout`) ou `type: remote` (`url`, `headers`, `oauth`) | https://opencode.ai/docs/mcp-servers/ |
-| Modelo e esforço do subagente | `agent.<nome>.model` como `provider/model-id` e `agent.<nome>.variant`, mais opções de passagem como `reasoningEffort`; agentes markdown em `.opencode/agents/<nome>.md` | https://opencode.ai/docs/agents/ |
-| Valores de esforço | variantes por provedor: Anthropic `high` e `max`; OpenAI `none`, `minimal`, `low`, `medium`, `high`, `xhigh`; Google `low` e `high` | https://opencode.ai/docs/models/ |
-| Lançamento | um subagente roda pela ferramenta Task ou por menção `@agent-name`; `mode` é `primary`, `subagent` ou `all`; embutidos `general`, `explore`, `scout`; `subagent_depth` limita o aninhamento (padrão 1, 0 desliga subagentes) | https://opencode.ai/docs/agents/ |
-| Windows | suporte nativo: choco, scoop, `npm install -g opencode-ai` ou binários das Releases do GitHub; WSL é o caminho recomendado; Bun no Windows em andamento | https://opencode.ai/docs/windows-wsl |
-| Cota | `UNVERIFIED`: nenhum comando de cota, nenhum `--json` documentado em `opencode stats`, nenhuma rota de uso na API de servidor. Conferir `opencode stats --help` e a API de conta do provedor | |
-
-Decisão do adaptador: ler modelos de `opencode models`; tratar a cota como desligada a menos que o usuário forneça um número.
-
-### 4.4 O adaptador do Claude Code no repositório
-`adapters/claude-code/index.js` são as cinco funções desta seção para um cliente, e é o adaptador que o núcleo importa em vez da CLI. `spawn` devolve `{mode: 'NATIVE', runId, agentCall: {model, effort, prompt}}` sem iniciar processo, e em `PROCESS` reaproveita `makeSpawner` de `src/spawn-process.js`. `readQuota` responde `{source: 'user'}` e só acrescenta `remainingPct`/`windowMinutes` a partir de `quota/claude-code.json`. `installSkill` copia para `<root>/skills/<name>/` por `installSkillFiles`, `installHooks` combina `<root>/hooks/hooks.json` sem descartar entrada alguma do usuário, e a raiz é `opts.root`, depois `CLAUDE_CONFIG_DIR`, depois `~/.claude`. Os adaptadores de Codex e de opencode ainda estão por vir.
-
-## 5. Cota
-- `source: api` — o adaptador devolveu um número nesta sessão (Codex hoje). Use-o.
+## 5. Quota
+- `source: api` — leitura de API injetada; nenhum adaptador incluído consulta API de cota.
 - `source: user` — sem número; perguntar uma vez, guardar em `quota/<client>.json`,velho depois de `windowMinutes`.
 - `source: off` — o usuário recusou, ou o cliente não tem canal; a escolha de classe ignora a cota.
 
-Nunca estimar, interpolar nem trazer um número de outro cliente. Uma leitura velha ou ilegível rebaixa uma classe `hard` para a última classe que o cliente ainda aceitou, nunca o contrário. `quotaRead` devolve `source: off` em vez de falhar, para o Diretor continuar trabalhando.
+Não estimar cota. `profilePick` rebaixa uma classe quando `remainingPct < lowQuotaPct`; `source: off` e leitura ausente não rebaixam. Os adaptadores devolvem `source: user`, com números apenas quando armazenados.
 
 ### 5.1 A tabela de cota
 `src/status.js` é a visão dessas leituras, não uma segunda fonte delas: `statusTable(root, deps)` é puro sobre as leituras, o relógio, as contagens do limite e as ordens permanentes que chegam em `deps`, e devolve `{markdown, capacityLine, rows}`. As colunas são `Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age)`; um array `windows` preenche as duas colunas e, sem ele, o `remainingPct` único vai para a coluna de 5h quando `windowMinutes <= 360` e para a da semana caso contrário, inclusive quando `windowMinutes` está ausente.
@@ -131,26 +69,24 @@ A coluna Situação é uma palavra, nunca ANSI: `verde` com 15 pontos ou mais ac
 
 As leituras ficam em cache por cliente durante `ttlMs` (60 s por padrão) medido em `deps.now`, então duas chamadas seguidas custam uma leitura. `shouldShowStatus({size, slices, executors})` é verdadeiro para tamanho `L`, `slices >= 2` ou `executors > 1`, e é quando o Diretor mostra a tabela. `okit daemon status --table [--locale en|pt-BR]` imprime a mesma tabela embaixo das linhas do daemon, e uma passagem do daemon nunca lê cota por ela: `daemonStatus(root, { table })` só monta a tabela quando essas dependências são entregues.
 
-## 6. Regras para Windows
+## 6. Windows rules
 - Construir todo caminho com `node:path`, nunca concatenando separadores; guardar com barra direta, a forma que o Claude Code substitui, para que o que escrevemos corresponda ao que o cliente lê.
 - Sem shell: `child_process.spawn` com array de argumentos. Comandos de hook na forma shell são preocupação do cliente, não nossa.
 - Escrever só `\n`, com codificação explícita e sem padrão de plataforma, para que um arquivo escrito no Windows seja lido igual no Linux.
 - Travas com `fs.mkdir` se comportam igual de forma nativa e no WSL; sem `flock`, sem `setsid`.
-- Uma instalação nativa do Claude Code não tem sandbox: assumir que um subagente pode tocar a worktree inteira, então usar `worktree: true` como padrão no Windows.
 - Passagem manual antes de uma versão: instalar o plugin, adicionar um item na caixa, delegar um passo, ler o voto da crítica, consolidar, reiniciar o cliente, confirmar que o estado sobreviveu.
 
 O modo `PROCESS` inicia os clientes sem shell; no Windows os shims `.cmd` exigem resolver antes o executável de verdade (item em aberto da passagem do Windows).
 
-## 7. Limite de concorrência
+## 7. Concurrency limit
 | Escopo | Padrão | Lido de |
 | :- | :- | :- |
 | Global, todos os clientes | 4 atores ao mesmo tempo | `config.json` |
-| Por cliente | 3 atores ao mesmo tempo | `config.json`, rebaixado quando a cota está baixa |
-| Por worktree | 1 ator | nunca mudado |
+| Por cliente | 3 atores ao mesmo tempo | `config.json`; cota não altera o teto |
 
-O núcleo conta execuções vivas em `runs/<runId>.json` (`status: live`) em vez de confiar que o cliente respeita o teto. `spawn` espera até 60 s por uma vaga e então devolve `busy`; nunca inicia uma execução acima do teto. A contagem cai quando `collect` volta, quando um resultado chega e em uma execução mais velha que 30 min. O Codex se limita sozinho com `agents.max_concurrent_threads_per_session`; deixar no mesmo número para os dois concordarem.
+O núcleo conta execuções vivas em `runs/<runId>.json` (`status: live`) em vez de confiar que o cliente respeita o teto. `acquireSlot` usa `waitMs: 0` por padrão e retorna `ok: false` sem vaga; o chamador pode pedir espera. `releaseSlot` encerra a reserva; a contagem ignora execuções mais velhas que `staleMinutes` (30 por padrão). O Codex se limita sozinho com `agents.max_concurrent_threads_per_session`; deixar no mesmo número para os dois concordarem.
 
-## 8. Agendamentos e recorrência
+## 8. Schedules and recurrence
 `src/schedule.js` é puro: um instante injetado, nada de I/O. `src/templates.js` guarda uma demanda que o próprio agendamento abre, um item da caixa por período.
 
 | Forma | Exemplo | Normalizado em |
@@ -173,7 +109,7 @@ Regras: um campo cron aceita `*`, listas (`1,2`), intervalos (`1-5`), passos (`*
 
 `evaluateDue` devolve `{ due, action, reason, period }`, com `action` entre `run`, `skip` (uma decisão que não muda) e `defer` (esperar a próxima passagem). `period` é o instante ISO da vaga, ou `event:<name>:<id>`. As guardas são lidas nesta ordem: `paused`, a vaga deste período, `window`, `minQuotaPct`, `onlyWhenIdle`, `skipIfOpen`, `maxRunsPerPeriod`. Sem histórico, um modelo espera pela primeira vaga do dia corrente em vez de disparar por uma que já passou; com histórico, `catchup: run` (o padrão) serve a vaga perdida mais antiga e `catchup: skip` serve só a atual. Um evento precisa de um id, ou passaria a vida inteira com a mesma chave de período: sem `eventId` a execução é recusada. A vaga é lida no relógio de parede de `timeZone` (padrão `UTC`), então uma hora repetida roda na primeira passagem e uma hora pulada vai para o próximo minuto válido.
 
-## 9. Modelos recorrentes
+## 9. Recurring templates
 | Função | Efeito |
 | :- | :- |
 | `templateAdd(root, input, { now })` | Guarda um modelo e a ordem permanente que deixa ele rodar sem ninguém assistindo; o nome precisa estar livre. |
@@ -186,7 +122,7 @@ Regras: um campo cron aceita `*`, listas (`1,2`), intervalos (`1-5`), passos (`*
 
 Campos obrigatórios: `name`, `schedule` e `demand` (`title`, mais `kind`, `body`, `accept`, `ext` opcionais). Guardas opcionais: `window`, `timeZone`, `minQuotaPct`, `onlyWhenIdle` (padrão falso), `skipIfOpen` (padrão verdadeiro), `catchup` (`run` ou `skip`), `maxRunsPerPeriod`, `paused` e `appliesTo`. Cada filho carrega `ext.template` e `ext.period` e herda o `appliesTo` do modelo, para que um armazenamento global de modelos ainda saiba a qual caixa cada execução pertence.
 
-## 10. Ordens permanentes
+## 10. Standing orders
 Uma ordem é uma linha que o mantenedor escreve uma vez e o Diretor lê a cada demanda. O JSON continua sendo a fonte; `orderRender` é só uma visão.
 
 | Função | Efeito |
@@ -213,7 +149,7 @@ Revogar marca, não apaga: a linha continua com `active: false`, `revokedAt` e `
 
 Um armazenamento: toda ordem vive em `orders.json` na raiz do estado e o id é `G000001`. Não existe mais a camada de projeto — o projeto é escolhido pelo `appliesTo`, que nomeia os ids ou caminhos aos quais a ordem se liga, e uma ordem sem ele vale para todos. `orderAdd` com `layer` é recusado com `layer is gone: use appliesTo`. A migração única `orderMigrateProjects(root, projectRoots)` copia cada `<projectRoot>/.okwork/orders.json` do layout antigo para o armazenamento com `appliesTo` apontando para aquele projeto, `origin` `migrated:project` e um id `G` novo, preservando texto, escopo, `until`, `active` e os campos de revogação; uma linha já copiada é pulada (mesmo texto mais `appliesTo`), a cópia acontece antes de o arquivo antigo ser renomeado para `orders.json.migrated` e ele nunca é apagado. Ela roda de forma preguiçosa em `orderList`/`orderAdd` quando um `projectRoot` é passado, que é o único uso que resta de `projectRoot`. `scope` é `all` ou `effort:simple`, `effort:normal`, `effort:hard`; `origin` é texto livre, com padrão `maintainer`, e um modelo escreve `template:<name>`. A ordem de um modelo é criada junto com o registro, movida em uma renomeação e revogada com motivo na remoção, então a ordem que permitia a execução deixa de permitir.
 
-## 11. O daemon
+## 11. The daemon
 O daemon é a metade sem tela: ninguém assiste, então todo limite que ele respeita é técnico. O núcleo não inicia nada por conta própria — `spawn` é injetado, então um teste o conduz e um adaptador o conduz de verdade.
 
 A ordem de uma passagem, `tick`:
@@ -243,12 +179,12 @@ O iniciador é injetado: `deps` traz `now()`, `quota(client)`, `idle(client)` e 
 
 Ritmo: o intervalo é marcado por um relógio monotônico, então um salto do relógio de parede para frente ou para trás não muda nem o número de passagens nem a idempotência por período. Um daemon por raiz: `daemonRun` segura a trava `daemon` e lança erro quando outro já a segura. `daemonStatus` exige um pid vivo e um arquivo de pid que não esteja velho, então um daemon que morreu lido como parado mesmo com o arquivo de pid ainda em disco. Os padrões vivem em `daemon` no `config.json`: `intervalSeconds` 60, `minQuotaPct` 10, `logKeepDays` 14; um valor quebrado nunca para o laço. A retenção das ordens permanentes mora ao lado, em `orders`: `retentionDays` 90, os dias inteiros que uma ordem inativa é guardada antes de ser expurgada, onde um valor quebrado volta ao padrão.
 
-## 12. Modos de início
-Dois modos por adaptador, e o `spawn()` do adaptador devolve o modo que usou. Planejado: só o adaptador do Claude Code (seção 4.4) foi escrito.
+## 12. Spawn modes
+Claude Code e Codex suportam descritores NATIVE e processos PROCESS. opencode suporta apenas PROCESS; NATIVE é recusado.
 
 | Modo | Quando | Como |
 | :- | :- | :- |
-| `NATIVE` | padrão em uma sessão interativa | o subagente do próprio cliente: a chamada da ferramenta Agent no Claude Code, `spawn_agent` no Codex, a ferramenta Task no opencode |
+| `NATIVE` | padrão em uma sessão interativa | o subagente do próprio cliente: a chamada da ferramenta Agent no Claude Code, `spawn_agent` no Codex, opencode não tem ponte NATIVE |
 | `PROCESS` | o daemon e qualquer outra execução sem tela | a CLI sem tela: `claude -p`, `codex exec`, `opencode run` (flags verificadas em 2026-10-22, abaixo) |
 
 Em `NATIVE` o núcleo não está no laço, então o teto é garantido pelas ferramentas MCP `acquire_slot` e `release_slot` em volta de `classify` e `profile_pick`. Em `PROCESS` o daemon reserva a vaga antes de o iniciador rodar, e a execução é um processo filho do daemon.
@@ -291,13 +227,13 @@ O diretório de trabalho é o `appliesTo` da demanda quando ele é uma única pa
 
 Métodos: `initialize`, `notifications/initialized`, `ping`, `tools/list` e `tools/call`. Toda ferramenta responde `{content: [{type: 'text', text}], isError}`, onde `text` é o JSON do que o núcleo devolveu, então uma recusa (`ok: false`, um teto cheio) e um resultado se leem do mesmo jeito. Um método desconhecido é `-32601`, uma ferramenta desconhecida `-32602`, uma linha que não é JSON `-32700` com id nulo; em todos os casos o laço continua lendo.
 
-## 13. Autonomia
+## 13. Autonomy
 Autonomia máxima é o padrão. O plugin não traz nenhuma lista fixa de ações proibidas: uma recusa vem de algo que o usuário escreveu ou de um limite técnico, nunca de uma regra que os mantenedores adivinharam.
 - As restrições são ordens permanentes. O usuário adiciona uma ("nunca dar push para `main`") e `orderRemove` a retira; nada mais pode adicionar restrição.
 - Os limites técnicos continuam configuráveis: o teto de concorrência (`limits.global`, `limits.perClient`, `staleMinutes`), o piso de cota (`daemon.minQuotaPct`, `lowQuotaPct`), a chave de parada (`daemon.stop`) e o arquivo de pausa.
 - O núcleo nunca inventa um modelo, um valor de esforço ou um número de cota que o cliente não informou, e nunca aumenta um teto por conta própria.
 
-## 14. Estado global e `appliesTo`
+## 14. Global state and `appliesTo`
 Uma caixa, um conjunto de ordens permanentes, um armazenamento de modelos, em uma pasta (`OKWORK_HOME`, padrão `~/.okwork`), compartilhada por todos os projetos. O que pertence a um projeto fica nos arquivos do próprio projeto e o registro apenas o referencia, então um armazenamento compartilhado nunca precisa ser dividido.
 
 | Função | Efeito |
@@ -309,19 +245,6 @@ Uma caixa, um conjunto de ordens permanentes, um armazenamento de modelos, em um
 
 Então: ausente significa todos os projetos, um nome significa aquele projeto, uma lista significa cada um deles, e `global` junto com outro projeto é recusado porque não diz nada preciso. `inboxList`, `orderList` e `templateList` filtram por projeto e sempre incluem os registros compartilhados; `templateSet` com `appliesTo: 'global'` apaga o campo, então o modelo volta a ser compartilhado.
 
-## 15. Plano do MVP
-1. Claude Code primeiro, Linux e Windows: adaptador, servidor MCP, as quinze ferramentas, o armazenamento JSON.
-2. Codex depois no mesmo núcleo: o adaptador lê cota, então o controle de cota fica ligado.
-3. opencode por último: o adaptador mais o trabalho de esforço que ainda falta confirmar.
+## 15. Implementation and limits
 
-Uma área de teste de ponta a ponta em um repositório descartável, rodada para cada adaptador, com duas demandas: uma `code` e uma fora de código (uma demanda curta de pesquisa ou redação). Cada uma passa por item na caixa, passo classificado, subagente delegado com modelo e esforço escolhidos, voto da crítica contra a própria lista `accept`, resultado consolidado. Afirmar que o resumo de um passo `simple` fica abaixo de 1 kB e que a segunda tentativa é mais curta que a primeira.
-
-## 16. Perguntas em aberto para o mantenedor
-- Os níveis de esforço diferem por cliente. Mapear `simple`/`normal`/`hard` em cada cliente, ou manter uma escala interna e deixar o adaptador traduzir?
-- `ultra` existe só no Codex. Aceitar um vocabulário de esforço menor para portabilidade?
-- O `/usage` do Claude Code mostra barras de plano só na sessão. Aceitar `source: user` ali, ou abrir mão do controle de cota nesse cliente?
-- `consolidate` deve rodar como um turno do Diretor ou como uma chamada barata de subagente?
-- Tentativas: duas por passo, ou uma tentativa mais uma revisão?
-- Manter `runs/` para sempre, ou limpar depois da consolidação?
-
-Versão em inglês: [ARCHITECTURE.md](ARCHITECTURE.md).
+Os três adaptadores, estado JSON, daemon, agendamento, instalador, release e servidor MCP estão implementados. O runner real de `client-smoke` atende Claude Code; os demais drivers e as provas Windows/macOS continuam pendentes. Veja [RELEASING.pt-BR.md](RELEASING.pt-BR.md#proof-per-pair).

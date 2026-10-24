@@ -14,7 +14,7 @@ Em toda mensagem ao Produtor, escreva demandas como `DXX (nome-do-projeto)`; sem
 
 1. Call `order_list` before planning anything. Every active order binds you.
 2. Call `inbox_list` to see what is already queued, and never open a second copy of a pending demand.
-3. Call `limits_status` when you need free slots or the quota reading.
+3. Call `limits_status` for live counts and caps; call `status` for quota readings and available capacity.
 
 ## Split the work
 

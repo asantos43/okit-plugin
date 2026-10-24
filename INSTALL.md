@@ -1,5 +1,7 @@
 # Install and update
 
+## Install
+
 Read the script before executing it. Node >=20 must already be on PATH
 ([download Node](https://nodejs.org/)). Linux has been exercised by the Director;
 Windows and macOS await the Producer's real-machine checks.
@@ -39,6 +41,8 @@ Flags: `--client <name>`, `--dest <folder>`, `--prerelease`, `--dry-run`, `--yes
 downloading the archive or modifying the destination. Default execution with an
 existing record updates that installation; the same version reports “up to date”.
 
+## Configuration
+
 All values in the marked configuration block support `OKIT_<KEY>` overrides:
 `REPO`, `API`, `CLIENTS` (JSON name/executable map), `NAME` (archive template),
 `COMMAND`, `MIN_NODE`, `PACKAGE`, `MANIFEST`, `TAG_PREFIX`, `DIRECTORY`, `DEST`,
@@ -47,6 +51,8 @@ Use the same destination for lifecycle commands. Core settings remain in
 `config.json` under `OKWORK_HOME`; API/repository overrides in the bootstrap apply
 to its download, while explicit `update` uses the installed core's configuration.
 
+## Update
+
 Repeat the quick command to update automatically, or run `okit update`.
 `okit update --check` reports availability; `okit update --rollback` activates the
 retained version. Downloaded scripts also accept `update --check` and
@@ -54,6 +60,12 @@ retained version. Downloaded scripts also accept `update --check` and
 without shell downloads. `sh install.sh uninstall` / `./install.ps1 uninstall`
 work the same way. `okit uninstall` preserves user configuration and state;
 `--purge --yes` removes the configured state root too.
+
+## Uninstall
+
+Review `okit uninstall --dry-run`, then run `okit uninstall`. To also remove state/configuration, use `okit uninstall --purge --yes`. Use the same state root and recorded installation destination. There is no separate uninstall script; existing installation scripts forward this action to the CLI.
+
+## Manual installation
 
 For manual installation, download the matching archive and checksum manifest,
 verify the archive hash, extract it, then run
