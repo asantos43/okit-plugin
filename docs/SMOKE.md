@@ -1,10 +1,12 @@
 # Smoke test
 
-Implemented: `okit smoke` runs 31 isolated checks; `okit client-smoke` runs the C1–C23 scenario with a real Claude Code driver. This does not prove other clients or systems.
+Migration: invoke the plugin as `okit-plugin`; install/update remove only its owned legacy `okit` links. Keep the kit's `okit`/`kit` separate; kit detection ignores plugin executables.
+
+Implemented: `okit-plugin smoke` runs 31 isolated checks; `okit-plugin client-smoke` runs the C1–C23 scenario with a real Claude Code driver. This does not prove other clients or systems.
 
 ## Commands
 
-`npm run smoke` runs the runner of this checkout and `okit smoke` the same runner through the installed bin; both use a scratch home and answer `0` when every selected check passed, `1` when one failed or timed out and `2` when the run was refused.
+`npm run smoke` runs the runner of this checkout and `okit-plugin smoke` the same runner through the installed bin; both use a scratch home and answer `0` when every selected check passed, `1` when one failed or timed out and `2` when the run was refused.
 
 | Flag | Meaning |
 | :- | :- |
@@ -32,13 +34,13 @@ or `skip`, and only `pass` counts as a success.
 
 | id | name | what it does | timeout |
 | :- | :- | :- | :- |
-| `I1` | `files.placed` | `src/cli.js` (the `okit` bin), `src/mcp/server.js`, `adapters/claude-code/index.js` and `skills/okit-{director,executor,critic,smoke}/SKILL.md` are readable | 5 s |
+| `I1` | `files.placed` | `src/cli.js` (the `okit-plugin` bin), `src/mcp/server.js`, `adapters/claude-code/index.js` and `skills/okit-{director,executor,critic,smoke}/SKILL.md` are readable | 5 s |
 | `I2` | `commands.registered` | `main()` accepts `daemon`, `autostart`, `status`; each exits `0`, an unknown group exits `2` | 15 s |
 | `I3` | `mcp.registered` | `initialize` and `tools/list` over `handleLine` name the 12 tools of `TOOL_NAMES` | 15 s |
 | `I4` | `skills.installed` | `installSkill('okit-director')` writes `skills/okit-director/SKILL.md` under the scratch config root; a second call reports `identical` | 10 s |
 | `I5` | `hooks.merged` | `installHooks` writes `hooks/hooks.json`; over a user-edited file it keeps the user's entry and reports `written: false` | 10 s |
 | `I6` | `permissions.readable` | the `bin` entry and every `SKILL.md` are readable files; the mode is asserted off Windows only | 5 s |
-| `I7` | `version.matches` | `serverVersion()` equals the `version` of `package.json`, and `okit status` prints the table | 10 s |
+| `I7` | `version.matches` | `serverVersion()` equals the `version` of `package.json`, and `okit-plugin status` prints the table | 10 s |
 
 **B. Every feature, end to end (`E`)**
 
@@ -92,7 +94,7 @@ One object per check, and the same fields in the human log: `id`, `name`, `group
 
 ## Output
 
-Stdout is one fact per line, the shape `report()` of `src/cli.js` already prints: `okit smoke`, `run: <runid>`, one `pass E7 state.locks 120ms` per check, then `passed: 31 failed: 0 skipped: 0`, the artifact paths and, under `--keep`, the scratch path.
+Stdout is one fact per line, the shape `report()` of `src/cli.js` already prints: `okit-plugin smoke`, `run: <runid>`, one `pass E7 state.locks 120ms` per check, then `passed: 31 failed: 0 skipped: 0`, the artifact paths and, under `--keep`, the scratch path.
 
 Two files land in `<state root>/logs/smoke/`: `smoke-<runid>.jsonl`, one JSON object per line (the run header, then one record per check in execution order), and `smoke-<runid>.log`, the human text with the whole environment block at the top and each tail inline. Both are UTF-8 with `\n` only, so the Windows file pastes into an issue unchanged. The run id is the UTC instant and the pid (`20261023T091530Z-4242`), which keeps two runs apart and orders them.
 
@@ -108,15 +110,15 @@ Two files land in `<state root>/logs/smoke/`: `smoke-<runid>.jsonl`, one JSON ob
 
 The runner above is the cheap layer: it starts no client, spends no quota and proves the code. This section is the other layer, and it runs **inside a real client session** — Claude Code first, Codex and opencode after. It spends the user's quota on purpose, and it buys the thing the in-process runner cannot buy: proof that the plugin is *installed and used* — the client loaded the plugin, its MCP server answers over a real stdio pipe, the skills are there, the hooks fire, the daemon ticks, and the inbox, the standing orders and the templates keep what the client wrote.
 
-The synthetic tests already exist: `okit smoke` above covers the code. This layer tests **real use** with two purposes, and the checks are split accordingly:
+The synthetic tests already exist: `okit-plugin smoke` above covers the code. This layer tests **real use** with two purposes, and the checks are split accordingly:
 
 1. **the installation** — the plugin, the skills, the hooks, the MCP server and the daemon of the installation the client actually loads;
 2. **the logic in real use** — not that a tool answered, but that it answered *right* for a known input, judged from the disk or from the tool's own JSON.
 
 | layer | the question it answers | cost | where it runs |
 | :- | :- | :- | :- |
-| `okit smoke` (above) | does the code work? | seconds, no quota | the plugin's own process |
-| `okit client-smoke` (this section) | is the plugin installed, and does it work in real use? | minutes, real quota | a real client session |
+| `okit-plugin smoke` (above) | does the code work? | seconds, no quota | the plugin's own process |
+| `okit-plugin client-smoke` (this section) | is the plugin installed, and does it work in real use? | minutes, real quota | a real client session |
 
 Both layers write the same record format into the same artifact folder and answer the same three exit codes (0, 1, 2), so one reader reads both logs. What the in-client `0` *means* is stricter than the in-process one, and the "Refusal, skip and failure" section below says exactly how.
 
@@ -138,7 +140,7 @@ A step names a resource, the call that touches it and the **behaviour** it asser
 | `C2` | skills | the installed skills are visible to the session | the `init` event's `skills[]`: `okit-director`, `okit-executor`, `okit-critic` and `okit-smoke` under the plugin's namespace |
 | `C3` | MCP | the server answered over the real stdio pipe | the `init` event's `mcp_servers[]` holds our server with `status: "connected"`, and the server answered `initialize` and `tools/list` with the 12 names |
 | `C4` | hooks | a hook of the plugin fired | the client's hook events; while the plugin ships no `hooks/hooks.json`, it is a `skip` with the reason `hook-evidence-unavailable` |
-| `C5` | daemon | the daemon of the installation ticked | the runner runs the installed `okit` bin with `daemon run-once`, and the decision line lands in `logs/<date>.jsonl` |
+| `C5` | daemon | the daemon of the installation ticked | the runner runs the installed `okit-plugin` bin with `daemon run-once`, and the decision line lands in `logs/<date>.jsonl` |
 
 **B. The logic, in real use (`C6`–`C21`)**
 
@@ -179,9 +181,9 @@ One scenario, four ways to run it.
 | driver | how | what the user sees |
 | :- | :- | :- |
 | skill | the plugin ships the skill `okit-smoke`; the user types `/okit-smoke` in a session with the plugin installed | the narration of each step, then the report |
-| headless | `okit client-smoke --client claude-code --headless` | the report only, no session left open |
-| demo | `okit client-smoke --client claude-code --demo` | the narration of each step *while* it runs, then the same one-line-per-check report as the other modes |
-| dry run | `okit client-smoke --client claude-code --dry-run` | what the scenario *would* call, step by step — no client, no model, no quota |
+| headless | `okit-plugin client-smoke --client claude-code --headless` | the report only, no session left open |
+| demo | `okit-plugin client-smoke --client claude-code --demo` | the narration of each step *while* it runs, then the same one-line-per-check report as the other modes |
+| dry run | `okit-plugin client-smoke --client claude-code --dry-run` | what the scenario *would* call, step by step — no client, no model, no quota |
 
 The skill is the driver of the scenario; the headless and demo modes are the same scenario without a human in the loop, so a run in CI is the same run as a run on a desk. The dry run walks the same list and reports what it would call, without calling the model and without spending quota: it is the cheap way to check the scenario itself, and the way to rehearse a change to the scenario before it costs anything. In headless mode the runner starts the client with
 

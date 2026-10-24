@@ -1,5 +1,7 @@
 # Instalar e atualizar
 
+O comando do plugin agora é `okit-plugin` (configurável em `install.command`); o kit mantém `okit`/`kit`. Instalar/atualizar migram apenas links `okit` do próprio plugin; desinstalar também os remove. Registros da 0.2.0 continuam legíveis; executáveis alheios do kit são preservados.
+
 ## Install
 
 Leia o script antes de executá-lo. Node >=20 deve estar no PATH
@@ -30,7 +32,7 @@ e o manifesto para uma pasta temporária, confere SHA-256 antes de extrair e cha
 o núcleo Node com `install --from`. O núcleo copia para um destino fixo, grava
 um `install.<client>.json` por cliente, registra o cliente, cria o link compartilhado e opcionalmente
 configura autostart. Atualizações guardam backup e versão anterior, ativam a nova
-e rodam `okit smoke`. O temporário é apagado em sucesso e falha.
+e rodam `okit-plugin smoke`. O temporário é apagado em sucesso e falha.
 No Linux: `${XDG_DATA_HOME:-$HOME/.local/share}/okit-plugin`; macOS:
 `$HOME/Library/Application Support/okit-plugin`; Windows:
 `%LOCALAPPDATA%/okit-plugin` (alternativa `%USERPROFILE%/AppData/Local/okit-plugin`).
@@ -58,7 +60,7 @@ do arquivo. O plugin consulta somente a versão; nunca instala nem altera o kit.
 O caminho identifica o executável, não as pastas de home/configuração do kit,
 que não podem ser inferidas com segurança por essa consulta.
 
-Execute `okit kit [--require]`. A linha `kit: …`, em inglês, informa `installed`,
+Execute `okit-plugin kit [--require]`. A linha `kit: …`, em inglês, informa `installed`,
 `absent` ou `broken`. Apenas `--require` (ou `require: true` configurado) retorna 1
 quando a consulta não confirma instalação. Install/update, inclusive `--dry-run`,
 e status também imprimem a linha. Quando instalado, consulte as
@@ -74,17 +76,17 @@ O prazo deve ser inteiro positivo. Os valores complementam `DEFAULT_CONFIG.insta
 
 ## Update
 
-Atualize repetindo o comando rápido ou com `okit update`. `okit update --check`
-consulta disponibilidade; `okit update --rollback` volta à versão retida.
+Atualize repetindo o comando rápido ou com `okit-plugin update`. `okit-plugin update --check`
+consulta disponibilidade; `okit-plugin update --rollback` volta à versão retida.
 Os scripts baixados também aceitam `update --check` e `update --rollback`:
 localizam `install.json` e chamam o CLI instalado, sem baixar nada no shell.
 `sh install.sh uninstall` / `./install.ps1 uninstall` fazem o mesmo.
-`okit uninstall` preserva estado e configuração; `--purge --yes` apaga também
+`okit-plugin uninstall` preserva estado e configuração; `--purge --yes` apaga também
 a raiz de estado configurada.
 
 ## Uninstall
 
-Revise com `okit uninstall --dry-run`, depois execute `okit uninstall`. Para também apagar estado/configuração, use `okit uninstall --purge --yes`. Use a mesma raiz de estado e o destino registrado da instalação. Não há script separado de desinstalação; os scripts de instalação existentes encaminham a ação para o CLI.
+Revise com `okit-plugin uninstall --dry-run`, depois execute `okit-plugin uninstall`. Para também apagar estado/configuração, use `okit-plugin uninstall --purge --yes`. Use a mesma raiz de estado e o destino registrado da instalação. Não há script separado de desinstalação; os scripts de instalação existentes encaminham a ação para o CLI.
 
 ## Manual installation
 
@@ -92,10 +94,10 @@ Instalação manual: baixe pacote e manifesto, confira SHA-256, extraia e rode
 `node src/cli.js install --from . --client <nome>` nessa pasta. Sem `--from`,
 `node src/cli.js install --client <nome>` baixa a última release.
 
-O instalador Node suporta vários clientes na mesma máquina. `okit install --client all`
+O instalador Node suporta vários clientes na mesma máquina. `okit-plugin install --client all`
 baixa e verifica um pacote separado para cada cliente detectado; o menu interativo
 também aceita `1,3` ou `all`. `--client <nome>` altera só esse cliente.
-`okit update`, `update --check`, `update --rollback` e `uninstall` agem em todos os
+`okit-plugin update`, `update --check`, `update --rollback` e `uninstall` agem em todos os
 registrados por padrão; acrescente `--client <nome>` para selecionar um. Cliente não
 registrado é recusado antes de alterações. Cada cliente tem versões retidas e smoke
 próprios; uma falha permite que os demais terminem. O resumo lista cada resultado
@@ -110,7 +112,7 @@ for permanecer. Todas as operações aceitam `--dry-run` sem gravar. Use o CLI N
 esses comandos: os scripts de bootstrap permanecem localizando registros antigos
 `install.json`.
 
-Posso apagar a pasta depois? **SIM** com script ou `okit install --from`: o plugin
+Posso apagar a pasta depois? **SIM** com script ou `okit-plugin install --from`: o plugin
 fica registrado no destino fixo. Na instalação manual direta com
 `claude plugin marketplace add <pasta>`, **a pasta precisa ficar**.
 

@@ -102,7 +102,7 @@ test('configuration fallback and generated registration share DEFAULT_CONFIG', (
   assert.equal(postCompactConfig({ postCompact: { timeoutSec: -1 } }).timeoutSec, DEFAULT_CONFIG.postCompact.timeoutSec);
   assert.equal(postCompactHooks().SessionStart[0].hooks[0].timeout, DEFAULT_CONFIG.postCompact.timeoutSec);
   assert.deepEqual(postCompactHooks({ config: { postCompact: { timeoutSec: 9 } } }), {
-    SessionStart: [{ matcher: 'compact', hooks: [{ type: 'command', command: 'okit hook post-compact', timeout: 9 }] }],
+    SessionStart: [{ matcher: 'compact', hooks: [{ type: 'command', command: 'okit-plugin hook post-compact', timeout: 9 }] }],
   });
 });
 

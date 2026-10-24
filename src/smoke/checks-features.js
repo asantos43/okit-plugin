@@ -619,7 +619,7 @@ async function commandsEvery(deps) {
   ];
   for (const argv of actions) {
     const run = await cli(deps, argv, { ...onePass(), spawn: deps.spawn });
-    need(run.code === 0, `okit ${argv.join(' ')} must exit 0, got ${run.code}: ${run.err.join(' / ')}`);
+    need(run.code === 0, `${deps.command ?? DEFAULT_CONFIG.install.command} ${argv.join(' ')} must exit 0, got ${run.code}: ${run.err.join(' / ')}`);
     if (argv[1] === 'install') need(run.wrote.length === 1, 'autostart install must report the file it wrote');
   }
 }

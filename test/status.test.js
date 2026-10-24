@@ -364,7 +364,7 @@ test('a quoted order with a bar and a newline cannot break the table', async (t)
   assert.equal(lines.length, 3, 'the order stays on one row instead of adding a line');
 });
 
-test('okit status prints the table and the capacity line, in either language', async (t) => {
+test('okit-plugin status prints the table and the capacity line, in either language', async (t) => {
   const root = await tempRoot(t);
   const { readQuota } = readerOf({ alpha: { source: 'api', remainingPct: 77, windowMinutes: 300 } });
   const io = { root, readQuota, now: () => T0, clients: ['alpha'], quotaCache: new Map() };
@@ -392,7 +392,7 @@ test('okit status prints the table and the capacity line, in either language', a
   assert.equal((await cli(['status', '--locale', 'fr'])).code, 2);
 });
 
-test('okit status of a root with no reading prints a row per client, all off', async (t) => {
+test('okit-plugin status of a root with no reading prints a row per client, all off', async (t) => {
   const root = await tempRoot(t);
   const out = [];
   const code = await main(['status'], {

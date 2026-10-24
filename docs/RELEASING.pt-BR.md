@@ -1,5 +1,7 @@
 # Desenho do release
 
+Migração do comando: `bin` do pacote e `install.command` agora usam `okit-plugin`; instalar/atualizar migram links antigos `okit` próprios sem tocar no kit. Registros da 0.2.0 continuam aceitos; identidades MCP e estado permanecem iguais.
+
 Status: publicado (veja a página de releases para a versão atual). Build, checksums, notas, checklist, publicador e instalador estão implementados; publicação não prova uso real.
 Estende [ARCHITECTURE.md](ARCHITECTURE.md) e [SMOKE.md](SMOKE.md), incluindo o cenário D25 no cliente real. Inglês: [RELEASING.md](RELEASING.md).
 
@@ -21,7 +23,7 @@ A tabela é requisito de empacotamento/prova, não afirmação de que todos os a
 
 `src/autostart.js` seleciona hoje systemd no Linux, schtasks no Windows e launchd no macOS. Cron é alternativa explícita, não fallback automático do systemd; o plano atual substitui o crontab do usuário e sua desinstalação o remove. Preservar linhas existentes do cron é requisito antes de oferecer esse caminho ([D-Q4](#decisions)).
 
-Preservar UTF-8/LF na carga e nos logs em todos os sistemas. Conferir bits de execução POSIX após extração; no Windows conferir leitura por ACL e o shim no shell pretendido. Derivar nome e destino do comando de `package.json.bin` (hoje `okit`) e configurar o destino do link/shim ([D-Q4](#decisions)). Descoberta de plugin pelo cliente não estabelece PATH. Autostart deve resolver explicitamente caminhos do Node e da CLI instalados; o PATH do shell de login é insuficiente. Refazer o plano se a atualização mover a instalação.
+Preservar UTF-8/LF na carga e nos logs em todos os sistemas. Conferir bits de execução POSIX após extração; no Windows conferir leitura por ACL e o shim no shell pretendido. Derivar nome e destino do comando de `package.json.bin` (hoje `okit-plugin`) e configurar o destino do link/shim ([D-Q4](#decisions)). Descoberta de plugin pelo cliente não estabelece PATH. Autostart deve resolver explicitamente caminhos do Node e da CLI instalados; o PATH do shell de login é insuficiente. Refazer o plano se a atualização mover a instalação.
 
 ## Artifacts
 
@@ -48,21 +50,21 @@ Antes de atualizar, parar daemon anterior, guardar backup do estado configurado 
 
 ## Installer and updater
 
-`okit install --client <cliente> [--prerelease] [--repo dono/repo] [--dest pasta] [--no-link] [--autostart] [--dry-run] [--yes]` escolhe a release mais recente e o arquivo do cliente/sistema/arquitetura. Sem release estável, informa o uso de pré-lançamento. Sem `--client`, oferece menu no TTY; sem TTY só escolhe quando há exatamente um cliente detectado.
+`okit-plugin install --client <cliente> [--prerelease] [--repo dono/repo] [--dest pasta] [--no-link] [--autostart] [--dry-run] [--yes]` escolhe a release mais recente e o arquivo do cliente/sistema/arquitetura. Sem release estável, informa o uso de pré-lançamento. Sem `--client`, oferece menu no TTY; sem TTY só escolhe quando há exatamente um cliente detectado.
 
 Após verificar o SHA-256, coloca o pacote em uma pasta estável por versão no diretório de dados do usuário (XDG no Linux, Application Support no macOS, LOCALAPPDATA no Windows). Cada `install.<client>.json` registra as versões ativa e anteriores desse cliente; o nome vem de `install.recordName`. O `install.json` antigo é lido como registro do seu cliente e migrado na primeira escrita, preservando toda a cadeia anterior. Registro e link apontam para esse destino: pode apagar a pasta de download/extração. `DEFAULT_CONFIG.install` e `config.json` configuram rede, limites, clientes, executáveis, diretórios e identidades; o nome do pacote reutiliza `release.name`.
 
-`okit install --client all` baixa e verifica um pacote separado para cada cliente detectado. O menu interativo aceita vários números (`1,3`) ou `all`. `--client <cliente>` altera só esse cliente. Update, consulta, rollback e uninstall agem em todos os registrados por padrão e aceitam `--client <cliente>`; cliente não registrado é recusado antes de alterações. Cada cliente mantém seu histórico e executa smoke próprio no update. Uma falha não impede os demais; o resumo final lista cada resultado (0: todos passaram, 1: alguma falha, 2: recusado antes de começar).
+`okit-plugin install --client all` baixa e verifica um pacote separado para cada cliente detectado. O menu interativo aceita vários números (`1,3`) ou `all`. `--client <cliente>` altera só esse cliente. Update, consulta, rollback e uninstall agem em todos os registrados por padrão e aceitam `--client <cliente>`; cliente não registrado é recusado antes de alterações. Cada cliente mantém seu histórico e executa smoke próprio no update. Uma falha não impede os demais; o resumo final lista cada resultado (0: todos passaram, 1: alguma falha, 2: recusado antes de começar).
 
 Link, autostart e estado são compartilhados, com dados compartilhados em cada registro. Uninstall remove só o registro e as pastas retidas do cliente selecionado; caminhos compartilhados passam a um pacote restante e o link só é removido com o último cliente. `--purge --yes` recusa se algum cliente for permanecer. Para esse formato use o CLI Node: os scripts de bootstrap permanecem localizando registros antigos `install.json`.
 
-`okit update --check` só consulta. `okit update` para o daemon, copia estado e configuração do cliente para backup datado, mantém a versão anterior, refaz registro/link/autostart, reinicia e executa o smoke da nova CLI. Se a prova falhar, informa `okit update --rollback`, que reativa a versão mantida sem baixar novamente. Skills e módulos editados são preservados. `okit uninstall` desfaz a integração e remove versões gerenciadas, mantendo estado e configuração; `--purge --yes` também remove a raiz de estado configurada. Os três aceitam `--dry-run`: consultam metadados quando necessário, sem baixar pacotes nem gravar.
+`okit-plugin update --check` só consulta. `okit-plugin update` para o daemon, copia estado e configuração do cliente para backup datado, mantém a versão anterior, refaz registro/link/autostart, reinicia e executa o smoke da nova CLI. Se a prova falhar, informa `okit-plugin update --rollback`, que reativa a versão mantida sem baixar novamente. Skills e módulos editados são preservados. `okit-plugin uninstall` desfaz a integração e remove versões gerenciadas, mantendo estado e configuração; `--purge --yes` também remove a raiz de estado configurada. Os três aceitam `--dry-run`: consultam metadados quando necessário, sem baixar pacotes nem gravar.
 
 SHA-256 detecta bytes alterados, mas **não autentica a origem**. A extração tar.gz/zip usa apenas Node, preserva execução, limita o tamanho descomprimido e recusa caminhos absolutos, travessia, links e arquivos especiais.
 
 Os guias [INSTALL.pt-BR.md](../INSTALL.pt-BR.md) e [INSTALL.md](../INSTALL.md) documentam `install.sh` (Linux/macOS) e `install.ps1` (Windows). Ambos incorporam o bootstrap de `src/install/bootstrap.js`; o build deriva os blocos marcados de configuração dos defaults install/release e de engines.node. Cada chave aceita override `OKIT_`; o teste de deriva recusa scripts desatualizados após mudança dos defaults.
 
-O build emite `release.publish.bootstrapAttachments`: scripts e guias fora dos arquivos por par. Eles entram no grupo existente `payloads` de `release.publish.attachments`; o publicador os inclui no manifesto, verifica e anexa sem mudança em publish.js. `okit install --from <pasta>` valida identidade e CLI, copia a origem já verificada ao destino fixo e preserva a origem. O bootstrap confere SHA-256 com ferramentas do sistema antes da extração; o hash não autentica o conteúdo. `update|uninstall` explícitos no script chamam o CLI registrado sem downloads no bootstrap. Linux foi exercitado pelo Diretor; Windows/macOS aguardam o Produtor.
+O build emite `release.publish.bootstrapAttachments`: scripts e guias fora dos arquivos por par. Eles entram no grupo existente `payloads` de `release.publish.attachments`; o publicador os inclui no manifesto, verifica e anexa sem mudança em publish.js. `okit-plugin install --from <pasta>` valida identidade e CLI, copia a origem já verificada ao destino fixo e preserva a origem. O bootstrap confere SHA-256 com ferramentas do sistema antes da extração; o hash não autentica o conteúdo. `update|uninstall` explícitos no script chamam o CLI registrado sem downloads no bootstrap. Linux foi exercitado pelo Diretor; Windows/macOS aguardam o Produtor.
 
 ## The local build
 
@@ -146,7 +148,7 @@ Imediatamente antes de chamar o GitHub, o git é verificado novamente: árvore s
 
 ## Proof per pair
 
-Cada marca significa **ambas** as camadas no candidato instalado daquele par: `okit smoke` (em processo, home temporário) e cenário D25 dentro do cliente real indicado, carregando a instalação real com login/estado reais. `--dry-run`, ensaio e spawns simulados não provam uso real. `okit client-smoke` está implementado para Claude Code; veja [SMOKE.pt-BR.md](SMOKE.pt-BR.md#in-client-smoke-real). Os demais drivers reais estão pendentes. Manter cada par desmarcado até registrar e aceitar ambas as camadas.
+Cada marca significa **ambas** as camadas no candidato instalado daquele par: `okit-plugin smoke` (em processo, home temporário) e cenário D25 dentro do cliente real indicado, carregando a instalação real com login/estado reais. `--dry-run`, ensaio e spawns simulados não provam uso real. `okit-plugin client-smoke` está implementado para Claude Code; veja [SMOKE.pt-BR.md](SMOKE.pt-BR.md#in-client-smoke-real). Os demais drivers reais estão pendentes. Manter cada par desmarcado até registrar e aceitar ambas as camadas.
 
 | Checklist por par | Quem executa e assina ambas as camadas |
 | :- | :- |

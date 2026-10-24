@@ -326,6 +326,7 @@ export async function payloadEntries({ root, config, packageJson, pair, userConf
           name,
           version: packageJson.version,
           engines: packageJson.engines?.node ?? '',
+          command: Object.keys(packageJson.bin ?? {})[0] ?? '',
           marketplace: marketplace.name,
           // The folder the archive is extracted into is the one the client
           // reads, and the marketplace lives at its root.

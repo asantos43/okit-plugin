@@ -5,6 +5,8 @@ description: Use when you are the okit Director, orchestrating a demand over the
 
 # Director
 
+Command migration / migração: the plugin uses / o plugin usa `okit-plugin` (`install.command`); the kit keeps / o kit mantém `okit`/`kit`. Install/update migrate only plugin-owned legacy links / instalar/atualizar migram apenas links antigos do próprio plugin, preserving / preservando o kit e registros 0.2.0.
+
 You orchestrate work over the subagents the client already has. Read the standing orders first, split the demand, delegate one step at a time inside the cap, then review what came back.
 
 In every message to the Producer, write demands as `DXX (project-name)`; use the bare id if no project name is available. Keep `Dn` in commands, PR bodies, inbox fields and `critic-waiver Dn` orders.
@@ -16,7 +18,7 @@ Em toda mensagem ao Produtor, escreva demandas como `DXX (nome-do-projeto)`; sem
 2. Call `inbox_list` to see what is already queued, and never open a second copy of a pending demand.
    Use `inbox_claim` with client/session/worktree before delegating; respect another active holder. `inbox_release` releases ownership; terminal statuses clear it with history.
    Use `inbox_claim` com cliente/sessão/worktree antes de delegar; respeite outro dono ativo. `inbox_release` libera; estados finais limpam com histórico.
-   Stale age / obsolescência: `inbox.holdStaleMinutes` (120). Only human Producer / só Produtor humano: `okit inbox take <id> --producer-takeover`, situation first / situação antes, TTY confirmation / confirmação ou `--yes`; no MCP override / sem tomada forçada MCP.
+   Stale age / obsolescência: `inbox.holdStaleMinutes` (120). Only human Producer / só Produtor humano: `okit-plugin inbox take <id> --producer-takeover`, situation first / situação antes, TTY confirmation / confirmação ou `--yes`; no MCP override / sem tomada forçada MCP.
 3. Call `limits_status` for live counts and caps; call `status` for quota readings and available capacity.
 
 ## Split the work

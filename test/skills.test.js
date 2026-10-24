@@ -33,7 +33,7 @@ const TOOLS = new Set([
 ]);
 
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
-const OLD_CLI = /\bkit\b/;
+const OLD_CLI = /\bkit\s+(?:daemon|autostart|status|inbox|smoke|client-smoke|hook)\b/;
 
 test('Director requires project-qualified Producer messages in both languages', async () => {
   const { body } = await readSkill('okit-director');
@@ -195,7 +195,7 @@ test('every skill names the tools it needs and reaches for the inbox', async () 
   assert.match(critic, /inbox_set_status/, 'the critic records its verdict');
 });
 
-test('no skill mentions the old kit CLI', async () => {
+test('skills allow naming the kit but never use it for plugin commands', async () => {
   for (const folder of await skillFolders()) {
     const { fields, body } = await readSkill(folder);
     const text = `${fields.description ?? ''}\n${body}`;

@@ -1,10 +1,12 @@
 # Teste de fumaça
 
-Implementado: `okit smoke` executa 31 checks isolados; `okit client-smoke` executa o cenário C1–C23 com driver real de Claude Code. Não comprova outros clientes ou sistemas.
+Migração: execute o plugin como `okit-plugin`; instalar/atualizar removem apenas seus links antigos `okit`. Mantenha `okit`/`kit` do kit separados; o detector ignora executáveis do plugin.
+
+Implementado: `okit-plugin smoke` executa 31 checks isolados; `okit-plugin client-smoke` executa o cenário C1–C23 com driver real de Claude Code. Não comprova outros clientes ou sistemas.
 
 ## Commands
 
-`npm run smoke` roda o runner deste checkout e `okit smoke` o mesmo runner pelo binário instalado; os dois usam um home descartável e respondem `0` quando todo check selecionado passou, `1` quando um falhou ou estourou o tempo e `2` quando a execução foi recusada.
+`npm run smoke` roda o runner deste checkout e `okit-plugin smoke` o mesmo runner pelo binário instalado; os dois usam um home descartável e respondem `0` quando todo check selecionado passou, `1` quando um falhou ou estourou o tempo e `2` quando a execução foi recusada.
 
 | Flag | Significado |
 | :- | :- |
@@ -31,13 +33,13 @@ Cada check tem id, nome, timeout e corpo. `status` é `pass`, `fail`, `timeout` 
 
 | id | nome | o que faz | timeout |
 | :- | :- | :- | :- |
-| `I1` | `files.placed` | `src/cli.js` (o bin `okit`), `src/mcp/server.js`, `adapters/claude-code/index.js` e `skills/okit-{director,executor,critic,smoke}/SKILL.md` são legíveis | 5 s |
+| `I1` | `files.placed` | `src/cli.js` (o bin `okit-plugin`), `src/mcp/server.js`, `adapters/claude-code/index.js` e `skills/okit-{director,executor,critic,smoke}/SKILL.md` são legíveis | 5 s |
 | `I2` | `commands.registered` | `main()` aceita `daemon`, `autostart`, `status`; cada uma sai com `0`, um grupo desconhecido sai com `2` | 15 s |
 | `I3` | `mcp.registered` | `initialize` e `tools/list` por `handleLine` nomeiam as 12 ferramentas de `TOOL_NAMES` | 15 s |
 | `I4` | `skills.installed` | `installSkill('okit-director')` escreve `skills/okit-director/SKILL.md` na raiz de configuração descartável; a segunda chamada reporta `identical` | 10 s |
 | `I5` | `hooks.merged` | `installHooks` escreve `hooks/hooks.json`; sobre um arquivo editado pelo usuário mantém a entrada dele e reporta `written: false` | 10 s |
 | `I6` | `permissions.readable` | a entrada `bin` e cada `SKILL.md` são arquivos legíveis; o modo é verificado fora do Windows | 5 s |
-| `I7` | `version.matches` | `serverVersion()` é igual ao `version` de `package.json`, e `okit status` imprime a tabela | 10 s |
+| `I7` | `version.matches` | `serverVersion()` é igual ao `version` de `package.json`, e `okit-plugin status` imprime a tabela | 10 s |
 
 **B. Cada recurso, de ponta a ponta (`E`)**
 
@@ -91,7 +93,7 @@ Um objeto por check, e os mesmos campos no log humano: `id`, `name`, `group` (`E
 
 ## Output
 
-O stdout é um fato por linha, a forma que `report()` de `src/cli.js` já imprime: `okit smoke`, `run: <runid>`, uma linha `pass E7 state.locks 120ms` por check, depois `passed: 31 failed: 0 skipped: 0`, os caminhos dos artefatos e, com `--keep`, o caminho do scratch.
+O stdout é um fato por linha, a forma que `report()` de `src/cli.js` já imprime: `okit-plugin smoke`, `run: <runid>`, uma linha `pass E7 state.locks 120ms` por check, depois `passed: 31 failed: 0 skipped: 0`, os caminhos dos artefatos e, com `--keep`, o caminho do scratch.
 
 Dois arquivos caem em `<state root>/logs/smoke/`: `smoke-<runid>.jsonl`, um objeto JSON por linha (o cabeçalho da execução e um registro por check, na ordem de execução), e `smoke-<runid>.log`, o texto humano com o bloco de ambiente inteiro no topo e cada tail na linha. Ambos são UTF-8 só com `\n`, então o arquivo do Windows cola numa issue sem mudança. O run id é o instante UTC mais o pid (`20261023T091530Z-4242`), o que separa duas execuções e as ordena.
 
@@ -107,15 +109,15 @@ Dois arquivos caem em `<state root>/logs/smoke/`: `smoke-<runid>.jsonl`, um obje
 
 O runner acima é a camada barata: não inicia cliente nenhum, não gasta cota e prova o código. Esta seção é a outra camada, e roda **dentro de uma sessão real do cliente** — Claude Code primeiro, Codex e opencode depois. Gasta a cota do usuário de propósito, e compra o que o runner em processo não compra: a prova de que o plugin está *instalado e em uso* — o cliente carregou o plugin, o servidor MCP dele responde por um pipe stdio de verdade, as skills estão lá, os hooks disparam, o daemon dá um tick, e a caixa de entrada, as ordens permanentes e os templates guardam o que o cliente escreveu.
 
-Os testes sintéticos já existem: o `okit smoke` acima cobre o código. O que falta é um teste de **uso real**, então esta camada tem dois propósitos, e os checks se dividem assim:
+Os testes sintéticos já existem: o `okit-plugin smoke` acima cobre o código. O que falta é um teste de **uso real**, então esta camada tem dois propósitos, e os checks se dividem assim:
 
 1. **a instalação** — o plugin, as skills, os hooks, o servidor MCP e o daemon da instalação que o cliente realmente carrega;
 2. **a lógica em uso real** — não que a ferramenta respondeu, mas que respondeu *certo* para uma entrada conhecida, julgado pelo disco ou pelo JSON da própria ferramenta.
 
 | camada | a pergunta que responde | custo | onde roda |
 | :- | :- | :- | :- |
-| `okit smoke` (acima) | o código funciona? | segundos, sem cota | o processo do próprio plugin |
-| `okit client-smoke` (esta seção) | o plugin está instalado, e funciona em uso real? | minutos, cota real | uma sessão real do cliente |
+| `okit-plugin smoke` (acima) | o código funciona? | segundos, sem cota | o processo do próprio plugin |
+| `okit-plugin client-smoke` (esta seção) | o plugin está instalado, e funciona em uso real? | minutos, cota real | uma sessão real do cliente |
 
 As duas camadas escrevem o mesmo formato de registro na mesma pasta de artefatos e respondem os mesmos três códigos de saída (0, 1, 2), então um leitor lê os dois logs. O que o `0` in-client *significa* é mais estrito que o do runner em processo, e a seção "Recusa, skip e falha" abaixo diz exatamente como.
 
@@ -137,7 +139,7 @@ Um passo nomeia um recurso, a chamada que o toca e o **comportamento** que ele a
 | `C2` | skills | as skills instaladas estão visíveis na sessão | o `skills[]` do evento `init`: `okit-director`, `okit-executor`, `okit-critic` e `okit-smoke` sob o namespace do plugin |
 | `C3` | MCP | o servidor respondeu pelo pipe stdio de verdade | o `mcp_servers[]` do evento `init` traz o nosso servidor com `status: "connected"`, e o servidor respondeu `initialize` e `tools/list` com os 12 nomes |
 | `C4` | hooks | um hook do plugin disparou | os eventos de hook do cliente; enquanto o plugin não trouxer `hooks/hooks.json`, é um `skip` com o motivo `hook-evidence-unavailable` |
-| `C5` | daemon | o daemon da instalação deu um tick | o runner roda o bin `okit` instalado com `daemon run-once`, e a linha de decisão cai em `logs/<date>.jsonl` |
+| `C5` | daemon | o daemon da instalação deu um tick | o runner roda o bin `okit-plugin` instalado com `daemon run-once`, e a linha de decisão cai em `logs/<date>.jsonl` |
 
 **B. A lógica, em uso real (`C6`–`C21`)**
 
@@ -178,9 +180,9 @@ Um roteiro, quatro maneiras de rodá-lo.
 | driver | como | o que o usuário vê |
 | :- | :- | :- |
 | skill | o plugin traz a skill `okit-smoke`; o usuário digita `/okit-smoke` numa sessão com o plugin instalado | a narração de cada passo, depois o relatório |
-| headless | `okit client-smoke --client claude-code --headless` | só o relatório, sem deixar sessão aberta |
-| demo | `okit client-smoke --client claude-code --demo` | a narração de cada passo *enquanto* roda, depois o mesmo relatório de uma linha por check dos outros modos |
-| dry run | `okit client-smoke --client claude-code --dry-run` | o que o roteiro *chamaria*, passo a passo — sem cliente, sem modelo, sem cota |
+| headless | `okit-plugin client-smoke --client claude-code --headless` | só o relatório, sem deixar sessão aberta |
+| demo | `okit-plugin client-smoke --client claude-code --demo` | a narração de cada passo *enquanto* roda, depois o mesmo relatório de uma linha por check dos outros modos |
+| dry run | `okit-plugin client-smoke --client claude-code --dry-run` | o que o roteiro *chamaria*, passo a passo — sem cliente, sem modelo, sem cota |
 
 A skill é o driver do roteiro; os modos headless e demo são o mesmo roteiro sem uma pessoa no laço, então uma execução em CI é a mesma execução de uma mesa. O dry run percorre a mesma lista e relata o que chamaria, sem chamar o modelo e sem gastar cota: é o jeito barato de conferir o próprio roteiro, e o jeito de ensaiar uma mudança no roteiro antes que ela custe algo. No modo headless o runner inicia o cliente com
 

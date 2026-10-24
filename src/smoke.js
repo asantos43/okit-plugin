@@ -20,6 +20,7 @@ import { UNINSTALL_CHECKS } from './smoke/checks-uninstall.js';
 import { environmentOf, recordOf, runIdOf, writeArtifacts } from './smoke/report.js';
 import { withLock } from './state.js';
 import { paths, stateRoot } from './store.js';
+import { DEFAULT_CONFIG } from './profiles.js';
 
 // The order of the tables of `docs/SMOKE.md`: the install group, every feature
 // end to end, then uninstall and idempotence. It is fixed, so two runs differ
@@ -32,7 +33,7 @@ function allChecks() {
 
 // The plugin root of the default mode is this checkout: the folder that holds
 // `skills/` and `adapters/` beside the `src/` this file is in. An installed
-// plugin is laid out the same way, so `okit smoke` through the installed bin
+// plugin is laid out the same way, so `okit-plugin smoke` through the installed bin
 // verifies that install and not this one.
 const PLUGIN_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -103,7 +104,7 @@ function readTimeout(value) {
 }
 
 /**
- * The flags of one `okit smoke`: `--real`, `--keep`, `--only <ids>` and
+ * The flags of one `okit-plugin smoke`: `--real`, `--keep`, `--only <ids>` and
  * `--timeout <ms>`, the last two in both the spaced and the `=` form. Anything
  * else is an unknown flag, which is exit code 2.
  *
@@ -153,7 +154,7 @@ function selectChecks(checks, only) {
 // started it, through the spawner's own bookkeeping, so the cap of the next
 // check counts no run of the previous one. Nothing is ever started: the child
 // answers the three things the spawner reads of a process — a pid, a `kill` and
-// an emitter — which is what keeps `okit smoke` from running `claude`, `codex`
+// an emitter — which is what keeps `okit-plugin smoke` from running `claude`, `codex`
 // or `opencode` on the machine it verifies.
 function fakeSpawner() {
   const children = [];
@@ -199,6 +200,7 @@ function depsOf(io, scope, control) {
     // `root` is the plugin the checks read (`src/`, `adapters/`, `skills/`),
     // which is the checkout, not the scratch folder `scope.root` names.
     root: io.pluginRoot ?? PLUGIN_ROOT,
+    command: io.command ?? DEFAULT_CONFIG.install.command,
     now: io.now ?? Date.now,
     platform: io.platform ?? process.platform,
     release: io.release ?? osRelease(),
@@ -292,8 +294,8 @@ async function runChecks(checks, deps, control) {
 
 // Exit code 2: the run never started. The line on stderr names what was wrong,
 // and `usage` tells the CLI to add the usage text to it.
-function refusal(err, message, usage = true) {
-  err(`okit smoke: ${message}`);
+function refusal(err, message, usage = true, command = DEFAULT_CONFIG.install.command) {
+  err(`${command} smoke: ${message}`);
   return { code: 2, usage, records: [], artifacts: null, runId: null };
 }
 
@@ -304,7 +306,7 @@ function refusal(err, message, usage = true) {
  */
 function report(out, runId, records, artifacts, extra) {
   const count = (status) => records.filter((record) => record.status === status).length;
-  out('okit smoke');
+  out(`${extra.command} smoke`);
   out(`run: ${runId}`);
   for (const record of records) out(`${record.status} ${record.id} ${record.name} ${record.durationMs}ms`);
   if (extra.interrupted) out('interrupted: SIGINT');
@@ -315,7 +317,7 @@ function report(out, runId, records, artifacts, extra) {
 }
 
 /**
- * Runs one `okit smoke` and answers its exit code, its records and the paths of
+ * Runs one `okit-plugin smoke` and answers its exit code, its records and the paths of
  * the two artifacts it wrote.
  *
  * `io` is the shape `main()` of `src/cli.js` already takes (`out`, `err`,
@@ -332,17 +334,18 @@ export async function runSmoke(argv = [], io = {}) {
   const err = io.err ?? io.stderr ?? ((text) => process.stderr.write(`${text}\n`));
   const env = io.env ?? process.env;
   const now = io.now ?? Date.now;
+  const command = io.command ?? DEFAULT_CONFIG.install.command;
 
   const flags = readFlags(argv);
-  if (flags.error !== undefined) return refusal(err, flags.error);
+  if (flags.error !== undefined) return refusal(err, flags.error, true, command);
   // `OKWORK_HOME` in the environment is a state root the user chose. A run that
   // builds a scratch home must not be read as one, so it has to say `--real`.
   if (!flags.real && typeof env.OKWORK_HOME === 'string' && env.OKWORK_HOME.trim() !== '') {
-    return refusal(err, 'OKWORK_HOME is set; okit smoke uses a scratch home unless --real is given', false);
+    return refusal(err, `OKWORK_HOME is set; ${command} smoke uses a scratch home unless --real is given`, false, command);
   }
 
   const selection = selectChecks(io.checks ?? allChecks(), flags.only);
-  if (selection.error !== undefined) return refusal(err, selection.error);
+  if (selection.error !== undefined) return refusal(err, selection.error, true, command);
 
   const scope = flags.real ? realScope(io, env) : await scratchScope(io.tmpdir ?? tmpdir(), env);
   const startedAt = now();
@@ -387,6 +390,7 @@ export async function runSmoke(argv = [], io = {}) {
 
   const header = {
     kind: 'smoke',
+    command,
     runId,
     startedAt,
     finishedAt: now(),
@@ -397,7 +401,7 @@ export async function runSmoke(argv = [], io = {}) {
   };
   const artifacts = await writeArtifacts(scope.stateRoot, runId, header, records, deps);
   const keep = flags.keep || interrupted;
-  report(out, runId, records, artifacts, { keep, scratch: scope.root, interrupted });
+  report(out, runId, records, artifacts, { command, keep, scratch: scope.root, interrupted });
 
   if (scope.root !== null && !keep) await rm(scope.root, { recursive: true, force: true });
   const failed = records.some((record) => record.status === 'fail' || record.status === 'timeout');

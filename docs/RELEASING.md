@@ -1,5 +1,7 @@
 # Release design
 
+Command migration: package `bin` and `install.command` now name `okit-plugin`; install/update migrate owned legacy `okit` links without touching the kit. Existing 0.2.0 records remain supported; MCP and state identities stay unchanged.
+
 Status: published (see the releases page for the current version). Build, checksums, notes, checklist, publisher and installer are implemented; publication does not establish real-client proof.
 Extends [ARCHITECTURE.md](ARCHITECTURE.md) and [SMOKE.md](SMOKE.md), including the D25 real-client scenario. Portuguese: [RELEASING.pt-BR.md](RELEASING.pt-BR.md).
 
@@ -21,7 +23,7 @@ The table is a packaging/proof requirement, not a claim that all adapters work. 
 
 `src/autostart.js` currently selects systemd on Linux, schtasks on Windows and launchd on macOS. Cron is an explicit alternative, not an automatic systemd fallback; the current cron plan replaces the user's crontab and its uninstall removes it. Preserving existing cron lines is required before this path is offered ([D-Q4](#decisions)).
 
-Preserve UTF-8/LF payloads and smoke logs on every system. Check POSIX execute bits after extraction; on Windows check ACL readability and the chosen shim in the intended shell. Derive the command name and target from `package.json.bin` (currently `okit`), and configure the link/shim destination ([D-Q4](#decisions)). Client plugin discovery does not establish PATH. Autostart must resolve the installed Node and CLI paths explicitly; a login shell's PATH is insufficient. Re-plan it after an update moves the installation.
+Preserve UTF-8/LF payloads and smoke logs on every system. Check POSIX execute bits after extraction; on Windows check ACL readability and the chosen shim in the intended shell. Derive the command name and target from `package.json.bin` (currently `okit-plugin`), and configure the link/shim destination ([D-Q4](#decisions)). Client plugin discovery does not establish PATH. Autostart must resolve the installed Node and CLI paths explicitly; a login shell's PATH is insufficient. Re-plan it after an update moves the installation.
 
 ## Artifacts
 
@@ -48,21 +50,21 @@ Before updating, stop the old daemon, retain a backup of configured state and us
 
 ## Installer and updater
 
-`okit install --client <client> [--prerelease] [--repo owner/repo] [--dest dir] [--no-link] [--autostart] [--dry-run] [--yes]` selects the newest release and exact client/system/architecture asset. If no stable release exists, it reports the pre-release fallback. Without `--client`, a TTY offers a numbered menu; unattended installation selects only a single detected client or refuses.
+`okit-plugin install --client <client> [--prerelease] [--repo owner/repo] [--dest dir] [--no-link] [--autostart] [--dry-run] [--yes]` selects the newest release and exact client/system/architecture asset. If no stable release exists, it reports the pre-release fallback. Without `--client`, a TTY offers a numbered menu; unattended installation selects only a single detected client or refuses.
 
 The package is verified before extraction and placed in a stable version directory under the configured user data root (XDG on Linux, Application Support on macOS, LOCALAPPDATA on Windows). Each `install.<client>.json` records that client's active and previous versions; its name comes from `install.recordName`. Legacy `install.json` is read as its client's record and migrated on the first write, retaining the whole previous chain. Marketplace registration and command links point there, so downloaded/extracted source folders can be deleted. `DEFAULT_CONFIG.install` and user `config.json` control network limits, clients, executables, roots and identities; archive naming reuses `release.name`.
 
-`okit install --client all` downloads and verifies a separate package for each detected client. The interactive menu accepts several numbers (`1,3`) or `all`. Explicit `--client <client>` changes only that client. Update, check, rollback and uninstall default to all registered clients and accept `--client <client>`; an unregistered client refuses before changes. Each client retains its own history and runs its own update smoke. A failure does not stop the remaining clients; the final summary lists each result (0: all succeeded, 1: any failure, 2: refused before starting).
+`okit-plugin install --client all` downloads and verifies a separate package for each detected client. The interactive menu accepts several numbers (`1,3`) or `all`. Explicit `--client <client>` changes only that client. Update, check, rollback and uninstall default to all registered clients and accept `--client <client>`; an unregistered client refuses before changes. Each client retains its own history and runs its own update smoke. A failure does not stop the remaining clients; the final summary lists each result (0: all succeeded, 1: any failure, 2: refused before starting).
 
 The link, autostart and state are shared, with shared settings in each record. Uninstall removes only the selected client's registration and retained folders; shared paths are redirected to a remaining package and the link is removed only with the last client. `--purge --yes` refuses if any client would remain. For this record format use the Node CLI: unchanged bootstrap scripts still locate legacy `install.json`.
 
-`okit update --check` only reports availability. `okit update` stops the active daemon, backs up state and client configuration, retains the previous version, changes registration/link/autostart paths, restarts and runs the new CLI's smoke. A failed proof reports `okit update --rollback`; rollback activates the retained version without downloading. User-edited skill/module files are preserved. `okit uninstall` removes managed registration, links, autostart and version directories while preserving user state/configuration; `--purge --yes` also removes the configured state root. All three accept `--dry-run`, which queries release metadata where needed but downloads no payload and writes nothing.
+`okit-plugin update --check` only reports availability. `okit-plugin update` stops the active daemon, backs up state and client configuration, retains the previous version, changes registration/link/autostart paths, restarts and runs the new CLI's smoke. A failed proof reports `okit-plugin update --rollback`; rollback activates the retained version without downloading. User-edited skill/module files are preserved. `okit-plugin uninstall` removes managed registration, links, autostart and version directories while preserving user state/configuration; `--purge --yes` also removes the configured state root. All three accept `--dry-run`, which queries release metadata where needed but downloads no payload and writes nothing.
 
 SHA-256 detects altered bytes; it does **not** authenticate the release source. The dependency-free Node extractor accepts regular tar.gz/zip entries, preserves executable modes, bounds decompressed size and refuses traversal, absolute paths, links and special entries.
 
 The root [INSTALL.md](../INSTALL.md) and [Portuguese guide](../INSTALL.pt-BR.md) describe the standalone `install.sh` (Linux/macOS) and `install.ps1` (Windows). Both embed the same bootstrap, generated from `src/install/bootstrap.js`; their marked configuration blocks derive from install/release defaults and Node engines at build time. Every key supports an `OKIT_` environment override. Run the script renderer to refresh checked-in scripts after changing defaults; drift tests reject stale copies.
 
-The build emits `release.publish.bootstrapAttachments` alongside archives: both scripts and both INSTALL guides. These files join the existing `payloads` attachment group in `release.publish.attachments`, so publication hashes, verifies and attaches them without changes to the publisher. They never enter pair archives. `okit install --from <folder>` validates package identity and CLI, copies a verified extracted source into the fixed destination and keeps the source. The bootstrap verifies SHA-256 with system tools before system extraction; that hash does not authenticate archive contents. Explicit script `update|uninstall` delegates to the recorded CLI without bootstrap downloads. Linux proof belongs to the Director; Windows/macOS remain for the Producer.
+The build emits `release.publish.bootstrapAttachments` alongside archives: both scripts and both INSTALL guides. These files join the existing `payloads` attachment group in `release.publish.attachments`, so publication hashes, verifies and attaches them without changes to the publisher. They never enter pair archives. `okit-plugin install --from <folder>` validates package identity and CLI, copies a verified extracted source into the fixed destination and keeps the source. The bootstrap verifies SHA-256 with system tools before system extraction; that hash does not authenticate archive contents. Explicit script `update|uninstall` delegates to the recorded CLI without bootstrap downloads. Linux proof belongs to the Director; Windows/macOS remain for the Producer.
 
 ## The local build
 
@@ -146,7 +148,7 @@ Immediately before invoking GitHub, git checks run again: a dirty tree (includin
 
 ## Proof per pair
 
-Every checkbox means **both** layers against that pair's installed candidate: `okit smoke` (in-process, scratch home) and the D25 scenario inside the actual named client, loading the real installation with its real login/state. `--dry-run`, rehearsal and mocked spawns are not real-client proof. `okit client-smoke` is implemented for Claude Code; see [SMOKE.md](SMOKE.md#in-client-smoke-real). Other real-client drivers are pending. Keep each pair unchecked until both layers are recorded and accepted.
+Every checkbox means **both** layers against that pair's installed candidate: `okit-plugin smoke` (in-process, scratch home) and the D25 scenario inside the actual named client, loading the real installation with its real login/state. `--dry-run`, rehearsal and mocked spawns are not real-client proof. `okit-plugin client-smoke` is implemented for Claude Code; see [SMOKE.md](SMOKE.md#in-client-smoke-real). Other real-client drivers are pending. Keep each pair unchecked until both layers are recorded and accepted.
 
 | Pair checklist | Who performs and signs both layers |
 | :- | :- |

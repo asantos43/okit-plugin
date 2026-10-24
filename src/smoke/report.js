@@ -7,6 +7,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, open, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import process from 'node:process';
+import { DEFAULT_CONFIG } from '../profiles.js';
 
 // How many lines of the deciding file a record carries: enough to see the
 // failure, short enough that the record stays a line in the jsonl.
@@ -142,7 +143,7 @@ function recordLines(record) {
 
 function humanText(header, records, environment, summary) {
   const block = header.environment ?? records.find((record) => record.environment)?.environment ?? environment;
-  const lines = ['okit smoke', `run: ${header.runId}`, ...environmentLines(block), ''];
+  const lines = [`${header.command ?? DEFAULT_CONFIG.install.command} smoke`, `run: ${header.runId}`, ...environmentLines(block), ''];
   if (header.reason) lines.push(`refused: ${header.reason}`);
   for (const record of records) {
     lines.push(...recordLines(record));

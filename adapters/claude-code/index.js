@@ -16,6 +16,7 @@ import { postCompactConfig } from '../../src/hook-post-compact.js';
 import { makeSpawner } from '../../src/spawn-process.js';
 import { readJson } from '../../src/state.js';
 import { paths, stateRoot } from '../../src/store.js';
+import { DEFAULT_CONFIG } from '../../src/profiles.js';
 
 export const CLIENT = 'claude-code';
 
@@ -277,7 +278,7 @@ export async function installHooks(files, opts = {}) {
 }
 
 /** Builds the compact-only entry; command may name an installed absolute CLI. */
-export function postCompactHooks({ config, command = 'okit hook post-compact' } = {}) {
+export function postCompactHooks({ config, command = `${DEFAULT_CONFIG.install.command} hook post-compact` } = {}) {
   const settings = postCompactConfig(config);
   return { SessionStart: [{ matcher: 'compact', hooks: [{
     type: 'command', command: text(command, 'command'), timeout: settings.timeoutSec,

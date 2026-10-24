@@ -2,7 +2,7 @@
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Write-Error 'Node required: https://nodejs.org/'; exit 2 }
 $okitBootstrap = @'
 // BEGIN OKIT CONFIG (each key overridden by OKIT_<KEY>)
-const defaults = {"REPO":"asantos43/okit-plugin","API":"https://api.github.com","CLIENTS":"{\"claude-code\":\"claude\",\"codex\":\"codex\",\"opencode\":\"opencode\"}","NAME":"{package}-{version}-{client}-{system}-{arch}.{ext}","COMMAND":"okit","MIN_NODE":"20","PACKAGE":"okit-plugin","MANIFEST":"{package}-{version}-checksums.sha256","TAG_PREFIX":"v","DIRECTORY":"okit-plugin","DEST":"","DATA_ROOTS":"{\"linux\":[\"XDG_DATA_HOME\",\".local\",\"share\"],\"darwin\":[null,\"Library\",\"Application Support\"],\"win32\":[\"LOCALAPPDATA\",\"AppData\",\"Local\"]}","FORMATS":"{\"linux\":\"tar.gz\",\"windows\":\"zip\",\"macos\":\"tar.gz\"}","SYSTEMS":"{\"Linux\":\"linux\",\"Darwin\":\"macos\",\"Windows_NT\":\"windows\"}","ARCHITECTURES":"{\"x86_64\":\"x64\",\"aarch64\":\"arm64\",\"arm64\":\"arm64\",\"x64\":\"x64\"}"};
+const defaults = {"REPO":"asantos43/okit-plugin","API":"https://api.github.com","CLIENTS":"{\"claude-code\":\"claude\",\"codex\":\"codex\",\"opencode\":\"opencode\"}","NAME":"{package}-{version}-{client}-{system}-{arch}.{ext}","COMMAND":"okit-plugin","MIN_NODE":"20","PACKAGE":"okit-plugin","MANIFEST":"{package}-{version}-checksums.sha256","TAG_PREFIX":"v","DIRECTORY":"okit-plugin","DEST":"","DATA_ROOTS":"{\"linux\":[\"XDG_DATA_HOME\",\".local\",\"share\"],\"darwin\":[null,\"Library\",\"Application Support\"],\"win32\":[\"LOCALAPPDATA\",\"AppData\",\"Local\"]}","FORMATS":"{\"linux\":\"tar.gz\",\"windows\":\"zip\",\"macos\":\"tar.gz\"}","SYSTEMS":"{\"Linux\":\"linux\",\"Darwin\":\"macos\",\"Windows_NT\":\"windows\"}","ARCHITECTURES":"{\"x86_64\":\"x64\",\"aarch64\":\"arm64\",\"arm64\":\"arm64\",\"x64\":\"x64\"}"};
 // END OKIT CONFIG
 // Embedded into the standalone release scripts by the build; no repo imports.
 async function bootstrap(defaults) {
@@ -41,7 +41,13 @@ async function bootstrap(defaults) {
   const roots = JSON.parse(config.DATA_ROOTS)[platform];
   const destination = resolve(flags['--dest'] || config.DEST || join(env[roots[0]] || join(env.HOME || env.USERPROFILE || homedir(), ...roots.slice(1)), config.DIRECTORY));
   const recordFile = join(destination, 'install.json');
-  const record = await exists(recordFile) ? JSON.parse(await fs.readFile(recordFile, 'utf8')) : null;
+  const records = [];
+  for (const client of Object.keys(JSON.parse(config.CLIENTS))) {
+    const path = join(destination, `install.${client}.json`);
+    if (await exists(path)) records.push(JSON.parse(await fs.readFile(path, 'utf8')));
+  }
+  if (!records.length && await exists(recordFile)) records.push(JSON.parse(await fs.readFile(recordFile, 'utf8')));
+  const record = flags['--client'] ? records.find((item) => item.client === flags['--client']) : records[0];
   const invoke = (cli, command, values) => {
     const result = spawnSync(process.execPath, [cli, command, ...values], { stdio: 'inherit' });
     process.exitCode = result.status ?? 1;
@@ -50,6 +56,7 @@ async function bootstrap(defaults) {
     if (!record) fail(`No installation record found at ${recordFile}`);
     for (const key of Object.keys(flags)) {
       if (key === '--dest') continue;
+      if (key === '--client') { forwarded.push(key, flags[key]); continue; }
       if (!['--check', '--rollback', '--dry-run', '--yes', '--purge'].includes(key)) fail(`Unsupported ${action} flag: ${key}`);
       forwarded.push(key);
     }

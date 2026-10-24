@@ -19,6 +19,57 @@ import { register } from '../src/install/register.js';
 import { installerCommand } from '../src/install/index.js';
 import { rollback } from '../src/install/update.js';
 import * as moduleAdapter from '../adapters/opencode/index.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+const execute = promisify(execFile);
+import { detectKit } from '../src/install/kit.js';
+
+// | Input | Must pass | Must refuse |
+// | legacy owned link, every client, install/update | migrate and uninstall | |
+// | kit at legacy command, configured command | coexist and preserve kit | remove kit |
+for (const client of Object.keys(DEFAULT_CONFIG.install.clients)) {
+  for (const action of ['install', 'update']) for (const foreign of [false, true]) {
+    test(`${action} migrates ${client}; foreign kit=${foreign}`, async (t) => {
+      const f = await fixture(t);
+      f.io.loadAdapter = async () => moduleAdapter;
+      assert.equal(await main(['install', '--client', client], f.io), 0);
+      const record = await readRecord(f.destination, client, fs);
+      record.settings.command = DEFAULT_CONFIG.install.legacyCommands[0];
+      await saveRecord(f.destination, record, f.deps);
+      await fs.rename(join(f.bin, f.config.command), join(f.bin, record.settings.command));
+      if (foreign) {
+        await fs.unlink(join(f.bin, record.settings.command));
+        await fs.writeFile(join(f.bin, record.settings.command), `#!${process.execPath}\nrequire('node:fs').writeSync(1, 'kit 3.2.1\\n');\n`, { mode: 0o755 });
+      }
+      const { command, ...settings } = f.config;
+      await fs.writeFile(join(f.root, 'config.json'), JSON.stringify({ install: settings }));
+      f.setVersion('2.0.0');
+      assert.equal(await main([action, '--client', client], f.io), 0, f.output.join('\n'));
+      const active = await readRecord(f.destination, client, fs);
+      assert.equal(await fs.readlink(join(f.bin, command)), join(active.path, active.bin));
+      const old = join(f.bin, record.settings.command);
+      assert.equal(Boolean(await fs.lstat(old).catch(() => null)), foreign);
+      if (foreign) assert.equal((await execute(old)).stdout.trim(), 'kit 3.2.1');
+      assert.equal(await main(['uninstall', '--client', client], f.io), 0);
+      assert.equal(await fs.lstat(join(f.bin, command)).catch(() => null), null);
+      assert.equal(Boolean(await fs.lstat(old).catch(() => null)), foreign);
+    });
+  }
+}
+
+test('plugin and kit commands execute their own tool in a temporary HOME', async (t) => {
+  const f = await fixture(t);
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0);
+  const record = await readRecord(f.destination, 'codex', fs);
+  await fs.writeFile(join(record.path, record.bin), `#!${process.execPath}\nrequire('node:fs').writeSync(1, 'plugin\\n');\n`, { mode: 0o755 });
+  await fs.chmod(join(record.path, record.bin), 0o755);
+  await fs.writeFile(join(f.bin, 'okit'), `#!${process.execPath}\nrequire('node:fs').writeSync(1, 'kit 3.2.1\\n');\n`, { mode: 0o755 });
+  const env = { HOME: f.home, PATH: f.bin };
+  assert.equal((await execute(f.config.command, [], { env })).stdout.trim(), 'plugin');
+  assert.equal((await execute('okit', [], { env })).stdout.trim(), 'kit 3.2.1');
+  const run = ({ command, args }) => execute(command, args, { env });
+  assert.equal((await detectKit({ ...f.deps, env, run })).state, 'installed');
+});
 
 // Must pass / must refuse corpus:
 // | Input | Must pass | Must refuse |
@@ -29,6 +80,7 @@ import * as moduleAdapter from '../adapters/opencode/index.js';
 // | dry-run, edited skill/module, foreign command link | preserve tree/edits | overwrite |
 // | registered client, shared settings, own chain | synchronize/preserve other folders | |
 // | unregistered client, previous from another client | | before mutation |
+// | legacy plugin link / foreign kit link | migrate plugin / preserve kit | delete kit |
 
 async function fixture(t) {
   const home = await fs.mkdtemp(join(tmpdir(), 'install-test-'));
@@ -45,7 +97,7 @@ async function fixture(t) {
     out: (line) => output.push(line), detect: async () => false };
   let version = '1.0.0';
   let badHash = false, missing = false, prerelease = false;
-  const pkg = { name: 'sample', version, bin: { okit: 'src/cli.js' }, repository: { url: 'https://example.invalid/example/project' } };
+  const pkg = { name: 'sample', version, bin: { 'okit-plugin': 'src/cli.js' }, repository: { url: 'https://example.invalid/example/project' } };
   const payload = () => tarGz([
     { path: 'package.json', mode: 0o644, data: JSON.stringify({ ...pkg, version }) },
     { path: 'src/cli.js', mode: 0o755, data: '#!/usr/bin/env node\n' },
@@ -224,7 +276,7 @@ test('second client synchronizes shared link and autostart into existing record'
   assert.equal(records.codex.linkDirectory, f.bin);
   assert.deepEqual(records['claude-code'], { ...first, autostart: true,
     link: records.codex.link, linkDirectory: records.codex.linkDirectory });
-  assert.equal(await fs.readlink(join(f.bin, 'okit')), join(records.codex.path, records.codex.bin));
+  assert.equal(await fs.readlink(join(f.bin, 'okit-plugin')), join(records.codex.path, records.codex.bin));
 });
 
 for (const corruption of ['protected path', 'foreign client']) test(`uninstall preserves cross-client previous with ${corruption}`, async (t) => {
@@ -293,10 +345,10 @@ test('three clients keep independent records, updates, rollback and shared link'
     assert.ok(await fs.stat(updated[client].path));
     assert.ok(await fs.stat(updated[client].previous.path));
   }
-  assert.ok(await fs.stat(join(f.bin, 'okit')));
+  assert.ok(await fs.stat(join(f.bin, 'okit-plugin')));
   assert.equal(await main(['uninstall'], f.io), 0);
   assert.deepEqual(await readRecords(f.destination, fs), {});
-  assert.equal(await fs.lstat(join(f.bin, 'okit')).catch(() => null), null);
+  assert.equal(await fs.lstat(join(f.bin, 'okit-plugin')).catch(() => null), null);
 });
 
 test('update all continues after smoke failure and synchronizes shared settings', async (t) => {
@@ -315,7 +367,7 @@ test('update all continues after smoke failure and synchronizes shared settings'
     assert.equal(record.previous.client, record.client);
   }
   assert.equal(await main(['uninstall', '--client', 'opencode'], io), 0);
-  const target = await fs.readlink(join(f.bin, 'okit'));
+  const target = await fs.readlink(join(f.bin, 'okit-plugin'));
   assert.ok(await fs.stat(target));
   assert.ok(f.events.filter((event) => event === 'autostart').length > 3);
 });
@@ -408,7 +460,7 @@ test('update check, backup, activate, smoke failure and rollback', async (t) => 
   assert.ok(f.output.some((line) => line.includes('update --rollback')));
   assert.equal(await main(['update', '--rollback'], f.io), 0);
   assert.equal((await readRecord(f.destination, fs)).version, prior.version);
-  assert.equal(await fs.readlink(join(f.bin, 'okit')), join(prior.path, prior.bin));
+  assert.equal(await fs.readlink(join(f.bin, 'okit-plugin')), join(prior.path, prior.bin));
 });
 
 test('uninstall preserves user state; purge requires yes', async (t) => {
@@ -420,7 +472,7 @@ test('uninstall preserves user state; purge requires yes', async (t) => {
   assert.deepEqual(await tree(f.home), before);
   assert.equal(await main(['uninstall'], f.io), 0);
   assert.equal(await fs.readFile(join(f.root, 'state'), 'utf8'), 'user data');
-  assert.equal(await fs.lstat(join(f.bin, 'okit')).catch(() => null), null);
+  assert.equal(await fs.lstat(join(f.bin, 'okit-plugin')).catch(() => null), null);
   assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0);
   assert.equal(await main(['uninstall', '--purge', '--yes'], f.io), 0);
   assert.equal(await fs.stat(f.root).catch(() => null), null);
@@ -464,9 +516,9 @@ test('placement cleans staging on error, retains old version, and publishes by r
 test('link preserves foreign files; configured data roots respect injected environment', async (t) => {
   const f = await fixture(t);
   await fs.mkdir(f.bin);
-  await fs.writeFile(join(f.bin, 'okit'), 'foreign');
+  await fs.writeFile(join(f.bin, 'okit-plugin'), 'foreign');
   await applyLink({ path: f.destination, bin: 'src/cli.js' }, f.deps);
-  assert.equal(await fs.readFile(join(f.bin, 'okit'), 'utf8'), 'foreign');
+  assert.equal(await fs.readFile(join(f.bin, 'okit-plugin'), 'utf8'), 'foreign');
   const config = installConfig();
   assert.equal(installPaths(config, { env: { XDG_DATA_HOME: f.home }, platform: 'linux', home: '/unused' }).destination, join(f.home, config.directory));
   assert.equal(installPaths(config, { env: { LOCALAPPDATA: f.home }, platform: 'win32', home: '/unused' }).destination, join(f.home, config.directory));
@@ -530,15 +582,96 @@ test('download enforces size and body timeout; failed request is clear and write
   assert.deepEqual(await tree(f.home), before);
 });
 
+for (const action of ['install', 'update', 'uninstall']) test(`${action} migrates 0.2.0 links for every client and preserves kit`, async (t) => {
+  const f = await fixture(t);
+  f.io.loadAdapter = async () => moduleAdapter;
+  f.io.detect = async () => true;
+  assert.equal(await main(['install', '--client', 'all'], f.io), 0);
+  for (const record of Object.values(await readRecords(f.destination, fs))) {
+    record.settings.command = 'okit';
+    await fs.writeFile(join(f.destination, `install.${record.client}.json`), JSON.stringify(record));
+  }
+  const current = await readRecord(f.destination, fs);
+  const old = join(f.bin, 'okit');
+  await fs.symlink(join(current.path, current.bin), old);
+  const args = action === 'install' ? ['install', '--client', 'all'] : [action];
+  if (action === 'update') f.setVersion('1.1.0');
+  assert.equal(await main(args, f.io), 0);
+  assert.equal(await fs.lstat(old).catch(() => null), null);
+  assert.equal(Boolean(await fs.lstat(join(f.bin, 'okit-plugin')).catch(() => null)), action !== 'uninstall');
+  if (action === 'uninstall') assert.equal(await main(['install', '--client', 'all'], f.io), 0);
+  const kit = join(f.home, 'kit');
+  await fs.writeFile(kit, 'foreign kit', { mode: 0o755 });
+  await fs.symlink(kit, old);
+  assert.equal(await main(args, f.io), 0);
+  assert.equal(await fs.readlink(old), kit);
+  assert.equal(await fs.readFile(kit, 'utf8'), 'foreign kit');
+});
+
+test('Windows migrates owned legacy shims and preserves foreign kit shims', async (t) => {
+  const f = await fixture(t);
+  const record = { path: join(f.destination, '0.2.0-codex'), bin: 'src/cli.js', client: 'codex' };
+  await fs.mkdir(record.path, { recursive: true });
+  await saveRecord(f.destination, record, f.deps);
+  const deps = { ...f.deps, platform: 'win32' };
+  await applyLink(record, { ...deps, config: { ...f.config, command: 'okit' } });
+  await applyLink(record, deps);
+  for (const suffix of ['.cmd', '.ps1']) {
+    assert.equal(await fs.stat(join(f.bin, `okit${suffix}`)).catch(() => null), null);
+    assert.ok(await fs.stat(join(f.bin, `${f.config.command}${suffix}`)));
+    await fs.writeFile(join(f.bin, `okit${suffix}`), 'foreign kit');
+  }
+  await applyLink(record, deps, null, true);
+  for (const suffix of ['.cmd', '.ps1']) {
+    assert.equal(await fs.readFile(join(f.bin, `okit${suffix}`), 'utf8'), 'foreign kit');
+    assert.equal(await fs.stat(join(f.bin, `${f.config.command}${suffix}`)).catch(() => null), null);
+  }
+});
+
 test('Windows creates both configured shims and preserves a foreign replacement', async (t) => {
   const f = await fixture(t);
   const deps = { ...f.deps, platform: 'win32' };
   const record = { path: join(f.home, 'path with spaces'), bin: 'src/cli.js' };
   await applyLink(record, deps);
-  assert.match(await fs.readFile(join(f.bin, 'okit.cmd'), 'utf8'), /".*path with spaces.*" %\*/);
-  assert.match(await fs.readFile(join(f.bin, 'okit.ps1'), 'utf8'), /@args/);
-  await fs.writeFile(join(f.bin, 'okit.cmd'), 'foreign');
+  assert.match(await fs.readFile(join(f.bin, 'okit-plugin.cmd'), 'utf8'), /".*path with spaces.*" %\*/);
+  assert.match(await fs.readFile(join(f.bin, 'okit-plugin.ps1'), 'utf8'), /@args/);
+  await fs.writeFile(join(f.bin, 'okit-plugin.cmd'), 'foreign');
   await applyLink(record, deps, null, true);
-  assert.equal(await fs.readFile(join(f.bin, 'okit.cmd'), 'utf8'), 'foreign');
-  assert.equal(await fs.stat(join(f.bin, 'okit.ps1')).catch(() => null), null);
+  assert.equal(await fs.readFile(join(f.bin, 'okit-plugin.cmd'), 'utf8'), 'foreign');
+  assert.equal(await fs.stat(join(f.bin, 'okit-plugin.ps1')).catch(() => null), null);
+});
+
+test('Windows migrates only owned legacy shims, including during uninstall', async (t) => {
+  const f = await fixture(t);
+  const deps = { ...f.deps, platform: 'win32' };
+  const record = { path: join(f.home, 'plugin'), bin: 'src/cli.js' };
+  const old = { ...deps, config: { ...deps.config, command: deps.config.legacyCommands[0] } };
+  await applyLink(record, old);
+  await applyLink(record, deps);
+  for (const suffix of ['.cmd', '.ps1']) {
+    assert.equal(await fs.lstat(join(f.bin, old.config.command + suffix)).catch(() => null), null);
+    assert.ok(await fs.stat(join(f.bin, deps.config.command + suffix)));
+  }
+  await applyLink(record, old);
+  await fs.writeFile(join(f.bin, old.config.command + '.cmd'), 'foreign kit');
+  await applyLink(record, deps, null, true);
+  assert.equal(await fs.readFile(join(f.bin, old.config.command + '.cmd'), 'utf8'), 'foreign kit');
+  assert.equal(await fs.lstat(join(f.bin, old.config.command + '.ps1')).catch(() => null), null);
+  assert.equal(await fs.lstat(join(f.bin, deps.config.command + '.cmd')).catch(() => null), null);
+});
+
+test('migration removes a dangling owned link and preserves a foreign symlink', async (t) => {
+  const f = await fixture(t);
+  const record = { client: 'codex', path: join(f.destination, '0.2.0-codex'), bin: 'src/cli.js' };
+  await fs.mkdir(f.destination);
+  await saveRecord(f.destination, record, f.deps);
+  await fs.mkdir(f.bin);
+  const legacy = join(f.bin, f.config.legacyCommands[0]);
+  await fs.symlink(join(record.path, record.bin), legacy);
+  await applyLink(record, f.deps);
+  assert.equal(await fs.lstat(legacy).catch(() => null), null);
+  const kit = join(f.home, 'foreign-kit');
+  await fs.symlink(kit, legacy);
+  await applyLink(record, f.deps, null, true);
+  assert.equal(await fs.readlink(legacy), kit);
 });

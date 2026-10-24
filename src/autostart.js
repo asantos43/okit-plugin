@@ -1,6 +1,6 @@
 // Autostart plans: the ways an OS starts a program at login. A plan is a pure
 // value — the file it writes, its content and the commands that install or
-// remove it — so `okit autostart show` can print the whole plan before a single
+// remove it — so `okit-plugin autostart show` can print the whole plan before a single
 // command runs, and a test can assert it without touching the machine.
 
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -10,6 +10,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { stateRoot } from './store.js';
+import { DEFAULT_CONFIG } from './profiles.js';
 
 export const AUTOSTART_KINDS = ['systemd', 'cron', 'launchd', 'schtasks'];
 
@@ -29,6 +30,7 @@ function settings(options = {}) {
     script: options.script ?? CLI_PATH,
     root: options.root ?? stateRoot(),
     home: options.home ?? homedir(),
+    command: options.command ?? DEFAULT_CONFIG.install.command,
   };
 }
 
@@ -45,11 +47,11 @@ const quoted = (value) => `"${value}"`;
  *   install: object[], uninstall: object[]}}
  */
 export function systemdPlan(options = {}) {
-  const { node, script, root, home } = settings(options);
+  const { node, script, root, home, command } = settings(options);
   const path = join(home, '.config', 'systemd', 'user', SERVICE_NAME);
   const content = [
     '[Unit]',
-    'Description=okit daemon',
+    `Description=${command} daemon`,
     'After=default.target',
     '',
     '[Service]',
@@ -135,7 +137,7 @@ export function launchdPlan(options = {}) {
 /**
  * A `@reboot` crontab line, the fallback where there is no unit file. `crontab`
  * has no per-line removal without a shell pipeline, so the plan owns the whole
- * crontab of that user and `okit autostart show` prints it before anything runs.
+ * crontab of that user and `okit-plugin autostart show` prints it before anything runs.
  *
  * @returns {{kind: string, path: string, content: string,
  *   install: object[], uninstall: object[]}}
