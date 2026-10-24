@@ -76,9 +76,15 @@ async function treeOf(dir, base = dir, lines = []) {
 // U1: the folder an install wrote is gone, and a second uninstall of a folder
 // that is not there is absent, not an error.
 async function uninstallSkills(deps) {
-  const source = join(deps.root, 'skills', 'okit-director');
-  await installSkill('okit-director', source, { root: deps.configRoot });
-  const folder = join(deps.configRoot, 'skills', 'okit-director');
+  for (const name of ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke']) {
+    await uninstallSkill(deps, name);
+  }
+}
+
+async function uninstallSkill(deps, name) {
+  const source = join(deps.root, 'skills', name);
+  await installSkill(name, source, { root: deps.configRoot });
+  const folder = join(deps.configRoot, 'skills', name);
   need(await exists(folder), 'installSkill must have written the folder');
 
   await rm(folder, { recursive: true, force: true });

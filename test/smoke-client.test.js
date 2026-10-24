@@ -37,7 +37,8 @@ async function fixture(t, options = {}) {
         if (response) return response;
       }
       const init = { type: 'system', subtype: 'init', plugins: [{ name: 'okit', path: plugin }],
-        skills: ['okit-director', 'okit-executor', 'okit-critic'].map((name) => `okit:${name}`),
+        skills: (options.skills ?? ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke'])
+          .map((name) => `okit:${name}`),
         mcp_servers: [{ name: 'okit', status: 'connected' }], tools: TOOL_NAMES.map((name) => `mcp__okit__${name}`) };
       const events = [init, { type: 'system', subtype: 'hook_response', path: plugin }];
       for (const operation of [request.operation, request.operation?.then].filter((entry) => entry?.tool)) {
@@ -74,6 +75,14 @@ test('all checks pass with real tool JSON and disk evidence, using the installed
   assert.ok(!JSON.stringify(artifact).includes('MODEL PROSE MUST NOT BE KEPT'));
   assert.match(result.artifacts.log, /logs[/\\]smoke[/\\]smoke-\d{8}T\d{6}Z-\d+\.log$/);
   assert.deepEqual((await readJson(join(f.root, 'inbox.json'))).items, []);
+});
+
+// Must pass / must refuse: all four namespaced skills pass C2; actor skills alone fail.
+test('C2 fails when the installed session lacks okit-smoke', async (t) => {
+  const f = await fixture(t, { skills: ['okit-director', 'okit-executor', 'okit-critic'] });
+  const result = await runClientSmoke([], f.io);
+  assert.equal(result.code, 1);
+  assert.equal(result.records.find(({ id }) => id === 'C2').status, 'fail');
 });
 
 // Must pass / must refuse corpus: the classification inputs come from SCENARIO;

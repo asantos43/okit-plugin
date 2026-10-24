@@ -135,7 +135,7 @@ A step names a resource, the call that touches it and the **behaviour** it asser
 | id | resource | what it proves | judged from |
 | :- | :- | :- | :- |
 | `C1` | plugin | the client loaded the installed plugin | the `init` event's `plugins[]`: our plugin's name and the path it was loaded from |
-| `C2` | skills | the installed skills are visible to the session | the `init` event's `skills[]`: `okit-director`, `okit-executor` and `okit-critic` under the plugin's namespace |
+| `C2` | skills | the installed skills are visible to the session | the `init` event's `skills[]`: `okit-director`, `okit-executor`, `okit-critic` and `okit-smoke` under the plugin's namespace |
 | `C3` | MCP | the server answered over the real stdio pipe | the `init` event's `mcp_servers[]` holds our server with `status: "connected"`, and the server answered `initialize` and `tools/list` with the 12 names |
 | `C4` | hooks | a hook of the plugin fired | the client's hook events; while the plugin ships no `hooks/hooks.json`, it is a `skip` with the reason `hook-evidence-unavailable` |
 | `C5` | daemon | the daemon of the installation ticked | the runner runs the installed `okit` bin with `daemon run-once`, and the decision line lands in `logs/<date>.jsonl` |
@@ -321,7 +321,7 @@ The classifier corpus probes the exported rule predicates for word counts.
 Step 1 exports only JSON-compatible data; resolving references and executing
 these operations belongs to Step 2.
 
-**Step 2 — the runner and the drivers (done).** `src/smoke/client.js` executes `SCENARIO`, with evidence and preparations in `client-checks.js`, `config.json` budget variables, quota pre-check, ceilings and CLI overrides. `okit client-smoke` defaults to the real installed target; `--headless` and `--demo` use Claude Code's JSON event stream. The installation gate, `PARCIAL`, disk verdicts and D19 artifacts are implemented. `test/smoke-client.test.js` uses an injected fake client and child streams; it never calls a real client. The skill entry point remains Step 3.
+**Step 2 — the runner and the drivers (done).** `src/smoke/client.js` executes `SCENARIO`, with evidence and preparations in `client-checks.js`, `config.json` budget variables, quota pre-check, ceilings and CLI overrides. `okit client-smoke` defaults to the real installed target; `--headless` and `--demo` use Claude Code's JSON event stream. The installation gate, `PARCIAL`, disk verdicts and D19 artifacts are implemented. `test/smoke-client.test.js` uses an injected fake client and child streams; it never calls a real client. Step 3 adds the skill entry point.
 
 Implementation notes for Step 2: the task's acceptance contract makes both
 `--rehearsal` and `--dry-run` offline scenario walks: no client, quota read or
@@ -339,7 +339,7 @@ delegation; preparation skips with `client-refused` if foreign pending demands,
 templates or orders due for purge could be affected by the tick. An unavailable client or a
 missing required CLI flag refuses before the scenario, with exit 2.
 
-**Step 3 — the skill.** New `skills/okit-smoke/SKILL.md` with the scenario as the briefing, and the tagged records the steps leave behind. The skill is the scenario the client reads; it is the same list `src/smoke/scenario.js` holds.
+**Step 3 — the skill (done).** `skills/okit-smoke/SKILL.md` drives `okit client-smoke --client claude-code --demo` without duplicating the scenario. It requests confirmation before spending quota, falls back to `--dry-run` without confirmation, and honors `--headless`, `--dry-run` or `--rehearsal` when requested. Limits come from `smoke.*` and the `--max-usd`, `--max-turns`, `--max-minutes` overrides. It narrates arriving output and finishes with one line per check, `PARCIAL` if present, artifact paths and the exit code. `C2` now requires all four skills, including `okit-smoke`.
 
 ## Implementation plan
 

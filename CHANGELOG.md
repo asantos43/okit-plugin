@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add `/okit-smoke`, the in-client smoke skill that confirms quota spending, narrates the existing runner and reports each check, partial results and exit code; include it in installation checks and C2 skill visibility.
 - Add `okit client-smoke` with real-install Claude Code execution, configurable quota and budget limits, disk/event verdicts, D19 artifacts, offline rehearsal/demo drivers and fake-client coverage.
 - Add the JSON-serializable in-client smoke scenario with C1–C23, core-derived classifier inputs, configuration references and contract tests.
 - Producer release decisions D-Q1 through D-Q7 (2026-10-23) in `docs/RELEASING.md` and `docs/RELEASING.pt-BR.md`, closing the seven open questions on distribution, machine integration, artifacts, lifecycle and proof.

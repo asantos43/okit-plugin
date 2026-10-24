@@ -6,9 +6,10 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { installSkillFiles } from '../src/skills.js';
+import { installSkill } from '../adapters/claude-code/index.js';
 
 const SKILLS_DIR = fileURLToPath(new URL('../skills/', import.meta.url));
-const EXPECTED_SKILLS = ['okit-critic', 'okit-director', 'okit-executor'];
+const EXPECTED_SKILLS = ['okit-critic', 'okit-director', 'okit-executor', 'okit-smoke'];
 const MAX_DESCRIPTION = 300;
 const MAX_BODY_LINES = 60;
 const FENCE = '---';
@@ -132,7 +133,7 @@ test('parseFrontMatter refuses a file it cannot trust', () => {
   assert.throws(() => parseFrontMatter(null), /must be text/);
 });
 
-test('the plugin ships a skill for the director, the executor and the critic', async () => {
+test('the plugin ships director, executor, critic and smoke skills', async () => {
   assert.deepEqual(await skillFolders(), EXPECTED_SKILLS);
 });
 
@@ -255,13 +256,21 @@ test('installSkillFiles installs the real skills of the plugin', async (t) => {
   t.after(() => rm(root, { recursive: true, force: true }));
 
   for (const folder of EXPECTED_SKILLS) {
-    const result = await installSkillFiles(join(SKILLS_DIR, folder), join(root, folder));
+    const result = await installSkill(folder, join(SKILLS_DIR, folder), { root });
     assert.deepEqual(result.written, ['SKILL.md']);
     assert.deepEqual(result.skipped, []);
     assert.equal(
       await readFile(join(result.path, 'SKILL.md'), 'utf8'),
       await readFile(join(SKILLS_DIR, folder, 'SKILL.md'), 'utf8'),
     );
+    const second = await installSkill(folder, join(SKILLS_DIR, folder), { root });
+    assert.deepEqual(second.written, []);
+    assert.deepEqual(second.skipped, [{ path: 'SKILL.md', reason: 'identical' }]);
+    await writeFile(join(result.path, 'SKILL.md'), 'user copy\n');
+    const changed = await installSkill(folder, join(SKILLS_DIR, folder), { root });
+    assert.deepEqual(changed.written, []);
+    assert.deepEqual(changed.skipped, [{ path: 'SKILL.md', reason: 'differs' }]);
+    assert.equal(await readFile(join(result.path, 'SKILL.md'), 'utf8'), 'user copy\n');
   }
 });
 

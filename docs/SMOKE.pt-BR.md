@@ -130,7 +130,7 @@ Um passo nomeia um recurso, a chamada que o toca e o **comportamento** que ele a
 | id | recurso | o que prova | julgado a partir de |
 | :- | :- | :- | :- |
 | `C1` | plugin | o cliente carregou o plugin instalado | o `plugins[]` do evento `init`: o nome do nosso plugin e o caminho de onde ele foi carregado |
-| `C2` | skills | as skills instaladas estão visíveis na sessão | o `skills[]` do evento `init`: `okit-director`, `okit-executor` e `okit-critic` sob o namespace do plugin |
+| `C2` | skills | as skills instaladas estão visíveis na sessão | o `skills[]` do evento `init`: `okit-director`, `okit-executor`, `okit-critic` e `okit-smoke` sob o namespace do plugin |
 | `C3` | MCP | o servidor respondeu pelo pipe stdio de verdade | o `mcp_servers[]` do evento `init` traz o nosso servidor com `status: "connected"`, e o servidor respondeu `initialize` e `tools/list` com os 12 nomes |
 | `C4` | hooks | um hook do plugin disparou | os eventos de hook do cliente; enquanto o plugin não trouxer `hooks/hooks.json`, é um `skip` com o motivo `hook-evidence-unavailable` |
 | `C5` | daemon | o daemon da instalação deu um tick | o runner roda o bin `okit` instalado com `daemon run-once`, e a linha de decisão cai em `logs/<date>.jsonl` |
@@ -317,7 +317,7 @@ O corpus do classificador consulta os predicados das regras exportadas para as c
 O Passo 1 exporta apenas dados compatíveis com JSON; resolver referências e executar
 essas operações pertence ao Passo 2.
 
-**Passo 2 — o runner e os drivers (feito).** `src/smoke/client.js` executa `SCENARIO`, com evidências e preparações em `client-checks.js`, variáveis de orçamento do `config.json`, pré-checagem de cota, tetos e sobrescritas pelo CLI. `okit client-smoke` usa a instalação real como padrão; `--headless` e `--demo` usam os eventos JSON do Claude Code. O portão da instalação, `PARCIAL`, os vereditos em disco e os artefatos D19 estão implementados. `test/smoke-client.test.js` usa cliente falso e streams de processo injetados, sem chamar cliente real. A entrada pela skill continua no Passo 3.
+**Passo 2 — o runner e os drivers (feito).** `src/smoke/client.js` executa `SCENARIO`, com evidências e preparações em `client-checks.js`, variáveis de orçamento do `config.json`, pré-checagem de cota, tetos e sobrescritas pelo CLI. `okit client-smoke` usa a instalação real como padrão; `--headless` e `--demo` usam os eventos JSON do Claude Code. O portão da instalação, `PARCIAL`, os vereditos em disco e os artefatos D19 estão implementados. `test/smoke-client.test.js` usa cliente falso e streams de processo injetados, sem chamar cliente real. O Passo 3 acrescenta a entrada pela skill.
 
 Notas da implementação do Passo 2: o aceite da tarefa determina que tanto
 `--rehearsal` quanto `--dry-run` percorrem o cenário offline: sem cliente,
@@ -336,7 +336,7 @@ se demandas pendentes, templates ou ordens alheias sujeitas a expurgo puderem se
 tick. Cliente indisponível ou flag obrigatória ausente recusa antes do cenário,
 com saída 2.
 
-**Passo 3 — a skill.** Novo `skills/okit-smoke/SKILL.md` com o roteiro como briefing, e os registros marcados que os passos deixam para trás. A skill é o roteiro que o cliente lê; é a mesma lista que `src/smoke/scenario.js` guarda.
+**Passo 3 — a skill (feito).** `skills/okit-smoke/SKILL.md` aciona `okit client-smoke --client claude-code --demo` sem duplicar o cenário. Pede confirmação antes de gastar cota, usa `--dry-run` sem confirmação e respeita `--headless`, `--dry-run` ou `--rehearsal` quando solicitados. Os limites vêm de `smoke.*` e das sobrescritas `--max-usd`, `--max-turns`, `--max-minutes`. Narra a saída conforme chega e termina com uma linha por verificação, `PARCIAL` se houver, caminhos dos artefatos e código de saída. `C2` agora exige as quatro skills, incluindo `okit-smoke`.
 
 ## Plano de implementação
 
