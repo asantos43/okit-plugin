@@ -85,6 +85,72 @@ export const DEFAULT_CONFIG = {
     marketplace: { name: null, owner: { name: null, url: null } },
     // The modes of the entries: the CLI is executable, the rest is not.
     modes: { executable: '0755', file: '0644' },
+    // The release notes: the name model of the notes file, the root change
+    // history they come from and the texts they carry. The name, the version
+    // and the engines come from `package.json`.
+    notes: {
+      fileName: '{package}-{version}-release-notes.md',
+      // The change history of the repository root and the section of it that
+      // holds the changes of the version.
+      history: 'CHANGELOG.md',
+      section: 'Unreleased',
+      // The record of the proof of the pairs, as a JSON object of
+      // `<client>:<system>` to a state; `null` means "no proof yet".
+      proofFile: null,
+      // Who signs the proof of each system.
+      proofBy: { linux: 'Director', windows: 'Producer', macos: 'Producer' },
+      // The signer of a system the map above does not name.
+      proofByOther: 'Producer',
+      // The labels of the proof state.
+      status: { unproven: 'not proven', proven: 'proven', partial: 'PARCIAL' },
+      // The title of the notes.
+      title: 'Release notes — {package} {version}',
+      // The headings of the notes.
+      headings: {
+        version: 'Version',
+        prerequisites: 'Prerequisites',
+        artifacts: 'Artifacts',
+        install: 'Installation and update',
+        update: 'Update',
+        proof: 'Proof per pair',
+        gaps: 'Known gaps',
+        changes: 'Changes in this version',
+      },
+      // The labels of the fields.
+      labels: {
+        package: 'Package',
+        version: 'Version',
+        manifest: 'Digest manifest',
+        pair: 'Pair',
+        state: 'Proof',
+        signer: 'Proof owner',
+      },
+      // The prerequisite of the version: the Node version of the package.
+      prerequisites: 'Node {engines} is required (from `package.json.engines.node`).',
+      // The prerequisite of a package that asks for no Node version.
+      prerequisitesNone: 'The package asks for no particular Node version.',
+      // The line about the manifest of the checksums.
+      manifest: 'The manifest of the SHA-256 digests is `{manifest}`; verify it before extracting anything.',
+      // The line about where the changes come from.
+      source: 'The changes below come from the `{section}` section of `{history}`.',
+      // The line that opens the known gaps.
+      gapsIntro: 'Every pair without proof is listed here; a partial proof is never hidden:',
+      // The line of one known gap.
+      gapLine: '- {pair}: {state}.',
+      // The steps of the installation and of the update.
+      install: [
+        'Download the payload of your pair and the digest manifest from the GitHub releases page.',
+        'Verify the SHA-256 of every file against the manifest before extracting anything.',
+        'Check the Node version against the engines of the package.',
+        'Extract the payload to the configured destination and follow the instructions of that pair.',
+        'Configure the bin link or shim, the MCP server, the skills and the autostart, then prove the installation.',
+      ],
+      update: [
+        'Stop the old daemon and keep a backup of the configured state and of the skills and hooks you edited.',
+        'Verify the new payload, change the client references and the PATH registration, and regenerate the moved autostart paths.',
+        'Restart the daemon and the client, and repeat the proof of the installation.',
+      ],
+    },
   },
 };
 
