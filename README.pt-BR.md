@@ -1,5 +1,28 @@
 # okit-plugin
 
+## Restaurar contexto após compactação (Claude Code)
+
+`okit hook post-compact` lê o JSON do hook (`cwd`) pela entrada padrão e exibe
+itens abertos/em andamento do projeto e globais, títulos de ordens permanentes
+ativas e uma linha de contagens. Usa `title` da ordem quando presente, senão a
+primeira linha de `text`; corpos e variáveis de ambiente ficam fora da saída.
+Estado ausente/inválido, entrada inválida, erro ou prazo esgotado: saída vazia,
+código 0.
+
+No `config.json` da raiz de estado (`OKWORK_HOME`), configure `postCompact`:
+`enabled` (padrão `true`), `timeoutSec` (`5`), `maxLines` (`20`), `sections`
+(`inbox`, `orders`, `status`, todas `true`), `inboxStatuses` e `text`. Os padrões
+ficam em `src/profiles.js`; sobrescritas parciais de seções/textos são mescladas.
+`postCompact.enabled=false` desliga a saída. A leitura inicial usa o prazo padrão
+até conhecer o configurado, contado desde o início do hook.
+
+Sem instalador geral por enquanto: importe `installPostCompactHook` de
+`adapters/claude-code/index.js` e chame com `{ root: raizDoCliente,
+config: configuracaoDoPlugin }`. `command` é opcional (padrão
+`okit hook post-compact`, com `okit` no PATH). A função mescla `SessionStart`,
+matcher `compact`, com o prazo configurado em `hooks/hooks.json`, preserva
+entradas do usuário e não grava novamente na segunda instalação idêntica.
+
 Um plugin para clientes de IA (Claude Code, Codex, opencode) que ajuda um agente
 Diretor a distribuir o trabalho delegável pelos próprios subagentes do cliente.
 

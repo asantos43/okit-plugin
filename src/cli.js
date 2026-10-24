@@ -13,6 +13,7 @@ import { promisify } from 'node:util';
 import { AUTOSTART_KINDS, applyAutostart, autostartPlan, detectAutostart } from './autostart.js';
 import { daemonPause, daemonResume, daemonRun, daemonStatus, tick } from './daemon.js';
 import { limitsStatus } from './limits.js';
+import { runPostCompact } from './hook-post-compact.js';
 import { orderList } from './orders.js';
 import { DEFAULT_CONFIG } from './profiles.js';
 import { runSmoke } from './smoke.js';
@@ -31,6 +32,7 @@ const USAGE = [
   '       okit daemon status [--table [--locale en|pt-BR]]',
   '       okit autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       okit status [--locale en|pt-BR]',
+  '       okit hook post-compact',
   '       okit smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]',
   '       okit client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]',
   '         [--only <C ids>] [--keep] [--allow-unknown-quota]',
@@ -317,6 +319,9 @@ export async function main(argv = [], io = {}) {
 
   const [group, action, ...args] = argv;
   try {
+    if (group === 'hook' && action === 'post-compact') {
+      return await runPostCompact({ root: ctx.root, stdin: io.stdin, stdout: out });
+    }
     if (group === 'daemon') return await daemonCommand(ctx, action, args);
     if (group === 'autostart') return await autostartCommand(ctx, action, args);
     if (group === 'status') {
