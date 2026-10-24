@@ -1,62 +1,68 @@
 # okit-plugin
 
-[Instalação e atualização](INSTALL.pt-BR.md)
+Um plugin para clientes de IA (Claude Code, Codex, opencode) que ajuda o Diretor
+a distribuir demandas pelos próprios subagentes do cliente. Núcleo Node.js >=20,
+sem dependências, com estado em JSON.
 
-## Restaurar contexto após compactação (Claude Code)
+## Install — Instalar
 
-`okit hook post-compact` lê o JSON do hook (`cwd`) pela entrada padrão e exibe
-itens abertos/em andamento do projeto e globais, títulos de ordens permanentes
-ativas e uma linha de contagens. Usa `title` da ordem quando presente, senão a
-primeira linha de `text`; corpos e variáveis de ambiente ficam fora da saída.
-Estado ausente/inválido, entrada inválida, erro ou prazo esgotado: saída vazia,
-código 0.
+Use o [install.sh](install.sh) da release no Linux/macOS ou
+[install.ps1](install.ps1) no PowerShell do Windows. Leia os scripts e siga
+[INSTALL.pt-BR.md](INSTALL.pt-BR.md) para requisitos, flags, downloads verificados e atualizações.
+Depois, use `okit update --check`, `okit update` ou `okit update --rollback`.
+A matriz tem nove pares cliente × sistema; existir um pacote não comprova
+uso real. Veja as [provas por par](docs/RELEASING.pt-BR.md#proof-per-pair).
 
-No `config.json` da raiz de estado (`OKWORK_HOME`), configure `postCompact`:
-`enabled` (padrão `true`), `timeoutSec` (`5`), `maxLines` (`20`), `sections`
-(`inbox`, `orders`, `status`, todas `true`), `inboxStatuses` e `text`. Os padrões
-ficam em `src/profiles.js`; sobrescritas parciais de seções/textos são mescladas.
-`postCompact.enabled=false` desliga a saída. A leitura inicial usa o prazo padrão
-até conhecer o configurado, contado desde o início do hook.
+## Usage — Uso
 
-Sem instalador geral por enquanto: importe `installPostCompactHook` de
-`adapters/claude-code/index.js` e chame com `{ root: raizDoCliente,
-config: configuracaoDoPlugin }`. `command` é opcional (padrão
-`okit hook post-compact`, com `okit` no PATH). A função mescla `SessionStart`,
-matcher `compact`, com o prazo configurado em `hooks/hooks.json`, preserva
-entradas do usuário e não grava novamente na segunda instalação idêntica.
+```text
+okit install [--from <dir>] [--client <c>] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--autostart] [--dry-run] [--yes]
+okit update [--check] [--rollback] [--dry-run]
+okit uninstall [--purge] [--yes] [--dry-run]
+okit daemon start|stop|status|pause|resume|run-once
+okit daemon status [--table [--locale en|pt-BR]]
+okit autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
+okit status [--locale en|pt-BR]
+okit hook post-compact
+okit smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]
+okit client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]
+  [--only <C ids>] [--keep] [--allow-unknown-quota]
+  [--max-usd [n]] [--max-turns [n]] [--max-minutes [n]] [--quota-floor [pct]] [--timeout [ms]]
+```
 
-Um plugin para clientes de IA (Claude Code, Codex, opencode) que ajuda um agente
-Diretor a distribuir o trabalho delegável pelos próprios subagentes do cliente.
+O servidor MCP por stdio expõe 12 ferramentas: `acquire_slot`, `release_slot`,
+`limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
+`inbox_set_status`, `order_add`, `order_list`, `order_remove`.
+As skills Director, Executor, Critic e Smoke orientam delegação e verificação.
+`smoke` roda 31 checks isolados; `client-smoke` tem 23 checks de cenário e seu
+driver real suporta Claude Code. Dry-run e rehearsal são percursos offline.
+Veja [SMOKE.pt-BR.md](docs/SMOKE.pt-BR.md) para orçamento e provas exigidas.
 
-O Diretor classifica cada demanda por esforço (simples, normal, difícil),
-escolhe o modelo e o esforço de raciocínio do subagente pela classe e pela cota
-restante do cliente, e mantém uma pequena caixa de entrada e ordens
-permanentes. O Diretor delega, critica e consolida. Sem painel, sem trabalho
-entre clientes.
+## Configuration — Configuração
 
-Nas mensagens ao Produtor, o Diretor identifica demandas como `D25 (okit-plugin)` para distinguir projetos. Itens exibidos no inbox/status acrescentam `ref`; o `id` JSON, comandos, corpos de PR, campos do inbox e `critic-waiver Dn` mantêm o id puro. O registro opcional `project.json` na raiz de estado fornece `name`, com fallback para o nome do repositório em `path`; um único projeto em `appliesTo` da demanda tem precedência. Sem nome, `ref` é o id puro. Decisões do daemon acrescentam `ref` às entradas de demandas e `openedRefs` ao lado dos ids inalterados em `opened`.
+O estado fica em `~/.okwork`; `OKWORK_HOME` substitui essa raiz. Edite ali o
+`config.json`. Os padrões em [src/profiles.js](src/profiles.js) incluem
+`lowQuotaPct: 15`, `limits: {global: 4, perClient: 3}`, `staleMinutes: 30`
+e `profiles` vazio. Preencha `profiles.<client>.simple|normal|hard` com `model`,
+`effort`, `maxTurns`; não há modelo padrão. Todos os adaptadores leem a cota do
+usuário em `quota/<client>.json`. `postCompact` vem habilitado, `timeoutSec: 5`,
+`maxLines: 20`, todas as seções habilitadas. Padrões de `smoke`:
+`quotaFloorPct: 20`, `maxUsd: 1`, `maxTurns: null` (cenário completo),
+`maxMinutes: 15`, `checkTimeoutMs: 60000`.
 
-Uma demanda é qualquer unidade de trabalho delegável, não só código: pesquisa,
-redação, documentos, limpeza de dados, análise, planejamento, revisões e
-operações de arquivos.
+## Uninstall — Desinstalar
 
-**Status: fase de design (pré-alfa).** Este repositório contém apenas a
-estrutura e os documentos. Ainda não há código funcional.
+Revise com `okit uninstall --dry-run` e execute `okit uninstall` para parar o
+daemon, remover o registro do cliente, as versões registradas e o link de comando.
+Estado/configuração ficam; `okit uninstall --purge --yes` apaga a raiz de estado.
+Use o destino e a raiz de estado do registro da instalação.
+Estes são passos documentados; não existe script separado de desinstalação.
 
-## Funcionalidades planejadas
+## Development — Desenvolvimento
 
-- Classificação de esforço de cada demanda recebida.
-- Escolha do subagente por classe de esforço e por cota restante do cliente.
-- Uma pequena caixa de entrada e ordens permanentes mantidas pelo Diretor.
-- Um ciclo de delegação, crítica e consolidação.
-
-## Clientes e plataformas suportados
-
-- Clientes: Claude Code, Codex, opencode.
-- Plataformas: Linux, macOS e Windows.
-- Núcleo: Node.js >= 20, sem dependências, estado em arquivos JSON simples.
-
-## Contribuição
+Rode `node --test test/docs-consistency.test.js` para verificar a documentação e
+`node --test` para a suíte completa. Os comandos de release estão no guia
+referenciado abaixo.
 
 Pull requests são bem-vindos. Leia [CONTRIBUTING.md](CONTRIBUTING.md) antes.
 
@@ -65,7 +71,7 @@ As notas de design estão em [docs/DESIGN.pt-BR.md](docs/DESIGN.pt-BR.md).
 O desenho do release está em [docs/RELEASING.pt-BR.md](docs/RELEASING.pt-BR.md)
 ([English](docs/RELEASING.md)).
 
-## Licença
+## License — Licença
 
 MIT. Veja [LICENSE](LICENSE).
 

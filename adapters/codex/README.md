@@ -32,7 +32,7 @@ Facts checked locally on 2026-10-24, `codex-cli 0.163.0`:
 | Marketplace source may be local or Git | `codex plugin marketplace --help`, `codex plugin marketplace add --help` | No registration or refresh performed |
 | CLI has hook trust and MCP concepts | `codex --help` (`--dangerously-bypass-hook-trust`, `mcp`) | Hook JSON/TOML schema unverified; installer refuses; `hooks: false` describes adapter support |
 | No offline quota file/command verified | `codex --help`, `codex exec --help` | Architecture mentions app-server RPC; it is not a verified local file and is not invoked by this adapter |
-| Portable root `plugin.json`; shared marketplace/version | `docs/RELEASING.md`, D-Q2 | Manifest generation, registration and real installed-plugin proof remain release work |
+| Portable root `plugin.json`; shared marketplace/version | `docs/RELEASING.md`, D-Q2 | Default release configuration generates Claude Code metadata only. The installer registers the Codex marketplace and asks the user to activate it in `/plugins`; actual loading remains unproven. |
 | Skills payload copied beneath a chosen root | `docs/RELEASING.md`, Codex artifact and D-Q2 | Actual skills/plugins directories not inspected; user must select the plugin root |
 | Native Windows/macOS and desktop proof pending | `docs/RELEASING.md`, per-system table | `windows`/`desktop` conservatively false until verified; no claim that the client lacks them |
 

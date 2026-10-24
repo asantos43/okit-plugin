@@ -1,6 +1,6 @@
 # Smoke test
 
-Status: the in-process runner exists (`src/smoke.js`, `src/smoke/`, `okit smoke` / `npm run smoke`, merged in D19); the in-client runner of the section below is design (D20). Extends [ARCHITECTURE.md](ARCHITECTURE.md) and [DESIGN.md](DESIGN.md). One command proves the plugin is installed and every feature works end to end, on a scratch home, on Windows, macOS and Linux, and leaves a log a human can send for debugging (D17 was found by a Windows run of `node --test`).
+Implemented: `okit smoke` runs 31 isolated checks; `okit client-smoke` runs the C1–C23 scenario with a real Claude Code driver. This does not prove other clients or systems.
 
 ## Commands
 
@@ -8,10 +8,10 @@ Status: the in-process runner exists (`src/smoke.js`, `src/smoke/`, `okit smoke`
 
 | Flag | Meaning |
 | :- | :- |
-| `--real` | act on the real install: the plugin root the client loads, the real `~/.okwork`, the real `~/.claude` |
+| `--real` | use real state/config roots (`OKWORK_HOME` and `CLAUDE_CONFIG_DIR`, or home defaults); package root is unchanged |
 | `--keep` | leave the scratch home on disk and print its path |
 | `--only <id>` | run only these check ids; comma separated, repeatable, an unknown id is refused |
-| `--timeout <ms>` | default timeout per check, `60000`; a check with its own smaller timeout keeps it |
+| `--timeout <ms>` | raise each timeout to at least this many milliseconds; without the flag, use each table timeout (fallback `60000`) |
 
 Exit code, the three `src/cli.js` already uses: `0` every selected check passed, `1` one failed or timed out, `2` unknown flag, unknown `--only` id, or an `OKWORK_HOME` in the environment without `--real`.
 
@@ -21,7 +21,7 @@ Each run builds `<scratch>/home`, `<scratch>/project` and `<scratch>/tmp` under 
 
 ## What the runner reuses
 
-`src/cli.js` (`main(argv, io)` and the injected `out`/`err`/`root`/`env`/`spawn`/`run`/`platform`/`now`), `src/store.js` (`stateRoot`, `paths`), `src/state.js` (`writeJsonAtomic`, `readJson`, `withLock`), `src/daemon.js`, `src/autostart.js`, `src/skills.js`, `src/spawn-process.js`, `src/limits.js`, `src/orders.js`, `src/inbox.js`, `src/templates.js`, `src/status.js`, `src/mcp/server.js` (`createServer`, `handleLine`, `serverVersion`), `src/mcp/tools.js` (`TOOL_NAMES`), `adapters/claude-code/index.js` (`installSkill`, `installHooks`, `configRoot`, `capabilities`). The existing `test/smoke.test.js` keeps its two packaging assertions (the `okit-plugin` name and the MIT `LICENSE`); the runner tests are new and borrow its `read()` helper.
+The runner reuses the core, adapters and MCP server. `src/smoke.js` accepts injected dependencies to exercise installation, features and removal without starting real clients.
 
 ## Checks
 
@@ -32,7 +32,7 @@ or `skip`, and only `pass` counts as a success.
 
 | id | name | what it does | timeout |
 | :- | :- | :- | :- |
-| `I1` | `files.placed` | `src/cli.js` (the `okit` bin), `src/mcp/server.js`, `adapters/claude-code/index.js` and `skills/okit-{director,executor,critic}/SKILL.md` are readable | 5 s |
+| `I1` | `files.placed` | `src/cli.js` (the `okit` bin), `src/mcp/server.js`, `adapters/claude-code/index.js` and `skills/okit-{director,executor,critic,smoke}/SKILL.md` are readable | 5 s |
 | `I2` | `commands.registered` | `main()` accepts `daemon`, `autostart`, `status`; each exits `0`, an unknown group exits `2` | 15 s |
 | `I3` | `mcp.registered` | `initialize` and `tools/list` over `handleLine` name the 12 tools of `TOOL_NAMES` | 15 s |
 | `I4` | `skills.installed` | `installSkill('okit-director')` writes `skills/okit-director/SKILL.md` under the scratch config root; a second call reports `identical` | 10 s |
@@ -80,7 +80,7 @@ or `skip`, and only `pass` counts as a success.
 
 | | default | `--real` |
 | :- | :- | :- |
-| plugin root | the checkout (`process.cwd()`, `skills/` and `adapters/` beside it) | what the client loads, from `CLAUDE_PLUGIN_ROOT` or the real path of the `okit` bin |
+| plugin root | the package root containing `src/smoke.js` (or injected `io.pluginRoot`) | the same package root (or injected `io.pluginRoot`) |
 | state root | `<scratch>/home/.okwork` | `OKWORK_HOME`, else the real `~/.okwork` |
 | config root | `<scratch>/home/.claude` | `CLAUDE_CONFIG_DIR`, else the real `~/.claude` |
 
@@ -108,7 +108,7 @@ Two files land in `<state root>/logs/smoke/`: `smoke-<runid>.jsonl`, one JSON ob
 
 The runner above is the cheap layer: it starts no client, spends no quota and proves the code. This section is the other layer, and it runs **inside a real client session** — Claude Code first, Codex and opencode after. It spends the user's quota on purpose, and it buys the thing the in-process runner cannot buy: proof that the plugin is *installed and used* — the client loaded the plugin, its MCP server answers over a real stdio pipe, the skills are there, the hooks fire, the daemon ticks, and the inbox, the standing orders and the templates keep what the client wrote.
 
-The synthetic tests already exist: `okit smoke` above covers the code. What is missing is a test of **real use**, so this layer has two purposes, and the checks are split accordingly:
+The synthetic tests already exist: `okit smoke` above covers the code. This layer tests **real use** with two purposes, and the checks are split accordingly:
 
 1. **the installation** — the plugin, the skills, the hooks, the MCP server and the daemon of the installation the client actually loads;
 2. **the logic in real use** — not that a tool answered, but that it answered *right* for a known input, judged from the disk or from the tool's own JSON.
@@ -170,7 +170,7 @@ A step names a resource, the call that touches it and the **behaviour** it asser
 
 23 checks in the group `C`, beside the 31 of the groups `I`, `E` and `U` — different ids, so `--only` of one runner never picks a check of the other.
 
-Two facts about today's repository belong here, because they decide what a run says before a single check runs: the plugin ships **no** `.mcp.json`, **no** `.claude-plugin/plugin.json` and **no** `hooks/hooks.json`. The client therefore loads the folder as an inline plugin named after it — `--plugin-dir` needs no manifest, and the skills show up namespaced under the plugin's name — but it starts **no** MCP server for us, so `C3` has nothing to see and `C4` has no hook to watch. A run today says exactly that: the installation is not complete yet. That is the first thing this test exists to say.
+Claude Code manifest, MCP and hook files are generated by the release build; they are not tracked at the checkout root. The runner judges the installation loaded by the client, not the presence of those files in the checkout.
 
 ### The drivers
 
@@ -188,7 +188,7 @@ The skill is the driver of the scenario; the headless and demo modes are the sam
 ```
 claude -p "<the scenario as a briefing>" \
   --output-format stream-json --include-hook-events --verbose \
-  --max-budget-usd <n> --permission-mode <mode> --plugin-dir <checkout>
+  --max-budget-usd <n> --permission-mode default --no-session-persistence
 ```
 
 Every flag above was read from `claude --help` on Claude Code 2.1.304 (2026-10-23), and the runner refuses a flag the client does not have. Three of them carry their own rule, and the runner must honour them:
@@ -207,7 +207,7 @@ The runner reads the client's **event stream**, not the model's prose: the `init
 
 ### Budget: the variables, the ceiling and the quota pre-check
 
-A real run spends the user's money, so it has a price and a floor. Neither is written in the code: each one is a **variable of the configuration**, a key in `config.json` under the state root, that the smoke reads and that a flag can override for one run.
+A real run spends the user's money, so it has a price and a floor. Each has a default in `DEFAULT_CONFIG.smoke` and is a **configuration variable**, a key in `config.json` under the state root, that the smoke reads and that a flag can override for one run.
 
 | variable (a key in `config.json`) | what it limits | the default value of the variable |
 | :- | :- | :- |
@@ -231,7 +231,7 @@ Three outcomes, and the difference between them is the point.
 | :- | :- | :- |
 | `pass` | the fact the step proves is there | `pass C15 inbox.added 120ms` |
 | `fail` | the step ran and the fact is wrong or missing: the tool answered an error, the file was not written, the state does not have the record | `fail C17 inbox.moved` with `error` and the tail |
-| `skip` | the step did not run because something refused it: the quota floor, the money ceiling, the permission prompt, the client refusing a tool, a rehearsal with no login, a missing config | `skip C14 profile.picked` with the reason |
+| `skip` | the step did not run because something refused it: the quota floor, the money ceiling, the permission prompt, the client refusing a tool, a missing config | `skip C14 profile.picked` with the reason |
 
 A refusal by quota or by permission is a `skip` with its reason, never a `fail`: the plugin is not broken when the user's quota ran out or when the client asked the user for a permission the user did not give. A `fail` is reserved for what the plugin promised and did not deliver.
 
@@ -241,9 +241,9 @@ The exit code says whether the *installation* was proven, and a skipped check is
 | :- | :- | :- |
 | `2` | the run was refused **before it started**: the quota is below the floor, the quota is unknown without `--allow-unknown-quota`, the flag or the client is unknown | nothing was verified |
 | `1` | the run started and the installation was **not** proven: some check is a `fail`, or one of `C1`–`C5` did not pass | the installation is broken or unproven |
-| `0` | the run started, `C1`–`C5` all passed, nothing failed, and every other check either passed or was skipped (the cost ceiling, a rehearsal with no login, a missing config) | the installation is proven |
+| `0` | the run started, `C1`–`C5` all passed, nothing failed, and every other check either passed or was skipped (the cost ceiling, a missing config) | the installation is proven |
 
-`C1`–`C5` are the installation itself (plugin, skills, MCP handshake, hooks, daemon), so one of them skipped is as bad as one of them failed: the point of the run is the installation, and an unproven installation is not a `0`. The checks from `C6` on are the logic in real use, and the ones the cost ceiling cut — or that a `--rehearsal` could not run, for want of a login — are reported as skipped, counted in the summary and followed by a `PARCIAL` line: the run is `0` but says out loud that it did not verify everything.
+`C1`–`C5` are the installation itself (plugin, skills, MCP handshake, hooks, daemon), so one of them skipped is as bad as one of them failed: the point of the run is the installation, and an unproven installation is not a `0`. The checks from `C6` on are the logic in real use, and the ones the cost ceiling cut are reported as skipped, counted in the summary and followed by a `PARCIAL` line: the run is `0` but says out loud that it did not verify everything.
 
 The reason is a fixed word, so a reader can count refusals without reading prose: `quota-below-floor`, `quota-unknown`, `budget-exhausted`, `permission-denied`, `client-refused`, `hook-evidence-unavailable`, `config-missing`, `no-login`, `timeout`.
 
@@ -253,41 +253,13 @@ A `config-missing` skip carries its own sentence in the human log: **the install
 
 The in-client run writes **the same two artifacts, in the same place, in the same format**: `<state root>/logs/smoke/smoke-<runid>.jsonl` and `smoke-<runid>.log`, the run id in the same shape (`20261023T091530Z-4242`), one JSON object per line, the header first and one record per check after it. The record keeps the fields of the D19 record — `id`, `name`, `group`, `status`, `durationMs`, `timeoutMs`, `error`, `command`, `environment`, `logTail` — and the group of an in-client record is `C`.
 
-The header gains three fields and nothing else: `kind: "smoke-in-client"`, `client` (`claude-code`) and `scenario` (the scenario version). A reader of the D19 log can read the in-client log without a new parser, and both are found by the same glob.
+The header includes `kind: "smoke-in-client"`, `client` (`claude-code`) and `scenario` (the scenario version). A reader of the D19 log can read the in-client log without a new parser, and both are found by the same glob.
 
 The `logTail` of an in-client record is the tail of the file that decided the step: the state file, the run file, the daemon log or the client's own JSON output. Nothing of the session is kept: a run leaves two files and a line of stdout.
 
 ### The real installation is the default
 
-The default run verifies the **real installation**: the plugin the client itself loads, the skills and the hooks installed beside it, the real login and the real state. That is the point of the test — the synthetic tests are `okit smoke` above, and what is missing is a test of real use. The scratch home is the exception, and it is opt-in under `--rehearsal`.
-
-The **login** is what decides how the run can be set up. The credentials live in `~/.claude/.credentials.json`, so a scratch config root has no login: `claude -p` then answers `Not logged in · Please run /login`, with `terminal_reason: "api_error"`, `is_error: true` and no cost — the client never reaches the model (verified on Claude Code 2.1.304, 2026-10-23). A scratch `HOME` breaks the login the same way, because the config root is resolved under it. So a run that calls the model needs the client's own config root, and the default is exactly that.
-
-| | default | `--rehearsal` |
-| :- | :- | :- |
-| plugin root | the copy the client itself loads | the checkout, loaded by `--plugin-dir` for that session only |
-| config root | the client's real one — the login, the installed skills and the installed hooks live there | a scratch one — **no login, the client cannot call the model** |
-| state root | `OKWORK_HOME`, else the real `~/.okwork` | a scratch `OKWORK_HOME` |
-| what it writes | the scenario's own records in the state root (each tagged `okit-smoke` and removable), plus the two artifacts | the same, in the scratch state root |
-| what it reads | the installed plugin, the installed skills, the installed hooks and the real state | nothing of the user's installation |
-
-**What the run writes is only two things**: the records of the scenario itself — a demand, an order, a template, every one of them tagged `okit-smoke` and removable — and the two artifacts. The run **never installs, never updates and never uninstalls** the plugin, never writes in the config root, and never touches a record it did not create.
-
-`--rehearsal` is the opt-in exception: it isolates everything, so the client has no login and cannot call the model. What it still proves is the wiring — the client loads the plugin, the skills are there and the MCP server connects over stdio, because the `init` event arrives even without a login (verified) — and every step that needs the model is a `skip` with the reason `no-login`.
-
-The `--real` flag of the in-process runner keeps its own meaning there: it is what makes *that* runner act on the real install. The in-client runner has the real installation as its default and names its exception `--rehearsal`.
-
-### The join point with the kit (D272)
-
-The kit asks for the same thing from its side: a real smoke in a Director session, with a `--package` variant. The two designs meet in exactly three places, and everything else stays on one side.
-
-| what | owner | contract |
-| :- | :- | :- |
-| the scenario (the ordered steps, their ids and their behaviours) | the plugin | the list is data, exported as `SCENARIO`, versioned by `scenario` in the header |
-| the record and the artifacts | the plugin | the D19 format, the D19 file names, the D19 run id shape |
-| the budget floor and the ceiling | the plugin | the same `smoke.quotaFloorPct` and the same `smoke.maxUsd`, so a run in the kit and a run here cost the same |
-
-The kit drives the *Director* side — the session, the panel, the `--package` variant — and calls the scenario the same way a driver here does. The plugin does not know about the Director session, the panel or the packaging; the kit does not know about the behaviours, the record or the artifacts. A kit-side run and a plugin-side run produce the same `smoke-<runid>.jsonl` and a reader cannot tell them apart.
+Without offline flags, the runner uses the real installation, configuration, login and state. `--rehearsal` and `--dry-run` only walk the scenario: no client, quota read or state writes, and no installation proof. State resolves through `OKWORK_HOME` or `~/.okwork`. Only run-owned records are cleaned up; artifacts remain. `--keep` retains those records.
 
 ### Decisions
 
@@ -295,64 +267,17 @@ Six, taken by the Producer on 2026-10-23. They are decisions, not questions: the
 
 1. **The quota floor is the order's.** The floor of the in-client run is the same threshold the order O5 of the kit uses — `smoke.quotaFloorPct`, whatever the configuration says it is — for the in-client run exactly as for the kit.
 2. **A missing config is a `skip`, and the report says the installation is incomplete.** `profile_pick` needs `config.profiles.<client>.<class>`; with no `config.json` there is no profile to pick, so `C14` is a `skip` with the reason `config-missing`, and the human log says in words that the installation is incomplete, because that is the one skip the user has to fix.
-3. **`C4` takes the client's own hook events.** The evidence is what the client reports with `--include-hook-events` (with `stream-json --verbose`); while the plugin ships no hook, the check is a `skip` with the reason `hook-evidence-unavailable`, so the run says the hooks are unproven instead of saying they are broken.
+3. **`C4` takes the client's own hook events.** The evidence is what the client reports with `--include-hook-events` (with `stream-json --verbose`); if hook evidence is absent, the check is a `skip` with the reason `hook-evidence-unavailable`, so the run says the hooks are unproven instead of saying they are broken.
 4. **The demo narrates and reports.** The demo mode narrates each step in the client's own words *and* prints the same one-line-per-check report as the other modes at the end: the narration is what a person watches, the report is what a person checks.
 5. **`--dry-run` exists.** The runner walks the scenario and reports what it would call, without calling the model and without spending quota — the cheap way to check the scenario itself.
 6. **The state is read from the files.** The MCP tools are what the scenario *calls*; the files are the *verdict*. The shared state root is exactly the assumption under test, so the runner reads the files directly, which is also the faster of the two ways.
 
-### Implementation plan (this section)
+### Current implementation
 
-Three steps, each merged on its own, each ending with a green `node --test`.
+`src/smoke/scenario.js` exports the scenario as data; `src/smoke/client.js` resolves references and executes drivers, with verdicts in `client-checks.js`. The `skills/okit-smoke/SKILL.md` skill calls the existing runner.
 
-**Step 1 — the scenario as data.** New `src/smoke/scenario.js` with the ordered list of steps (id, name, resource, kind, call, behaviour) and the `SCENARIO` export. New `test/smoke-scenario.test.js` asserts the 23 ids, their order, that every id is unique, that every tool call names a tool of `TOOL_NAMES` and that every behaviour names the fact it is judged from. The known inputs are built from what the core itself exports — the classifier's thresholds from `CLASSIFIER_RULES`, the caps from `config.json` — so a change in the core is a change in the scenario and never a silent break.
+## In-process implementation
 
-The data table also carries `judgedFrom`. MCP calls use `{ tool, arguments }`,
-with an optional `then` call; readings without an operation use `null`.
-`{ "$ref": "path" }` denotes a value supplied by the future runner, not an MCP
-argument to send literally: `client`, effective `config` (core defaults merged
-with `config.json`), `quota`, prior `C*.answer` values and run-owned `fixtures`.
-Fixtures supply unique slot/refused/absent run ids, inbox text, a fresh pending
-item id, profile effort and quota variants at/below `config.lowQuotaPct`, and a
-due template. Preparation descriptors (`action`, `tag`) and nested
-`preparation`/`cleanup` describe setup and teardown; all use `okit-smoke`.
-They may only create or remove run-owned records; insufficient real capacity
-must never be made by altering another run or the installation's config.
-The classifier corpus probes the exported rule predicates for word counts.
-Step 1 exports only JSON-compatible data; resolving references and executing
-these operations belongs to Step 2.
-
-**Step 2 — the runner and the drivers (done).** `src/smoke/client.js` executes `SCENARIO`, with evidence and preparations in `client-checks.js`, `config.json` budget variables, quota pre-check, ceilings and CLI overrides. `okit client-smoke` defaults to the real installed target; `--headless` and `--demo` use Claude Code's JSON event stream. The installation gate, `PARCIAL`, disk verdicts and D19 artifacts are implemented. `test/smoke-client.test.js` uses an injected fake client and child streams; it never calls a real client. Step 3 adds the skill entry point.
-
-Implementation notes for Step 2: the task's acceptance contract makes both
-`--rehearsal` and `--dry-run` offline scenario walks: no client, quota read or
-state write, exit 0, printing the effective maximum cost. This overrides the
-earlier scratch-client rehearsal description for this implementation.
-Defaults live only in `DEFAULT_CONFIG.smoke` (`src/profiles.js`); `maxTurns: null`
-resolves to `SCENARIO.length`. Partial `smoke` objects retain the other defaults.
-Each session gets the remaining dollar budget, with no session persistence;
-runner turns count scenario steps, not model turns. A timeout fails the active
-check and skips subsequent checks. `--only` does not waive the C1–C5 gate.
-`--keep` retains tagged scenario records; otherwise only records owned by this
-run are removed, and artifacts remain. Temporary cap fillers are always released.
-The installed daemon runs with owned slots filling the caps to prevent unbudgeted
-delegation; preparation skips with `client-refused` if foreign pending demands,
-templates or orders due for purge could be affected by the tick. An unavailable client or a
-missing required CLI flag refuses before the scenario, with exit 2.
-
-**Step 3 — the skill (done).** `skills/okit-smoke/SKILL.md` drives `okit client-smoke --client claude-code --demo` without duplicating the scenario. It requests confirmation before spending quota, falls back to `--dry-run` without confirmation, and honors `--headless`, `--dry-run` or `--rehearsal` when requested. Limits come from `smoke.*` and the `--max-usd`, `--max-turns`, `--max-minutes` overrides. It narrates arriving output and finishes with one line per check, `PARCIAL` if present, artifact paths and the exit code. `C2` now requires all four skills, including `okit-smoke`.
-
-## Implementation plan
-
-Already merged (D19). The four steps below are what the in-process runner above turned out to be; the plan of the in-client runner is the one of its own section.
-
-Four steps, three files each, each merged on its own and each ending with a green `node --test`. No new dependency: `node:test` and `node:fs` only.
-
-**Step 1 — the record and the artifacts.** New `src/smoke/report.js` with `environmentOf`, `recordOf` and `writeArtifacts`. New `test/smoke-runner.test.js` asserts the field set of a record, one line per check in the jsonl and the environment block in the log.
-
-**Step 2 — the check tables.** New `src/smoke/checks-install.js`, `src/smoke/checks-features.js` and `src/smoke/checks-uninstall.js`: the `I`, `E` and `U` tables above as `{ id, name, group, timeoutMs, run }`, with `deps` for root, env, clock and the injected `spawn`/`run`. New `test/smoke-checks.test.js` asserts unique ids, a positive timeout on each, the ids of this file, and every check passing on a scratch root (an injected failing body reporting `fail`).
-
-**Step 3 — the runner and the CLI.** New `src/smoke.js`: the scratch home rule, the loop with the per-check timeout and the run cap, `--only`, `--keep`, the `smoke` lock, and `runSmoke(argv, io)` returning `{ code, records, artifacts }` with `io` in the shape `main()` of `src/cli.js` already takes. Edit `src/cli.js` for the `smoke` group, `USAGE` and the `--real` refusal. `test/smoke-runner.test.js` then covers the D18 cases: a passing smoke exits `0` and writes both artifacts; an injected failing check exits `1` with `id`, `error`, `command` and `environment` in its record.
-
-**Step 4 — the script, the codes and the changelog.** Edit `package.json` for `"smoke": "node src/cli.js smoke"`. Edit `test/cli.test.js` for the codes of the new group (`0`, `1` on a failure, `2` on an unknown flag or `--only` id) and the `OKWORK_HOME`-without-`--real` refusal. Add the `CHANGELOG.md` line under `[Unreleased]`.
+`src/smoke/report.js` generates records and artifacts. Tables live in `checks-install.js`, `checks-features.js` and `checks-uninstall.js` under `src/smoke/`. `src/smoke.js` runs the loop with timeout, locking and cleanup. Tests use injected processes; they do not prove real-client operation.
 
 Portuguese version: [SMOKE.pt-BR.md](SMOKE.pt-BR.md).

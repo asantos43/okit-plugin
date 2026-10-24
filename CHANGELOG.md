@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Align the documentation with the current plugin state (README, ARCHITECTURE, DESIGN, RELEASING, SMOKE, INSTALL, adapters and skills; both languages) and add a consistency test (D38). / Alinhar a documentação ao estado atual do plugin e adicionar teste de consistência (D38).
 - Add configurable stable-by-default publication with proof warnings at the top of a separate release body, plus early validation of publisher inputs, remotes and output paths (D34/D36). / Adicionar publicação completa por padrão, aviso de prova no topo do corpo separado e validação antecipada das entradas, remotos e saída.
 - Add standalone POSIX/Windows release installers, offline `install --from`, verified bootstrap downloads and bilingual installation guides (D35 step 2). / Adicionar scripts de instalação e guias nos dois idiomas.
 - Add the configurable Node installer/updater (`okit install`, `update`, `uninstall`), bounded SHA-256-verified downloads, safe tar/zip extraction, stable version directories, client registration, links, backups, rollback and dry-run (D35 step 1). / Adicionar núcleo Node configurável de instalação, atualização e desinstalação, com verificação, destino fixo, backup e volta.

@@ -1,13 +1,12 @@
 # Contributing
 
-Thanks for your interest. This project is in design phase (pre-alpha).
+The package version is 0.1.0. Use Node.js >=20; no dependency installation is required for the tests.
 
 ## How to contribute
 
 - Contributions arrive as pull requests only. Open an issue first if you want to
   discuss a change.
-- `main` is protected: pull requests must go through review, and no one pushes
-  directly to it.
+- Submit changes for review through pull requests.
 - Keep pull requests small: one topic per pull request.
 - Every change must come with tests. Run `npm test` before you open it.
 
@@ -26,4 +25,4 @@ Add one line under `[Unreleased]` in `CHANGELOG.md` describing your change.
 
 Please read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
-Portuguese version of this file: see the repository README for links.
+Keep the English and Brazilian Portuguese documentation in step.

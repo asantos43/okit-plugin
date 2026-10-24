@@ -1,21 +1,13 @@
 # Desenho do release
 
-Status: D31 implementada: build, checksums, notas, checklist e comando explícito de publicação. Nada foi publicado por este trabalho.
+Status: publicado (veja a página de releases para a versão atual). Build, checksums, notas, checklist, publicador e instalador estão implementados; publicação não prova uso real.
 Estende [ARCHITECTURE.md](ARCHITECTURE.md) e [SMOKE.md](SMOKE.md), incluindo o cenário D25 no cliente real. Inglês: [RELEASING.md](RELEASING.md).
 
 ## What a release is
 
 Um candidato tem nove artefatos identificados separadamente por cliente × sistema, com a mesma revisão e versão do pacote. São pacotes de fontes Node, não executáveis autônomos: o Node deve atender a `package.json.engines.node`. O pacote é ESM, sem dependências e privado; publicar no registro npm não é a estratégia de instalação.
 
-Inspeção do repositório: `package.json.bin` identifica a CLI; `src/` e `skills/` contêm a carga comum. Os três adaptadores de cliente estão implementados: `adapters/claude-code/index.js`, `adapters/codex/index.js` e `adapters/opencode/index.js`. Nenhum manifesto de cliente ou entrada de marketplace é versionado. O runner dentro do cliente continua como desenho em [SMOKE.md](SMOKE.md), não como pré-requisito de release já entregue e executável.
-
-| Cliente | Formato de instalação conferido; artefato pretendido | Decisão / implementação pendente |
-| :- | :- | :- |
-| Claude Code | Diretório de plugin com skills, configuração MCP e hooks; metadados em `.claude-plugin/plugin.json`. Também precisa de entrada em `.claude-plugin/marketplace.json` apontando para a carga correspondente. [Manifesto](https://code.claude.com/docs/en/plugins-reference), [marketplace](https://code.claude.com/docs/en/plugin-marketplaces). | Marketplace do projeto no GitHub, escopo de usuário e uma entrada por sistema ([D-Q1](#decisions)). Copiar skills/hooks não comprova registro do plugin. |
-| Codex | A documentação atual descreve `plugin.json` e `mcp.json` na raiz; `.codex-plugin/plugin.json` é alternativa de compatibilidade. O artefato pretendido reúne o formato escolhido, skills e adaptador. A CLI tem navegador de marketplaces em `/plugins`. [Empacotamento](https://developers.openai.com/plugins/build/plugins), [instalação](https://learn.chatgpt.com/docs/plugins). | Manifesto portátil na raiz, marketplace/versão compartilhados e validação no cliente real instalado ([D-Q2](#decisions)). |
-| opencode | Módulos de plugin JS/TS locais carregam de `.opencode/plugins/` no projeto ou `~/.config/opencode/plugins/` global; plugins npm usam o array `plugin` da configuração. O artefato pretendido é um módulo local com a carga comum. [Plugins](https://opencode.ai/docs/plugins/). Skills e MCP têm configuração separada: [skills](https://opencode.ai/docs/skills/), [MCP](https://opencode.ai/docs/mcp-servers/). | Módulo JS global e prova de hook por eventos nativos; ponte do módulo e implementação da atualização pendentes ([D-Q3](#decisions)); a CLI do núcleo não é um plugin opencode. |
-
-Fontes conferidas em 2026-10-23. Os nomes de arquivos de esquema acima são exigências dos formatos, não constantes do projeto. Identidades, versões, destinos e pontos de entrada do projeto devem vir dos metadados do pacote e da configuração. Este desenho não promete capacidades de plataforma ou cliente não verificadas.
+O payload compartilhado contém `src/`, `skills/` e o adaptador escolhido. Os três adaptadores existem. Por padrão, só Claude Code gera manifestos de plugin/marketplace, MCP e hook de compactação. Codex recebe instruções e adaptador; o instalador registra o marketplace e pede ativação em `/plugins`. opencode recebe o módulo global e as skills. Esses arquivos gerados não ficam na raiz do checkout.
 
 ## Per system
 
@@ -24,8 +16,8 @@ A tabela é requisito de empacotamento/prova, não afirmação de que todos os a
 | Cliente | Linux | Windows | macOS |
 | :- | :- | :- | :- |
 | Claude Code | Raiz do plugin configurada; raiz do adaptador por opção explícita, `CLAUDE_CONFIG_DIR`, depois home. systemd do usuário ou cron explícito; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. | Mesma precedência de raiz com home nativo; schtasks no logon; preservar LF e caminhos substituídos com barras normais, arquivos legíveis e shim de comando configurado no PATH. Prova nativa pelo Produtor. | Mesma precedência de raiz com home nativo; agente launchd; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Prova pelo Produtor. |
-| Codex | Fonte de marketplace escolhida resolve raiz do plugin ([D-Q2](#decisions)); systemd do usuário ou cron explícito; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador/prova pendentes. | Fonte de marketplace escolhida e home nativo ([D-Q2](#decisions)); schtasks; LF, escape de caminhos, arquivos legíveis e shim configurado no PATH. Adaptador pendente; Produtor prova par nativo. | Fonte de marketplace escolhida e home nativo ([D-Q2](#decisions)); launchd; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador pendente; Produtor prova par. |
-| opencode | Destinos globais de plugins e skills configurados ([D-Q3](#decisions)); systemd do usuário ou cron explícito; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador/prova pendentes. | Resolver destinos globais no Windows nativo ([D-Q3](#decisions)); schtasks; LF, escape de caminhos, arquivos legíveis e shim configurado no PATH. Adaptador pendente; Produtor prova par nativo. | Resolver destinos globais no macOS nativo ([D-Q3](#decisions)); launchd; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador pendente; Produtor prova par. |
+| Codex | Fonte de marketplace escolhida resolve raiz do plugin ([D-Q2](#decisions)); systemd do usuário ou cron explícito; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador implementado; prova do par pendente. | Fonte de marketplace escolhida e home nativo ([D-Q2](#decisions)); schtasks; LF, escape de caminhos, arquivos legíveis e shim configurado no PATH. Adaptador implementado; Produtor prova par nativo. | Fonte de marketplace escolhida e home nativo ([D-Q2](#decisions)); launchd; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador implementado; Produtor prova par. |
+| opencode | Destinos globais de plugins e skills configurados ([D-Q3](#decisions)); systemd do usuário ou cron explícito; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador implementado; prova do par pendente. | Resolver destinos globais no Windows nativo ([D-Q3](#decisions)); schtasks; LF, escape de caminhos, arquivos legíveis e shim configurado no PATH. Adaptador implementado; Produtor prova par nativo. | Resolver destinos globais no macOS nativo ([D-Q3](#decisions)); launchd; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador implementado; Produtor prova par. |
 
 `src/autostart.js` seleciona hoje systemd no Linux, schtasks no Windows e launchd no macOS. Cron é alternativa explícita, não fallback automático do systemd; o plano atual substitui o crontab do usuário e sua desinstalação o remove. Preservar linhas existentes do cron é requisito antes de oferecer esse caminho ([D-Q4](#decisions)).
 
@@ -33,7 +25,7 @@ Preservar UTF-8/LF na carga e nos logs em todos os sistemas. Conferir bits de ex
 
 ## Artifacts
 
-Os nomes abaixo são modelos a implementar, não arquivos gerados por D26. `P` é uma codificação segura para arquivos de `package.json.name`, `V` é sua `version`, `C`/`S` são identificadores de cliente/sistema da configuração de release e `A` é a arquitetura. Diretório de saída, formato/extensão `E`, codificação do nome e arquiteturas aceitas vêm da configuração conforme [D-Q5](#decisions); nunca rotular uma arquitetura como se cobrisse todas.
+O build implementado usa os seguintes modelos de nomes. `P` é uma codificação segura para arquivos de `package.json.name`, `V` é sua `version`, `C`/`S` são identificadores de cliente/sistema da configuração de release e `A` é a arquitetura. Diretório de saída, formato/extensão `E`, codificação do nome e arquiteturas aceitas vêm da configuração conforme [D-Q5](#decisions); nunca rotular uma arquitetura como se cobrisse todas.
 
 | Saída | Nome derivado | Conteúdo |
 | :- | :- | :- |
@@ -50,11 +42,25 @@ O manifesto de hashes é escrito e conferido por `src/release/checksums.js`, con
 
 Fluxo do usuário: obter par e manifesto de hashes da página de releases do GitHub ([D-Q5](#decisions)), verificar SHA-256 antes de extrair, conferir Node contra engines do pacote, extrair no destino configurado e seguir instruções do par. Configurar link/shim do bin, MCP, skills e autostart conforme aplicável; depois provar instalação. SHA-256 detecta bytes alterados; não autentica a origem do download ([D-Q5](#decisions)).
 
-Para Claude Code, registrar marketplace aprovado com `claude plugin marketplace add <source>`, instalar com `claude plugin install <entry>@<marketplace>` e atualizar com `claude plugin update <entry>@<marketplace>`, usando identidades geradas. [Instalação/atualização](https://code.claude.com/docs/en/discover-plugins). Para Codex, registrar fonte escolhida com `codex plugin marketplace add <source>` e instalar por `/plugins`; usar marketplace/versão compartilhados e validar a rota de atualização no cliente instalado ([D-Q2](#decisions)). [Autoria](https://developers.openai.com/plugins/build/plugins). Para opencode, o fluxo local pretendido coloca módulo e carga referenciada no escopo configurado e registra skills/MCP separadamente; usar módulo global e prova por eventos nativos ([D-Q3](#decisions)); implementação de substituição/atualização continua pendente.
+Para Claude Code, o instalador registra o marketplace e chama instalação/atualização pelo cliente. Para Codex, registra a fonte e pede ativação por `/plugins`. Para opencode, instala o módulo global e copia as skills, preservando arquivos diferentes; não configura MCP separadamente. A prova por eventos nativos continua pendente ([D-Q3](#decisions)).
 
 Antes de atualizar, parar daemon anterior, guardar backup do estado configurado e skills/hooks editados, verificar nova carga, trocar referências do cliente e registro no PATH, regenerar caminhos de autostart movidos, reiniciar e repetir provas. Instaladores atuais recusam skills divergentes e preservam entradas de hooks do usuário: não prometer sobrescrita na atualização. Fazer backup do estado e dos skills editados pelo usuário e permitir volta à versão anterior ([D-Q6](#decisions)).
 
-## O build local
+## Installer and updater
+
+`okit install --client <cliente> [--prerelease] [--repo dono/repo] [--dest pasta] [--no-link] [--autostart] [--dry-run] [--yes]` escolhe a release mais recente e o arquivo do cliente/sistema/arquitetura. Sem release estável, informa o uso de pré-lançamento. Sem `--client`, oferece menu no TTY; sem TTY só escolhe quando há exatamente um cliente detectado.
+
+Após verificar o SHA-256, coloca o pacote em uma pasta estável por versão no diretório de dados do usuário (XDG no Linux, Application Support no macOS, LOCALAPPDATA no Windows). `install.json` registra as versões ativa e anterior. Registro e link apontam para esse destino: pode apagar a pasta de download/extração. `DEFAULT_CONFIG.install` e `config.json` configuram rede, limites, clientes, executáveis, diretórios e identidades; o nome do pacote reutiliza `release.name`.
+
+`okit update --check` só consulta. `okit update` para o daemon, copia estado e configuração do cliente para backup datado, mantém a versão anterior, refaz registro/link/autostart, reinicia e executa o smoke da nova CLI. Se a prova falhar, informa `okit update --rollback`, que reativa a versão mantida sem baixar novamente. Skills e módulos editados são preservados. `okit uninstall` desfaz a integração e remove versões gerenciadas, mantendo estado e configuração; `--purge --yes` também remove a raiz de estado configurada. Os três aceitam `--dry-run`: consultam metadados quando necessário, sem baixar pacotes nem gravar.
+
+SHA-256 detecta bytes alterados, mas **não autentica a origem**. A extração tar.gz/zip usa apenas Node, preserva execução, limita o tamanho descomprimido e recusa caminhos absolutos, travessia, links e arquivos especiais.
+
+Os guias [INSTALL.pt-BR.md](../INSTALL.pt-BR.md) e [INSTALL.md](../INSTALL.md) documentam `install.sh` (Linux/macOS) e `install.ps1` (Windows). Ambos incorporam o bootstrap de `src/install/bootstrap.js`; o build deriva os blocos marcados de configuração dos defaults install/release e de engines.node. Cada chave aceita override `OKIT_`; o teste de deriva recusa scripts desatualizados após mudança dos defaults.
+
+O build emite `release.publish.bootstrapAttachments`: scripts e guias fora dos arquivos por par. Eles entram no grupo existente `payloads` de `release.publish.attachments`; o publicador os inclui no manifesto, verifica e anexa sem mudança em publish.js. `okit install --from <pasta>` valida identidade e CLI, copia a origem já verificada ao destino fixo e preserva a origem. O bootstrap confere SHA-256 com ferramentas do sistema antes da extração; o hash não autentica o conteúdo. `update|uninstall` explícitos no script chamam o CLI registrado sem downloads no bootstrap. Linux foi exercitado pelo Diretor; Windows/macOS aguardam o Produtor.
+
+## The local build
 
 O PR 1 é o script `scripts/build-release.js`, também `npm run release:build`. Ele monta as cargas dos pares na máquina que o executa, grava-as na pasta de saída e não publica nada: sem tag, sem envio, sem rede. Os valores que ele usa — os clientes, os sistemas, as arquiteturas, o formato de arquivo por sistema, a pasta de saída, os arquivos que entram no pacote, os nomes de arquivo exigidos pelo cliente e o modelo de nome — estão no bloco `release` do `DEFAULT_CONFIG`, e a configuração do usuário pode substituí-los.
 
@@ -75,7 +81,7 @@ Os arquivos são determinísticos: as entradas são ordenadas, a data de modific
 
 Um par que não pode ser montado é recusado com a razão, e nenhum pacote vazio é gravado no lugar: um cliente cujo adaptador falta, um cliente ou sistema desconhecido, um sistema sem formato de arquivo. Um cliente que tem adaptador é montado, como qualquer outro; os três adaptadores de cliente deste repositório (`claude-code`, `codex` e `opencode`) montam seus pares. O comando então lista os pares recusados e responde com um código diferente de zero.
 
-## Notas de release
+## Release notes
 
 O PR 3 é `scripts/release-notes.js`, também `npm run release:notes -- [flags]`:
 
@@ -93,7 +99,7 @@ Os textos, modelo de nome e caminho do histórico de `release.notes` combinam-se
 
 Histórico ausente, `[Unreleased]` ausente ou vazio (só subtítulos/comentários não contam), versão divergente ou prova inválida recusa com razão e não grava saída. As linhas preservam texto e espaços. O comando não publica nem calcula hashes das notas; calcular hashes de notas/checklist somente após finalizar os registros, usando o comando de checksums.
 
-## Checklist de release
+## Release checklist
 
 O PR 4 é `scripts/release-checklist.js`, também `npm run release:checklist -- [flags]`:
 
@@ -136,7 +142,7 @@ Imediatamente antes de chamar o GitHub, o git é verificado novamente: árvore s
 
 ## Proof per pair
 
-Cada marca significa **ambas** as camadas no candidato instalado daquele par: `okit smoke` (em processo, home temporário) e cenário D25 dentro do cliente real indicado, carregando a instalação real com login/estado reais. `--dry-run`, ensaio e spawns simulados não provam uso real. A interface planejada `okit client-smoke` está em [SMOKE.md](SMOKE.md#in-client-smoke-real); não está implementada neste checkout. Até existirem driver, adaptador e registro da execução, manter o par desmarcado.
+Cada marca significa **ambas** as camadas no candidato instalado daquele par: `okit smoke` (em processo, home temporário) e cenário D25 dentro do cliente real indicado, carregando a instalação real com login/estado reais. `--dry-run`, ensaio e spawns simulados não provam uso real. `okit client-smoke` está implementado para Claude Code; veja [SMOKE.pt-BR.md](SMOKE.pt-BR.md#in-client-smoke-real). Os demais drivers reais estão pendentes. Manter cada par desmarcado até registrar e aceitar ambas as camadas.
 
 | Checklist por par | Quem executa e assina ambas as camadas |
 | :- | :- |
@@ -153,20 +159,6 @@ Cada marca significa **ambas** as camadas no candidato instalado daquele par: `o
 Registrar por linha: responsável/data; revisão; versão do pacote; arquivo e SHA-256; sistema/versão/arquitetura; versões de Node/cliente; escopo; caminhos resolvidos de plugin/configuração/estado/bin; passos de instalação e atualização do candidato anterior; verificações de PATH e permissões; resultado de autostart show/install/reinício; ambos os comandos smoke, saídas, totais e motivos; locais de JSONL/log e revisão do cenário D25. Anexar arquivos ou links duráveis, não só “funcionou”. Nunca publicar credenciais. Instalação nova e atualização devem preservar configuração e estado do usuário, inclusive após reiniciar cliente.
 
 Prova em processo exige saída 0 e todos os checks selecionados passando; no release usar conjunto completo. D25 exige C1–C5 passando, nenhuma falha e registro explícito de cada check posterior. Sua saída 0 ainda pode significar `PARCIAL`; falta de prova de hook impede passar o gate de instalação. Configuração ausente significa instalação incompleta. Manter linha com skip/parcial não resolvido desmarcada até aceite escrito do Produtor ([D-Q7](#decisions)); resultado sintético ou ausente não preenche outro par.
-
-## Installer and updater
-
-`okit install --client <cliente> [--prerelease] [--repo dono/repo] [--dest pasta] [--no-link] [--autostart] [--dry-run] [--yes]` escolhe a release mais recente e o arquivo do cliente/sistema/arquitetura. Sem release estável, informa o uso de pré-lançamento. Sem `--client`, oferece menu no TTY; sem TTY só escolhe quando há exatamente um cliente detectado.
-
-Após verificar o SHA-256, coloca o pacote em uma pasta estável por versão no diretório de dados do usuário (XDG no Linux, Application Support no macOS, LOCALAPPDATA no Windows). `install.json` registra as versões ativa e anterior. Registro e link apontam para esse destino: pode apagar a pasta de download/extração. `DEFAULT_CONFIG.install` e `config.json` configuram rede, limites, clientes, executáveis, diretórios e identidades; o nome do pacote reutiliza `release.name`.
-
-`okit update --check` só consulta. `okit update` para o daemon, copia estado e configuração do cliente para backup datado, mantém a versão anterior, refaz registro/link/autostart, reinicia e executa o smoke da nova CLI. Se a prova falhar, informa `okit update --rollback`, que reativa a versão mantida sem baixar novamente. Skills e módulos editados são preservados. `okit uninstall` desfaz a integração e remove versões gerenciadas, mantendo estado e configuração; `--purge --yes` também remove a raiz de estado configurada. Os três aceitam `--dry-run`: consultam metadados quando necessário, sem baixar pacotes nem gravar.
-
-SHA-256 detecta bytes alterados, mas **não autentica a origem**. A extração tar.gz/zip usa apenas Node, preserva execução, limita o tamanho descomprimido e recusa caminhos absolutos, travessia, links e arquivos especiais.
-
-Os guias [INSTALL.pt-BR.md](../INSTALL.pt-BR.md) e [INSTALL.md](../INSTALL.md) documentam `install.sh` (Linux/macOS) e `install.ps1` (Windows). Ambos incorporam o bootstrap de `src/install/bootstrap.js`; o build deriva os blocos marcados de configuração dos defaults install/release e de engines.node. Cada chave aceita override `OKIT_`; o teste de deriva recusa scripts desatualizados após mudança dos defaults.
-
-O build emite `release.publish.bootstrapAttachments`: scripts e guias fora dos arquivos por par. Eles entram no grupo existente `payloads` de `release.publish.attachments`; o publicador os inclui no manifesto, verifica e anexa sem mudança em publish.js. `okit install --from <pasta>` valida identidade e CLI, copia a origem já verificada ao destino fixo e preserva a origem. O bootstrap confere SHA-256 com ferramentas do sistema antes da extração; o hash não autentica o conteúdo. `update|uninstall` explícitos no script chamam o CLI registrado sem downloads no bootstrap. Linux foi exercitado pelo Diretor; Windows/macOS aguardam o Produtor.
 
 ## Decisions
 
@@ -187,16 +179,6 @@ O build emite `release.publish.bootstrapAttachments`: scripts e guias fora dos a
 
 Não há perguntas em aberto: Q1 a Q7 foram respondidas pelo Produtor em 2026-10-23.
 
-## Implementation plan
+## Implementation status
 
-Pré-requisitos: Produtor responde às perguntas aplicáveis; adaptadores/manifestos ausentes e drivers D25 entram em trabalhos próprios. Não substituir evidência de instalação por placeholders. Cada passo abaixo é um PR separado com sua própria linha no histórico de mudanças da raiz e `node --test` verde; nenhum autoriza tag ou publicação.
-
-| PR | Entrega pequena | Aceite |
-| :- | :- | :- |
-| 1 — Build local (feito) | Adicionar script local em `scripts/`, com entrada em `package.json`; consumir metadados e configuração de pares/saída, preservar caminhos comuns e gerar metadados de cliente escolhidos. | Executar localmente em revisão conferida; nove cargas identificadas; inspecionar conteúdo, identidade, LF, permissões e resolução de caminhos. Cliente/sistema desconhecido ou adaptador ausente recusa; sem efeito de publicação. |
-| 2 — Checksums (feito) | Adicionar geração/verificação de manifesto SHA-256 dos bytes finais usando módulos nativos do Node: `src/release/checksums.js` e `scripts/checksums.js`. | Cada arquivo listado confere; arquivo alterado/ausente recusa; sem hash de si mesmo. |
-| 3 — Notas (done) | Gerar notas da versão a partir da seção `[Unreleased]` do histórico da raiz e metadados dos pares. | Versão e nomes coincidem com pacote/build; histórico ausente recusa; aparecem lacunas e instruções de instalação/atualização. |
-| 4 — Checklist (done) | Gerar modelo de nove registros e documentar coleta das evidências do candidato instalado. | Ambas as camadas por par, Produtor assina Windows/macOS; skips e drivers ausentes ficam visíveis. Calcular hashes de notas/checklist só após finalizar registros. |
-| D31 — Publicação (done) | Adicionar dry-run padrão e publicação explícita verificada no GitHub; versão 0.1.0. | Testes com GitHub falso; revisão limpa em origin/main, tag ausente, manifesto final verificado; pré-lançamento até nove pares provados. |
-
-Após esses PRs, obter do Produtor a versão do candidato, montar localmente e coletar provas nas máquinas reais. O pedido explícito posterior do Produtor é o gatilho separado para confirmar essa versão, extrair suas mudanças do histórico da raiz, finalizar notas/checksums/checklist, criar tag e publicar artefatos comprovados. Alterar versão ou carga invalida seu hash e exige nova prova.
+Build local, checksums, notas, checklist e publicação explícita estão implementados em `src/release/`, com scripts em `package.json`. Instalação, atualização, backup e rollback ficam em `src/install/`. Novos candidatos precisam de provas próprias: mudar versão ou payload invalida o hash anterior.
