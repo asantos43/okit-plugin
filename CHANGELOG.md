@@ -9,13 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add the local release build (`scripts/build-release.js`, `npm run release:build`): deterministic `.tar.gz`/`.zip` pair payloads per client × system × architecture, named from `package.json`, with the client manifest, MCP wiring, hooks and install instructions of the clients the configuration names, and a refusal with its reason for a pair whose adapter is missing or whose client or system is unknown; it publishes nothing.
+- Add the opencode adapter with process spawning, user quota, capabilities, safe skill/global JS plugin installation, configurable roots and isolated tests.
 - Codex adapter with native/process delegation, user quota, capabilities, safe skill copying, explicit hook-installation refusal and tests.
 - SHA-256 release checksum manifest (`src/release/checksums.js`, `scripts/checksums.js`, `npm run release:checksums`): writes and verifies `<P>-<V>-checksums.sha256` over the final bytes of a release folder — one line per file with the lowercase digest, two spaces and the exact name, ordered by name, LF and UTF-8, never hashing the manifest itself — and refuses an altered, absent, unlisted, malformed or unsafe-path entry.
-- Add the opencode adapter with process spawning, user quota, capabilities, safe skill/global JS plugin installation, configurable roots and isolated tests.
 - Add `/okit-smoke`, the in-client smoke skill that confirms quota spending, narrates the existing runner and reports each check, partial results and exit code; include it in installation checks and C2 skill visibility.
 - Project-qualified demand references in inbox/status output, daemon decisions and bilingual Director guidance, preserving machine-readable ids.
 - Add the configurable, bounded, fail-open `okit hook post-compact` summary and idempotent Claude Code compact-hook installer, with bilingual documentation and tests.
-
 - Add `okit client-smoke` with real-install Claude Code execution, configurable quota and budget limits, disk/event verdicts, D19 artifacts, offline rehearsal/demo drivers and fake-client coverage.
 - Add the JSON-serializable in-client smoke scenario with C1–C23, core-derived classifier inputs, configuration references and contract tests.
 - Producer release decisions D-Q1 through D-Q7 (2026-10-23) in `docs/RELEASING.md` and `docs/RELEASING.pt-BR.md`, closing the seven open questions on distribution, machine integration, artifacts, lifecycle and proof.
@@ -27,7 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `okit daemon status --table [--locale en|pt-BR]`: the same quota table and capacity line under the daemon status lines, built by `daemonStatus(root, { table })` only when asked for, so a daemon pass never reads a quota for it and the default output is unchanged.
 - Claude Code adapter (`adapters/claude-code/index.js`): the five functions of `docs/ARCHITECTURE.md` section 4 — `spawn` returning the Agent tool call in `NATIVE` and reusing `makeSpawner` in `PROCESS`, `readQuota` without an invented number, `capabilities`, `installSkill` and `installHooks`.
 - `PROCESS` spawn mode: `src/spawn-process.js` builds the headless command of `claude-code`, `codex` and `opencode` as a pure value and starts it without a shell, `src/autostart.js` generates the systemd, cron, launchd and schtasks plans, and the `okit` CLI (`daemon start|stop|status|pause|resume|run-once`, `autostart install|uninstall|show`) drives both.
-
 - Inbox and standing-order stores on top of `src/state.js`: `inboxAdd`, `inboxList`, `inboxSetStatus`, `orderAdd`, `orderRemove`, `orderList`, `orderLint`, `orderRender`, plus the state paths in `src/store.js`.
 - Effort classification (`classify`), actor-profile choice with the low-quota downgrade (`profilePick`) and the concurrency cap over live runs (`canSpawn`, `acquireSlot`, `releaseSlot`, `limitsStatus`).
 - State layer: atomic JSON file writes and a stale-aware directory lock.
