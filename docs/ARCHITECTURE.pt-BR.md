@@ -65,7 +65,7 @@ Não estimar cota. `profilePick` rebaixa uma classe quando `remainingPct < lowQu
 ### 5.1 A tabela de cota
 `src/status.js` é a visão dessas leituras, não uma segunda fonte delas: `statusTable(root, deps)` é puro sobre as leituras, o relógio, as contagens do limite e as ordens permanentes que chegam em `deps`, e devolve `{markdown, capacityLine, rows}`. As colunas são `Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age)`; um array `windows` preenche as duas colunas e, sem ele, o `remainingPct` único vai para a coluna de 5h quando `windowMinutes <= 360` e para a da semana caso contrário, inclusive quando `windowMinutes` está ausente.
 
-A coluna Situação é uma palavra, nunca ANSI: `verde` com 15 pontos ou mais acima de `lowQuotaPct`, `amarelo` do piso até essa marca, `vermelho` abaixo do piso e `desligado` quando não há leitura ou a origem é `off` — o que não bloqueia nada. A palavra vem da janela mais apertada, e uma linha `vermelha` cita a ordem permanente que fala de cota ou de piso, recorrendo a `lowQuotaPct` quando não existe uma. Abaixo da tabela, uma linha diz quantos executores podem iniciar agora (`limits.perClient` menos as execuções vivas do cliente, e `limits.global` menos todas elas, com o mínimo em 0) e qual é o piso em vigor. Toda palavra vive em uma tabela `LABELS` com `en` e `pt-BR`, escolhida por `deps.locale`.
+A coluna Situação é uma palavra, nunca ANSI: `verde` com 15 pontos ou mais acima de `lowQuotaPct`, `amarelo` do piso até essa marca, `vermelho` abaixo do piso e `desligado` quando não há leitura ou a origem é `off` — o que não bloqueia nada. A palavra vem da janela mais apertada, e uma linha `vermelha` cita a ordem permanente que fala de cota ou de piso, recorrendo a `lowQuotaPct` quando não existe uma. Abaixo da tabela, cada cliente mostra vivas/teto, origem própria/padrão e vagas disponíveis com mínimo zero, além do piso de cota. Toda palavra vive em uma tabela `LABELS` com `en` e `pt-BR`, escolhida por `deps.locale`.
 
 As leituras ficam em cache por cliente durante `ttlMs` (60 s por padrão) medido em `deps.now`, então duas chamadas seguidas custam uma leitura. `shouldShowStatus({size, slices, executors})` é verdadeiro para tamanho `L`, `slices >= 2` ou `executors > 1`, e é quando o Diretor mostra a tabela. `okit daemon status --table [--locale en|pt-BR]` imprime a mesma tabela embaixo das linhas do daemon, e uma passagem do daemon nunca lê cota por ela: `daemonStatus(root, { table })` só monta a tabela quando essas dependências são entregues.
 
@@ -81,8 +81,14 @@ O modo `PROCESS` inicia os clientes sem shell; no Windows os shims `.cmd` exigem
 ## 7. Concurrency limit
 | Escopo | Padrão | Lido de |
 | :- | :- | :- |
-| Global, todos os clientes | 4 atores ao mesmo tempo | `config.json` |
-| Por cliente | 3 atores ao mesmo tempo | `config.json`; cota não altera o teto |
+| Padrão para cada cliente | 3 atores ao mesmo tempo | `limits.global` em `config.json` |
+| Configuração própria | Suplanta o padrão | `limits.clients.<client>`; cota não altera o teto |
+
+Não há teto somado entre clientes. Por exemplo, `clients: {"claude-code": 100}`
+permite 100 execuções vivas nesse cliente independentemente de `global`.
+Inteiros positivos são validados na leitura; clientes desconhecidos geram aviso.
+O antigo `perClient` é apelido obsoleto que suplanta `global`, com aviso no status;
+`global` não significa mais um total compartilhado. Cada verificação relê a configuração sem reiniciar.
 
 O núcleo conta execuções vivas em `runs/<runId>.json` (`status: live`) em vez de confiar que o cliente respeita o teto. `acquireSlot` usa `waitMs: 0` por padrão e retorna `ok: false` sem vaga; o chamador pode pedir espera. `releaseSlot` encerra a reserva; a contagem ignora execuções mais velhas que `staleMinutes` (30 por padrão). O Codex se limita sozinho com `agents.max_concurrent_threads_per_session`; deixar no mesmo número para os dois concordarem.
 
@@ -230,7 +236,7 @@ Métodos: `initialize`, `notifications/initialized`, `ping`, `tools/list` e `too
 ## 13. Autonomy
 Autonomia máxima é o padrão. O plugin não traz nenhuma lista fixa de ações proibidas: uma recusa vem de algo que o usuário escreveu ou de um limite técnico, nunca de uma regra que os mantenedores adivinharam.
 - As restrições são ordens permanentes. O usuário adiciona uma ("nunca dar push para `main`") e `orderRemove` a retira; nada mais pode adicionar restrição.
-- Os limites técnicos continuam configuráveis: o teto de concorrência (`limits.global`, `limits.perClient`, `staleMinutes`), o piso de cota (`daemon.minQuotaPct`, `lowQuotaPct`), a chave de parada (`daemon.stop`) e o arquivo de pausa.
+- Os limites técnicos continuam configuráveis: o teto de concorrência (`limits.global`, `limits.clients`, `staleMinutes`), o piso de cota (`daemon.minQuotaPct`, `lowQuotaPct`), a chave de parada (`daemon.stop`) e o arquivo de pausa.
 - O núcleo nunca inventa um modelo, um valor de esforço ou um número de cota que o cliente não informou, e nunca aumenta um teto por conta própria.
 
 ## 14. Global state and `appliesTo`

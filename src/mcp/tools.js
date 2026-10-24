@@ -6,7 +6,7 @@ import { projectName, withDemandRef } from '../demand-ref.js';
 import { inboxAdd, inboxList, inboxSetStatus, STATUSES } from '../inbox.js';
 import { acquireSlot, limitsStatus, releaseSlot } from '../limits.js';
 import { orderAdd, orderList, orderRemove, SCOPES } from '../orders.js';
-import { DEFAULT_CONFIG, profilePick } from '../profiles.js';
+import { configOf as normalizeConfig, profilePick } from '../profiles.js';
 import { adapterQuotaReader, clientsOf, LABELS, shouldShowStatus, statusTable } from '../status.js';
 import { readJson } from '../state.js';
 import { paths, stateRoot } from '../store.js';
@@ -111,12 +111,7 @@ function optionalQuota(tool, args, name) {
  */
 export async function loadConfig(root) {
   const stored = await readJson(paths(root).config, {});
-  return {
-    ...DEFAULT_CONFIG,
-    ...(stored ?? {}),
-    limits: { ...DEFAULT_CONFIG.limits, ...(stored?.limits ?? {}) },
-    profiles: { ...(stored?.profiles ?? {}) },
-  };
+  return normalizeConfig(stored);
 }
 
 /**

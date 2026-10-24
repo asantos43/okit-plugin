@@ -150,7 +150,7 @@ test('acquire_slot, limits_status and release_slot run against the state root', 
   assert.deepEqual(server.data(taken), { ok: true, runId: 'run-1', client: 'alpha' });
 
   const status = await server.call('limits_status', {});
-  assert.deepEqual(server.data(status).limits, { global: 4, perClient: 3 });
+  assert.deepEqual(server.data(status).limits, { global: 3, clients: {} });
   assert.equal(server.data(status).live, 1);
   assert.deepEqual(server.data(status).byClient, { alpha: 1 });
 
@@ -175,7 +175,7 @@ test('acquire_slot refuses the run that would pass the cap in config.json', asyn
   const refused = await server.call('acquire_slot', { runId: 'b', client: 'alpha' });
   assert.equal(refused.result.isError, false);
   assert.equal(server.data(refused).ok, false);
-  assert.equal(server.data(refused).reason, 'per-client limit');
+  assert.equal(server.data(refused).reason, 'default limit');
   // The refusal is the cap holding, not a slot quietly taken.
   assert.equal(server.data(await server.call('limits_status', {})).live, 1);
 

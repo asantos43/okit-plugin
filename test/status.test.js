@@ -227,24 +227,38 @@ test('the capacity line counts the room the live runs leave, never below zero', 
     readQuota,
     now: () => T0,
     cache: new Map(),
-    limits: { limits: { global: 4, perClient: 3 }, live: 1, byClient: { alpha: 2 } },
+    limits: { limits: { global: 3, clients: { beta: 100 } }, live: 2, byClient: { alpha: 2 } },
   };
   const table = await statusTable(root, deps);
   // alpha leaves 3 - 2 = 1 slot, beta leaves 3 - 0 = 3; the tightest is 1.
   assert.equal(
     table.capacityLine,
-    'executors that can launch now: 1 per client, 3 in total; quota floor 15%',
+    'executors that can launch now: alpha: 2/3 (default), 1 available; beta: 0/100 (client), 100 available; quota floor 15%',
   );
 
   const full = await statusTable(root, {
     ...deps,
-    limits: { limits: { global: 2, perClient: 2 }, live: 4, byClient: { alpha: 2, beta: 2 } },
+    limits: { limits: { global: 2, clients: {} }, live: 4, byClient: { alpha: 2, beta: 2 } },
   });
   assert.equal(
     full.capacityLine,
-    'executors that can launch now: 0 per client, 0 in total; quota floor 15%',
+    'executors that can launch now: alpha: 2/2 (default), 0 available; beta: 2/2 (default), 0 available; quota floor 15%',
     'a cap that is already crossed reads as zero, never as a negative room',
   );
+});
+
+test('status translates client sources and legacy configuration warnings', async (t) => {
+  const root = await tempRoot(t);
+  const deps = { clients: ['codex'], readQuota: async () => null, cache: new Map(),
+    config: { limits: { global: 4, perClient: 2, clients: { codex: 100, future: 1 } } } };
+  const en = await statusTable(root, deps);
+  assert.match(en.capacityLine, /codex: 0\/100 \(client\)/);
+  assert.match(en.capacityLine, /deprecated; used as limits.global/);
+  assert.match(en.capacityLine, /unknown client: future/);
+  const pt = await statusTable(root, { ...deps, locale: 'pt-BR' });
+  assert.match(pt.capacityLine, /codex: 0\/100 \(própria\)/);
+  assert.match(pt.capacityLine, /obsoleto; usado como limits.global/);
+  assert.match(pt.capacityLine, /cliente desconhecido: future/);
 });
 
 test('a reading is read once inside the TTL and read again after it', async (t) => {
@@ -309,7 +323,7 @@ test('pt-BR translates the same table, and an unknown locale falls back to en', 
   const pt = await statusTable(root, { ...deps, locale: 'pt-BR' });
   assert.ok(pt.markdown.startsWith('| Assinatura | Restante 5h | Restante semana |'), pt.markdown);
   assert.ok(pt.markdown.includes('| alpha | 12% | - | 3m | vermelho: lowQuotaPct é 15% | api (0s) |'), pt.markdown);
-  assert.equal(pt.capacityLine, 'executores que podem iniciar agora: 3 por cliente, 4 no total; piso de cota 15%');
+  assert.equal(pt.capacityLine, 'executores que podem iniciar agora: alpha: 0/3 (padrão), 3 disponíveis; piso de cota 15%');
   assert.equal(pt.rows[0].order, 'lowQuotaPct é 15%', 'the floor is quoted in the same language');
 
   const unknown = await statusTable(root, { ...deps, locale: 'fr' });
@@ -357,7 +371,7 @@ test('okit status prints the table and the capacity line, in either language', a
     '| --- | --- | --- | --- | --- | --- |',
   ]);
   assert.equal(run.out[2], '| alpha | 77% | - | - | green | api (0s) |');
-  assert.equal(run.out[3], 'executors that can launch now: 3 per client, 4 in total; quota floor 15%');
+  assert.equal(run.out[3], 'executors that can launch now: alpha: 0/3 (default), 3 available; quota floor 15%');
 
   const pt = await cli(['status', '--locale=pt-BR']);
   assert.ok(pt.out[0].startsWith('| Assinatura |'), pt.out[0]);
@@ -397,7 +411,7 @@ test('the MCP status tool answers the table and only adds showBefore when asked'
   assert.equal(plain.rows[0].fiveHour, 41, 'the number comes from the adapter reading of this root');
   assert.equal(plain.rows[0].status, 'green');
   assert.equal(plain.showBefore, undefined, 'no showBefore without the three facts');
-  assert.equal(plain.capacityLine, 'executors that can launch now: 3 per client, 4 in total; quota floor 15%');
+  assert.equal(plain.capacityLine, 'executors that can launch now: claude-code: 0/3 (default), 3 available; codex: 0/3 (default), 3 available; opencode: 0/3 (default), 3 available; quota floor 15%');
 
   const big = server.data(await server.call('status', { size: 'L' }));
   assert.equal(big.showBefore, true);

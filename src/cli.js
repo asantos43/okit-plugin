@@ -15,7 +15,7 @@ import { daemonPause, daemonResume, daemonRun, daemonStatus, tick } from './daem
 import { limitsStatus } from './limits.js';
 import { runPostCompact } from './hook-post-compact.js';
 import { orderList } from './orders.js';
-import { DEFAULT_CONFIG } from './profiles.js';
+import { configOf } from './profiles.js';
 import { runSmoke } from './smoke.js';
 import { runClientSmoke } from './smoke/client.js';
 import { makeSpawner } from './spawn-process.js';
@@ -133,12 +133,7 @@ async function autostartCommand(ctx, action, args) {
 /** The settings of this root: `config.json` over `DEFAULT_CONFIG`. */
 async function readConfig(root) {
   const stored = await readJson(paths(root).config, {});
-  return {
-    ...DEFAULT_CONFIG,
-    ...(stored ?? {}),
-    limits: { ...DEFAULT_CONFIG.limits, ...(stored?.limits ?? {}) },
-    profiles: { ...(stored?.profiles ?? {}) },
-  };
+  return configOf(stored);
 }
 
 /**

@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { inboxAdd } from '../inbox.js';
 import { acquireSlot, canSpawn, releaseSlot } from '../limits.js';
 import { purgeAfter } from '../orders.js';
-import { profilePick } from '../profiles.js';
+import { normalizeLimits, profilePick } from '../profiles.js';
 import { statusTable } from '../status.js';
 import { readJson, withLock, writeJsonAtomic } from '../state.js';
 import { templateAdd, templateRemove } from '../templates.js';
@@ -146,13 +146,13 @@ export async function judge(step, ctx, answers) {
       break;
     }
     case 'C5': evidence = ctx.decisions; ok = evidence?.some((entry) => Array.isArray(entry.opened)); break;
-    case 'C6': ok = Object.entries(config.limits).every(([key, value]) => answer.limits?.[key] === value); break;
+    case 'C6': ok = JSON.stringify(normalizeLimits(answer.limits)) === JSON.stringify(normalizeLimits(config.limits)); break;
     case 'C7': {
       evidence = await run(fixtures.slot.runId);
       ok = answer.ok === true && evidence?.status === 'live' && evidence.client === ctx.client;
       break;
     }
-    case 'C8': ok = answer.ok === false && ['global limit', 'per-client limit'].includes(answer.reason)
+    case 'C8': ok = answer.ok === false && ['default limit', 'client limit'].includes(answer.reason)
       && await run(fixtures.refused.runId) === null; break;
     case 'C9': evidence = await run(fixtures.slot.runId); ok = answer.ok === true && evidence?.status === 'done'; break;
     case 'C10': ok = answer.ok === false && answer.reason === 'unknown run' && await run(fixtures.absent.runId) === null; break;

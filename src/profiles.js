@@ -27,7 +27,7 @@ export const DEFAULT_CONFIG = {
     pathExtensions: ['', '.exe', '.cmd', '.bat'],
   },
   lowQuotaPct: 15,
-  limits: { global: 4, perClient: 3 },
+  limits: { global: 3, clients: {} },
   staleMinutes: 30,
   // profiles: { <client>: { simple: { model, effort, maxTurns }, ... } }
   profiles: {},
@@ -244,11 +244,42 @@ function lowQuota(quota, lowQuotaPct) {
   return typeof remaining === 'number' && remaining < lowQuotaPct;
 }
 
-function configOf(config) {
+export function normalizeLimits(limits = {}) {
+  if (!limits || typeof limits !== 'object' || Array.isArray(limits)) {
+    throw new Error('limits must be an object');
+  }
+  const global = Object.hasOwn(limits, 'perClient') ? limits.perClient
+    : Object.hasOwn(limits, 'global') ? limits.global : DEFAULT_CONFIG.limits.global;
+  const clients = limits.clients === undefined ? {} : limits.clients;
+  if (!clients || typeof clients !== 'object' || Array.isArray(clients)) {
+    throw new Error('limits.clients must be an object');
+  }
+  const configured = Object.fromEntries(['global', 'perClient'].filter(
+    (name) => Object.hasOwn(limits, name),
+  ).map((name) => [name, limits[name]]));
+  for (const [name, value] of [
+    ...Object.entries(configured), ['global', global],
+    ...Object.entries(clients).map(([client, cap]) => [`clients.${client}`, cap]),
+  ]) {
+    if (!Number.isInteger(value) || value < 1) {
+      throw new Error(`limits.${name} must be an integer >= 1`);
+    }
+  }
+  return { global, clients: { ...clients } };
+}
+
+export function configOf(config) {
   const merged = { ...DEFAULT_CONFIG, ...(config ?? {}) };
   return {
     ...merged,
-    limits: { ...DEFAULT_CONFIG.limits, ...(merged.limits ?? {}) },
+    limits: normalizeLimits(config?.limits),
+    limitWarnings: [
+      ...(config?.limitWarnings ?? []),
+      ...(Object.hasOwn(config?.limits ?? {}, 'perClient') ? ['deprecated perClient'] : []),
+      ...Object.keys(config?.limits?.clients ?? {}).filter(
+        (client) => !Object.hasOwn(DEFAULT_CONFIG.release.adapters, client),
+      ).map((client) => `unknown client: ${client}`),
+    ].filter((value, index, all) => all.indexOf(value) === index),
     profiles: { ...(merged.profiles ?? {}) },
   };
 }

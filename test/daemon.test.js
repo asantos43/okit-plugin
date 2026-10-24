@@ -26,7 +26,7 @@ const PROFILES = {
 };
 
 const CONFIG = {
-  limits: { global: 4, perClient: 3 },
+  limits: { global: 3, clients: {} },
   // A template child carries no client, so a demand without one lands here.
   profiles: { alpha: PROFILES, beta: PROFILES, unknown: PROFILES },
 };
@@ -147,7 +147,7 @@ test('a second tick in the same period opens nothing and spawns nothing', async 
 
 test('tick spawns up to the cap and leaves the rest pending with a reason', async (t) => {
   const root = await tempRoot(t);
-  await writeJsonAtomic(paths(root).config, { ...CONFIG, limits: { global: 1, perClient: 3 } });
+  await writeJsonAtomic(paths(root).config, { ...CONFIG, limits: { global: 1, clients: {} } });
   await inboxAdd(root, { title: 'first demand', client: 'alpha' });
   await inboxAdd(root, { title: 'second demand', client: 'alpha' });
   const { deps, spawner } = fakeDeps();
@@ -159,7 +159,7 @@ test('tick spawns up to the cap and leaves the rest pending with a reason', asyn
   assert.equal(record.spawned[0].id, 'I000001');
   assert.equal(record.skipped.length, 1);
   assert.equal(record.skipped[0].id, 'I000002');
-  assert.equal(record.skipped[0].reason, 'global limit');
+  assert.equal(record.skipped[0].reason, 'default limit');
   assert.deepEqual(await pendingTitles(root), ['second demand']);
 });
 
@@ -619,7 +619,7 @@ test('daemonStatus with options.table answers the markdown and the capacity line
   assert.equal(lines[0], '| Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age) |');
   assert.equal(lines[2], '| alpha | 72% | - | 30m | green | api (0s) |');
   assert.equal(lines[3], '| beta | - | - | - | off | off (0s) |');
-  assert.equal(status.table.capacityLine, 'executors that can launch now: 3 per client, 4 in total; quota floor 15%');
+  assert.equal(status.table.capacityLine, 'executors that can launch now: alpha: 0/3 (default), 3 available; beta: 0/3 (default), 3 available; quota floor 15%');
   assert.deepEqual(calls, ['alpha', 'beta']);
 });
 

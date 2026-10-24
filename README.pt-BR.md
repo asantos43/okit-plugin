@@ -42,13 +42,23 @@ Veja [SMOKE.pt-BR.md](docs/SMOKE.pt-BR.md) para orçamento e provas exigidas.
 
 O estado fica em `~/.okwork`; `OKWORK_HOME` substitui essa raiz. Edite ali o
 `config.json`. Os padrões em [src/profiles.js](src/profiles.js) incluem
-`lowQuotaPct: 15`, `limits: {global: 4, perClient: 3}`, `staleMinutes: 30`
+`lowQuotaPct: 15`, `limits: {global: 3, clients: {}}`, `staleMinutes: 30`
 e `profiles` vazio. Preencha `profiles.<client>.simple|normal|hard` com `model`,
 `effort`, `maxTurns`; não há modelo padrão. Todos os adaptadores leem a cota do
 usuário em `quota/<client>.json`. `postCompact` vem habilitado, `timeoutSec: 5`,
 `maxLines: 20`, todas as seções habilitadas. Padrões de `smoke`:
 `quotaFloorPct: 20`, `maxUsd: 1`, `maxTurns: null` (cenário completo),
 `maxMinutes: 15`, `checkTimeoutMs: 60000`.
+
+Defina `limits.global` e `limits.clients.<client>` nesse arquivo; não há comando
+de configuração. Exemplo: `"limits": {"global": 3, "clients":
+{"claude-code": 100, "codex": 2}}`. O teto próprio suplanta o padrão; cada
+cliente sem entrada usa `global`. Não há teto somado entre clientes.
+Os valores devem ser inteiros positivos; valores inválidos recusam a leitura,
+e nomes de clientes desconhecidos geram aviso no status. O antigo `perClient`
+suplanta `global` como apelido obsoleto, com aviso no status. O significado
+anterior de `global` como total foi removido. As verificações releem a
+configuração sem reiniciar; o status mostra vivas/teto, vagas e origem própria/padrão.
 
 ## Uninstall — Desinstalar
 

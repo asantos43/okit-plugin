@@ -365,17 +365,17 @@ async function spawnProcess(deps) {
   need(killed.length > 0, 'maxMinutes must kill the child');
 }
 
-// E10: the cap takes `limits.perClient` slots, then answers `ok: false` with the
+// E10: the cap takes the client's configured slots, then answers `ok: false` with the
 // reason, and a release frees one. The client is one no other check of this
 // group spawns for, so the live runs an earlier check left cannot eat the cap
 // this check is about to prove.
 async function limitsSlots(deps) {
-  const config = { limits: { global: 4, perClient: 1 }, staleMinutes: 30 };
+  const config = { limits: { global: 4, clients: { codex: 1 } }, staleMinutes: 30 };
   const taken = await acquireSlot(deps.stateRoot, 'smoke-e10-a', { client: 'codex', config });
   need(taken.ok === true, `the first slot must be taken, got ${JSON.stringify(taken)}`);
 
   const refused = await acquireSlot(deps.stateRoot, 'smoke-e10-b', { client: 'codex', config });
-  need(refused.ok === false && refused.reason === 'per-client limit', `the cap must answer ok: false, got ${JSON.stringify(refused)}`);
+  need(refused.ok === false && refused.reason === 'client limit', `the cap must answer ok: false, got ${JSON.stringify(refused)}`);
   need(refused.perClient === 1, `the refusal must carry the count it hit, got ${refused.perClient}`);
 
   const released = await releaseSlot(deps.stateRoot, 'smoke-e10-a');
@@ -590,7 +590,7 @@ async function statusTableCheck(deps) {
     readQuota: async () => reading,
     now: deps.now,
     orders: [],
-    limits: { limits: { global: 4, perClient: 3 }, live: 0, byClient: {} },
+    limits: { limits: { global: 3, clients: {} }, live: 0, byClient: {} },
   };
 
   const table = await statusTable(deps.stateRoot, { ...base, cache: new Map(), locale: 'en' });

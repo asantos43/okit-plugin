@@ -42,7 +42,16 @@ See [SMOKE.md](docs/SMOKE.md) for budgets and evidence requirements.
 
 State defaults to `~/.okwork`; `OKWORK_HOME` overrides it. Edit `config.json`
 there. Defaults in [src/profiles.js](src/profiles.js) include `lowQuotaPct: 15`,
-`limits: {global: 4, perClient: 3}`, `staleMinutes: 30`, and empty `profiles`.
+`limits: {global: 3, clients: {}}`, `staleMinutes: 30`, and empty `profiles`.
+Set `limits.global` and `limits.clients.<client>` in that file; there is no
+configuration command. For example, `"limits": {"global": 3, "clients":
+{"claude-code": 100, "codex": 2}}`. A client's own cap replaces the default;
+clients without an entry each use `global`. There is no shared total cap.
+Positive integers are required; invalid values fail configuration reads, and
+unknown client names warn in status. Legacy `perClient` overrides `global`
+as a deprecated alias, with a status warning. The old total meaning of `global`
+is removed. Checks re-read configuration without restart; status shows live/cap,
+available slots and whether the cap is from the client or the default.
 Set `profiles.<client>.simple|normal|hard` with `model`, `effort`, `maxTurns`;
 no default model is supplied. All adapters read user quota from `quota/<client>.json`.
 `postCompact` defaults to enabled, `timeoutSec: 5`, `maxLines: 20`, all sections

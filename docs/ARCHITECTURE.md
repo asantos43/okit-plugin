@@ -65,7 +65,7 @@ Never estimate quota. `profilePick` lowers one class when `remainingPct < lowQuo
 ### 5.1 The quota table
 `src/status.js` is the view of those readings, not a second source of them: `statusTable(root, deps)` is pure over the readings, the clock, the cap counts and the standing orders that arrive in `deps`, and returns `{markdown, capacityLine, rows}`. Columns are `Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age)`; a `windows` array fills both columns, and without it the single `remainingPct` goes to the 5h column when `windowMinutes <= 360` and to the week otherwise, including when `windowMinutes` is absent.
 
-The Status column is a word, never ANSI: `green` at or more than 15 points above `lowQuotaPct`, `yellow` from the floor up to that, `red` below it, and `off` when there is no reading or the source is `off` — which blocks nothing. The row word follows the tightest of the windows, and a `red` row quotes the standing order that names the quota or the floor, falling back to `lowQuotaPct` itself. Below the table one line says how many executors can launch now (`limits.perClient` minus the live runs of the client, and `limits.global` minus all of them, clamped at 0) and the floor in force. Every word lives in one `LABELS` table with `en` and `pt-BR`, chosen by `deps.locale`.
+The Status column is a word, never ANSI: `green` at or more than 15 points above `lowQuotaPct`, `yellow` from the floor up to that, `red` below it, and `off` when there is no reading or the source is `off` — which blocks nothing. The row word follows the tightest of the windows, and a `red` row quotes the standing order that names the quota or the floor, falling back to `lowQuotaPct` itself. Below the table each client shows live/cap, the cap source (client/default), and available slots clamped at zero, plus the quota floor. Every word lives in one `LABELS` table with `en` and `pt-BR`, chosen by `deps.locale`.
 
 Readings are cached per client for `ttlMs` (60 s by default) against `deps.now`, so two calls in a row cost one read. `shouldShowStatus({size, slices, executors})` is true for size `L`, `slices >= 2` or `executors > 1`, and the Director shows the table when it is. `okit daemon status --table [--locale en|pt-BR]` prints the same table under its daemon lines, and a daemon pass never reads a quota for it: `daemonStatus(root, { table })` builds it only when those deps are handed in.
 
@@ -81,8 +81,14 @@ Readings are cached per client for `ttlMs` (60 s by default) against `deps.now`,
 ## 7. Concurrency limit
 | Scope | Default | Read from |
 | :- | :- | :- |
-| Global, all clients | 4 actors at once | `config.json` |
-| Per client | 3 actors at once | `config.json`; quota does not change the cap |
+| Default for each client | 3 actors at once | `limits.global` in `config.json` |
+| Client override | Replaces the default | `limits.clients.<client>`; quota does not change the cap |
+
+There is no combined cap across clients. For example, `clients: {"claude-code": 100}`
+allows that client 100 live runs regardless of `global`. Positive integers are
+validated on read; unknown client names produce warnings. Legacy `perClient`
+is a deprecated alias that overrides `global` with a status warning; `global`
+no longer means a shared pool. Configuration is read for each check without restart.
 
 The core counts live runs in `runs/<runId>.json` (`status: live`) rather than trusting the client to hold the cap. `acquireSlot` defaults to `waitMs: 0` and returns `ok: false` when full; callers may request a wait. `releaseSlot` ends a reservation; live counting ignores runs older than `staleMinutes` (30 by default). Codex caps itself with `agents.max_concurrent_threads_per_session`; set it to the same number so the two agree.
 
@@ -230,7 +236,7 @@ Methods: `initialize`, `notifications/initialized`, `ping`, `tools/list` and `to
 ## 13. Autonomy
 Maximum autonomy is the default. The plugin ships no hard-coded list of forbidden actions: a refusal comes from something the user wrote or from a technical bound, never from a rule the maintainers guessed.
 - Restrictions are standing orders. The user adds one ("never push to `main`") and `orderRemove` takes it back; nothing else can add a restriction.
-- The technical bounds stay configurable: the concurrency cap (`limits.global`, `limits.perClient`, `staleMinutes`), the quota floor (`daemon.minQuotaPct`, `lowQuotaPct`), the kill switch (`daemon.stop`) and the pause file.
+- The technical bounds stay configurable: the concurrency cap (`limits.global`, `limits.clients`, `staleMinutes`), the quota floor (`daemon.minQuotaPct`, `lowQuotaPct`), the kill switch (`daemon.stop`) and the pause file.
 - The core never invents a model, an effort value or a quota number the client did not report, and it never widens a cap on its own.
 
 ## 14. Global state and `appliesTo`

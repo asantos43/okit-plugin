@@ -6,7 +6,8 @@
 import { readQuota as readClientQuota } from '../adapters/claude-code/index.js';
 import { readQuota as readCodexQuota } from '../adapters/codex/index.js';
 import { readQuota as readOpencodeQuota } from '../adapters/opencode/index.js';
-import { DEFAULT_CONFIG } from './profiles.js';
+import { configOf, normalizeLimits } from './profiles.js';
+import { capOf } from './limits.js';
 import { CLIENTS } from './spawn-process.js';
 import { projectName, withDemandRef } from './demand-ref.js';
 import { inboxList } from './inbox.js';
@@ -33,9 +34,12 @@ export const LABELS = {
     status: { green: 'green', yellow: 'yellow', red: 'red', off: 'off' },
     missing: MISSING,
     pct: (value) => `${Math.round(value)}%`,
-    capacity: (perClient, global, floor) => (
-      `executors that can launch now: ${perClient} per client, ${global} in total; quota floor ${floor}%`
+    capacity: (clients, floor) => (
+      `executors that can launch now: ${clients}; quota floor ${floor}%`
     ),
+    capSource: { client: 'client', default: 'default' },
+    cap: (client, live, cap, source, available) => `${client}: ${live}/${cap} (${source}), ${available} available`,
+    warning: (warning) => `warning: ${warning === 'deprecated perClient' ? 'limits.perClient is deprecated; used as limits.global (default per client)' : warning}`,
     floorOrder: (floor) => `lowQuotaPct is ${floor}%`,
     resets: (minutes) => `${minutes}m`,
     age: (seconds) => `${seconds}s`,
@@ -46,9 +50,12 @@ export const LABELS = {
     status: { green: 'verde', yellow: 'amarelo', red: 'vermelho', off: 'desligado' },
     missing: MISSING,
     pct: (value) => `${Math.round(value)}%`,
-    capacity: (perClient, global, floor) => (
-      `executores que podem iniciar agora: ${perClient} por cliente, ${global} no total; piso de cota ${floor}%`
+    capacity: (clients, floor) => (
+      `executores que podem iniciar agora: ${clients}; piso de cota ${floor}%`
     ),
+    capSource: { client: 'própria', default: 'padrão' },
+    cap: (client, live, cap, source, available) => `${client}: ${live}/${cap} (${source}), ${available} disponíveis`,
+    warning: (warning) => `aviso: ${warning === 'deprecated perClient' ? 'limits.perClient obsoleto; usado como limits.global (padrão por cliente)' : warning.replace('unknown client:', 'cliente desconhecido:')}`,
     floorOrder: (floor) => `lowQuotaPct é ${floor}%`,
     resets: (minutes) => `${minutes}m`,
     age: (seconds) => `${seconds}s`,
@@ -250,7 +257,7 @@ const READING_CACHE = new Map();
 export async function statusTable(root, deps = {}) {
   const now = deps.now ?? Date.now;
   const labels = labelsOf(deps.locale);
-  const config = { ...DEFAULT_CONFIG, ...(deps.config ?? {}) };
+  const config = configOf(deps.config);
   const floor = config.lowQuotaPct;
   const ttlMs = Number.isFinite(deps.ttlMs) ? deps.ttlMs : DEFAULT_TTL_MS;
   const cache = deps.cache ?? READING_CACHE;
@@ -262,12 +269,14 @@ export async function statusTable(root, deps = {}) {
     rows.push(rowOf(client, readingOf(reading), at, config, labels, now(), deps.orders));
   }
 
-  // The tightest per-client room is the room the Director really has.
-  const limits = deps.limits?.limits ?? config.limits;
+  const limits = normalizeLimits(deps.limits?.limits ?? config.limits);
   const byClient = deps.limits?.byClient ?? {};
-  const rooms = clients.map((client) => room(limits.perClient, byClient[client]));
-  const perClient = rooms.length === 0 ? 0 : Math.min(...rooms);
-  const global = room(limits.global, deps.limits?.live);
+  const capacityClients = new Set([...clients, ...Object.keys(limits.clients), ...Object.keys(byClient)]);
+  const capacity = [...capacityClients].map((client) => {
+    const { cap, source } = capOf(limits, client);
+    return labels.cap(client, byClient[client] ?? 0, cap, labels.capSource[source], room(cap, byClient[client]));
+  }).join('; ');
+  const warnings = (deps.limits?.warnings ?? config.limitWarnings).map(labels.warning);
   const name = await projectName(root);
   const demands = (deps.demands ?? await inboxList(root)).map((item) => withDemandRef(item, name));
   const demandTable = demands.length === 0 ? '' : `\n\n${markdownOf(
@@ -276,7 +285,7 @@ export async function statusTable(root, deps = {}) {
   )}`;
   return {
     markdown: markdownOf(labels.columns, rows) + demandTable,
-    capacityLine: labels.capacity(perClient, global, floor),
+    capacityLine: [labels.capacity(capacity, floor), ...warnings].join('\n'),
     rows,
     demands,
   };
