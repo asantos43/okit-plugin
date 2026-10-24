@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { DEFAULT_CONFIG, profilePick } from '../src/profiles.js';
+import { DEFAULT_CONFIG, configOf, profilePick } from '../src/profiles.js';
 
 const CONFIG = {
   lowQuotaPct: 15,
@@ -19,6 +19,17 @@ const CONFIG = {
 };
 
 const pick = (effort, quota, config = CONFIG) => profilePick({ client: 'alpha', effort, quota, config });
+
+test('configuration normalizes legacy limits and validates values on read', () => {
+  assert.deepEqual(configOf({ limits: { global: 8 } }).limits, { global: 8, clients: {} });
+  const legacy = configOf({ limits: { global: 8, perClient: 2 } });
+  assert.deepEqual(legacy.limits, { global: 2, clients: {} });
+  assert.ok(legacy.limitWarnings.includes('deprecated perClient'));
+  assert.throws(() => configOf({ limits: { clients: { codex: 0 } } }), /limits.clients.codex/);
+  assert.throws(() => configOf({ limits: { global: null } }), /limits.global/);
+  assert.throws(() => configOf({ limits: { perClient: 0 } }), /integer >= 1/);
+  assert.throws(() => configOf({ limits: [] }), /limits must be an object/);
+});
 
 test('a healthy quota keeps the class as is', () => {
   assert.deepEqual(pick('hard', { source: 'api', remainingPct: 80 }),
@@ -64,7 +75,7 @@ test('an unknown effort class throws instead of guessing', () => {
 });
 
 test('DEFAULT_CONFIG ships limits, lowQuotaPct and no model names', () => {
-  assert.deepEqual(DEFAULT_CONFIG.limits, { global: 4, perClient: 3 });
+  assert.deepEqual(DEFAULT_CONFIG.limits, { global: 3, clients: {} });
   assert.equal(DEFAULT_CONFIG.lowQuotaPct, 15);
   assert.deepEqual(DEFAULT_CONFIG.profiles, {});
   assert.equal(JSON.stringify(DEFAULT_CONFIG).includes('model'), false);

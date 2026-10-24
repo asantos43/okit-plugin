@@ -3,15 +3,13 @@
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { DEFAULT_CONFIG } from './profiles.js';
+import { DEFAULT_CONFIG, configOf } from './profiles.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
 
 const POLL_MS = 100;
 
-function settingsOf(config) {
-  const merged = { ...DEFAULT_CONFIG, ...(config ?? {}) };
-  const limits = { ...DEFAULT_CONFIG.limits, ...(merged.limits ?? {}) };
-  return { limits, staleMinutes: merged.staleMinutes };
+async function settingsOf(root, config) {
+  return configOf(config === undefined ? await readJson(join(root, 'config.json'), {}) : config);
 }
 
 function runsDir(root) {
@@ -66,12 +64,12 @@ function tally(runs) {
  * @returns {Promise<number>} live run count across all clients
  */
 export async function countLive(root, config) {
-  const { staleMinutes } = settingsOf(config);
+  const { staleMinutes } = await settingsOf(root, config);
   const runs = await readLiveRuns(root, staleMinutes);
   return runs.length;
 }
 async function liveCounts(root, client, config) {
-  const { staleMinutes } = settingsOf(config);
+  const { staleMinutes } = await settingsOf(root, config);
   const runs = await readLiveRuns(root, staleMinutes);
   const { global, byClient } = tally(runs);
   return { global, perClient: byClient[client] ?? 0 };
@@ -81,22 +79,27 @@ function refusal(reason, counts) {
   return { ok: false, reason, global: counts.global, perClient: counts.perClient };
 }
 
-function checkCaps(counts, limits) {
-  if (counts.global >= limits.global) return refusal('global limit', counts);
-  if (counts.perClient >= limits.perClient) return refusal('per-client limit', counts);
+export function capOf(limits, client) {
+  const own = Object.hasOwn(limits.clients, client);
+  return { cap: own ? limits.clients[client] : limits.global, source: own ? 'client' : 'default' };
+}
+
+function checkCaps(counts, limits, client) {
+  const { cap, source } = capOf(limits, client);
+  if (counts.perClient >= cap) return refusal(`${source} limit`, counts);
   return { ok: true, global: counts.global, perClient: counts.perClient };
 }
 
 /**
- * Reports whether one more run fits under the global and per-client caps.
+ * Reports whether one more run fits under this client's effective cap.
  *
  * @param {string} root state root
  * @param {{client: string, config?: object}} input
  * @returns {Promise<{ok: boolean, reason?: string, global: number, perClient: number}>}
  */
 export async function canSpawn(root, { client, config } = {}) {
-  const { limits } = settingsOf(config);
-  return checkCaps(await liveCounts(root, client, config), limits);
+  const { limits } = await settingsOf(root, config);
+  return checkCaps(await liveCounts(root, client, config), limits, client);
 }
 /**
  * Reserves a slot for `runId` and writes its run file, or reports `busy`.
@@ -114,9 +117,9 @@ export async function acquireSlot(root, runId, { client, config, waitMs = 0 } = 
   for (;;) {
     // The lock is released before sleeping, so a waiter never blocks a release.
     const result = await withLock(runsDir(root), async () => {
-      const { limits } = settingsOf(config);
+      const { limits } = await settingsOf(root, config);
       const counts = await liveCounts(root, client, config);
-      const room = checkCaps(counts, limits);
+      const room = checkCaps(counts, limits, client);
       if (!room.ok) return room;
       await writeJsonAtomic(runFile(root, runId), {
         runId, client, status: 'live', startedAt: Date.now(),
@@ -152,11 +155,16 @@ export async function releaseSlot(root, runId) {
  *
  * @param {string} root state root
  * @param {object} [config]
- * @returns {Promise<{limits: {global: number, perClient: number}, live: number, byClient: object}>}
+ * @returns {Promise<{limits: object, live: number, byClient: object, caps: object, warnings: string[]}>}
  */
 export async function limitsStatus(root, config) {
-  const { limits, staleMinutes } = settingsOf(config);
+  const { limits, staleMinutes, limitWarnings } = await settingsOf(root, config);
   const runs = await readLiveRuns(root, staleMinutes);
   const { global, byClient } = tally(runs);
-  return { limits, live: global, byClient };
+  const clients = new Set([
+    ...Object.keys(DEFAULT_CONFIG.release.adapters), ...Object.keys(limits.clients),
+    ...Object.keys(config?.profiles ?? {}), ...Object.keys(byClient),
+  ]);
+  const caps = Object.fromEntries([...clients].map((client) => [client, capOf(limits, client)]));
+  return { limits, live: global, byClient, caps, warnings: limitWarnings };
 }

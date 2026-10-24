@@ -25,7 +25,7 @@ const TMP = fileURLToPath(new URL('../.delegate/tmp/', import.meta.url));
 const T0 = 1_760_000_000_000;
 
 const CONFIG = {
-  limits: { global: 4, perClient: 3 },
+  limits: { global: 3, clients: {} },
   profiles: {
     'claude-code': {
       simple: { model: 'haiku', effort: 'low', maxTurns: 4 },
@@ -168,7 +168,7 @@ test('daemon status --table prints the quota table under the daemon lines', asyn
   assert.equal(run.out[5], '', 'a blank line separates the two halves');
   assert.equal(run.out[6], '| Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age) |');
   assert.equal(run.out[8], '| claude-code | 64% | - | - | green | api (0s) |');
-  assert.equal(run.out[9], 'executors that can launch now: 3 per client, 4 in total; quota floor 15%');
+  assert.equal(run.out[9], 'executors that can launch now: claude-code: 0/3 (default), 3 available; quota floor 15%');
   assert.equal(run.out.length, 10, 'nothing else is printed');
   assert.deepEqual(calls, ['claude-code']);
 
@@ -176,7 +176,7 @@ test('daemon status --table prints the quota table under the daemon lines', asyn
   assert.equal(pt.code, 0);
   assert.equal(pt.out[6], '| Assinatura | Restante 5h | Restante semana | Reseta em | Situação | Origem (idade) |');
   assert.equal(pt.out[8], '| claude-code | 64% | - | - | verde | api (0s) |');
-  assert.equal(pt.out[9], 'executores que podem iniciar agora: 3 por cliente, 4 no total; piso de cota 15%');
+  assert.equal(pt.out[9], 'executores que podem iniciar agora: claude-code: 0/3 (padrão), 3 disponíveis; piso de cota 15%');
 
   // Without the flag nothing changes and no quota is read: the second table came
   // from the shared cache, since both calls fall inside the TTL.
