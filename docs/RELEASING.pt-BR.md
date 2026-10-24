@@ -44,7 +44,7 @@ Os nomes abaixo são modelos a implementar, não arquivos gerados por D26. `P` �
 
 Nomes de arquivos de esquema de marketplace seguem os clientes, sob raízes de saída configuradas. As entradas devem resolver a carga/versão exata por par; seleção automática de sistema é **não verificada**, não presumida ([D-Q1 / D-Q2](#decisions)). Identidades e metadados de saída devem coincidir com `package.json`, incluindo `license`, `repository`, `bin` e `engines`; sem constante duplicada de versão. Nova versão é decisão do Produtor, não deste documento.
 
-As notas vêm do histórico de mudanças da raiz, mantido à mão em `CHANGELOG.md`, na seção `[Unreleased]`. A futura etapa de notas extrai dessa seção as mudanças da versão escolhida e preserva referências; não criar outro histórico.
+As notas vêm do histórico de mudanças da raiz em `CHANGELOG.md`, na seção `[Unreleased]`. O comando de notas extrai essa seção preservando o texto; não criar outro histórico. Registre mudanças em fragmentos de `changelog.d/` e reúna-os no release com `kit changelog collect`.
 
 O manifesto de hashes é escrito e conferido por `src/release/checksums.js`, conduzido por `scripts/checksums.js` (`npm run release:checksums -- write|verify`). Uma linha por arquivo traz o digest SHA-256 minúsculo, dois espaços e o nome exato, ordenadas por nome, LF e UTF-8, calculados sobre os bytes finais do arquivo sem mantê-lo em memória; o manifesto nunca carrega o próprio hash. A verificação recusa arquivo alterado, ausente ou não listado, linha malformada e caminho inseguro.
 
@@ -74,6 +74,24 @@ O nome de cada arquivo é o modelo de nome da configuração preenchido com o no
 Os arquivos são determinísticos: as entradas são ordenadas, a data de modificação é `SOURCE_DATE_EPOCH` ou a data do commit, os modos são explícitos (`0755` para o comando do pacote, `0644` para o resto) e as linhas terminam em LF. Duas construções da mesma fonte produzem os mesmos bytes.
 
 Um par que não pode ser montado é recusado com a razão, e nenhum pacote vazio é gravado no lugar: um cliente cujo adaptador falta, um cliente ou sistema desconhecido, um sistema sem formato de arquivo. Um cliente que tem adaptador é montado, como qualquer outro; os três adaptadores de cliente deste repositório (`claude-code`, `codex` e `opencode`) montam seus pares. O comando então lista os pares recusados e responde com um código diferente de zero.
+
+## Notas de release
+
+O PR 3 é `scripts/release-notes.js`, também `npm run release:notes -- [flags]`:
+
+```sh
+node scripts/release-notes.js [--out <dir>] [--version <version>] [--dry-run]
+```
+
+| Flag | Efeito |
+| :- | :- |
+| `--out <dir>` | Grava notas aqui; o padrão é a pasta de saída configurada do release, sob o repositório. |
+| `--version <version>` | Deve coincidir com `package.json.version`; o padrão é essa versão. |
+| `--dry-run` | Lista o destino das notas e cada nome de arquivo por par, sem gravar. |
+
+Os textos, modelo de nome e caminho do histórico de `release.notes` combinam-se com os metadados do pacote e o plano de pares do build. A saída determinística inclui engines do Node, os nove nomes de cargas, nome do manifesto, instalação/atualização e provas e lacunas de cada par. Sem registro de provas, todos são `not proven` (não provado); Windows/macOS são do Produtor. O opcional `release.notes.proofFile` aponta para um objeto JSON relativo ao repositório com chaves `client:system` e valores `not proven`, `proven` ou `PARCIAL` (ou os rótulos configurados). Prova parcial sempre permanece nas lacunas.
+
+Histórico ausente, `[Unreleased]` ausente ou vazio (só subtítulos/comentários não contam), versão divergente ou prova inválida recusa com razão e não grava saída. As linhas preservam texto e espaços. O comando não publica nem calcula hashes das notas; os hashes finais de notas/checklist pertencem ao PR 4/publicação.
 
 ## Proof per pair
 
@@ -122,7 +140,7 @@ Pré-requisitos: Produtor responde às perguntas aplicáveis; adaptadores/manife
 | :- | :- | :- |
 | 1 — Build local (feito) | Adicionar script local em `scripts/`, com entrada em `package.json`; consumir metadados e configuração de pares/saída, preservar caminhos comuns e gerar metadados de cliente escolhidos. | Executar localmente em revisão conferida; nove cargas identificadas; inspecionar conteúdo, identidade, LF, permissões e resolução de caminhos. Cliente/sistema desconhecido ou adaptador ausente recusa; sem efeito de publicação. |
 | 2 — Checksums (feito) | Adicionar geração/verificação de manifesto SHA-256 dos bytes finais usando módulos nativos do Node: `src/release/checksums.js` e `scripts/checksums.js`. | Cada arquivo listado confere; arquivo alterado/ausente recusa; sem hash de si mesmo. |
-| 3 — Notas | Gerar notas da versão a partir da seção `[Unreleased]` do histórico da raiz mantido à mão e metadados dos pares. | Versão e nomes coincidem com pacote/build; histórico ausente recusa; aparecem lacunas e instruções de instalação/atualização. |
+| 3 — Notas (done) | Gerar notas da versão a partir da seção `[Unreleased]` do histórico da raiz e metadados dos pares. | Versão e nomes coincidem com pacote/build; histórico ausente recusa; aparecem lacunas e instruções de instalação/atualização. |
 | 4 — Checklist | Gerar modelo de nove registros e documentar coleta das evidências do candidato instalado. | Ambas as camadas por par, Produtor assina Windows/macOS; skips e drivers ausentes ficam visíveis. Calcular hashes de notas/checklist só após finalizar registros. |
 
 Após esses PRs, obter do Produtor a versão do candidato, montar localmente e coletar provas nas máquinas reais. O pedido explícito posterior do Produtor é o gatilho separado para confirmar essa versão, extrair suas mudanças do histórico da raiz, finalizar notas/checksums/checklist, criar tag e publicar artefatos comprovados. Alterar versão ou carga invalida seu hash e exige nova prova.

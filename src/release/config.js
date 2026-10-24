@@ -41,6 +41,14 @@ export function releaseConfig(user = {}) {
     instructions: map(DEFAULTS.instructions, given.instructions),
     marketplace: { ...DEFAULTS.marketplace, ...(given.marketplace ?? {}) },
     modes: { ...DEFAULTS.modes, ...(given.modes ?? {}) },
+    notes: {
+      ...DEFAULTS.notes,
+      ...(isPlainObject(given.notes) ? given.notes : {}),
+      proofBy: map(DEFAULTS.notes.proofBy, isPlainObject(given.notes) ? given.notes.proofBy : {}),
+      status: map(DEFAULTS.notes.status, isPlainObject(given.notes) ? given.notes.status : {}),
+      headings: map(DEFAULTS.notes.headings, isPlainObject(given.notes) ? given.notes.headings : {}),
+      labels: map(DEFAULTS.notes.labels, isPlainObject(given.notes) ? given.notes.labels : {}),
+    },
   };
 }
 

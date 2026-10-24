@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add deterministic release notes from the root history's `[Unreleased]` and package/pair metadata (`scripts/release-notes.js`, `npm run release:notes`), with Node prerequisites, nine payload names, checksum manifest, installation/update instructions, proof states and visible partial/missing-proof gaps; refuse missing or empty history and mismatched versions, without publication.
 - Add the local release build (`scripts/build-release.js`, `npm run release:build`): deterministic `.tar.gz`/`.zip` pair payloads per client × system × architecture, named from `package.json`, with the client manifest, MCP wiring, hooks and install instructions of the clients the configuration names, and a refusal with its reason for a pair whose adapter is missing or whose client or system is unknown; it publishes nothing.
 - Add the opencode adapter with process spawning, user quota, capabilities, safe skill/global JS plugin installation, configurable roots and isolated tests.
 - Codex adapter with native/process delegation, user quota, capabilities, safe skill copying, explicit hook-installation refusal and tests.
