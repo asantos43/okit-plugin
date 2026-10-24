@@ -9,7 +9,9 @@ import { main } from '../src/cli.js';
 import { inboxAdd, inboxClaim, inboxList } from '../src/inbox.js';
 import { createServer } from '../src/mcp/server.js';
 import { TOOLS } from '../src/mcp/tools.js';
-import { shouldShowStatus, statusTable } from '../src/status.js';
+import { CLIENT_ENV_MARKERS, detectClient, shouldShowStatus, statusTable as buildStatusTable } from '../src/status.js';
+
+const statusTable = (root, deps = {}) => buildStatusTable(root, { env: {}, ...deps });
 
 // Scratch state lives inside the repository, never in the system temp folder.
 const TMP = fileURLToPath(new URL('../.delegate/tmp/', import.meta.url));
@@ -41,6 +43,26 @@ test('status displays qualified demands and preserves the JSON id', async (t) =>
 });
 
 const T0 = 1_760_000_000_000;
+const CLIENT_CASES = [
+  [{ CLAUDECODE: '1' }, 'claude-code'],
+  [{ CODEX_THREAD_ID: 'session' }, 'codex'],
+  [{ CODEX_CI: '1' }, 'codex'],
+  [{ OPENCODE: '1' }, 'opencode'],
+  [{ OPENCODE_PID: '123' }, 'opencode'],
+];
+
+test('client marker table must pass session markers and must refuse configuration alone', () => {
+  assert.deepEqual(Object.keys(CLIENT_ENV_MARKERS), ['claude-code', 'codex', 'opencode']);
+  for (const [env, client] of CLIENT_CASES) {
+    assert.equal(detectClient(env), client);
+    assert.ok(CLIENT_ENV_MARKERS[client].some((marker) => Object.hasOwn(env, marker)));
+  }
+  for (const env of [{}, { CLAUDECODE: '' }, { CLAUDECODE: '0' },
+    { CODEX_HOME: 'configured', OPENCODE_CONFIG_DIR: 'configured' }]) {
+    assert.equal(detectClient(env), null);
+  }
+});
+
 const clock = (start = T0) => {
   let at = start;
   return { now: () => at, pass: (ms) => { at += ms; } };
@@ -68,7 +90,7 @@ function readerOf(readings) {
 function harness(ctx) {
   const input = new PassThrough();
   const output = new PassThrough();
-  const server = createServer({ tools: TOOLS, input, output, ctx, version: '9.9.9' });
+  const server = createServer({ tools: TOOLS, input, output, ctx: { env: {}, ...ctx }, version: '9.9.9' });
   const seen = [];
   const waiters = [];
   let buffer = '';
@@ -106,6 +128,65 @@ function harness(ctx) {
 
 /** The words the Status column can hold, with the floor the brief names. */
 const WORDS = ['green', 'yellow', 'red', 'off'];
+
+test('detected client filters both rows and capacity, including unconfigured clients', async (t) => {
+  const root = await tempRoot(t);
+  for (const [env, client] of CLIENT_CASES) {
+    const { readQuota, calls } = readerOf({});
+    const table = await statusTable(root, { env, readQuota, cache: new Map(),
+      clients: ['claude-code'], limits: { byClient: { codex: 1, opencode: 2 } } });
+    assert.deepEqual(table.rows.map((row) => row.client), [client]);
+    assert.deepEqual(calls, [client]);
+    assert.ok(table.capacityLine.includes(`${client}:`));
+    for (const other of ['claude-code', 'codex', 'opencode'].filter((name) => name !== client)) {
+      assert.ok(!table.capacityLine.includes(`${other}:`));
+      assert.ok(!table.markdown.includes(`| ${other} |`));
+    }
+    assert.ok(!table.markdown.includes('Client not recognized'));
+  }
+});
+
+test('all overrides detection, client overrides both, and unknown detection explains selection', async (t) => {
+  const root = await tempRoot(t);
+  const deps = { env: { CLAUDECODE: '1' }, cache: new Map() };
+  assert.equal((await statusTable(root, { ...deps, all: true })).rows.length, 3);
+  assert.deepEqual((await statusTable(root, { ...deps, all: true, client: 'codex' })).rows.map((r) => r.client), ['codex']);
+  for (const [locale, phrase] of [['en', /Client not recognized.*--client <name>/],
+    ['pt-BR', /Cliente não reconhecido.*--client <nome>/]]) {
+    const table = await statusTable(root, { env: {}, locale });
+    assert.equal(table.rows.length, 3);
+    assert.match(table.markdown, phrase);
+  }
+});
+
+test('recorded quota keeps its real value and age across cache refreshes', async (t) => {
+  const root = await tempRoot(t);
+  await mkdir(join(root, 'quota'), { recursive: true });
+  await writeFile(join(root, 'quota', 'claude-code.json'), JSON.stringify({
+    remainingPct: 37, windowMinutes: 300, recordedAt: new Date(T0 - 120_000).toISOString(),
+  }));
+  const time = clock();
+  const io = { root, env: { CLAUDECODE: '1' }, now: time.now, quotaCache: new Map() };
+  for (const [locale, age] of [['en', '120s'], ['pt-BR', '181s']]) {
+    const out = [];
+    assert.equal(await main(['status', '--locale', locale], { ...io, stdout: (line) => out.push(line) }), 0);
+    assert.ok(out.some((line) => line.includes(`| claude-code | 37% |`) && line.includes(`(${age})`)));
+    assert.ok(!out.some((line) => /\| (codex|opencode) \|/.test(line)));
+    time.pass(61_000);
+  }
+});
+
+test('missing quota tells how to record it in each language', async (t) => {
+  const root = await tempRoot(t);
+  for (const [locale, words] of [['en', 'No quota value recorded. Record it with:'],
+    ['pt-BR', 'Nenhum valor de cota registrado. Registre com:']]) {
+    const table = await statusTable(root, { env: { CLAUDECODE: '1' }, locale, readQuota: async () => null, cache: new Map() });
+    assert.ok(table.markdown.includes(`${words} okit-plugin quota set claude-code <pct>`));
+    assert.equal(table.rows[0].fiveHour, null);
+    assert.equal(table.rows[0].week, null);
+    assert.ok(!table.markdown.includes('0%'));
+  }
+});
 
 test('the status word follows the floor: green above it, yellow at it, red below', async (t) => {
   const root = await tempRoot(t);
@@ -355,7 +436,7 @@ test('a quoted order with a bar and a newline cannot break the table', async (t)
     orders: [{ text: 'keep quota | above 20\nplease' }],
   });
 
-  const lines = markdown.split('\n');
+  const lines = markdown.split('\n').filter((line) => line.startsWith('|'));
   const expected = separators(lines[0]);
   assert.ok(markdown.includes('keep quota \\| above 20 please'), markdown);
   for (const line of lines) {
@@ -367,7 +448,7 @@ test('a quoted order with a bar and a newline cannot break the table', async (t)
 test('okit-plugin status prints the table and the capacity line, in either language', async (t) => {
   const root = await tempRoot(t);
   const { readQuota } = readerOf({ alpha: { source: 'api', remainingPct: 77, windowMinutes: 300 } });
-  const io = { root, readQuota, now: () => T0, clients: ['alpha'], quotaCache: new Map() };
+  const io = { root, env: {}, readQuota, now: () => T0, clients: ['alpha'], quotaCache: new Map() };
   const cli = async (argv) => {
     const out = [];
     const code = await main(argv, { ...io, stdout: (line) => out.push(line), stderr: () => {} });
@@ -381,22 +462,44 @@ test('okit-plugin status prints the table and the capacity line, in either langu
     '| --- | --- | --- | --- | --- | --- |',
   ]);
   assert.equal(run.out[2], '| alpha | 77% | - | - | green | api (0s) |');
-  assert.equal(run.out[3], 'executors that can launch now: alpha: 0/3 (default), 3 available; quota floor 15%');
+  assert.ok(run.out.includes('executors that can launch now: alpha: 0/3 (default), 3 available; quota floor 15%'));
 
   const pt = await cli(['status', '--locale=pt-BR']);
   assert.ok(pt.out[0].startsWith('| Assinatura |'), pt.out[0]);
-  assert.ok(pt.out[3].startsWith('executores que podem iniciar agora:'), pt.out[3]);
+  assert.ok(pt.out.some((line) => line.startsWith('executores que podem iniciar agora:')));
 
   // The flag is the only argument, and an unknown one is a refusal.
   assert.equal((await cli(['status', '--nope'])).code, 2);
   assert.equal((await cli(['status', '--locale', 'fr'])).code, 2);
 });
 
-test('okit-plugin status of a root with no reading prints a row per client, all off', async (t) => {
+test('CLI selection must pass all/client and must refuse unknown clients and incomplete flags', async (t) => {
+  const root = await tempRoot(t);
+  const cases = [
+    [[], ['claude-code']],
+    [['--all'], ['claude-code', 'codex', 'opencode']],
+    [['--client', 'codex'], ['codex']],
+    [['--client=opencode'], ['opencode']],
+    [['--all', '--client', 'codex'], ['codex']],
+  ];
+  for (const [args, clients] of cases) {
+    const out = [];
+    assert.equal(await main(['status', ...args], { root, env: { CLAUDECODE: '1' },
+      stdout: (line) => out.push(line), quotaCache: new Map() }), 0);
+    assert.deepEqual(out.filter((line) => /^\| (claude-code|codex|opencode) \|/.test(line))
+      .map((line) => line.split('|')[1].trim()), clients);
+  }
+  for (const args of [['--client'], ['--client', 'unknown'], ['--client='], ['--all=true']]) {
+    assert.equal(await main(['status', ...args], { root, env: {}, stdout: () => {}, stderr: () => {} }), 2);
+  }
+});
+
+test('okit-plugin status outside a client explains how to select and record quota', async (t) => {
   const root = await tempRoot(t);
   const out = [];
   const code = await main(['status'], {
     root,
+    env: {},
     now: () => T0,
     stdout: (line) => out.push(line),
     stderr: (line) => out.push(line),
@@ -406,7 +509,26 @@ test('okit-plugin status of a root with no reading prints a row per client, all 
   for (const client of ['claude-code', 'codex', 'opencode']) {
     assert.ok(out.some((line) => line.includes(`| ${client} |`)), `${client} has a row`);
   }
-  assert.ok(out.filter((line) => line.includes('| off |')).length >= 3, out.join('\n'));
+  assert.equal(out.filter((line) => line.includes('No quota value recorded.')).length, 3);
+  assert.ok(out.some((line) => line.includes('Client not recognized.')));
+  assert.ok(out.some((line) => line.includes('--client <name>')));
+});
+
+test('MCP status detects each client and accepts all/client with argument checks', async (t) => {
+  const root = await tempRoot(t);
+  for (const [env, client] of CLIENT_CASES) {
+    const server = harness({ root, env, quotaCache: new Map() });
+    t.after(() => server.stop());
+    const plain = server.data(await server.call('status', {}));
+    assert.deepEqual(plain.rows.map((r) => r.client), [client]);
+    assert.equal((server.data(await server.call('status', { all: true }))).rows.length, 3);
+    const forced = server.data(await server.call('status', { client: 'codex' }));
+    assert.deepEqual(forced.rows.map((r) => r.client), ['codex']);
+    assert.ok(!forced.capacityLine.includes('opencode:'));
+    for (const args of [{ all: 'true' }, { all: null }, { client: 'unknown' }]) {
+      assert.equal((await server.call('status', args)).result.isError, true);
+    }
+  }
 });
 
 test('the MCP status tool answers the table and only adds showBefore when asked', async (t) => {

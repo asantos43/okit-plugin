@@ -53,8 +53,10 @@ Em toda mensagem ao Produtor, escreva demandas como `DXX (nome-do-projeto)`; sem
 ## Quota
 
 - Show the quota table before a big task and whenever you are asked: call the `status` tool and show its `markdown` and `capacityLine` as they come.
+- Status shows the detected client and its capacity. MCP `all: true` / CLI `--all` shows every client; MCP `client` / CLI `--client <name>` chooses one, overriding all. If unrecognized, it shows all and explains how to choose. Português: mostra o cliente detectado e sua capacidade; `all: true` / `--all` mostra todos; `client` / `--client <nome>` escolhe um, com prioridade. Sem reconhecer, mostra todos e explica a escolha.
+- Show the recorded quota and age; without a value, follow `okit-plugin quota set <client> <pct>`. No automatic collection. Português: mostre a cota registrada e a idade; sem valor, siga `okit-plugin quota set <cliente> <pct>`. Sem coleta automática.
 - Call it before the task starts when `status` answers `showBefore: true`, which happens for size `L`, for `slices >= 2` or for `executors > 1`. Send the size, the number of slices and the number of executors you are about to use and the tool decides for you; a smaller task does not pay for the round trip.
-- Read the Status word as a word, not a colour: `green` is at or above `lowQuotaPct` plus 15, `yellow` is from the floor up to that, `red` is below the floor and `off` means nobody is reading that client. `off` blocks nothing.
+- Read the Status word as a word, not a colour: `green` is at or above `lowQuotaPct` plus 15, `yellow` is from the floor up to that, and `red` is below the floor. Missing quota shows how to record a value and blocks nothing. Português: verde acima do piso mais 15, amarelo a partir do piso, vermelho abaixo; sem cota, mostra como registrar e não bloqueia nada.
 - A red row already quotes the standing order about the floor. Read it and obey it; ask the user only once and store nothing you guessed.
 
 ## Autonomy

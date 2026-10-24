@@ -618,7 +618,7 @@ test('daemonStatus with options.table answers the markdown and the capacity line
   const lines = status.table.markdown.split('\n');
   assert.equal(lines[0], '| Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age) |');
   assert.equal(lines[2], '| alpha | 72% | - | 30m | green | api (0s) |');
-  assert.equal(lines[3], '| beta | - | - | - | off | off (0s) |');
+  assert.equal(lines[3], '| beta | - | - | - | No quota value recorded. Record it with: okit-plugin quota set beta <pct> | - |');
   assert.equal(status.table.capacityLine, 'executors that can launch now: alpha: 0/3 (default), 3 available; beta: 0/3 (default), 3 available; quota floor 15%');
   assert.deepEqual(calls, ['alpha', 'beta']);
 });

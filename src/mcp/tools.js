@@ -8,6 +8,7 @@ import { acquireSlot, limitsStatus, releaseSlot } from '../limits.js';
 import { orderAdd, orderList, orderRemove, SCOPES } from '../orders.js';
 import { configOf as normalizeConfig, profilePick } from '../profiles.js';
 import { adapterQuotaReader, clientsOf, LABELS, shouldShowStatus, statusTable } from '../status.js';
+import { CLIENTS } from '../spawn-process.js';
 import { readJson } from '../state.js';
 import { paths, stateRoot } from '../store.js';
 
@@ -203,11 +204,13 @@ const limitsStatusTool = {
 // it is asked for; the three arguments say whether this task is big enough.
 const statusTool = {
   name: 'status',
-  description: 'Shows the quota table of every client: remaining per window, resets in, the status word, the source with its age, and how many executors can launch now. Send size, slices and executors and it also says showBefore, whether to show this table before the task starts.',
+  description: 'Shows recorded quota, its age and available executors for the detected client. Use all for every client or client to choose one. If no value is recorded, shows the command to record it. Send size, slices and executors to also receive showBefore.',
   inputSchema: {
     type: 'object',
     properties: {
       locale: { type: 'string', enum: LOCALES, description: 'Language of the table; "en" by default.' },
+      all: { type: 'boolean', description: 'Show every client.' },
+      client: { type: 'string', enum: CLIENTS, description: 'Choose a client; overrides all and detection.' },
       size: { type: 'string', enum: SIZES, description: 'Size of the task about to start.' },
       slices: { type: 'integer', minimum: 0, description: 'How many steps the demand was split into.' },
       executors: { type: 'integer', minimum: 0, description: 'How many executors would run at once.' },
@@ -216,15 +219,20 @@ const statusTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
-    const a = argsOf('status', args, ['locale', 'size', 'slices', 'executors']);
+    const a = argsOf('status', args, ['locale', 'size', 'slices', 'executors', 'all', 'client']);
+    if (a.all !== undefined && typeof a.all !== 'boolean') fail('status: all must be a boolean');
     const size = optionalChoice('status', a, 'size', SIZES);
     const slices = optionalCount('status', a, 'slices');
     const executors = optionalCount('status', a, 'executors');
     const config = await configOf(ctx);
+    const env = ctx.env ?? process.env;
     const table = await statusTable(ctx.root, {
       config,
+      env,
+      all: a.all,
+      client: optionalChoice('status', a, 'client', CLIENTS),
       clients: clientsOf(config),
-      readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root }),
+      readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env }),
       now: ctx.now,
       orders: ctx.orders ?? await orderList(ctx.root),
       limits: await limitsStatus(ctx.root, config),
