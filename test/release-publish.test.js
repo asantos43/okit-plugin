@@ -58,6 +58,25 @@ test('dry-run never calls GitHub, verifies final files and repeats deterministic
   assert.deepEqual(options.calls[1], ['fetch', 'origin', 'main']);
 });
 
+test('bootstrap scripts and bilingual guides are attached and checksummed outside pair archives', async () => {
+  const options = await fixture();
+  await writeFile(join(options.root, 'package.json'), JSON.stringify({ ...pkg, engines: { node: '>=20' } }));
+  await mkdir(join(options.root, 'src/install'), { recursive: true });
+  await writeFile(join(options.root, 'src/install/bootstrap.js'), await readFile('src/install/bootstrap.js'));
+  for (const file of ['install.sh', 'install.ps1', 'INSTALL.md', 'INSTALL.pt-BR.md']) {
+    await writeFile(join(options.root, file), await readFile(file));
+  }
+  const result = await publishRelease(options);
+  assert.equal(result.files.length, 16);
+  const manifest = join(result.outputDir, manifestFileName(pkg));
+  assert.equal((await verifyManifest(manifest)).checked, 15);
+  for (const file of options.config.publish.bootstrapAttachments) {
+    assert.ok(result.files.includes(join(result.outputDir, file)));
+  }
+  await writeFile(join(result.outputDir, 'install.sh'), 'altered');
+  assert.equal((await verifyManifest(manifest)).ok, false);
+});
+
 test('explicit publication calls only fake gh with the exact generated argument list', async () => {
   const options = await fixture();
   const result = await publishRelease({ ...options, publish: true });

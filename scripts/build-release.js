@@ -10,6 +10,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { buildRelease } from '../src/release/build.js';
+import { writeManifest, verifyManifest, manifestFileName } from '../src/release/checksums.js';
 import { readJson } from '../src/state.js';
 import { paths, stateRoot } from '../src/store.js';
 
@@ -92,6 +93,13 @@ export async function main(argv = [], io = {}) {
     dryRun: options.dryRun,
     env,
   });
+
+  if (!options.dryRun && result.built.length && !result.refused.length) {
+    const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+    const manifest = await writeManifest({ dir: result.outputDir, files: result.built.map(({ file }) => file), out: join(result.outputDir, manifestFileName(pkg)) });
+    const proof = await verifyManifest(manifest.out, { dir: result.outputDir });
+    if (!proof.ok) { err(`checksum verification failed: ${JSON.stringify(proof.problems)}`); return 1; }
+  }
 
   for (const item of result.built) {
     out(`${options.dryRun ? 'would build' : 'built'}: ${item.file} (${item.entries} files)`);

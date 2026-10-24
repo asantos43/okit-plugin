@@ -1,37 +1,18 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
+import { manifestFileName, parseManifest, unsafePathReason } from '../install/manifest.js';
+export { manifestFileName, safeNamePart, parseManifest, unsafePathReason } from '../install/manifest.js';
 import { fileURLToPath } from 'node:url';
 
 const PACKAGE_JSON = fileURLToPath(new URL('../../package.json', import.meta.url));
-const MANIFEST_SUFFIX = '-checksums.sha256';
-const HASH_LINE = /^([0-9a-f]{64})  (.+)$/;
-const UNSAFE_PART = /[^a-z0-9._-]+/g;
 
 // Code-unit order, not locale order: the manifest has to be the same bytes on
 // every machine that writes it.
 export const compareNames = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
-/**
- * A filesystem-safe piece of a name: lowercase, only letters, digits, dot,
- * dash and underscore. Anything else becomes a single dash.
- */
-export function safeNamePart(value, fallback) {
-  const text = typeof value === 'string' ? value.trim() : '';
-  const cleaned = text.toLowerCase().replace(UNSAFE_PART, '-').replace(/^[.-]+/, '').replace(/[.-]+$/, '');
-  return cleaned || fallback;
-}
 
-/**
- * The manifest filename of a package: `<P>-<V>-checksums.sha256`, with `P` and
- * `V` taken from the package metadata, never from a constant.
- */
-export function manifestFileName(pkg) {
-  const name = safeNamePart(pkg?.name, 'package');
-  const version = safeNamePart(pkg?.version, '0.0.0');
-  return `${name}-${version}${MANIFEST_SUFFIX}`;
-}
 
 /**
  * Reads the package metadata that names the manifest.
@@ -47,17 +28,6 @@ export async function defaultManifestName(file = PACKAGE_JSON) {
   return manifestFileName(await readPackageMeta(file));
 }
 
-/**
- * The reason a manifest entry is refused, or null when the name is safe. A
- * name is safe when it stays inside the release folder: no absolute path and
- * no `..` segment.
- */
-export function unsafePathReason(name) {
-  if (typeof name !== 'string' || name.trim() === '') return 'empty';
-  if (isAbsolute(name) || name.startsWith('/') || name.startsWith('\\') || /^[A-Za-z]:/.test(name)) return 'absolute';
-  if (name.split(/[\\/]/).includes('..')) return 'traversal';
-  return null;
-}
 
 const toPosix = (name) => name.replace(/\\/g, '/');
 
@@ -129,25 +99,6 @@ export async function writeManifest({ dir = '.', files, out } = {}) {
   return { out: target, files: names };
 }
 
-/**
- * Reads the manifest lines. A line that is not `<digest>  <name>` is reported
- * as `malformed-line` instead of being ignored.
- */
-export function parseManifest(raw, problems = []) {
-  const entries = [];
-  const lines = raw.split('\n');
-  if (lines[lines.length - 1] === '') lines.pop();
-  lines.forEach((line, index) => {
-    const text = line.endsWith('\r') ? line.slice(0, -1) : line;
-    const match = HASH_LINE.exec(text);
-    if (!match) {
-      problems.push({ file: text.trim() || `line ${index + 1}`, reason: 'malformed-line' });
-      return;
-    }
-    entries.push({ name: match[2], hash: match[1] });
-  });
-  return entries;
-}
 
 /**
  * Reports the files of the folder that the manifest does not list. The

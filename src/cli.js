@@ -3,7 +3,7 @@
 // effect is a parameter, so a test drives the whole CLI without starting a
 // client, a daemon or a `systemctl`.
 
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
@@ -22,6 +22,7 @@ import { makeSpawner } from './spawn-process.js';
 import { adapterQuotaReader, clientsOf, LABELS, statusTable } from './status.js';
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
+import { installerCommand } from './install/index.js';
 
 const STOP_FILE = 'daemon.stop';
 const DAEMON_ACTIONS = ['start', 'stop', 'status', 'pause', 'resume', 'run-once'];
@@ -29,6 +30,9 @@ const AUTOSTART_ACTIONS = ['install', 'uninstall', 'show'];
 
 const USAGE = [
   'usage: okit daemon start|stop|status|pause|resume|run-once',
+  '       okit install [--from <dir>] [--client <c>] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--autostart] [--dry-run] [--yes]',
+  '       okit update [--check] [--rollback] [--dry-run]',
+  '       okit uninstall [--purge] [--yes] [--dry-run]',
   '       okit daemon status [--table [--locale en|pt-BR]]',
   '       okit autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       okit status [--locale en|pt-BR]',
@@ -279,6 +283,36 @@ async function smokeCommand(ctx, args, io) {
   return smoke.usage === true ? ctx.unknown() : smoke.code;
 }
 
+function installerLifecycle(ctx, io) {
+  const plan = (record) => autostartPlan(detectAutostart(ctx.platform), {
+    root: ctx.root, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE,
+    node: record.settings.node, script: join(record.path, record.bin),
+  });
+  const autostart = io.autostart ?? ((record, action) => applyAutostart(plan(record), { run: ctx.run, write: ctx.write, action }));
+  return {
+    autostart,
+    stopDaemon: io.stopDaemon ?? (async (record) => {
+      const status = await daemonStatus(ctx.root);
+      if (record.autostart) await autostart(record, 'uninstall');
+      if (!status.running) return false;
+      await daemonCommand(ctx, 'stop', []);
+      const until = ctx.now() + record.settings.timeoutMs;
+      while ((await daemonStatus(ctx.root)).running) {
+        if (ctx.now() >= until) throw new Error('Daemon did not stop before timeout; installation retained');
+        await (ctx.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))))(record.settings.daemonPollMs);
+      }
+      return true;
+    }),
+    startDaemon: io.startDaemon ?? (async (record) => {
+      const child = spawn(record.settings.node, [join(record.path, record.bin), 'daemon', 'start'], {
+        detached: true, stdio: 'ignore', env: { ...ctx.env, OKWORK_HOME: ctx.root },
+      });
+      await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
+      child.unref();
+    }),
+  };
+}
+
 /**
  * Runs one `okit` invocation and returns its exit code: 0 for a command that
  * did its work, 2 for an unknown command, flag or argument, 1 when the work
@@ -298,6 +332,7 @@ export async function main(argv = [], io = {}) {
   const now = io.now ?? Date.now;
   const ctx = {
     out,
+    err,
     env: io.env ?? process.env,
     root: io.root ?? stateRoot(io.env ?? process.env),
     platform: io.platform ?? process.platform,
@@ -319,6 +354,12 @@ export async function main(argv = [], io = {}) {
 
   const [group, action, ...args] = argv;
   try {
+    if (['install', 'update', 'uninstall'].includes(group)) {
+      const flags = action === undefined ? args : [action, ...args];
+      return await installerCommand(group, flags, ctx, {
+        ...io, ...installerLifecycle(ctx, io),
+      });
+    }
     if (group === 'hook' && action === 'post-compact') {
       return await runPostCompact({ root: ctx.root, stdin: io.stdin, stdout: out });
     }

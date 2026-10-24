@@ -148,6 +148,20 @@ Registrar por linha: responsável/data; revisão; versão do pacote; arquivo e S
 
 Prova em processo exige saída 0 e todos os checks selecionados passando; no release usar conjunto completo. D25 exige C1–C5 passando, nenhuma falha e registro explícito de cada check posterior. Sua saída 0 ainda pode significar `PARCIAL`; falta de prova de hook impede passar o gate de instalação. Configuração ausente significa instalação incompleta. Manter linha com skip/parcial não resolvido desmarcada até aceite escrito do Produtor ([D-Q7](#decisions)); resultado sintético ou ausente não preenche outro par.
 
+## Installer and updater
+
+`okit install --client <cliente> [--prerelease] [--repo dono/repo] [--dest pasta] [--no-link] [--autostart] [--dry-run] [--yes]` escolhe a release mais recente e o arquivo do cliente/sistema/arquitetura. Sem release estável, informa o uso de pré-lançamento. Sem `--client`, oferece menu no TTY; sem TTY só escolhe quando há exatamente um cliente detectado.
+
+Após verificar o SHA-256, coloca o pacote em uma pasta estável por versão no diretório de dados do usuário (XDG no Linux, Application Support no macOS, LOCALAPPDATA no Windows). `install.json` registra as versões ativa e anterior. Registro e link apontam para esse destino: pode apagar a pasta de download/extração. `DEFAULT_CONFIG.install` e `config.json` configuram rede, limites, clientes, executáveis, diretórios e identidades; o nome do pacote reutiliza `release.name`.
+
+`okit update --check` só consulta. `okit update` para o daemon, copia estado e configuração do cliente para backup datado, mantém a versão anterior, refaz registro/link/autostart, reinicia e executa o smoke da nova CLI. Se a prova falhar, informa `okit update --rollback`, que reativa a versão mantida sem baixar novamente. Skills e módulos editados são preservados. `okit uninstall` desfaz a integração e remove versões gerenciadas, mantendo estado e configuração; `--purge --yes` também remove a raiz de estado configurada. Os três aceitam `--dry-run`: consultam metadados quando necessário, sem baixar pacotes nem gravar.
+
+SHA-256 detecta bytes alterados, mas **não autentica a origem**. A extração tar.gz/zip usa apenas Node, preserva execução, limita o tamanho descomprimido e recusa caminhos absolutos, travessia, links e arquivos especiais.
+
+Os guias [INSTALL.pt-BR.md](../INSTALL.pt-BR.md) e [INSTALL.md](../INSTALL.md) documentam `install.sh` (Linux/macOS) e `install.ps1` (Windows). Ambos incorporam o bootstrap de `src/install/bootstrap.js`; o build deriva os blocos marcados de configuração dos defaults install/release e de engines.node. Cada chave aceita override `OKIT_`; o teste de deriva recusa scripts desatualizados após mudança dos defaults.
+
+O build emite `release.publish.bootstrapAttachments`: scripts e guias fora dos arquivos por par. Eles entram no grupo existente `payloads` de `release.publish.attachments`; o publicador os inclui no manifesto, verifica e anexa sem mudança em publish.js. `okit install --from <pasta>` valida identidade e CLI, copia a origem já verificada ao destino fixo e preserva a origem. O bootstrap confere SHA-256 com ferramentas do sistema antes da extração; o hash não autentica o conteúdo. `update|uninstall` explícitos no script chamam o CLI registrado sem downloads no bootstrap. Linux foi exercitado pelo Diretor; Windows/macOS aguardam o Produtor.
+
 ## Decisions
 
 1. Release separado para Claude Code, Codex e opencode, em Linux, Windows e macOS: os nove pares continuam no escopo.
