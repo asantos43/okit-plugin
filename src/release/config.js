@@ -13,7 +13,7 @@ const DEFAULTS = DEFAULT_CONFIG.release;
 export const FORMATS = ['tar.gz', 'zip'];
 
 /** The placeholder names the name model understands. */
-const NAME_PARTS = ['package', 'version', 'client', 'system', 'arch', 'ext'];
+export { renderName } from '../install/config.js';
 
 const isPlainObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -87,19 +87,6 @@ export function extensionOf(format) {
   return String(format ?? '').replace(/^\./, '');
 }
 
-/**
- * Fills the name model with the values of one pair.
- *
- * @param {object} options
- * @param {string} options.template the name model
- * @param {object} options.values the values of the pair
- * @returns {string} the name of the artifact
- */
-export function renderName({ template, values }) {
-  return String(template).replace(/\{(\w+)\}/g, (whole, key) => (
-    NAME_PARTS.includes(key) ? String(values[key] ?? '') : whole
-  ));
-}
 
 /**
  * The pairs to build, and the ones to refuse.

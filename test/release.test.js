@@ -753,8 +753,12 @@ test('the script builds one pair and answers with zero', async () => {
   assert.equal(code, 0, 'nothing was refused');
   assert.deepEqual(err, []);
   const files = await tree(out);
-  assert.equal(files.length, 1);
-  assert.match(files[0], /^okit-plugin-\d+\.\d+\.\d+-claude-code-linux-x64\.tar\.gz$/);
+  assert.equal(files.length, 6);
+  assert.equal(files.filter((file) => /\.tar\.gz$/.test(file)).length, 1);
+  for (const file of ['install.sh', 'install.ps1', 'INSTALL.md', 'INSTALL.pt-BR.md']) assert.ok(files.includes(file));
+  const manifest = await readFile(join(out, files.find((file) => file.endsWith('-checksums.sha256'))), 'utf8');
+  assert.match(manifest, /  install\.sh\n/);
+  assert.match(manifest, /  install\.ps1\n/);
 });
 
 test('the script refuses an argument it does not know', async () => {

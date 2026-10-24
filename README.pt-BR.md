@@ -1,5 +1,7 @@
 # okit-plugin
 
+[Instalação e atualização](INSTALL.pt-BR.md)
+
 ## Restaurar contexto após compactação (Claude Code)
 
 `okit hook post-compact` lê o JSON do hook (`cwd`) pela entrada padrão e exibe

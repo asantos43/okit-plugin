@@ -5,6 +5,27 @@ import process from 'node:process';
 import { EFFORT_CLASSES } from './classify.js';
 
 export const DEFAULT_CONFIG = {
+  install: {
+    repository: 'asantos43/okit-plugin', api: 'https://api.github.com',
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'okit-installer' },
+    timeoutMs: 15000, maxDownloadBytes: 128 * 1024 * 1024, maxExtractBytes: 512 * 1024 * 1024,
+    directory: 'okit-plugin', destination: null, linkDirectory: null,
+    dataRoots: { linux: ['XDG_DATA_HOME', '.local', 'share'], darwin: [null, 'Library', 'Application Support'], win32: ['LOCALAPPDATA', 'AppData', 'Local'] },
+    linkParts: ['.local', 'bin'], windowsLinkParts: ['AppData', 'Local', 'bin'],
+    systems: { linux: 'linux', darwin: 'macos', win32: 'windows' },
+    architectures: { x64: 'x64', arm64: 'arm64' }, windowsPlatform: 'win32',
+    command: 'okit', node: process.execPath, marketplace: 'okit-plugin', entry: 'okit-plugin',
+    pluginsDirectory: 'plugins', daemonPollMs: 100,
+    // null inherits the existing release.name model without duplicating it.
+    name: null,
+    manifest: '{package}-{version}-checksums.sha256',
+    clients: {
+      'claude-code': { executable: 'claude', strategy: 'marketplace', install: true, update: true, configEnv: 'CLAUDE_CONFIG_DIR', rootParts: ['.claude'] },
+      codex: { executable: 'codex', strategy: 'marketplace', install: false, update: false, configEnv: 'CODEX_HOME', rootParts: ['.codex'] },
+      opencode: { executable: 'opencode', strategy: 'module', module: 'src/install/client-plugin.js', configEnv: 'OPENCODE_CONFIG_DIR', rootParts: ['.config', 'opencode'], xdgEnv: 'XDG_CONFIG_HOME', xdgParts: ['opencode'] },
+    },
+    pathExtensions: ['', '.exe', '.cmd', '.bat'],
+  },
   lowQuotaPct: 15,
   limits: { global: 4, perClient: 3 },
   staleMinutes: 30,
@@ -46,6 +67,8 @@ export const DEFAULT_CONFIG = {
       title: '{package} {version}',
       outputDir: 'dist/publish',
       attachments: ['payloads', 'notes', 'checklist', 'checksums'],
+      // Included in the existing payloads attachment group, outside pair archives.
+      bootstrapAttachments: ['install.sh', 'install.ps1', 'INSTALL.md', 'INSTALL.pt-BR.md'],
       prereleaseNotice: 'Pre-release: some client/system pairs are not yet proven.',
     },
     outputDir: 'dist/release',
@@ -81,12 +104,27 @@ export const DEFAULT_CONFIG = {
     },
     // The installation instructions, per client.
     instructions: {
+      codex: {
+        file: 'INSTALL.md', title: 'Install {name} with Codex',
+        steps: [
+          'Node {engines} is required: check it with `node --version`.',
+          'To install/update use `okit install|update` from this folder or `install.sh`/`install.ps1` from the release page.',
+        ],
+      },
+      opencode: {
+        file: 'INSTALL.md', title: 'Install {name} with opencode',
+        steps: [
+          'Node {engines} is required: check it with `node --version`.',
+          'To install/update use `okit install|update` from this folder or `install.sh`/`install.ps1` from the release page.',
+        ],
+      },
       'claude-code': {
         file: 'INSTALL.md',
         title: 'Install {name} with Claude Code',
         steps: [
           'Node {engines} is required: check it with `node --version`.',
           'Extract this archive where the client can read it.',
+          'To install/update use `okit install|update` from this folder or `install.sh`/`install.ps1` from the release page.',
           'Register the marketplace: `claude plugin marketplace add {dir}`.',
           'Install the plugin: `claude plugin install {name}@{marketplace}`.',
           'Update it later with `claude plugin update {name}@{marketplace}`.',

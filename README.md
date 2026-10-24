@@ -1,5 +1,7 @@
 # okit-plugin
 
+[Installation and updates](INSTALL.md)
+
 A plugin for AI clients (Claude Code, Codex, opencode) that helps a Director
 agent spread delegable work over the client's own subagents.
 

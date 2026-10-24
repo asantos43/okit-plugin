@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add standalone POSIX/Windows release installers, offline `install --from`, verified bootstrap downloads and bilingual installation guides (D35 step 2). / Adicionar scripts de instalação e guias nos dois idiomas.
+- Add the configurable Node installer/updater (`okit install`, `update`, `uninstall`), bounded SHA-256-verified downloads, safe tar/zip extraction, stable version directories, client registration, links, backups, rollback and dry-run (D35 step 1). / Adicionar núcleo Node configurável de instalação, atualização e desinstalação, com verificação, destino fixo, backup e volta.
 - Add verified GitHub publication with default dry-run, explicit `--publish`, configured attachments and pre-release until all nine pairs are proven; start version 0.1.0 (D31 / D-Q6). / Adicionar publicação verificada no GitHub com dry-run padrão, `--publish` explícito, anexos configuráveis e pré-lançamento até provar os nove pares; iniciar versão 0.1.0 (D31 / D-Q6).
 - Add the deterministic nine-pair release proof checklist (`scripts/release-checklist.js`, `npm run release:checklist`), with configurable fields, both smoke layers, system signers, manifest payload digests and protection for filled records; no smoke execution or publication, and notes/checklist hashes only after final completion.
 - Add deterministic release notes from the root history's `[Unreleased]` and package/pair metadata (`scripts/release-notes.js`, `npm run release:notes`), with Node prerequisites, nine payload names, checksum manifest, installation/update instructions, proof states and visible partial/missing-proof gaps; refuse missing or empty history and mismatched versions, without publication.

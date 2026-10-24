@@ -11,6 +11,8 @@ import { promisify } from 'node:util';
 import { tarGz, zip } from './archive.js';
 import { extensionOf, packageName, planPairs, releaseConfig, renderName } from './config.js';
 import { payloadEntries } from './payload.js';
+import { renderInstallScripts } from './install-scripts.js';
+import { DEFAULT_CONFIG } from '../profiles.js';
 
 const WRITERS = { 'tar.gz': tarGz, zip };
 const run = promisify(execFile);
@@ -134,5 +136,19 @@ export async function buildRelease({
     built.push({ ...pair, file, bytes: bytes.length, entries: entries.length });
   }
 
+  // Standalone bootstrap files are release attachments, never pair entries.
+  const available = await readFile(join(root, 'install.sh'), 'utf8').catch((error) => {
+    if (error.code !== 'ENOENT') throw error;
+    return null;
+  });
+  if (available && built.length) {
+    const scripts = await renderInstallScripts(root, packageJson, { ...DEFAULT_CONFIG.install, ...userConfig.install }, config);
+    for (const file of config.publish.bootstrapAttachments) {
+      if (!['install.sh', 'install.ps1', 'INSTALL.md', 'INSTALL.pt-BR.md'].includes(file)) throw new Error(`Unsafe bootstrap attachment: ${file}`);
+      const content = scripts[file] ?? await readFile(join(root, file));
+      if (!dryRun) await writeFile(join(outputDir, file), content);
+      built.push({ file, bytes: Buffer.byteLength(content), entries: 1, bootstrap: true });
+    }
+  }
   return { built, refused: refusals, outputDir };
 }
