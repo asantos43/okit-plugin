@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add configurable stable-by-default publication with proof warnings at the top of a separate release body, plus early validation of publisher inputs, remotes and output paths (D34/D36). / Adicionar publicação completa por padrão, aviso de prova no topo do corpo separado e validação antecipada das entradas, remotos e saída.
 - Add standalone POSIX/Windows release installers, offline `install --from`, verified bootstrap downloads and bilingual installation guides (D35 step 2). / Adicionar scripts de instalação e guias nos dois idiomas.
 - Add the configurable Node installer/updater (`okit install`, `update`, `uninstall`), bounded SHA-256-verified downloads, safe tar/zip extraction, stable version directories, client registration, links, backups, rollback and dry-run (D35 step 1). / Adicionar núcleo Node configurável de instalação, atualização e desinstalação, com verificação, destino fixo, backup e volta.
 - Add verified GitHub publication with default dry-run, explicit `--publish`, configured attachments and pre-release until all nine pairs are proven; start version 0.1.0 (D31 / D-Q6). / Adicionar publicação verificada no GitHub com dry-run padrão, `--publish` explícito, anexos configuráveis e pré-lançamento até provar os nove pares; iniciar versão 0.1.0 (D31 / D-Q6).
