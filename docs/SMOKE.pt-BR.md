@@ -317,7 +317,24 @@ O corpus do classificador consulta os predicados das regras exportadas para as c
 O Passo 1 exporta apenas dados compatíveis com JSON; resolver referências e executar
 essas operações pertence ao Passo 2.
 
-**Passo 2 — o runner e os drivers.** Novo `src/smoke/client.js` com os quatro drivers (skill, headless, demo, dry run), as variáveis de configuração do `config.json` e as flags que as sobrescrevem, a pré-checagem de cota, o teto, o modo `--rehearsal`, os códigos de saída da tabela acima (o portão `C1`–`C5` e a linha `PARCIAL`), o veredito lido direto dos arquivos e o escritor de artefatos reaproveitando `writeArtifacts` de `src/smoke/report.js`. Edição de `src/cli.js` para o grupo `client-smoke` e suas flags. `test/smoke-client.test.js` cobre os códigos, os motivos de `skip`, as variáveis e os nomes dos artefatos, com o cliente injetado para nenhum teste gastar cota.
+**Passo 2 — o runner e os drivers (feito).** `src/smoke/client.js` executa `SCENARIO`, com evidências e preparações em `client-checks.js`, variáveis de orçamento do `config.json`, pré-checagem de cota, tetos e sobrescritas pelo CLI. `okit client-smoke` usa a instalação real como padrão; `--headless` e `--demo` usam os eventos JSON do Claude Code. O portão da instalação, `PARCIAL`, os vereditos em disco e os artefatos D19 estão implementados. `test/smoke-client.test.js` usa cliente falso e streams de processo injetados, sem chamar cliente real. A entrada pela skill continua no Passo 3.
+
+Notas da implementação do Passo 2: o aceite da tarefa determina que tanto
+`--rehearsal` quanto `--dry-run` percorrem o cenário offline: sem cliente,
+leitura de cota ou escrita de estado, saída 0 e custo máximo efetivo impresso.
+Isso prevalece, nesta implementação, sobre a descrição anterior de rehearsal
+com cliente descartável. Os padrões vivem somente em `DEFAULT_CONFIG.smoke`
+(`src/profiles.js`); `maxTurns: null` resolve para `SCENARIO.length`. Um objeto
+`smoke` parcial preserva os demais padrões. Cada sessão recebe o orçamento em
+dólares restante, sem persistir a sessão; turnos do runner contam passos do
+cenário. Timeout falha o check ativo e pula os seguintes. `--only` mantém o
+portão C1–C5. `--keep` preserva os registros do cenário; sem ele, só registros
+desta execução são removidos e os artefatos ficam. Slots auxiliares são sempre
+liberados. O daemon instalado roda com os tetos preenchidos por slots próprios
+para impedir delegação fora do orçamento; a preparação pula com `client-refused`
+se demandas pendentes, templates ou ordens alheias sujeitas a expurgo puderem ser afetados pelo
+tick. Cliente indisponível ou flag obrigatória ausente recusa antes do cenário,
+com saída 2.
 
 **Passo 3 — a skill.** Novo `skills/okit-smoke/SKILL.md` com o roteiro como briefing, e os registros marcados que os passos deixam para trás. A skill é o roteiro que o cliente lê; é a mesma lista que `src/smoke/scenario.js` guarda.
 

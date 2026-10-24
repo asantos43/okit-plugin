@@ -8,6 +8,14 @@ export const DEFAULT_CONFIG = {
   staleMinutes: 30,
   // profiles: { <client>: { simple: { model, effort, maxTurns }, ... } }
   profiles: {},
+  smoke: {
+    quotaFloorPct: 20,
+    maxUsd: 1,
+    // null means the full scenario length (resolved by the runner).
+    maxTurns: null,
+    maxMinutes: 15,
+    checkTimeoutMs: 60_000,
+  },
 };
 
 // One step down the effort scale. Nothing goes back up.
