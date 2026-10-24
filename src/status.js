@@ -5,6 +5,7 @@
 // test without anything real.
 import { readQuota as readClientQuota } from '../adapters/claude-code/index.js';
 import { readQuota as readCodexQuota } from '../adapters/codex/index.js';
+import { readQuota as readOpencodeQuota } from '../adapters/opencode/index.js';
 import { DEFAULT_CONFIG } from './profiles.js';
 import { CLIENTS } from './spawn-process.js';
 import { projectName, withDemandRef } from './demand-ref.js';
@@ -299,7 +300,7 @@ export function shouldShowStatus({ size, slices, executors } = {}) {
 // Real readings come from the adapter of each client, the same `readQuota` the
 // daemon is handed as `deps.quota`. A client with no adapter yet reads `off`,
 // which is a fact about the client, never a number invented here.
-const ADAPTER_QUOTA = { 'claude-code': readClientQuota, codex: readCodexQuota };
+const ADAPTER_QUOTA = { 'claude-code': readClientQuota, codex: readCodexQuota, opencode: readOpencodeQuota };
 
 /**
  * The subscriptions a table shows: the clients `config.profiles` gives a
