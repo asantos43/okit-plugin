@@ -140,14 +140,21 @@ function recordLines(record) {
   return lines;
 }
 
-function humanText(header, records, environment) {
+function humanText(header, records, environment, summary) {
   const block = header.environment ?? records.find((record) => record.environment)?.environment ?? environment;
   const lines = ['okit smoke', `run: ${header.runId}`, ...environmentLines(block), ''];
+  if (header.reason) lines.push(`refused: ${header.reason}`);
   for (const record of records) {
     lines.push(...recordLines(record));
   }
   const count = (status) => records.filter((record) => record.status === status).length;
   lines.push(`passed: ${count('pass')} failed: ${count('fail') + count('timeout')} skipped: ${count('skip')}`);
+  if (header.kind === 'smoke-in-client') {
+    if (records.some((record) => record.error === 'config-missing')) lines.push('The installation is incomplete: config-missing');
+    if (summary?.stopped) lines.push(`ceiling: ${summary.stopped}`);
+    if (summary?.partial) lines.push('PARCIAL: some checks were skipped');
+    if (summary) lines.push(`spent USD: ${summary.spentUsd}`);
+  }
   return `${lines.join('\n')}\n`;
 }
 
@@ -166,6 +173,6 @@ export async function writeArtifacts(stateRoot, runId, header, records, deps = {
   const lines = [header, ...records].map((value) => JSON.stringify(value));
 
   await writeTextAtomic(jsonl, `${lines.join('\n')}\n`);
-  await writeTextAtomic(log, humanText(header, records, environmentOf(deps)));
+  await writeTextAtomic(log, humanText(header, records, environmentOf(deps), deps.summary));
   return { jsonl, log };
 }

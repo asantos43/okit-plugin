@@ -16,6 +16,7 @@ import { limitsStatus } from './limits.js';
 import { orderList } from './orders.js';
 import { DEFAULT_CONFIG } from './profiles.js';
 import { runSmoke } from './smoke.js';
+import { runClientSmoke } from './smoke/client.js';
 import { makeSpawner } from './spawn-process.js';
 import { adapterQuotaReader, clientsOf, LABELS, statusTable } from './status.js';
 import { readJson, writeJsonAtomic } from './state.js';
@@ -31,6 +32,9 @@ const USAGE = [
   '       okit autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       okit status [--locale en|pt-BR]',
   '       okit smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]',
+  '       okit client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]',
+  '         [--only <C ids>] [--keep] [--allow-unknown-quota]',
+  '         [--max-usd [n]] [--max-turns [n]] [--max-minutes [n]] [--quota-floor [pct]] [--timeout [ms]]',
   `OKWORK_HOME names the state root; --kind defaults to ${AUTOSTART_KINDS.join(', ')} by platform.`,
 ].join('\n');
 
@@ -321,6 +325,11 @@ export async function main(argv = [], io = {}) {
     }
     // `okit smoke` takes no action either, so its first flag lands where one would be.
     if (group === 'smoke') return await smokeCommand(ctx, action === undefined ? args : [action, ...args], io);
+    if (group === 'client-smoke') {
+      const flags = action === undefined ? args : [action, ...args];
+      if (flags.length === 1 && ['--help', '-h'].includes(flags[0])) { out(USAGE); return 0; }
+      return (await runClientSmoke(flags, { ...ctx, ...io, run: io.run, out, err })).code;
+    }
     return ctx.unknown();
   } catch (error) {
     err(`okit: ${error.message}`);

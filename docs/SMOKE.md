@@ -321,7 +321,23 @@ The classifier corpus probes the exported rule predicates for word counts.
 Step 1 exports only JSON-compatible data; resolving references and executing
 these operations belongs to Step 2.
 
-**Step 2 — the runner and the drivers.** New `src/smoke/client.js` with the four drivers (skill, headless, demo, dry run), the configuration variables of `config.json` and the flags that override them, the quota pre-check, the ceiling, the `--rehearsal` mode, the exit codes of the table above (the `C1`–`C5` gate and the `PARCIAL` line), the verdict read straight from the files and the artifact writer reusing `writeArtifacts` of `src/smoke/report.js`. Edit `src/cli.js` for the `client-smoke` group and its flags. `test/smoke-client.test.js` covers the codes, the `skip` reasons, the variables and the artifact names, with the client injected so no quota is spent in the test.
+**Step 2 — the runner and the drivers (done).** `src/smoke/client.js` executes `SCENARIO`, with evidence and preparations in `client-checks.js`, `config.json` budget variables, quota pre-check, ceilings and CLI overrides. `okit client-smoke` defaults to the real installed target; `--headless` and `--demo` use Claude Code's JSON event stream. The installation gate, `PARCIAL`, disk verdicts and D19 artifacts are implemented. `test/smoke-client.test.js` uses an injected fake client and child streams; it never calls a real client. The skill entry point remains Step 3.
+
+Implementation notes for Step 2: the task's acceptance contract makes both
+`--rehearsal` and `--dry-run` offline scenario walks: no client, quota read or
+state write, exit 0, printing the effective maximum cost. This overrides the
+earlier scratch-client rehearsal description for this implementation.
+Defaults live only in `DEFAULT_CONFIG.smoke` (`src/profiles.js`); `maxTurns: null`
+resolves to `SCENARIO.length`. Partial `smoke` objects retain the other defaults.
+Each session gets the remaining dollar budget, with no session persistence;
+runner turns count scenario steps, not model turns. A timeout fails the active
+check and skips subsequent checks. `--only` does not waive the C1–C5 gate.
+`--keep` retains tagged scenario records; otherwise only records owned by this
+run are removed, and artifacts remain. Temporary cap fillers are always released.
+The installed daemon runs with owned slots filling the caps to prevent unbudgeted
+delegation; preparation skips with `client-refused` if foreign pending demands,
+templates or orders due for purge could be affected by the tick. An unavailable client or a
+missing required CLI flag refuses before the scenario, with exit 2.
 
 **Step 3 — the skill.** New `skills/okit-smoke/SKILL.md` with the scenario as the briefing, and the tagged records the steps leave behind. The skill is the scenario the client reads; it is the same list `src/smoke/scenario.js` holds.
 
