@@ -85,9 +85,35 @@ export const DEFAULT_CONFIG = {
     marketplace: { name: null, owner: { name: null, url: null } },
     // The modes of the entries: the CLI is executable, the rest is not.
     modes: { executable: '0755', file: '0644' },
-    // The release notes: the name model of the notes file, the root change
-    // history they come from and the texts they carry. The name, the version
-    // and the engines come from `package.json`.
+    // Proof templates reuse notes' status labels and system owners below.
+    checklist: {
+      // Empty overrides inherit release.notes.proofBy; no duplicate owners.
+      proofBy: {},
+      fileName: '{package}-{version}-release-checklist.md',
+      title: 'Release checklist — {package} {version}',
+      instructions: [
+        'Collect both layers for each installed candidate; see docs/RELEASING.md, Proof per pair and D-Q7. This command only prepares records; it runs no smoke and publishes nothing.',
+        'Run `{bin} smoke` with the full check set (in-process, scratch home): exit 0 and every check passing are required.',
+        'Run `{bin} client-smoke` for the D25 scenario inside the actual named client with its real installation, login and state. Record the exact command/driver; rehearsal, dry-run and mocked spawns are not proof.',
+        'D25 requires C1–C5 passing, no failures and accounting for every later check. Exit 0 can still mean {partial}; missing hook proof blocks installation acceptance. Missing configuration means incomplete installation.',
+        'Keep unresolved skips, absent drivers and {partial} records unchecked until written acceptance by the responsible Producer. Attach durable logs, never credentials; preserve user configuration/state across install, update and client restart.',
+        'Payload SHA-256 comes only from `{manifest}` when available. Hash notes and checklist only after their records are final.',
+      ],
+      headings: { field: 'Field', value: 'Evidence / value' },
+      labels: {
+        tester: 'Tester / date', revision: 'Source revision', version: 'Package version',
+        file: 'Payload filename', sha256: 'Payload SHA-256', environment: 'OS / version / architecture',
+        node: 'Node version', client: 'Client version', scope: 'Install scope',
+        paths: 'Resolved plugin / config / state / bin paths',
+        install: 'Fresh installation steps / result', update: 'Update from prior candidate / restart / preserved state',
+        permissions: 'PATH / permissions', autostart: 'Autostart show / install / restart',
+        logs: 'JSONL / log locations', scenario: 'D25 scenario revision', acceptance: 'Written acceptance of skips / partial proof',
+      },
+      layers: { process: 'In-process smoke', client: 'D25 real-client scenario' },
+      layerLabels: { command: 'Command / driver', exit: 'Exit code', totals: 'Totals (pass / fail / skip)', reasons: 'Reasons', missing: 'Skip / absent driver', logs: 'JSONL / logs' },
+      producerSignature: 'Producer signature for Windows/macOS: ____________________',
+    },
+    // The release notes: naming, root history, proof states and shared owners.
     notes: {
       fileName: '{package}-{version}-release-notes.md',
       // The change history of the repository root and the section of it that

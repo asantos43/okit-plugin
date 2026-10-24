@@ -16,7 +16,8 @@
     "release:build": "node scripts/build-release.js",
     "test": "node --test",
     "release:checksums": "node scripts/checksums.js",
-    "release:notes": "node scripts/release-notes.js"
+    "release:notes": "node scripts/release-notes.js",
+    "release:checklist": "node scripts/release-checklist.js"
   },
   "repository": {
     "type": "git",
