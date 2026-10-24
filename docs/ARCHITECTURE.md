@@ -8,7 +8,20 @@ The inbox stores demands with `id`, `title`, `body`, `kind`, `accept`, `effort`,
 
 ## 2. MCP tools
 
-The core exposes 12 MCP tools in `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planning, briefing, critique and consolidation are skill guidance, not MCP tools.
+The core exposes 14 MCP tools in `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_claim`, `inbox_release`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planning, briefing, critique and consolidation are skill guidance, not MCP tools.
+
+Inbox items optionally carry `hold: {client, session, worktree, takenAt, via}`;
+`via` is `claim` or `producer`. `heldBefore` records previous holders with
+`releasedAt` and `reason` (including `stale` and `producer takeover`). Old items without
+holds remain valid. All mutations use the inbox lock and atomic write.
+Identity is client plus session. Same-owner claims repeat idempotently; another active
+owner is refused. Staleness uses `inbox.holdStaleMinutes` (default 120, integer >= 1).
+Owner or stale release and `consolidated`/`failed` clear the hold. Delegation accepts
+an optional `holder`; when present it must match an existing owner. Legacy calls omit it.
+MCP lists and status show ownership in English or Portuguese. Only `okit inbox take`
+with `--producer-takeover` can force transfer, after situation display (including Git
+changes with `inbox.gitTimeoutMs`, default 5000) and TTY confirmation or `--yes`.
+The confirmed holder is compared again inside the lock to reject intervening changes.
 
 ## 3. State on disk
 Root: `node:path.join(os.homedir(), '.okwork')`, overridable with `OKWORK_HOME`. Never inside a client plugin directory: a plugin root moves on update.
@@ -225,8 +238,10 @@ The working directory is the demand's `appliesTo` when it is one existing absolu
 | `classify` | `title`, `body?`, `kind?` | `classify` | `simple`, `normal` or `hard`, plus why. |
 | `profile_pick` | `client`, `effort`, `quota?` | `profilePick` | Model, reasoning effort and `maxTurns` from `config.json`. |
 | `inbox_add` | `title`, `body?`, `kind?`, `accept?`, `effort?`, `client?`, `appliesTo?` | `inboxAdd` | Adds a demand and returns the stored item. |
-| `inbox_list` | `status?`, `client?`, `appliesTo?`, `limit?` | `inboxList` | Lists demands newest first. |
-| `inbox_set_status` | `id`, `status` | `inboxSetStatus` | Moves one demand along the sequence. |
+| `inbox_list` | `status?`, `client?`, `appliesTo?`, `limit?`, `locale?` | `inboxList` | Lists demands newest first, including the holder. |
+| `inbox_claim` | `id`, `client`, `session?`, `worktree?` | `inboxClaim` | Claims an unowned or stale demand. |
+| `inbox_release` | `id`, `client`, `session?` | `inboxRelease` | Releases an owned or stale hold. |
+| `inbox_set_status` | `id`, `status`, `holder?` | `inboxSetStatus` | Moves one demand along the sequence. |
 | `order_add` | `text`, `scope?`, `until?`, `appliesTo?` | `orderAdd` | Adds a standing order. |
 | `order_list` | `appliesTo?` | `orderList` | Lists the orders active now. |
 | `order_remove` | `id`, `reason?` | `orderRemove` | Revokes one order; the reason defaults to the tool's own. |

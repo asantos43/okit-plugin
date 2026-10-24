@@ -39,6 +39,12 @@ Uma pequena caixa de entrada guarda demandas pendentes; ordens permanentes
 guardam instruções que valem para toda demanda até serem removidas. Ambos vivem
 em arquivos JSON.
 
+A posse atômica identifica cliente/sessão, worktree e data. Outro dono ativo é
+recusado; a idade vem de `inbox.holdStaleMinutes` (padrão 120).
+Claim/release e estados finais preservam donos anteriores em `heldBefore`.
+Só a CLI humana permite tomada pelo Produtor, mostrando a situação e exigindo
+`--producer-takeover` mais confirmação TTY ou `--yes`; o MCP não força a tomada.
+
 O Diretor delega o trabalho, critica a saída do subagente e consolida os
 resultados.
 

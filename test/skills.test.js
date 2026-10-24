@@ -24,6 +24,8 @@ const TOOLS = new Set([
   'profile_pick',
   'inbox_add',
   'inbox_list',
+  'inbox_claim',
+  'inbox_release',
   'inbox_set_status',
   'order_add',
   'order_list',

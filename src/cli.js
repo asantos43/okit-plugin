@@ -4,7 +4,8 @@
 // client, a daemon or a `systemctl`.
 
 import { execFile, spawn } from 'node:child_process';
-import { rm } from 'node:fs/promises';
+import { rm, stat } from 'node:fs/promises';
+import { createInterface } from 'node:readline/promises';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +14,7 @@ import { promisify } from 'node:util';
 import { AUTOSTART_KINDS, applyAutostart, autostartPlan, detectAutostart } from './autostart.js';
 import { daemonPause, daemonResume, daemonRun, daemonStatus, tick } from './daemon.js';
 import { limitsStatus } from './limits.js';
+import { inboxClaim, inboxRelease, inboxProducerTakeover, inboxList, holdText, holdIsStale } from './inbox.js';
 import { runPostCompact } from './hook-post-compact.js';
 import { orderList } from './orders.js';
 import { configOf } from './profiles.js';
@@ -23,6 +25,65 @@ import { adapterQuotaReader, clientsOf, LABELS, statusTable } from './status.js'
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
 import { installerCommand } from './install/index.js';
+
+async function confirmTake(io, out) {
+  const input = io.stdin ?? process.stdin;
+  if (!input.isTTY) throw new Error('confirmation requires TTY or --yes');
+  out('Transfer ownership? [y/N] / Transferir posse? [s/N]');
+  if (io.confirm) return io.confirm();
+  const reader = createInterface({ input, output: io.output ?? process.stdout });
+  try { return /^(y|yes|s|sim)$/i.test((await reader.question('> ')).trim()); }
+  finally { reader.close(); }
+}
+
+async function showHoldSituation(ctx, item, config) {
+  const h = item.hold;
+  ctx.out(`Situation / Situação: ${item.id}`);
+  ctx.out(`owner / dono: ${holdText(item, config)}`);
+  ctx.out(`client / cliente: ${h?.client ?? '-'}; session / sessão: ${h?.session ?? '-'}; worktree: ${h?.worktree ?? '-'}; since / desde: ${h?.takenAt ?? '-'}; stale / obsoleta: ${holdIsStale(h, config)}`);
+  if (h?.worktree) {
+    try { await stat(h.worktree); }
+    catch (error) { if (error.code === 'ENOENT') return; throw error; }
+    try {
+      const result = await ctx.run({ command: 'git', args: ['status', '--porcelain'], cwd: h.worktree, timeout: config.inbox.gitTimeoutMs });
+      if (typeof result.stdout !== 'string' || (result.code ?? result.exitCode ?? 0) !== 0) throw new Error('git status failed');
+      ctx.out(`uncommitted changes / mudanças não commitadas: ${result.stdout.trim() ? 'yes / sim' : 'no / não'}`);
+    } catch (error) { ctx.out(`worktree status unknown / desconhecido: ${error.message}`); }
+  }
+}
+
+async function inboxCommand(ctx, action, args, io) {
+  const config = await readConfig(ctx.root);
+  if (action === 'list') {
+    const { locale, rest } = readLocale(args);
+    if (rest.length || (locale && !Object.hasOwn(LABELS, locale))) return ctx.unknown();
+    for (const item of await inboxList(ctx.root)) ctx.out(`${item.id} ${item.status} ${item.title} — ${holdText(item, config, locale)}`);
+    return 0;
+  }
+  if (!['take', 'release'].includes(action) || !args[0] || args[0].startsWith('--')) return ctx.unknown();
+  const owner = { client: 'producer' };
+  let takeover = false;
+  let yes = false;
+  for (let i = 1; i < args.length; i += 1) {
+    const flag = args[i];
+    if (flag === '--producer-takeover' && action === 'take') takeover = true;
+    else if (flag === '--yes' && action === 'take') yes = true;
+    else if (['--client', '--session', ...(action === 'take' ? ['--worktree'] : [])].includes(flag)) {
+      if (!args[i + 1] || args[i + 1].startsWith('--')) return ctx.unknown();
+      owner[flag.slice(2)] = args[++i];
+    } else return ctx.unknown();
+  }
+  if (takeover) {
+    const item = (await inboxList(ctx.root)).find((entry) => entry.id === args[0]);
+    if (!item) throw new Error(`unknown inbox item ${args[0]}`);
+    await showHoldSituation(ctx, item, config);
+    if (!yes && !await confirmTake(io, ctx.out)) throw new Error('transfer cancelled / transferência cancelada');
+    await inboxProducerTakeover(ctx.root, args[0], owner, item.hold);
+  } else if (action === 'take') await inboxClaim(ctx.root, args[0], owner, { allowStale: false });
+  else await inboxRelease(ctx.root, args[0], owner);
+  ctx.out(`${args[0]}: ${action}`);
+  return 0;
+}
 
 const STOP_FILE = 'daemon.stop';
 const DAEMON_ACTIONS = ['start', 'stop', 'status', 'pause', 'resume', 'run-once'];
@@ -36,6 +97,9 @@ const USAGE = [
   '       okit daemon status [--table [--locale en|pt-BR]]',
   '       okit autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       okit status [--locale en|pt-BR]',
+  '       okit inbox list [--locale en|pt-BR]',
+  '       okit inbox take <id> [--producer-takeover] [--client <c>] [--session <s>] [--worktree <path>] [--yes]',
+  '       okit inbox release <id> [--client <c>] [--session <s>]',
   '       okit hook post-compact',
   '       okit smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]',
   '       okit client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]',
@@ -47,8 +111,8 @@ const USAGE = [
 const execFileAsync = promisify(execFile);
 
 /** Runs one command object: an argument array and no shell, like every spawn. */
-async function runCommand({ command, args = [] }) {
-  const { stdout, stderr } = await execFileAsync(command, args, { windowsHide: true });
+async function runCommand({ command, args = [], cwd, timeout }) {
+  const { stdout, stderr } = await execFileAsync(command, args, { windowsHide: true, cwd, timeout });
   return { command, args, stdout, stderr };
 }
 
@@ -349,6 +413,7 @@ export async function main(argv = [], io = {}) {
 
   const [group, action, ...args] = argv;
   try {
+    if (group === 'inbox') return await inboxCommand(ctx, action, args, io);
     if (['install', 'update', 'uninstall'].includes(group)) {
       const flags = action === undefined ? args : [action, ...args];
       return await installerCommand(group, flags, ctx, {

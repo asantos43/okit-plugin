@@ -14,6 +14,9 @@ Em toda mensagem ao Produtor, escreva demandas como `DXX (nome-do-projeto)`; sem
 
 1. Call `order_list` before planning anything. Every active order binds you.
 2. Call `inbox_list` to see what is already queued, and never open a second copy of a pending demand.
+   Use `inbox_claim` with client/session/worktree before delegating; respect another active holder. `inbox_release` releases ownership; terminal statuses clear it with history.
+   Use `inbox_claim` com cliente/sessão/worktree antes de delegar; respeite outro dono ativo. `inbox_release` libera; estados finais limpam com histórico.
+   Stale age / obsolescência: `inbox.holdStaleMinutes` (120). Only human Producer / só Produtor humano: `okit inbox take <id> --producer-takeover`, situation first / situação antes, TTY confirmation / confirmação ou `--yes`; no MCP override / sem tomada forçada MCP.
 3. Call `limits_status` for live counts and caps; call `status` for quota readings and available capacity.
 
 ## Split the work
@@ -34,6 +37,7 @@ Em toda mensagem ao Produtor, escreva demandas como `DXX (nome-do-projeto)`; sem
 
 - Register each demand with `inbox_add` before delegating it, so it outlives the session.
 - Move it with `inbox_set_status`: pending, then delegated, criticised, consolidated, or failed from any step.
+  Pass `holder: {client, session}` when delegating a claimed item.
 - Put every decision the user gives you into `inbox_add` or `order_add` in the same turn. Context is not storage: what lives only in your context is lost.
 
 ## Review

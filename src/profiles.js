@@ -30,6 +30,7 @@ export const DEFAULT_CONFIG = {
   lowQuotaPct: 15,
   limits: { global: 3, clients: {} },
   staleMinutes: 30,
+  inbox: { holdStaleMinutes: 120, gitTimeoutMs: 5000 },
   // profiles: { <client>: { simple: { model, effort, maxTurns }, ... } }
   profiles: {},
   postCompact: {
@@ -271,8 +272,15 @@ export function normalizeLimits(limits = {}) {
 
 export function configOf(config) {
   const merged = { ...DEFAULT_CONFIG, ...(config ?? {}) };
+  const inbox = { ...DEFAULT_CONFIG.inbox, ...config?.inbox };
+  for (const key of ['holdStaleMinutes', 'gitTimeoutMs']) {
+    if (!Number.isInteger(inbox[key]) || inbox[key] < 1) {
+      throw new TypeError(`inbox.${key} must be an integer >= 1`);
+    }
+  }
   return {
     ...merged,
+    inbox,
     limits: normalizeLimits(config?.limits),
     limitWarnings: [
       ...(config?.limitWarnings ?? []),

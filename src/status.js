@@ -10,7 +10,7 @@ import { configOf, normalizeLimits } from './profiles.js';
 import { capOf } from './limits.js';
 import { CLIENTS } from './spawn-process.js';
 import { projectName, withDemandRef } from './demand-ref.js';
-import { inboxList } from './inbox.js';
+import { inboxList, holdText } from './inbox.js';
 
 const DEFAULT_TTL_MS = 60_000;
 const FIVE_HOURS_MINUTES = 360;
@@ -30,7 +30,7 @@ function finite(value) {
 export const LABELS = {
   en: {
     columns: ['Subscription', '5h remaining', 'Week remaining', 'Resets in', 'Status', 'Source (age)'],
-    demandColumns: ['Demand', 'Status', 'Title'],
+    demandColumns: ['Demand', 'Status', 'Title', 'Holder'],
     status: { green: 'green', yellow: 'yellow', red: 'red', off: 'off' },
     missing: MISSING,
     pct: (value) => `${Math.round(value)}%`,
@@ -46,7 +46,7 @@ export const LABELS = {
   },
   'pt-BR': {
     columns: ['Assinatura', 'Restante 5h', 'Restante semana', 'Reseta em', 'Situação', 'Origem (idade)'],
-    demandColumns: ['Demanda', 'Situação', 'Título'],
+    demandColumns: ['Demanda', 'Situação', 'Título', 'Dono'],
     status: { green: 'verde', yellow: 'amarelo', red: 'vermelho', off: 'desligado' },
     missing: MISSING,
     pct: (value) => `${Math.round(value)}%`,
@@ -281,7 +281,7 @@ export async function statusTable(root, deps = {}) {
   const demands = (deps.demands ?? await inboxList(root)).map((item) => withDemandRef(item, name));
   const demandTable = demands.length === 0 ? '' : `\n\n${markdownOf(
     labels.demandColumns,
-    demands.map((item) => ({ cells: [item.ref, item.status, item.title] })),
+    demands.map((item) => ({ cells: [item.ref, item.status, item.title, holdText(item, config, deps.locale, now())] })),
   )}`;
   return {
     markdown: markdownOf(labels.columns, rows) + demandTable,

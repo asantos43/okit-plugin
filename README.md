@@ -30,9 +30,18 @@ okit client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsa
   [--max-usd [n]] [--max-turns [n]] [--max-minutes [n]] [--quota-floor [pct]] [--timeout [ms]]
 ```
 
-The stdio MCP server exposes 12 tools: `acquire_slot`, `release_slot`,
+The stdio MCP server exposes 14 tools: `acquire_slot`, `release_slot`,
 `limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
-`inbox_set_status`, `order_add`, `order_list`, `order_remove`.
+`inbox_set_status`, `inbox_claim`, `inbox_release`, `order_add`, `order_list`, `order_remove`.
+
+`okit inbox list [--locale en|pt-BR]` and MCP `inbox_list` show each holder.
+`okit inbox take <id> --client codex --session <s> --worktree <path>` claims atomically;
+another active client/session is refused. `okit inbox release <id> --client codex --session <s>` releases it.
+Only the human CLI allows `okit inbox take <id> --producer-takeover [--client <c>] [--yes]`:
+it shows the owner, session, worktree, timestamp, staleness and uncommitted Git changes before
+TTY confirmation (or `--yes`). Transfer preserves `heldBefore` with reason `producer takeover`.
+`inbox.holdStaleMinutes` defaults to 120 (integer >= 1); stale claims/releases record `stale`.
+`inbox.gitTimeoutMs` defaults to 5000 (integer >= 1). Terminal statuses clear ownership.
 The Director, Executor, Critic and Smoke skills guide delegation and verification.
 `smoke` runs 31 isolated checks; `client-smoke` has 23 scenario checks and its
 real driver supports Claude Code. Dry-run and rehearsal are offline walks.

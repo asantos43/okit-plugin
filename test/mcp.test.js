@@ -17,6 +17,8 @@ const NAMES = [
   'profile_pick',
   'inbox_add',
   'inbox_list',
+  'inbox_claim',
+  'inbox_release',
   'inbox_set_status',
   'order_add',
   'order_list',
@@ -24,6 +26,22 @@ const NAMES = [
 ];
 
 const roots = [];
+
+test('MCP claims, lists ownership in both languages, refuses takeover and releases', async () => {
+  const root = await tempRoot();
+  const server = harness({ root });
+  const item = server.data(await server.call('inbox_add', { title: 'claim me' }));
+  const owner = { id: item.id, client: 'codex', session: 's', worktree: 'wt' };
+  assert.equal(server.data(await server.call('inbox_claim', owner)).hold.session, 's');
+  const listed = server.data(await server.call('inbox_list', {}))[0];
+  assert.equal(listed.hold.client, 'codex');
+  assert.match(listed.owner, /taken by codex/);
+  assert.match(server.data(await server.call('inbox_list', { locale: 'pt-BR' }))[0].owner, /em posse de codex/);
+  assert.equal((await server.call('inbox_claim', { ...owner, producer: true })).result.isError, true);
+  assert.equal((await server.call('inbox_claim', { ...owner, session: 'other' })).result.isError, true);
+  assert.equal(server.data(await server.call('inbox_release', { id: item.id, client: 'codex', session: 's' })).hold, undefined);
+  await server.stop();
+});
 
 async function tempRoot() {
   const dir = await mkdtemp(join(tmpdir(), 'mcp-test-'));
