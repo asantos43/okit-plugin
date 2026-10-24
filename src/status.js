@@ -20,6 +20,19 @@ const GREEN_MARGIN_PCT = 15;
 const FLOOR_WORDS = /quota|cota|floor|piso/i;
 const MISSING = '-';
 
+export const CLIENT_ENV_MARKERS = {
+  'claude-code': ['CLAUDECODE'],
+  codex: ['CODEX_THREAD_ID', 'CODEX_CI'],
+  opencode: ['OPENCODE', 'OPENCODE_PID'],
+};
+
+/** Session markers only: a configured home does not mean a client is running. */
+export function detectClient(env = {}) {
+  return Object.entries(CLIENT_ENV_MARKERS).find(([, markers]) => markers.some((name) => (
+    typeof env[name] === 'string' && env[name].trim() !== '' && env[name] !== '0'
+  )))?.[0] ?? null;
+}
+
 /** A finite number, or `null`. `NaN` is not a reading and never becomes a zero. */
 function finite(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -33,6 +46,8 @@ export const LABELS = {
     demandColumns: ['Demand', 'Status', 'Title', 'Holder'],
     status: { green: 'green', yellow: 'yellow', red: 'red', off: 'off' },
     missing: MISSING,
+    noQuota: (client) => `No quota value recorded. Record it with: okit-plugin quota set ${client} <pct>`,
+    unknownClient: 'Client not recognized. Showing all clients; use --client <name> to choose one.',
     pct: (value) => `${Math.round(value)}%`,
     capacity: (clients, floor) => (
       `executors that can launch now: ${clients}; quota floor ${floor}%`
@@ -49,6 +64,8 @@ export const LABELS = {
     demandColumns: ['Demanda', 'Situação', 'Título', 'Dono'],
     status: { green: 'verde', yellow: 'amarelo', red: 'vermelho', off: 'desligado' },
     missing: MISSING,
+    noQuota: (client) => `Nenhum valor de cota registrado. Registre com: okit-plugin quota set ${client} <pct>`,
+    unknownClient: 'Cliente não reconhecido. Mostrando todos os clientes; use --client <nome> para escolher um.',
     pct: (value) => `${Math.round(value)}%`,
     capacity: (clients, floor) => (
       `executores que podem iniciar agora: ${clients}; piso de cota ${floor}%`
@@ -181,6 +198,8 @@ async function readingWithAge(cache, root, client, read, now, ttlMs) {
 }
 
 function rowOf(client, reading, readAt, config, labels, now, orders) {
+  const recordedAt = Date.parse(reading?.recordedAt);
+  if (Number.isFinite(recordedAt)) readAt = recordedAt;
   const { fiveHour, week } = reading === null ? { fiveHour: null, week: null } : windowsOf(reading);
   const floor = config.lowQuotaPct;
   const status = reading === null ? 'off' : statusOf(remainingOf({ fiveHour, week }), floor);
@@ -206,8 +225,9 @@ function rowOf(client, reading, readAt, config, labels, now, orders) {
       cell(fiveHour?.remainingPct),
       cell(week?.remainingPct),
       typeof resets === 'number' ? labels.resets(resets) : labels.missing,
-      order === null ? labels.status[status] : `${labels.status[status]}: ${order}`,
-      `${source} (${ageOf(readAt, now, labels)})`,
+      reading === null ? labels.noQuota(client)
+        : order === null ? labels.status[status] : `${labels.status[status]}: ${order}`,
+      reading === null ? labels.missing : `${source} (${ageOf(readAt, now, labels)})`,
     ],
   };
 }
@@ -242,7 +262,7 @@ function room(limit, live) {
 const READING_CACHE = new Map();
 
 /**
- * The quota table of every client, as Markdown, plus the capacity line under it.
+ * The selected client's quota table, plus its capacity line.
  *
  * Quota readings come only through `deps.readQuota`; demand display names
  * come from the state root. The reader is
@@ -251,7 +271,8 @@ const READING_CACHE = new Map();
  * @param {string} root state root, part of the cache key
  * @param {{config?: object, clients?: string[], readQuota?: Function,
  *   now?: Function, orders?: object[], locale?: string, ttlMs?: number,
- *   limits?: object, cache?: Map, demands?: object[]}} deps
+ *   limits?: object, cache?: Map, demands?: object[], env?: object,
+ *   all?: boolean, client?: string}} deps
  * @returns {Promise<{markdown: string, capacityLine: string, rows: object[], demands: object[]}>}
  */
 export async function statusTable(root, deps = {}) {
@@ -261,7 +282,14 @@ export async function statusTable(root, deps = {}) {
   const floor = config.lowQuotaPct;
   const ttlMs = Number.isFinite(deps.ttlMs) ? deps.ttlMs : DEFAULT_TTL_MS;
   const cache = deps.cache ?? READING_CACHE;
-  const clients = Array.isArray(deps.clients) ? deps.clients : [];
+  if (deps.client !== undefined && !CLIENTS.includes(deps.client)) {
+    throw new TypeError('client must be one of ' + CLIENTS.join(', '));
+  }
+  if (deps.all !== undefined && typeof deps.all !== 'boolean') throw new TypeError('all must be a boolean');
+  const detected = detectClient(deps.env);
+  const selected = deps.client ?? (deps.all ? null : detected);
+  const clients = selected ? [selected] : (deps.clients ?? clientsOf(config));
+  const note = !selected && !deps.all ? `\n\n${labels.unknownClient}` : '';
 
   const rows = [];
   for (const client of clients) {
@@ -271,8 +299,7 @@ export async function statusTable(root, deps = {}) {
 
   const limits = normalizeLimits(deps.limits?.limits ?? config.limits);
   const byClient = deps.limits?.byClient ?? {};
-  const capacityClients = new Set([...clients, ...Object.keys(limits.clients), ...Object.keys(byClient)]);
-  const capacity = [...capacityClients].map((client) => {
+  const capacity = clients.map((client) => {
     const { cap, source } = capOf(limits, client);
     return labels.cap(client, byClient[client] ?? 0, cap, labels.capSource[source], room(cap, byClient[client]));
   }).join('; ');
@@ -284,7 +311,7 @@ export async function statusTable(root, deps = {}) {
     demands.map((item) => ({ cells: [item.ref, item.status, item.title, holdText(item, config, deps.locale, now())] })),
   )}`;
   return {
-    markdown: markdownOf(labels.columns, rows) + demandTable,
+    markdown: markdownOf(labels.columns, rows) + demandTable + note,
     capacityLine: [labels.capacity(capacity, floor), ...warnings].join('\n'),
     rows,
     demands,

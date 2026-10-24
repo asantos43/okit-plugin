@@ -21,7 +21,7 @@ import { orderList } from './orders.js';
 import { configOf, DEFAULT_CONFIG } from './profiles.js';
 import { runSmoke } from './smoke.js';
 import { runClientSmoke } from './smoke/client.js';
-import { makeSpawner } from './spawn-process.js';
+import { CLIENTS, makeSpawner } from './spawn-process.js';
 import { adapterQuotaReader, clientsOf, LABELS, statusTable } from './status.js';
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
@@ -99,7 +99,7 @@ const USAGE = [
   '       {command} uninstall [--client <c>] [--purge] [--yes] [--dry-run]',
   '       {command} daemon status [--table [--locale en|pt-BR]]',
   '       {command} autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
-  '       {command} status [--locale en|pt-BR]',
+  '       {command} status [--all] [--client <name>] [--locale en|pt-BR]',
   '       {command} quota set <client> <pct> [--window-minutes n]',
   '       {command} quota show [client]',
   '       {command} inbox list [--locale en|pt-BR]',
@@ -256,6 +256,7 @@ async function tableDeps(ctx, locale) {
   const config = await readConfig(ctx.root);
   return {
     config,
+    env: ctx.env,
     clients: clientsOf(config, ctx.clients),
     readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env }),
     now: ctx.now,
@@ -271,11 +272,26 @@ async function tableDeps(ctx, locale) {
  * come from each client's adapter, the counts from the runs on disk, and both
  * are the same functions the daemon and the MCP tool use.
  */
+function readStatusSelection(args) {
+  let all = false;
+  let client;
+  const rest = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--all') all = true;
+    else if (arg === '--client') client = args[++index] ?? '';
+    else if (arg.startsWith('--client=')) client = arg.slice('--client='.length);
+    else rest.push(arg);
+  }
+  return { all, client, invalid: rest.length > 0 || (client !== undefined && !CLIENTS.includes(client)) };
+}
+
 async function statusCommand(ctx, args) {
   const { locale, rest } = readLocale(args);
-  if (rest.length > 0 || (locale !== null && !Object.hasOwn(LABELS, locale))) return ctx.unknown();
+  const selection = readStatusSelection(rest);
+  if (selection.invalid || (locale !== null && !Object.hasOwn(LABELS, locale))) return ctx.unknown();
 
-  const table = await statusTable(ctx.root, await tableDeps(ctx, locale ?? 'en'));
+  const table = await statusTable(ctx.root, { ...await tableDeps(ctx, locale ?? 'en'), ...selection });
   for (const line of table.markdown.split('\n')) ctx.out(line);
   ctx.out(table.capacityLine);
   ctx.out((await kitResult(ctx)).message);
