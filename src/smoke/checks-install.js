@@ -11,7 +11,7 @@ import { main } from '../cli.js';
 import { handleLine, serverVersion } from '../mcp/server.js';
 import { TOOLS, TOOL_NAMES } from '../mcp/tools.js';
 
-const SKILLS = ['okit-director', 'okit-executor', 'okit-critic'];
+const SKILLS = ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke'];
 
 // The hooks the plugin installs; the entry the user writes next to it is the one
 // that has to survive a second install.
@@ -55,7 +55,7 @@ async function cli(deps, argv) {
   return { code, out, err, wrote };
 }
 
-// I1: the four files a client loads and the three skills it reads are readable
+// I1: the files a client loads and the four skills it reads are readable
 // in the checkout the run was given, at the paths the plugin declares.
 async function filesPlaced(deps) {
   const wanted = [
@@ -94,15 +94,19 @@ async function mcpRegistered(deps) {
 // and a second call says `identical` instead of writing again. A root that
 // already holds the skill — the second run of `U4` — is the same case.
 async function skillsInstalled(deps) {
-  const source = join(deps.root, 'skills', 'okit-director');
-  const target = join(deps.configRoot, 'skills', 'okit-director', 'SKILL.md');
-  const first = await installSkill('okit-director', source, { root: deps.configRoot });
+  for (const name of SKILLS) await skillInstalled(deps, name);
+}
+
+async function skillInstalled(deps, name) {
+  const source = join(deps.root, 'skills', name);
+  const target = join(deps.configRoot, 'skills', name, 'SKILL.md');
+  const first = await installSkill(name, source, { root: deps.configRoot });
   need((await readFile(target, 'utf8')) === await readFile(join(source, 'SKILL.md'), 'utf8'),
     'the installed SKILL.md must hold the packaged bytes');
   need(first.written.length === 0 || first.written.includes('SKILL.md'),
     `installSkill wrote ${first.written.join(',')}, which is not this skill`);
 
-  const second = await installSkill('okit-director', source, { root: deps.configRoot });
+  const second = await installSkill(name, source, { root: deps.configRoot });
   need(second.written.length === 0, 'a second install must write nothing');
   need(second.skipped.length > 0 && second.skipped.every((file) => file.reason === 'identical'),
     `every file must be identical, got ${second.skipped.map((file) => file.reason).join(',')}`);
@@ -144,7 +148,7 @@ async function permissionsReadable(deps) {
     const info = await stat(file);
     need((info.mode & 0o444) === 0o444, `${file} is not readable`);
   }
-  need(files.length === SKILLS.length + 1, `the package must ship three skills, found ${files.length - 1}`);
+  need(files.length === SKILLS.length + 1, `the package must ship ${SKILLS.length} skills, found ${files.length - 1}`);
 }
 
 // I7: the version the MCP server reports is the one in package.json, and

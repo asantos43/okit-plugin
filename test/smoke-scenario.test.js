@@ -44,6 +44,13 @@ test('the scenario survives a JSON round trip without losing data', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(SCENARIO)), SCENARIO);
 });
 
+test('C2 requires the smoke skill alongside the actor skills', () => {
+  const step = SCENARIO.find(({ id }) => id === 'C2');
+  for (const name of ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke']) {
+    assert.ok(step.behaviour.includes(name), `C2 must require ${name}`);
+  }
+});
+
 // Must pass / must refuse (the known-input corpus):
 // | input | must pass | must refuse |
 // | C11   | simple, short-body | normal or hard |

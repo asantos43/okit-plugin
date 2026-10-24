@@ -441,7 +441,9 @@ async function autostartApply(deps) {
 async function skillsPackaged(deps) {
   const folder = join(deps.root, 'skills');
   const folders = (await readdir(folder, { withFileTypes: true })).filter((entry) => entry.isDirectory());
-  need(folders.length >= 3, `the package must ship its skills, found ${folders.length}`);
+  for (const name of ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke']) {
+    need(folders.some((entry) => entry.name === name), `the package must ship ${name}`);
+  }
 
   for (const entry of folders) {
     const text = await readFile(join(folder, entry.name, 'SKILL.md'), 'utf8');
