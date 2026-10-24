@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Codex adapter with native/process delegation, user quota, capabilities, safe skill copying, explicit hook-installation refusal and tests.
 - SHA-256 release checksum manifest (`src/release/checksums.js`, `scripts/checksums.js`, `npm run release:checksums`): writes and verifies `<P>-<V>-checksums.sha256` over the final bytes of a release folder — one line per file with the lowercase digest, two spaces and the exact name, ordered by name, LF and UTF-8, never hashing the manifest itself — and refuses an altered, absent, unlisted, malformed or unsafe-path entry.
 - Add `/okit-smoke`, the in-client smoke skill that confirms quota spending, narrates the existing runner and reports each check, partial results and exit code; include it in installation checks and C2 skill visibility.
 - Project-qualified demand references in inbox/status output, daemon decisions and bilingual Director guidance, preserving machine-readable ids.
