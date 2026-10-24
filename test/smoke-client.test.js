@@ -116,6 +116,32 @@ test('unknown quota needs explicit opt-in', async (t) => {
   assert.ok(f.lines.some((line) => line.includes('explicitly allowed')));
 });
 
+test('quota set unblocks smoke and the recorded floor still refuses', async (t) => {
+  const f = await fixture(t);
+  await rm(join(f.root, 'quota/claude-code.json'));
+  assert.equal((await runClientSmoke([], f.io)).reason, 'quota-unknown');
+  for (const [pct, code] of [[80, 0], [5, 2]]) {
+    assert.equal(await main(['quota', 'set', 'claude-code', String(pct)],
+      { ...f.io, stdout: f.io.out }), 0);
+    const result = await runClientSmoke([], f.io);
+    assert.equal(result.code, code, JSON.stringify(result.records.filter((entry) => entry.status === 'fail')));
+    if (code === 2) assert.equal(result.reason, 'quota-below-floor');
+  }
+});
+
+test('configured quota age warns, expires, and honors explicit opt-in', async (t) => {
+  const f = await fixture(t, { smoke: { quotaMaxAgeMinutes: 2, quotaExpireMinutes: 4 } });
+  const recorded = Date.now();
+  await main(['quota', 'set', 'claude-code', '80'], { ...f.io, now: () => recorded, stdout: f.io.out });
+  const io = { ...f.io, now: () => recorded + 3 * 60_000 };
+  const warned = await runClientSmoke([], io);
+  assert.equal(warned.code, 0, JSON.stringify(warned.records.filter((entry) => entry.status === 'fail')));
+  assert.ok(f.lines.some((line) => line.startsWith('quota-stale:')));
+  const expired = { ...f.io, now: () => recorded + 5 * 60_000 };
+  assert.equal((await runClientSmoke([], expired)).reason, 'quota-unknown');
+  assert.equal((await runClientSmoke(['--allow-unknown-quota'], expired)).code, 0);
+});
+
 test('check timeout aborts the fake client, fails the check and skips the rest', async (t) => {
   let signal;
   const f = await fixture(t, { smoke: { checkTimeoutMs: 25 }, respond: async (request) => {

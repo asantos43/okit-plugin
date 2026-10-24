@@ -75,6 +75,16 @@ is removed. Checks re-read configuration without restart; status shows live/cap,
 available slots and whether the cap is from the client or the default.
 Set `profiles.<client>.simple|normal|hard` with `model`, `effort`, `maxTurns`;
 no default model is supplied. All adapters read user quota from `quota/<client>.json`.
+Record the remaining percentage shown in the client's `/usage` with
+`okit-plugin quota set claude-code 80 [--window-minutes n]`; the clients are the ones
+the root configures (`claude-code`, `codex` and `opencode` when it configures none),
+and percentages must be numeric, from 0 to 100.
+Use `okit-plugin quota show [client]` to inspect records. The command atomically
+stores `remainingPct`, optional `windowMinutes` and `recordedAt` under `OKWORK_HOME`.
+Smoke warns after `smoke.quotaMaxAgeMinutes` (default 30) and treats the record
+as unknown after `smoke.quotaExpireMinutes` (default 120). Both are configurable
+in `config.json`; records without `recordedAt` remain valid. On `quota-unknown`,
+provide a fresh reading and retry; use `--allow-unknown-quota` only on explicit request.
 `postCompact` defaults to enabled, `timeoutSec: 5`, `maxLines: 20`, all sections
 enabled. `smoke` defaults: `quotaFloorPct: 20`, `maxUsd: 1`, `maxTurns: null`
 (full scenario), `maxMinutes: 15`, `checkTimeoutMs: 60000`.

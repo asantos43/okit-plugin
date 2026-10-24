@@ -9,6 +9,84 @@ import { promisify } from 'node:util';
 
 import { main } from '../src/cli.js';
 import { inboxAdd, inboxClaim, inboxList } from '../src/inbox.js';
+import { readQuota as claudeQuota } from '../adapters/claude-code/index.js';
+import { readQuota as codexQuota } from '../adapters/codex/index.js';
+import { readQuota as opencodeQuota } from '../adapters/opencode/index.js';
+
+// Must pass / must refuse:
+// | pass: known clients, 0/80.5/100, positive window, show |
+// | refuse: unknown client, pct <0/>100/nonfinite/empty, invalid window/flags |
+test('quota command records timestamped samples read by every adapter', async (t) => {
+  const root = await quotaRoot(t);
+  for (const [client, readQuota] of [['claude-code', claudeQuota], ['codex', codexQuota], ['opencode', opencodeQuota]]) {
+    for (const pct of [0, 80.5, 100]) {
+      const result = await cli(['quota', 'set', client, String(pct), '--window-minutes', '300'], { root, now: () => T0 });
+      assert.equal(result.code, 0, result.err.join('\n'));
+      assert.match(result.out[0], /Quota recorded \/ Cota registrada/);
+      const stored = JSON.parse(await readFile(join(root, 'quota', `${client}.json`), 'utf8'));
+      assert.deepEqual(stored, { remainingPct: pct, windowMinutes: 300, recordedAt: new Date(T0).toISOString() });
+      assert.deepEqual(await readQuota({ stateRoot: root, now: () => T0 + 60_000 }),
+        { source: 'user', ...stored, ageMinutes: 1 });
+    }
+  }
+  assert.equal((await cli(['quota', 'show'], { root })).out.length, 3);
+  assert.match((await cli(['quota', 'show', 'codex'], { root })).out[0], /"remainingPct":100/);
+  for (const [client, readQuota] of [['claude-code', claudeQuota], ['codex', codexQuota], ['opencode', opencodeQuota]]) {
+    await writeFile(join(root, 'quota', `${client}.json`), JSON.stringify({ remainingPct: 80 }));
+    assert.deepEqual(await readQuota({ stateRoot: root }), { source: 'user', remainingPct: 80 });
+  }
+});
+
+test('quota rejects invalid arguments without replacing a valid sample', async (t) => {
+  const root = await quotaRoot(t);
+  assert.equal((await cli(['quota', 'set', 'claude-code', '80'], { root })).code, 0);
+  const file = join(root, 'quota/claude-code.json');
+  const original = await readFile(file, 'utf8');
+  for (const pct of ['-1', '101', 'NaN', 'Infinity', '', ' ', 'no']) {
+    assert.equal((await cli(['quota', 'set', 'claude-code', pct], { root })).code, 2, pct);
+  }
+  for (const args of [['set', 'unknown', '80'], ['set', '../escape', '80'], ['show', 'unknown'],
+    ['set', 'codex'], ['set', 'codex', '80', '--bad'], ['show', 'codex', 'extra'],
+    ...['0', '-1', 'NaN', ''].map((n) => ['set', 'claude-code', '80', '--window-minutes', n])]) {
+    assert.equal((await cli(['quota', ...args], { root })).code, 2, args.join(' '));
+  }
+  assert.equal(await readFile(file, 'utf8'), original);
+  assert.deepEqual(await readdir(join(root, 'quota')), ['claude-code.json']);
+});
+
+// The clients of a root are the ones its configuration names: a client outside
+// that list has no reading, so it is refused instead of stored.
+test('quota refuses a client outside the list of the root', async (t) => {
+  const root = await tempRoot(t);
+  assert.equal((await cli(['quota', 'set', 'claude-code', '80'], { root })).code, 0);
+  for (const args of [['set', 'codex', '80'], ['show', 'codex']]) {
+    const refused = await cli(['quota', ...args], { root });
+    assert.equal(refused.code, 2, args.join(' '));
+    assert.match(refused.err.join('\n'), /Invalid quota arguments \/ Argumentos de cota inválidos/);
+  }
+  assert.deepEqual(await readdir(join(root, 'quota')), ['claude-code.json']);
+  const shown = await cli(['quota', 'show'], { root });
+  assert.equal(shown.out.length, 1);
+  assert.match(shown.out[0], /^Quota \/ Cota claude-code:/);
+});
+
+test('quota replacement exposes only complete JSON and leaves no temporary files', async (t) => {
+  const root = await quotaRoot(t);
+  await cli(['quota', 'set', 'codex', '80', '--window-minutes', '300'], { root });
+  const file = join(root, 'quota/codex.json');
+  let writing = true;
+  const observer = (async () => {
+    while (writing) {
+      const value = JSON.parse(await readFile(file, 'utf8'));
+      assert.ok([80, 50].includes(value.remainingPct));
+      assert.ok(Number.isFinite(Date.parse(value.recordedAt)));
+    }
+  })();
+  try { assert.equal((await cli(['quota', 'set', 'codex', '50'], { root })).code, 0); }
+  finally { writing = false; await observer; }
+  assert.equal(JSON.parse(await readFile(file, 'utf8')).windowMinutes, undefined);
+  assert.deepEqual(await readdir(join(root, 'quota')), ['codex.json']);
+});
 
 test('help and smoke errors use the configured or executed command', async (t) => {
   await mkdir(TMP, { recursive: true });
@@ -56,6 +134,20 @@ async function tempRoot(t) {
   const root = await mkdtemp(join(TMP, 'cli-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, 'config.json'), JSON.stringify(CONFIG), 'utf8');
+  return root;
+}
+
+/**
+ * A root whose configuration names every client, so the quota command knows
+ * them all: the clients of a root are the ones its configuration names.
+ */
+async function quotaRoot(t) {
+  await mkdir(TMP, { recursive: true });
+  const root = await mkdtemp(join(TMP, 'cli-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const profiles = Object.fromEntries(['claude-code', 'codex', 'opencode']
+    .map((client) => [client, CONFIG.profiles['claude-code']]));
+  await writeFile(join(root, 'config.json'), JSON.stringify({ ...CONFIG, profiles }), 'utf8');
   return root;
 }
 

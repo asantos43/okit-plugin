@@ -48,12 +48,15 @@ export function capabilities() {
  * Reads only the core's user-supplied quota sample, never client credentials.
  * No verified local quota file or offline quota command was found.
  * @param {{stateRoot?: string, env?: object}} [opts]
- * @returns {Promise<{source: 'user', remainingPct?: number, windowMinutes?: number}>}
+ * @returns {Promise<{source: 'user', remainingPct?: number, windowMinutes?: number, recordedAt?: string, ageMinutes?: number}>}
  */
-export async function readQuota({ stateRoot: root, env } = {}) {
+export async function readQuota({ stateRoot: root, env, now = Date.now } = {}) {
   const stored = await readJson(join(paths(root ?? stateRoot(env)).quota, `${CLIENT}.json`), null);
   if (!finite(stored?.remainingPct)) return { source: 'user' };
+  const recorded = Date.parse(stored.recordedAt);
   return { source: 'user', remainingPct: stored.remainingPct,
+    ...(Number.isFinite(recorded) ? { recordedAt: stored.recordedAt,
+      ageMinutes: Math.max(0, now() - recorded) / 60_000 } : {}),
     ...(finite(stored.windowMinutes) ? { windowMinutes: stored.windowMinutes } : {}) };
 }
 

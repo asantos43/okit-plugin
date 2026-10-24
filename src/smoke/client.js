@@ -146,7 +146,11 @@ export async function runClientSmoke(argv = [], io = {}) {
     out(`rehearsal: no client; maximum USD ${budget.maxUsd}; steps ${budget.maxTurns}; minutes ${budget.maxMinutes}`);
     return { code: 0, records: [], budget };
   }
-  const quota = await (io.readQuota ?? (() => readQuota({ stateRoot: root, env })))(flags.client);
+  let quota = await (io.readQuota ?? (() => readQuota({ stateRoot: root, env, now })))(flags.client);
+  if (quota?.ageMinutes > budget.quotaMaxAgeMinutes) {
+    out('quota-stale: refresh quota / cota antiga: atualize a cota (smoke.quotaMaxAgeMinutes)');
+  }
+  if (quota?.ageMinutes > budget.quotaExpireMinutes) quota = { source: 'user' };
   const refusal = typeof quota?.remainingPct !== 'number' || !Number.isFinite(quota.remainingPct)
     ? (!flags['allow-unknown-quota'] ? 'quota-unknown' : null)
     : quota.remainingPct < budget.quotaFloorPct ? 'quota-below-floor' : null;
@@ -162,7 +166,10 @@ export async function runClientSmoke(argv = [], io = {}) {
     return { code: 2, records: [], artifacts, reason: refusal };
   }
   if (!Number.isFinite(quota?.remainingPct)) out('quota-unknown: explicitly allowed');
-  const context = { root, env, config: stored, client: flags.client, quota, run: io.run,
+  // profile_pick accepts only these fields; adapter metadata stays local.
+  const profileQuota = quota && { source: quota.source,
+    ...(Number.isFinite(quota.remainingPct) ? { remainingPct: quota.remainingPct } : {}) };
+  const context = { root, env, config: stored, client: flags.client, quota: profileQuota, run: io.run,
     owned: { inbox: new Set(), orders: new Set(), fillers: [] }, events: [], fixtures: {
       slot: { runId: `okit-smoke-${runId}` }, refused: { runId: `okit-smoke-${runId}-refused` },
       absent: { runId: `okit-smoke-${runId}-absent` }, inbox: { body: `okit-smoke ${runId}` },

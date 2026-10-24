@@ -129,17 +129,19 @@ export function capabilities() {
  * core already stored what the user gave. Never an estimate, never a leftover
  * of another client, never a zero in place of a reading nobody made.
  *
- * @param {{stateRoot?: string, env?: object}} [opts]
- * @returns {Promise<{source: 'user', remainingPct?: number, windowMinutes?: number}>}
+ * @param {{stateRoot?: string, env?: object, now?: Function}} [opts]
+ * @returns {Promise<{source: 'user', remainingPct?: number, windowMinutes?: number, recordedAt?: string, ageMinutes?: number}>}
  */
-export async function readQuota({ stateRoot: root, env } = {}) {
+export async function readQuota({ stateRoot: root, env, now = Date.now } = {}) {
   const stored = await readJson(join(paths(root ?? stateRoot(env)).quota, `${CLIENT}.json`), null);
   const remainingPct = number(stored?.remainingPct);
   const windowMinutes = number(stored?.windowMinutes);
   if (remainingPct === null) return { source: 'user' };
-  return windowMinutes === null
-    ? { source: 'user', remainingPct }
-    : { source: 'user', remainingPct, windowMinutes };
+  const recorded = Date.parse(stored.recordedAt);
+  return { source: 'user', remainingPct,
+    ...(windowMinutes === null ? {} : { windowMinutes }),
+    ...(Number.isFinite(recorded) ? { recordedAt: stored.recordedAt,
+      ageMinutes: Math.max(0, now() - recorded) / 60_000 } : {}) };
 }
 
 /** The actor profile as the Agent tool takes it: a model, and an effort we know. */
