@@ -8,6 +8,8 @@ subagent's model and reasoning effort by class and by the client's remaining
 quota, and keeps a small inbox and standing orders. The Director delegates,
 critiques and consolidates. No panel, no work across clients.
 
+In messages to the Producer, the Director identifies demands as `D25 (okit-plugin)` to distinguish projects. Displayed inbox/status items add `ref` while JSON `id`, commands, PR bodies, inbox fields and `critic-waiver Dn` keep the bare id. The state root's optional `project.json` record supplies `name`, falling back to the repository basename in `path`; a demand's single `appliesTo` project takes precedence. Without a name, `ref` is the bare id. Daemon decisions add `ref` to demand entries and `openedRefs` beside the unchanged `opened` ids.
+
 A demand is any unit of delegable work, not only code: research, writing,
 documents, data cleanup, analysis, planning, reviews and file operations.
 

@@ -111,6 +111,7 @@ const pendingTitles = async (root) => (await inboxList(root, { status: 'pending'
 
 test('tick opens a due child once per period and hands it to the spawner', async (t) => {
   const root = await seeded(t);
+  await writeJsonAtomic(paths(root).project, { name: 'registered' });
   const { deps, spawner } = fakeDeps();
 
   const record = await tick(root, deps);
@@ -124,6 +125,11 @@ test('tick opens a due child once per period and hands it to the spawner', async
   assert.equal(items.length, 1);
   assert.equal(items[0].status, 'delegated');
   assert.equal(items[0].ext.runId, 'run-1');
+  assert.equal(record.spawned[0].id, items[0].id);
+  assert.equal(record.spawned[0].ref, `${items[0].id} (registered)`);
+  assert.deepEqual(record.opened, [items[0].id]);
+  assert.deepEqual(record.openedRefs, [`${items[0].id} (registered)`]);
+  assert.deepEqual(await decisions(root), [record]);
 });
 
 test('a second tick in the same period opens nothing and spawns nothing', async (t) => {

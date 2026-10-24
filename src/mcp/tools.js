@@ -2,6 +2,7 @@
 // The inputSchema is documentation; every handler checks its own arguments
 // again, because a client is free to send whatever it likes.
 import { classify, EFFORT_CLASSES } from '../classify.js';
+import { projectName, withDemandRef } from '../demand-ref.js';
 import { inboxAdd, inboxList, inboxSetStatus, STATUSES } from '../inbox.js';
 import { acquireSlot, limitsStatus, releaseSlot } from '../limits.js';
 import { orderAdd, orderList, orderRemove, SCOPES } from '../orders.js';
@@ -351,12 +352,14 @@ const inboxListTool = {
   },
   handler: async (args, ctx) => {
     const a = argsOf('inbox_list', args, ['status', 'client', 'appliesTo', 'limit']);
-    return reply(await inboxList(ctx.root, {
+    const items = await inboxList(ctx.root, {
       status: optionalChoice('inbox_list', a, 'status', STATUSES),
       client: optionalText('inbox_list', a, 'client'),
       appliesTo: optionalText('inbox_list', a, 'appliesTo'),
       limit: optionalCount('inbox_list', a, 'limit'),
-    }));
+    });
+    const name = await projectName(ctx.root);
+    return reply(items.map((item) => withDemandRef(item, name)));
   },
 };
 

@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path';
 import process from 'node:process';
 
 import { classify } from './classify.js';
+import { demandRef, projectName, withDemandRef } from './demand-ref.js';
 import { inboxList, inboxSetExt, inboxSetStatus } from './inbox.js';
 import { acquireSlot, releaseSlot } from './limits.js';
 import { DEFAULT_CONFIG, profilePick } from './profiles.js';
@@ -233,6 +234,13 @@ export async function tick(root, deps = {}) {
   const cache = new Map();
 
   const finish = async () => {
+    const name = await projectName(root);
+    const items = await inboxList(root);
+    const names = new Map(items.map((item) => [item.id, withDemandRef(item, name).ref]));
+    record.openedRefs = record.opened.map((id) => names.get(id) ?? demandRef(id, name));
+    for (const entry of [...record.spawned, ...record.skipped]) {
+      if (names.has(entry.id)) entry.ref = names.get(entry.id);
+    }
     await appendDecision(root, record);
     return record;
   };

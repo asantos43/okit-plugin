@@ -1,11 +1,13 @@
-// The quota table: a pure view over readings someone else took. `statusTable`
-// builds no command, opens no file and prints no ANSI: the readings, the clock,
+// The quota table and inbox view. `statusTable`
+// builds no command and prints no ANSI: the readings, the clock,
 // the cap counts and the clock the cache ages with all arrive in `deps`, so
 // the same table can be printed by the CLI, answered over MCP and asserted in a
 // test without anything real.
 import { readQuota as readClientQuota } from '../adapters/claude-code/index.js';
 import { DEFAULT_CONFIG } from './profiles.js';
 import { CLIENTS } from './spawn-process.js';
+import { projectName, withDemandRef } from './demand-ref.js';
+import { inboxList } from './inbox.js';
 
 const DEFAULT_TTL_MS = 60_000;
 const FIVE_HOURS_MINUTES = 360;
@@ -25,6 +27,7 @@ function finite(value) {
 export const LABELS = {
   en: {
     columns: ['Subscription', '5h remaining', 'Week remaining', 'Resets in', 'Status', 'Source (age)'],
+    demandColumns: ['Demand', 'Status', 'Title'],
     status: { green: 'green', yellow: 'yellow', red: 'red', off: 'off' },
     missing: MISSING,
     pct: (value) => `${Math.round(value)}%`,
@@ -37,6 +40,7 @@ export const LABELS = {
   },
   'pt-BR': {
     columns: ['Assinatura', 'Restante 5h', 'Restante semana', 'Reseta em', 'Situação', 'Origem (idade)'],
+    demandColumns: ['Demanda', 'Situação', 'Título'],
     status: { green: 'verde', yellow: 'amarelo', red: 'vermelho', off: 'desligado' },
     missing: MISSING,
     pct: (value) => `${Math.round(value)}%`,
@@ -231,15 +235,15 @@ const READING_CACHE = new Map();
 /**
  * The quota table of every client, as Markdown, plus the capacity line under it.
  *
- * Pure over `deps`: nothing here reads a file, calls a client or colours a
- * terminal. `deps.readQuota` is the only way a reading arrives, and it is
+ * Quota readings come only through `deps.readQuota`; demand display names
+ * come from the state root. The reader is
  * wrapped in a TTL cache, so two calls inside `deps.ttlMs` read once.
  *
  * @param {string} root state root, part of the cache key
  * @param {{config?: object, clients?: string[], readQuota?: Function,
  *   now?: Function, orders?: object[], locale?: string, ttlMs?: number,
- *   limits?: object, cache?: Map}} deps
- * @returns {Promise<{markdown: string, capacityLine: string, rows: object[]}>}
+ *   limits?: object, cache?: Map, demands?: object[]}} deps
+ * @returns {Promise<{markdown: string, capacityLine: string, rows: object[], demands: object[]}>}
  */
 export async function statusTable(root, deps = {}) {
   const now = deps.now ?? Date.now;
@@ -262,10 +266,17 @@ export async function statusTable(root, deps = {}) {
   const rooms = clients.map((client) => room(limits.perClient, byClient[client]));
   const perClient = rooms.length === 0 ? 0 : Math.min(...rooms);
   const global = room(limits.global, deps.limits?.live);
+  const name = await projectName(root);
+  const demands = (deps.demands ?? await inboxList(root)).map((item) => withDemandRef(item, name));
+  const demandTable = demands.length === 0 ? '' : `\n\n${markdownOf(
+    labels.demandColumns,
+    demands.map((item) => ({ cells: [item.ref, item.status, item.title] })),
+  )}`;
   return {
-    markdown: markdownOf(labels.columns, rows),
+    markdown: markdownOf(labels.columns, rows) + demandTable,
     capacityLine: labels.capacity(perClient, global, floor),
     rows,
+    demands,
   };
 }
 

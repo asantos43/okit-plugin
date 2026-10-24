@@ -25,6 +25,7 @@ export function paths(root) {
   return {
     root: base,
     config: join(base, 'config.json'),
+    project: join(base, 'project.json'),
     inbox: join(base, 'inbox.json'),
     orders: join(base, 'orders.json'),
     templates: join(base, 'templates.json'),
