@@ -4,8 +4,18 @@ import { join, resolve } from 'node:path';
 export function installConfig(user = {}) {
   const base = DEFAULT_CONFIG.install;
   const value = { ...base, ...user };
-  for (const key of ['clients', 'headers', 'systems', 'architectures', 'dataRoots']) {
+  for (const key of ['clients', 'headers', 'systems', 'architectures', 'dataRoots', 'kit']) {
     value[key] = { ...base[key], ...user[key] };
+  }
+  const kit = value.kit;
+  const strings = (items) => Array.isArray(items) && items.every((item) => typeof item === 'string' && item.trim() && !/[\r\n\0]/.test(item));
+  if (!strings(kit.executables) || !kit.executables.length || kit.executables.some((name) => /[\\/]/.test(name))) throw new TypeError('Invalid install.kit.executables');
+  if (kit.path !== null && (typeof kit.path !== 'string' || !kit.path.trim() || /[\r\n\0]/.test(kit.path))) throw new TypeError('Invalid install.kit.path');
+  if (!strings(kit.versionArgs)) throw new TypeError('Invalid install.kit.versionArgs');
+  if (!Number.isSafeInteger(kit.timeoutMs) || kit.timeoutMs <= 0) throw new TypeError('Invalid install.kit.timeoutMs');
+  if (typeof kit.require !== 'boolean') throw new TypeError('Invalid install.kit.require');
+  for (const key of ['hint', 'overlap']) {
+    if (typeof kit[key] !== 'string' || !kit[key].trim() || /[\r\n\0]/.test(kit[key])) throw new TypeError(`Invalid install.kit.${key}`);
   }
   for (const [name, settings] of Object.entries(value.clients)) value.clients[name] = { ...base.clients[name], ...settings };
   for (const key of ['timeoutMs', 'maxDownloadBytes', 'maxExtractBytes']) {

@@ -6,6 +6,12 @@ import { EFFORT_CLASSES } from './classify.js';
 
 export const DEFAULT_CONFIG = {
   install: {
+    kit: {
+      executables: ['okit', 'kit'], path: null, versionArgs: ['--version'],
+      timeoutMs: 3000, require: false,
+      hint: 'See INSTALL.md#orchestration-kit for kit installation instructions.',
+      overlap: 'See docs/ARCHITECTURE.md#kit-and-plugin-overlap-d1 for overlap rules.',
+    },
     repository: 'asantos43/okit-plugin', api: 'https://api.github.com',
     headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'okit-installer' },
     timeoutMs: 15000, maxDownloadBytes: 128 * 1024 * 1024, maxExtractBytes: 512 * 1024 * 1024,

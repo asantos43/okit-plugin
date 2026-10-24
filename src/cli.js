@@ -5,6 +5,7 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { rm, stat } from 'node:fs/promises';
+import * as filesystem from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
@@ -25,6 +26,8 @@ import { adapterQuotaReader, clientsOf, LABELS, statusTable } from './status.js'
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
 import { installerCommand } from './install/index.js';
+import { installConfig } from './install/config.js';
+import { detectKit } from './install/kit.js';
 
 async function confirmTake(io, out) {
   const input = io.stdin ?? process.stdin;
@@ -100,6 +103,7 @@ const USAGE = [
   '       okit inbox list [--locale en|pt-BR]',
   '       okit inbox take <id> [--producer-takeover] [--client <c>] [--session <s>] [--worktree <path>] [--yes]',
   '       okit inbox release <id> [--client <c>] [--session <s>]',
+  '       okit kit [--require]',
   '       okit hook post-compact',
   '       okit smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]',
   '       okit client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]',
@@ -111,9 +115,17 @@ const USAGE = [
 const execFileAsync = promisify(execFile);
 
 /** Runs one command object: an argument array and no shell, like every spawn. */
-async function runCommand({ command, args = [], cwd, timeout }) {
-  const { stdout, stderr } = await execFileAsync(command, args, { windowsHide: true, cwd, timeout });
-  return { command, args, stdout, stderr };
+async function runCommand({ command, args = [], cwd, timeout, signal, timeoutMs, env }) {
+  const pending = execFileAsync(command, args, {
+    windowsHide: true, cwd, timeout: timeoutMs ?? timeout, killSignal: 'SIGKILL', env,
+  });
+  const kill = () => pending.child.kill('SIGKILL');
+  signal?.addEventListener('abort', kill, { once: true });
+  if (signal?.aborted) kill();
+  try {
+    const { stdout, stderr } = await pending;
+    return { command, args, stdout, stderr };
+  } finally { signal?.removeEventListener('abort', kill); }
 }
 
 /** `--kind systemd`, `--kind=systemd` or nothing; an unknown flag is refused. */
@@ -232,7 +244,13 @@ async function statusCommand(ctx, args) {
   const table = await statusTable(ctx.root, await tableDeps(ctx, locale ?? 'en'));
   for (const line of table.markdown.split('\n')) ctx.out(line);
   ctx.out(table.capacityLine);
+  ctx.out((await kitResult(ctx)).message);
   return 0;
+}
+
+async function kitResult(ctx) {
+  const config = installConfig((await readConfig(ctx.root)).install);
+  return detectKit({ ...ctx, config });
 }
 
 // The daemon half runs with the process spawner, so a headless pass starts the
@@ -395,6 +413,7 @@ export async function main(argv = [], io = {}) {
     env: io.env ?? process.env,
     root: io.root ?? stateRoot(io.env ?? process.env),
     platform: io.platform ?? process.platform,
+    fs: io.fs ?? filesystem,
     spawn: io.spawn,
     run: io.run ?? runCommand,
     write: io.write,
@@ -414,6 +433,14 @@ export async function main(argv = [], io = {}) {
   const [group, action, ...args] = argv;
   try {
     if (group === 'inbox') return await inboxCommand(ctx, action, args, io);
+    if (group === 'kit') {
+      const flags = argv.slice(1);
+      if (flags.some((flag) => flag !== '--require')) return ctx.unknown();
+      const config = installConfig((await readConfig(ctx.root)).install);
+      const result = await detectKit({ ...ctx, config });
+      out(result.message);
+      return (flags.includes('--require') || config.kit.require) && result.state !== 'installed' ? 1 : 0;
+    }
     if (['install', 'update', 'uninstall'].includes(group)) {
       const flags = action === undefined ? args : [action, ...args];
       return await installerCommand(group, flags, ctx, {

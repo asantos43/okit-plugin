@@ -23,12 +23,21 @@ okit daemon start|stop|status|pause|resume|run-once
 okit daemon status [--table [--locale en|pt-BR]]
 okit autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
 okit status [--locale en|pt-BR]
+okit kit [--require]
 okit hook post-compact
 okit smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]
 okit client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]
   [--only <C ids>] [--keep] [--allow-unknown-quota]
   [--max-usd [n]] [--max-turns [n]] [--max-minutes [n]] [--quota-floor [pct]] [--timeout [ms]]
 ```
+
+`okit kit` imprime uma linha em inglês: instalado (caminho e versão), ausente
+(dica de instalação) ou quebrado. Executa somente o comando de versão configurado.
+`--require` retorna 1 se não estiver instalado; sem ele, a consulta é informativa.
+Os resumos de install/update (inclusive dry-run) e `okit status` incluem `kit: …`.
+Quando ambos estão presentes, a linha aponta para as
+[regras de sobreposição D1](docs/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
+Veja a [configuração do kit](INSTALL.pt-BR.md#kit-de-orquestração).
 
 O servidor MCP por stdio expõe 14 ferramentas: `acquire_slot`, `release_slot`,
 `limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,

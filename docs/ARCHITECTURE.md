@@ -269,3 +269,18 @@ So: absent means every project, one name means that project, a list means each o
 ## 15. Implementation and limits
 
 The three adapters, JSON state, daemon, schedules, installer, release tooling and MCP server are implemented. The real `client-smoke` driver supports Claude Code; other drivers and Windows/macOS proof remain pending. See [RELEASING.md](RELEASING.md#proof-per-pair).
+
+### Kit and plugin overlap (D1)
+
+The orchestration kit and this client plugin can coexist. The plugin owns its
+client adapters, MCP tools and state under `OKWORK_HOME`; installing or updating
+the plugin does not install, update or migrate the kit. Keep each tool's
+configuration with that tool and select the intended executable explicitly if
+their command names overlap on PATH (`install.kit.path` selects the kit probe).
+Avoid running both orchestrators on the same demand at the same time: their
+queues and concurrency limits are independent.
+
+`okit kit`, install/update summaries and status use a read-only, injected
+detector. Only the configured version command runs, with a bounded deadline.
+The detector reports executable path and reported version; it does not guess
+kit home/configuration folders or detect this plugin from inside the kit.
