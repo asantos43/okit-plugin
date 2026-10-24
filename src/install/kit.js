@@ -1,12 +1,15 @@
 import { detect } from './menu.js';
+import { pluginExecutable } from './link.js';
 
 /** Read-only probe. All filesystem, process and configuration inputs are injected. */
 export async function detectKit(deps) {
   const { kit } = deps.config;
   let path = kit.path;
+  let ignoredPlugin = false;
   if (path === null) {
     for (const name of kit.executables) {
       path = await detect(name, deps);
+      if (path && await pluginExecutable(path, deps)) { path = null; ignoredPlugin = true; }
       if (path) break;
     }
   } else {
@@ -18,7 +21,9 @@ export async function detectKit(deps) {
       path = null;
     }
   }
-  if (!path) return { state: 'absent', path: null, version: null, message: `kit: absent. ${kit.hint}` };
+  if (path && await pluginExecutable(path, deps)) { path = null; ignoredPlugin = true; }
+  if (!path) return { state: 'absent', path: null, version: null,
+    message: `kit: absent${ignoredPlugin ? ' (plugin executable ignored)' : ''}. ${kit.hint}` };
   return probe(path, deps);
 }
 

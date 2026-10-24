@@ -1,5 +1,7 @@
 # Install and update
 
+The plugin command is now `okit-plugin` (configurable via `install.command`); the kit keeps `okit`/`kit`. Install/update migrate only legacy `okit` links owned by the plugin; uninstall also removes those links. Existing 0.2.0 records remain readable; unrelated kit executables are preserved.
+
 ## Install
 
 Read the script before executing it. Node >=20 must already be on PATH
@@ -30,7 +32,7 @@ exact client/system/architecture archive and checksum manifest into a temporary
 folder, verifies SHA-256 before extraction, and invokes the Node installer with
 `install --from`. It copies the package into a fixed user data directory, records
 one `install.<client>.json` per client, registers the client, creates a shared command link and optionally sets
-autostart. Updates retain backups, activate the new version and run `okit smoke`.
+autostart. Updates retain backups, activate the new version and run `okit-plugin smoke`.
 Temporary files are removed on success and failure. Linux uses
 `${XDG_DATA_HOME:-$HOME/.local/share}/okit-plugin`; macOS uses
 `$HOME/Library/Application Support/okit-plugin`; Windows uses
@@ -59,7 +61,7 @@ the executable file. This plugin only checks its version; it never installs or
 changes the kit. The reported path identifies the executable, not its home or
 configuration directory; those cannot be inferred reliably from a version probe.
 
-Run `okit kit [--require]`. The English `kit: …` line reports `installed`, `absent`
+Run `okit-plugin kit [--require]`. The English `kit: …` line reports `installed`, `absent`
 or `broken`; only `--require` (or configured `require: true`) makes an unsuccessful
 check exit 1. Install/update, including `--dry-run`, and status also print the line.
 When installed, see the [D1 overlap rules](docs/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
@@ -74,17 +76,17 @@ The deadline must be a positive integer. These values merge with `DEFAULT_CONFIG
 
 ## Update
 
-Repeat the quick command to update automatically, or run `okit update`.
-`okit update --check` reports availability; `okit update --rollback` activates the
+Repeat the quick command to update automatically, or run `okit-plugin update`.
+`okit-plugin update --check` reports availability; `okit-plugin update --rollback` activates the
 retained version. Downloaded scripts also accept `update --check` and
 `update --rollback`: these locate `install.json` and invoke the installed CLI
 without shell downloads. `sh install.sh uninstall` / `./install.ps1 uninstall`
-work the same way. `okit uninstall` preserves user configuration and state;
+work the same way. `okit-plugin uninstall` preserves user configuration and state;
 `--purge --yes` removes the configured state root too.
 
 ## Uninstall
 
-Review `okit uninstall --dry-run`, then run `okit uninstall`. To also remove state/configuration, use `okit uninstall --purge --yes`. Use the same state root and recorded installation destination. There is no separate uninstall script; existing installation scripts forward this action to the CLI.
+Review `okit-plugin uninstall --dry-run`, then run `okit-plugin uninstall`. To also remove state/configuration, use `okit-plugin uninstall --purge --yes`. Use the same state root and recorded installation destination. There is no separate uninstall script; existing installation scripts forward this action to the CLI.
 
 ## Manual installation
 
@@ -93,10 +95,10 @@ verify the archive hash, extract it, then run
 `node src/cli.js install --from . --client <name>` in that folder. Alternatively,
 `node src/cli.js install --client <name>` downloads the latest release.
 
-The Node installer supports several clients on one machine. `okit install --client all`
+The Node installer supports several clients on one machine. `okit-plugin install --client all`
 downloads and verifies a separate package for every detected client; its interactive
 menu also accepts `1,3` or `all`. `--client <name>` changes only that client.
-`okit update`, `update --check`, `update --rollback` and `uninstall` act on all
+`okit-plugin update`, `update --check`, `update --rollback` and `uninstall` act on all
 registered clients by default; add `--client <name>` to select one. An unregistered
 client is refused before changes. Each client has its own retained versions and smoke
 check; one failure allows the others to finish. The summary lists each result
@@ -111,7 +113,7 @@ the link. `--purge --yes` is refused if any client would remain. All operations 
 bootstrap scripts still locate legacy `install.json` records.
 
 Can I delete the downloaded folder afterwards? **Yes** after using the script or
-`okit install --from`: client references point to the fixed installed directory.
+`okit-plugin install --from`: client references point to the fixed installed directory.
 For direct manual `claude plugin marketplace add <folder>`, **keep that folder**:
 the client still references it.
 

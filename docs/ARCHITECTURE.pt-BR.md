@@ -1,5 +1,7 @@
 # Arquitetura
 
+A CLI usa `install.command` (padrão `okit-plugin`) e o `bin` do pacote. Links antigos do plugin migram ao instalar/atualizar; links do kit são preservados. O detector rejeita executáveis do plugin, inclusive links antigos `okit`. A identidade MCP e `~/.okwork` permanecem iguais.
+
 Estende [DESIGN.md](DESIGN.md); responde às perguntas em aberto. Um núcleo em Node (>=20, sem dependências), três adaptadores finos, um servidor MCP sobre o núcleo.
 
 ## 1. Core contract
@@ -18,7 +20,7 @@ A identidade é cliente mais sessão. O mesmo dono repete idempotentemente; outr
 ativo é recusado. A obsolescência usa `inbox.holdStaleMinutes` (padrão 120, inteiro >= 1).
 Liberação pelo dono ou obsoleta e `consolidated`/`failed` limpam a posse. Delegação aceita
 `holder` opcional; quando fornecido, deve corresponder ao dono existente. Chamadas antigas o omitem.
-Listagem MCP e status mostram a posse em inglês ou português. Só `okit inbox take`
+Listagem MCP e status mostram a posse em inglês ou português. Só `okit-plugin inbox take`
 com `--producer-takeover` força transferência, após mostrar a situação (incluindo Git
 com `inbox.gitTimeoutMs`, padrão 5000) e confirmação TTY ou `--yes`.
 O dono confirmado é comparado novamente sob a trava para recusar mudanças intervenientes.
@@ -80,7 +82,7 @@ Não estimar cota. `profilePick` rebaixa uma classe quando `remainingPct < lowQu
 
 A coluna Situação é uma palavra, nunca ANSI: `verde` com 15 pontos ou mais acima de `lowQuotaPct`, `amarelo` do piso até essa marca, `vermelho` abaixo do piso e `desligado` quando não há leitura ou a origem é `off` — o que não bloqueia nada. A palavra vem da janela mais apertada, e uma linha `vermelha` cita a ordem permanente que fala de cota ou de piso, recorrendo a `lowQuotaPct` quando não existe uma. Abaixo da tabela, cada cliente mostra vivas/teto, origem própria/padrão e vagas disponíveis com mínimo zero, além do piso de cota. Toda palavra vive em uma tabela `LABELS` com `en` e `pt-BR`, escolhida por `deps.locale`.
 
-As leituras ficam em cache por cliente durante `ttlMs` (60 s por padrão) medido em `deps.now`, então duas chamadas seguidas custam uma leitura. `shouldShowStatus({size, slices, executors})` é verdadeiro para tamanho `L`, `slices >= 2` ou `executors > 1`, e é quando o Diretor mostra a tabela. `okit daemon status --table [--locale en|pt-BR]` imprime a mesma tabela embaixo das linhas do daemon, e uma passagem do daemon nunca lê cota por ela: `daemonStatus(root, { table })` só monta a tabela quando essas dependências são entregues.
+As leituras ficam em cache por cliente durante `ttlMs` (60 s por padrão) medido em `deps.now`, então duas chamadas seguidas custam uma leitura. `shouldShowStatus({size, slices, executors})` é verdadeiro para tamanho `L`, `slices >= 2` ou `executors > 1`, e é quando o Diretor mostra a tabela. `okit-plugin daemon status --table [--locale en|pt-BR]` imprime a mesma tabela embaixo das linhas do daemon, e uma passagem do daemon nunca lê cota por ela: `daemonStatus(root, { table })` só monta a tabela quando essas dependências são entregues.
 
 ## 6. Windows rules
 - Construir todo caminho com `node:path`, nunca concatenando separadores; guardar com barra direta, a forma que o Claude Code substitui, para que o que escrevemos corresponda ao que o cliente lê.

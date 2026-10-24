@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The command line: `okit daemon ...` and `okit autostart ...`. Every side
+// The command line: `okit-plugin daemon ...` and `okit-plugin autostart ...`. Every side
 // effect is a parameter, so a test drives the whole CLI without starting a
 // client, a daemon or a `systemctl`.
 
@@ -7,7 +7,7 @@ import { execFile, spawn } from 'node:child_process';
 import { rm, stat } from 'node:fs/promises';
 import * as filesystem from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
-import { join, resolve } from 'node:path';
+import { join, resolve, basename } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -18,7 +18,7 @@ import { limitsStatus } from './limits.js';
 import { inboxClaim, inboxRelease, inboxProducerTakeover, inboxList, holdText, holdIsStale } from './inbox.js';
 import { runPostCompact } from './hook-post-compact.js';
 import { orderList } from './orders.js';
-import { configOf } from './profiles.js';
+import { configOf, DEFAULT_CONFIG } from './profiles.js';
 import { runSmoke } from './smoke.js';
 import { runClientSmoke } from './smoke/client.js';
 import { makeSpawner } from './spawn-process.js';
@@ -93,20 +93,20 @@ const DAEMON_ACTIONS = ['start', 'stop', 'status', 'pause', 'resume', 'run-once'
 const AUTOSTART_ACTIONS = ['install', 'uninstall', 'show'];
 
 const USAGE = [
-  'usage: okit daemon start|stop|status|pause|resume|run-once',
-  '       okit install [--from <dir>] [--client <c>|all] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--autostart] [--dry-run] [--yes]',
-  '       okit update [--client <c>] [--check] [--rollback] [--dry-run]',
-  '       okit uninstall [--client <c>] [--purge] [--yes] [--dry-run]',
-  '       okit daemon status [--table [--locale en|pt-BR]]',
-  '       okit autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
-  '       okit status [--locale en|pt-BR]',
-  '       okit inbox list [--locale en|pt-BR]',
-  '       okit inbox take <id> [--producer-takeover] [--client <c>] [--session <s>] [--worktree <path>] [--yes]',
-  '       okit inbox release <id> [--client <c>] [--session <s>]',
-  '       okit kit [--require]',
-  '       okit hook post-compact',
-  '       okit smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]',
-  '       okit client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]',
+  'usage: {command} daemon start|stop|status|pause|resume|run-once',
+  '       {command} install [--from <dir>] [--client <c>|all] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--autostart] [--dry-run] [--yes]',
+  '       {command} update [--client <c>] [--check] [--rollback] [--dry-run]',
+  '       {command} uninstall [--client <c>] [--purge] [--yes] [--dry-run]',
+  '       {command} daemon status [--table [--locale en|pt-BR]]',
+  '       {command} autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
+  '       {command} status [--locale en|pt-BR]',
+  '       {command} inbox list [--locale en|pt-BR]',
+  '       {command} inbox take <id> [--producer-takeover] [--client <c>] [--session <s>] [--worktree <path>] [--yes]',
+  '       {command} inbox release <id> [--client <c>] [--session <s>]',
+  '       {command} kit [--require]',
+  '       {command} hook post-compact',
+  '       {command} smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]',
+  '       {command} client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]',
   '         [--only <C ids>] [--keep] [--allow-unknown-quota]',
   '         [--max-usd [n]] [--max-turns [n]] [--max-minutes [n]] [--quota-floor [pct]] [--timeout [ms]]',
   `OKWORK_HOME names the state root; --kind defaults to ${AUTOSTART_KINDS.join(', ')} by platform.`,
@@ -188,7 +188,7 @@ async function autostartCommand(ctx, action, args) {
   const { kind, rest } = readKind(args);
   if (!AUTOSTART_ACTIONS.includes(action) || rest.length > 0
     || (kind !== null && !AUTOSTART_KINDS.includes(kind))) return ctx.unknown();
-  const plan = autostartPlan(kind ?? detectAutostart(ctx.platform), { root: ctx.root });
+  const plan = autostartPlan(kind ?? detectAutostart(ctx.platform), { root: ctx.root, command: ctx.command });
 
   if (action === 'show') {
     showPlan(ctx.out, plan);
@@ -215,8 +215,8 @@ async function readConfig(root) {
 /**
  * The `statusTable` deps of one command: the settings of this root, the clients
  * they name, the readings through each client's adapter, the standing orders and
- * the cap counts. `okit status` and `okit daemon status --table` share it, so the
- * table under the daemon lines is the same table of `okit status`.
+ * the cap counts. `okit-plugin status` and `okit-plugin daemon status --table` share it, so the
+ * table under the daemon lines is the same table of `okit-plugin status`.
  */
 async function tableDeps(ctx, locale) {
   const config = await readConfig(ctx.root);
@@ -233,7 +233,7 @@ async function tableDeps(ctx, locale) {
 }
 
 /**
- * `okit status`: the quota table and the capacity line under it. The readings
+ * `okit-plugin status`: the quota table and the capacity line under it. The readings
  * come from each client's adapter, the counts from the runs on disk, and both
  * are the same functions the daemon and the MCP tool use.
  */
@@ -295,7 +295,7 @@ async function daemonCommand(ctx, action, args) {
 
   if (action === 'status') {
     // `--locale` alone is a refusal: it names a table, so it needs `--table`, and
-    // an unknown language is refused the same way `okit status` refuses it.
+    // an unknown language is refused the same way `okit-plugin status` refuses it.
     const { locale, rest: withoutLocale } = readLocale(args);
     const { table, rest } = readTable(withoutLocale);
     if (rest.length > 0 || (locale !== null && (table === false || !Object.hasOwn(LABELS, locale)))) {
@@ -334,7 +334,7 @@ async function daemonCommand(ctx, action, args) {
   }
 
   // The kill switch stops the loop on the next pass, so a switch left by an
-  // earlier `okit daemon stop` would stop this one before it did anything. The
+  // earlier `okit-plugin daemon stop` would stop this one before it did anything. The
   // pause file is left alone: pausing is a decision, not a leftover.
   if (await removeIfPresent(join(ctx.root, STOP_FILE))) ctx.out('cleared kill switch');
 
@@ -347,7 +347,7 @@ async function daemonCommand(ctx, action, args) {
 }
 
 /**
- * `okit smoke`: the runner of `docs/SMOKE.md` on a scratch home, which prints
+ * `okit-plugin smoke`: the runner of `docs/SMOKE.md` on a scratch home, which prints
  * its own facts and answers 0, 1 or 2. The process defaults of `main` do not
  * reach it: a smoke run must never start a client or run a `systemctl` on the
  * machine it verifies, so `run` and `spawn` arrive only when a caller injected
@@ -363,7 +363,7 @@ async function smokeCommand(ctx, args, io) {
 function installerLifecycle(ctx, io) {
   const plan = (record) => autostartPlan(detectAutostart(ctx.platform), {
     root: ctx.root, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE,
-    node: record.settings.node, script: join(record.path, record.bin),
+    node: record.settings.node, script: join(record.path, record.bin), command: ctx.command,
   });
   const autostart = io.autostart ?? ((record, action) => applyAutostart(plan(record), { run: ctx.run, write: ctx.write, action }));
   return {
@@ -410,6 +410,7 @@ export async function main(argv = [], io = {}) {
   const ctx = {
     out,
     err,
+    command: io.command ?? DEFAULT_CONFIG.install.command,
     env: io.env ?? process.env,
     root: io.root ?? stateRoot(io.env ?? process.env),
     platform: io.platform ?? process.platform,
@@ -425,13 +426,14 @@ export async function main(argv = [], io = {}) {
     orders: io.orders,
     quotaCache: io.quotaCache,
     unknown() {
-      err(USAGE);
+      err(USAGE.replaceAll('{command}', ctx.command));
       return 2;
     },
   };
 
   const [group, action, ...args] = argv;
   try {
+    ctx.command = io.command ?? (await readConfig(ctx.root).catch(() => DEFAULT_CONFIG)).install.command;
     if (group === 'inbox') return await inboxCommand(ctx, action, args, io);
     if (group === 'kit') {
       const flags = argv.slice(1);
@@ -453,19 +455,19 @@ export async function main(argv = [], io = {}) {
     if (group === 'daemon') return await daemonCommand(ctx, action, args);
     if (group === 'autostart') return await autostartCommand(ctx, action, args);
     if (group === 'status') {
-      // `okit status` takes no action, so the flag lands where one would be.
+      // `okit-plugin status` takes no action, so the flag lands where one would be.
       return await statusCommand(ctx, action === undefined ? args : [action, ...args]);
     }
-    // `okit smoke` takes no action either, so its first flag lands where one would be.
+    // `okit-plugin smoke` takes no action either, so its first flag lands where one would be.
     if (group === 'smoke') return await smokeCommand(ctx, action === undefined ? args : [action, ...args], io);
     if (group === 'client-smoke') {
       const flags = action === undefined ? args : [action, ...args];
-      if (flags.length === 1 && ['--help', '-h'].includes(flags[0])) { out(USAGE); return 0; }
+      if (flags.length === 1 && ['--help', '-h'].includes(flags[0])) { out(USAGE.replaceAll('{command}', ctx.command)); return 0; }
       return (await runClientSmoke(flags, { ...ctx, ...io, run: io.run, out, err })).code;
     }
     return ctx.unknown();
   } catch (error) {
-    err(`okit: ${error.message}`);
+    err(`${ctx.command}: ${error.message}`);
     return 1;
   }
 }
@@ -484,7 +486,7 @@ export async function runCli(argv = process.argv.slice(2), io = {}) {
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
   try {
-    return await main(argv, { signal: controller.signal, ...io });
+    return await main(argv, { signal: controller.signal, ...io, command: io.command ?? (process.argv[1] && !/cli\.js$/.test(process.argv[1]) ? basename(process.argv[1]) : undefined) });
   } finally {
     process.off('SIGINT', stop);
     process.off('SIGTERM', stop);

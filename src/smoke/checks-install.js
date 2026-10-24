@@ -10,12 +10,13 @@ import { installHooks, installSkill } from '../../adapters/claude-code/index.js'
 import { main } from '../cli.js';
 import { handleLine, serverVersion } from '../mcp/server.js';
 import { TOOLS, TOOL_NAMES } from '../mcp/tools.js';
+import { DEFAULT_CONFIG } from '../profiles.js';
 
 const SKILLS = ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke'];
 
 // The hooks the plugin installs; the entry the user writes next to it is the one
 // that has to survive a second install.
-const OURS = { hooks: [{ event: 'Stop', command: 'okit hooks' }] };
+const OURS = { hooks: [{ event: 'Stop', command: `${DEFAULT_CONFIG.install.command} hooks` }] };
 const THEIRS = { event: 'UserPromptSubmit', command: 'what the user wrote' };
 
 function need(ok, message) {
@@ -71,11 +72,11 @@ async function filesPlaced(deps) {
 async function commandsRegistered(deps) {
   for (const argv of [['daemon', 'status'], ['autostart', 'show'], ['status']]) {
     const run = await cli(deps, argv);
-    need(run.code === 0, `okit ${argv.join(' ')} must exit 0, got ${run.code}: ${run.err.join(' ')}`);
+    need(run.code === 0, `${DEFAULT_CONFIG.install.command} ${argv.join(' ')} must exit 0, got ${run.code}: ${run.err.join(' ')}`);
   }
   for (const argv of [[], ['nope'], ['daemon', 'frobnicate']]) {
     const run = await cli(deps, argv);
-    need(run.code === 2, `okit ${argv.join(' ')} must exit 2, got ${run.code}`);
+    need(run.code === 2, `${DEFAULT_CONFIG.install.command} ${argv.join(' ')} must exit 2, got ${run.code}`);
   }
 }
 
@@ -138,7 +139,7 @@ async function permissionsReadable(deps) {
   const pkg = JSON.parse(await readFile(join(deps.root, 'package.json'), 'utf8'));
   const folders = await readdir(join(deps.root, 'skills'), { withFileTypes: true });
   const files = [
-    join(deps.root, pkg.bin.okit),
+    ...Object.values(pkg.bin).map((bin) => join(deps.root, bin)),
     ...folders.filter((entry) => entry.isDirectory())
       .map((entry) => join(deps.root, 'skills', entry.name, 'SKILL.md')),
   ];
@@ -152,18 +153,18 @@ async function permissionsReadable(deps) {
 }
 
 // I7: the version the MCP server reports is the one in package.json, and
-// `okit status` prints the table under the capacity line.
+// `okit-plugin status` prints the table under the capacity line.
 async function versionMatches(deps) {
   const pkg = JSON.parse(await readFile(join(deps.root, 'package.json'), 'utf8'));
   const version = await serverVersion();
   need(version === pkg.version, `serverVersion() is ${version}, package.json says ${pkg.version}`);
 
   const run = await cli(deps, ['status']);
-  need(run.code === 0, `okit status must exit 0, got ${run.code}: ${run.err.join(' ')}`);
+  need(run.code === 0, `${DEFAULT_CONFIG.install.command} status must exit 0, got ${run.code}: ${run.err.join(' ')}`);
   need(run.out.some((line) => line.startsWith('| Subscription |')),
-    `okit status must print the table header, got ${run.out.join(' / ')}`);
+    `${DEFAULT_CONFIG.install.command} status must print the table header, got ${run.out.join(' / ')}`);
   need(run.out.some((line) => line.includes('executors that can launch now')),
-    'okit status must print the capacity line');
+    `${DEFAULT_CONFIG.install.command} status must print the capacity line`);
 }
 
 /**

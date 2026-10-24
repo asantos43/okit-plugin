@@ -15,6 +15,7 @@ import { activate, backup, rollback } from './update.js';
 import { uninstall } from './uninstall.js';
 import { localSource } from './source.js';
 import { detectKit } from './kit.js';
+import { applyLink } from './link.js';
 
 const packageDirectory = fileURLToPath(new URL('../../', import.meta.url));
 const allowed = {
@@ -93,7 +94,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
   try {
     if (current) {
       deps.bin = current.linkDirectory ?? deps.bin;
-      if (command !== 'install') deps.config = installConfig({ ...current.settings, ...user.install });
+      if (command !== 'install') deps.config = installConfig({ ...current.settings, command: config.command, ...user.install });
       deps.clientRoot = io.clientRoot ?? clientRoot(current.client, deps);
     }
     if (command === 'uninstall') {
@@ -128,6 +129,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
     ctx.out(`Destination: ${deps.destination}`);
     ctx.out('SHA-256 detects altered bytes; it does not authenticate the source.');
     if (current?.version === selected.version && current.client === client) {
+      if (!deps.dryRun && !flags.check && current.link) await applyLink(current, deps);
       ctx.out('up to date'); return 0;
     }
     if (flags.check) { ctx.out(`New version available: ${selected.version}`); return 0; }
@@ -171,7 +173,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
     } finally { if (!local) await fs.rm(downloaded.folder, { recursive: true, force: true }); }
   } catch (error) {
     (ctx.err ?? ctx.out)(`${started ? 'failed' : 'refused'}: ${error.message}`);
-    if (command === 'update' && started) ctx.out(`To return to the retained version: ${DEFAULT_CONFIG.install.command} update --rollback`);
+    if (command === 'update' && started) ctx.out(`To return to the retained version: ${deps.config.command} update --rollback`);
     return started || !(error instanceof TypeError) ? 1 : 2;
   }
 }

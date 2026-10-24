@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "okit": "src/cli.js"
+    "okit-plugin": "src/cli.js"
   },
   "engines": {
     "node": ">=20"

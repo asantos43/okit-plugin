@@ -1,5 +1,7 @@
 # okit-plugin
 
+Migration: use `okit-plugin` for the plugin; `okit`/`kit` belong to the orchestration kit. Install/update replace only legacy plugin links; unrelated kit commands and 0.2.0 records are preserved. See [installation](INSTALL.md).
+
 A plugin for AI clients (Claude Code, Codex, opencode) that helps a Director
 spread demands over the client’s own subagents. Node.js >=20, zero dependencies,
 with JSON state.
@@ -9,32 +11,32 @@ with JSON state.
 Use the release's [install.sh](install.sh) on Linux/macOS or
 [install.ps1](install.ps1) in Windows PowerShell. Read the scripts and follow
 [INSTALL.md](INSTALL.md) for prerequisites, flags, verified downloads and updates.
-Use `okit update --check`, `okit update` or `okit update --rollback` afterwards.
+Use `okit-plugin update --check`, `okit-plugin update` or `okit-plugin update --rollback` afterwards.
 The release matrix has nine client × system pairs; availability of an archive
 does not prove real-client operation. See [proof per pair](docs/RELEASING.md#proof-per-pair).
 
 ## Usage — Uso
 
 ```text
-okit install [--from <dir>] [--client <c>] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--autostart] [--dry-run] [--yes]
-okit update [--check] [--rollback] [--dry-run]
-okit uninstall [--purge] [--yes] [--dry-run]
-okit daemon start|stop|status|pause|resume|run-once
-okit daemon status [--table [--locale en|pt-BR]]
-okit autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
-okit status [--locale en|pt-BR]
-okit kit [--require]
-okit hook post-compact
-okit smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]
-okit client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]
+okit-plugin install [--from <dir>] [--client <c>] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--autostart] [--dry-run] [--yes]
+okit-plugin update [--check] [--rollback] [--dry-run]
+okit-plugin uninstall [--purge] [--yes] [--dry-run]
+okit-plugin daemon start|stop|status|pause|resume|run-once
+okit-plugin daemon status [--table [--locale en|pt-BR]]
+okit-plugin autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
+okit-plugin status [--locale en|pt-BR]
+okit-plugin kit [--require]
+okit-plugin hook post-compact
+okit-plugin smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]
+okit-plugin client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]
   [--only <C ids>] [--keep] [--allow-unknown-quota]
   [--max-usd [n]] [--max-turns [n]] [--max-minutes [n]] [--quota-floor [pct]] [--timeout [ms]]
 ```
 
-`okit kit` prints one English line: installed (path and version), absent (installation
+`okit-plugin kit` prints one English line: installed (path and version), absent (installation
 hint), or broken. It only runs the configured version command. `--require` exits 1
 unless installed; otherwise the check is informational. Install/update summaries
-(including dry-run) and `okit status` include a `kit: …` line. When both tools are
+(including dry-run) and `okit-plugin status` include a `kit: …` line. When both tools are
 present, it links to the [D1 overlap rules](docs/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
 See [kit configuration](INSTALL.md#orchestration-kit).
 
@@ -42,10 +44,10 @@ The stdio MCP server exposes 14 tools: `acquire_slot`, `release_slot`,
 `limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
 `inbox_set_status`, `inbox_claim`, `inbox_release`, `order_add`, `order_list`, `order_remove`.
 
-`okit inbox list [--locale en|pt-BR]` and MCP `inbox_list` show each holder.
-`okit inbox take <id> --client codex --session <s> --worktree <path>` claims atomically;
-another active client/session is refused. `okit inbox release <id> --client codex --session <s>` releases it.
-Only the human CLI allows `okit inbox take <id> --producer-takeover [--client <c>] [--yes]`:
+`okit-plugin inbox list [--locale en|pt-BR]` and MCP `inbox_list` show each holder.
+`okit-plugin inbox take <id> --client codex --session <s> --worktree <path>` claims atomically;
+another active client/session is refused. `okit-plugin inbox release <id> --client codex --session <s>` releases it.
+Only the human CLI allows `okit-plugin inbox take <id> --producer-takeover [--client <c>] [--yes]`:
 it shows the owner, session, worktree, timestamp, staleness and uncommitted Git changes before
 TTY confirmation (or `--yes`). Transfer preserves `heldBefore` with reason `producer takeover`.
 `inbox.holdStaleMinutes` defaults to 120 (integer >= 1); stale claims/releases record `stale`.
@@ -77,9 +79,9 @@ enabled. `smoke` defaults: `quotaFloorPct: 20`, `maxUsd: 1`, `maxTurns: null`
 
 ## Uninstall — Desinstalar
 
-Run `okit uninstall --dry-run` to review, then `okit uninstall` to stop the
+Run `okit-plugin uninstall --dry-run` to review, then `okit-plugin uninstall` to stop the
 daemon, unregister the client and remove recorded versions and the command link.
-State/configuration remain; `okit uninstall --purge --yes` removes the state root.
+State/configuration remain; `okit-plugin uninstall --purge --yes` removes the state root.
 Use the installation destination and state root from the installation record.
 These are documentation steps; there is no separate uninstall script.
 

@@ -21,7 +21,7 @@ export const DEFAULT_CONFIG = {
     linkParts: ['.local', 'bin'], windowsLinkParts: ['AppData', 'Local', 'bin'],
     systems: { linux: 'linux', darwin: 'macos', win32: 'windows' },
     architectures: { x64: 'x64', arm64: 'arm64' }, windowsPlatform: 'win32',
-    command: 'okit', node: process.execPath, marketplace: 'okit-plugin', entry: 'okit-plugin',
+    command: 'okit-plugin', legacyCommands: ['okit'], node: process.execPath, marketplace: 'okit-plugin', entry: 'okit-plugin',
     pluginsDirectory: 'plugins', daemonPollMs: 100,
     // null inherits the existing release.name model without duplicating it.
     name: null,
@@ -121,14 +121,14 @@ export const DEFAULT_CONFIG = {
         file: 'INSTALL.md', title: 'Install {name} with Codex',
         steps: [
           'Node {engines} is required: check it with `node --version`.',
-          'To install/update use `okit install|update` from this folder or `install.sh`/`install.ps1` from the release page.',
+          'To install/update use `{command} install|update` from this folder or `install.sh`/`install.ps1` from the release page.',
         ],
       },
       opencode: {
         file: 'INSTALL.md', title: 'Install {name} with opencode',
         steps: [
           'Node {engines} is required: check it with `node --version`.',
-          'To install/update use `okit install|update` from this folder or `install.sh`/`install.ps1` from the release page.',
+          'To install/update use `{command} install|update` from this folder or `install.sh`/`install.ps1` from the release page.',
         ],
       },
       'claude-code': {
@@ -137,7 +137,7 @@ export const DEFAULT_CONFIG = {
         steps: [
           'Node {engines} is required: check it with `node --version`.',
           'Extract this archive where the client can read it.',
-          'To install/update use `okit install|update` from this folder or `install.sh`/`install.ps1` from the release page.',
+          'To install/update use `{command} install|update` from this folder or `install.sh`/`install.ps1` from the release page.',
           'Register the marketplace: `claude plugin marketplace add {dir}`.',
           'Install the plugin: `claude plugin install {name}@{marketplace}`.',
           'Update it later with `claude plugin update {name}@{marketplace}`.',

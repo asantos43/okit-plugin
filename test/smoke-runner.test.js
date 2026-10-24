@@ -172,7 +172,7 @@ test('the artifacts land in logs/smoke and the jsonl is the header plus one line
 test('the environment block is at the top of the human log, before the first check', async (t) => {
   const run = await writeRun(t);
   const lines = run.logText.split('\n');
-  assert.equal(lines[0], 'okit smoke');
+  assert.equal(lines[0], 'okit-plugin smoke');
   assert.equal(lines[1], `run: ${run.runId}`);
 
   const firstCheck = lines.findIndex((line) => line.startsWith('pass E7'));
@@ -238,7 +238,7 @@ test('a passing smoke on a scratch root exits 0 and writes both artifacts', asyn
   assert.equal(lines.length - 1, 32, 'the header and 31 records');
 
   // The stdout of the run, one fact per line.
-  assert.equal(out[0], 'okit smoke');
+  assert.equal(out[0], 'okit-plugin smoke');
   assert.equal(out[1], `run: ${run.runId}`);
   assert.match(out[2], /^pass I1 files\.placed \d+ms$/);
   assert.match(out[32], /^pass U5 idempotence\.run \d+ms$/);

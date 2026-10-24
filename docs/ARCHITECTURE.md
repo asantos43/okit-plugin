@@ -1,5 +1,7 @@
 # Architecture
 
+The plugin CLI uses `install.command` (default `okit-plugin`) and its package `bin`. Legacy plugin links migrate on install/update; kit links remain untouched. The kit detector rejects plugin executables, including old `okit` links. MCP identity and `~/.okwork` are unchanged.
+
 Extends [DESIGN.md](DESIGN.md); answers its open questions. One Node core (>=20, zero dependencies), three thin adapters, one MCP server over the core.
 
 ## 1. Core contract
@@ -18,7 +20,7 @@ Identity is client plus session. Same-owner claims repeat idempotently; another 
 owner is refused. Staleness uses `inbox.holdStaleMinutes` (default 120, integer >= 1).
 Owner or stale release and `consolidated`/`failed` clear the hold. Delegation accepts
 an optional `holder`; when present it must match an existing owner. Legacy calls omit it.
-MCP lists and status show ownership in English or Portuguese. Only `okit inbox take`
+MCP lists and status show ownership in English or Portuguese. Only `okit-plugin inbox take`
 with `--producer-takeover` can force transfer, after situation display (including Git
 changes with `inbox.gitTimeoutMs`, default 5000) and TTY confirmation or `--yes`.
 The confirmed holder is compared again inside the lock to reject intervening changes.
@@ -80,7 +82,7 @@ Never estimate quota. `profilePick` lowers one class when `remainingPct < lowQuo
 
 The Status column is a word, never ANSI: `green` at or more than 15 points above `lowQuotaPct`, `yellow` from the floor up to that, `red` below it, and `off` when there is no reading or the source is `off` — which blocks nothing. The row word follows the tightest of the windows, and a `red` row quotes the standing order that names the quota or the floor, falling back to `lowQuotaPct` itself. Below the table each client shows live/cap, the cap source (client/default), and available slots clamped at zero, plus the quota floor. Every word lives in one `LABELS` table with `en` and `pt-BR`, chosen by `deps.locale`.
 
-Readings are cached per client for `ttlMs` (60 s by default) against `deps.now`, so two calls in a row cost one read. `shouldShowStatus({size, slices, executors})` is true for size `L`, `slices >= 2` or `executors > 1`, and the Director shows the table when it is. `okit daemon status --table [--locale en|pt-BR]` prints the same table under its daemon lines, and a daemon pass never reads a quota for it: `daemonStatus(root, { table })` builds it only when those deps are handed in.
+Readings are cached per client for `ttlMs` (60 s by default) against `deps.now`, so two calls in a row cost one read. `shouldShowStatus({size, slices, executors})` is true for size `L`, `slices >= 2` or `executors > 1`, and the Director shows the table when it is. `okit-plugin daemon status --table [--locale en|pt-BR]` prints the same table under its daemon lines, and a daemon pass never reads a quota for it: `daemonStatus(root, { table })` builds it only when those deps are handed in.
 
 ## 6. Windows rules
 - Build every path with `node:path`, never by concatenating separators; store them with forward slashes, the form Claude Code substitutes, so what we write matches what the client reads.
@@ -280,7 +282,7 @@ their command names overlap on PATH (`install.kit.path` selects the kit probe).
 Avoid running both orchestrators on the same demand at the same time: their
 queues and concurrency limits are independent.
 
-`okit kit`, install/update summaries and status use a read-only, injected
+`okit-plugin kit`, install/update summaries and status use a read-only, injected
 detector. Only the configured version command runs, with a bounded deadline.
 The detector reports executable path and reported version; it does not guess
 kit home/configuration folders or detect this plugin from inside the kit.

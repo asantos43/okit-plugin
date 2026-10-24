@@ -10,6 +10,22 @@ import { promisify } from 'node:util';
 import { main } from '../src/cli.js';
 import { inboxAdd, inboxClaim, inboxList } from '../src/inbox.js';
 
+test('help and smoke errors use the configured or executed command', async (t) => {
+  await mkdir(TMP, { recursive: true });
+  const root = await mkdtemp(join(TMP, 'command-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, 'config.json'), JSON.stringify({ install: { command: 'custom-plugin' } }));
+  for (const command of [undefined, 'executed-plugin']) {
+    const output = [];
+    const io = { root, command, stdout: (line) => output.push(line), stderr: (line) => output.push(line) };
+    assert.equal(await main(['client-smoke', '--help'], io), 0);
+    assert.ok(output[0].includes(`${command ?? 'custom-plugin'} install`));
+    output.length = 0;
+    assert.equal(await main(['smoke', '--invalid'], io), 2);
+    assert.ok(output[0].startsWith(`${command ?? 'custom-plugin'} smoke:`));
+  }
+});
+
 async function exists(file) {
   try {
     await stat(file);
@@ -145,7 +161,7 @@ const PLATFORM_ENV = Object.fromEntries(
 );
 
 /**
- * A home, a temp folder and a state root of their own for a child `okit smoke`.
+ * A home, a temp folder and a state root of their own for a child `okit-plugin smoke`.
  * The scratch home of a run is built under the temp folder, so the whole child
  * stays inside the repository scratch `test/cli.test.js` already uses.
  */
@@ -175,7 +191,7 @@ function childEnv(scope, extra = {}) {
 
 /**
  * One `okit` as a child process. The exit code, the stdout and the stderr come
- * back even when the code is not 0, since every code of `okit smoke` is a fact
+ * back even when the code is not 0, since every code of `okit-plugin smoke` is a fact
  * under test and a refusal is a line on stderr.
  */
 async function childCli(argv, env) {
@@ -189,7 +205,7 @@ test('an unknown command prints the usage and exits 2', async () => {
   for (const argv of [[], ['nope'], ['daemon'], ['daemon', 'frobnicate'], ['daemon', 'status', 'extra']]) {
     const run = await cli(argv);
     assert.equal(run.code, 2, `${argv.join(' ')} exits 2`);
-    assert.ok(run.err.join('\n').startsWith('usage: okit daemon start|stop|status|pause|resume|run-once'));
+    assert.ok(run.err.join('\n').startsWith('usage: okit-plugin daemon start|stop|status|pause|resume|run-once'));
   }
   assert.equal((await cli(['autostart', 'show', '--kind', 'upstart'])).code, 2);
   assert.equal((await cli(['autostart', 'show', '--wat'])).code, 2);
@@ -204,7 +220,7 @@ test('daemon status of an idle root reports nothing running', async (t) => {
   ]);
 });
 
-// Must pass / must refuse table (`okit daemon status`):
+// Must pass / must refuse table (`okit-plugin daemon status`):
 // | case                    | must pass                              | must refuse                     |
 // | `--table`               | the table under the daemon lines       | -                               |
 // | `--table --locale pt-BR`| Portuguese words in the same table      | -                               |
@@ -281,7 +297,7 @@ test('daemon status refuses a locale without the table and a flag on another act
     const run = await cli(argv, io);
     assert.equal(run.code, 2, `${argv.join(' ')} exits 2`);
     assert.deepEqual(run.out, [], `${argv.join(' ')} prints nothing`);
-    assert.ok(run.err.join('\n').startsWith('usage: okit daemon start|stop|status|pause|resume|run-once'), run.err.join('\n'));
+    assert.ok(run.err.join('\n').startsWith('usage: okit-plugin daemon start|stop|status|pause|resume|run-once'), run.err.join('\n'));
   }
   assert.deepEqual(calls, [], 'a refused command reads no quota');
 });
@@ -454,10 +470,10 @@ test('a command that fails exits 1 and says why', async (t) => {
     },
   });
   assert.equal(run.code, 1);
-  assert.equal(run.err[0], 'okit: launchctl is not here');
+  assert.equal(run.err[0], 'okit-plugin: launchctl is not here');
 });
 
-// Must pass / must refuse (`okit smoke`, as a child process):
+// Must pass / must refuse (`okit-plugin smoke`, as a child process):
 // | case                                          | must pass                        | must refuse                  |
 // | `--only I1`                                   | code 0, one `pass`, scratch gone | -                            |
 // | `--real --only I4` over a config root that is a file | -                          | code 1, the `fail I4` record |
@@ -470,17 +486,17 @@ test('the smoke group refuses an unknown --only id and an OKWORK_HOME it was not
   const unknown = await childCli(['smoke', '--only', 'nope'], childEnv(scope));
   assert.equal(unknown.code, 2, '--only nope exits 2');
   assert.deepEqual(unknown.out, [], 'a refused run runs no check');
-  assert.match(unknown.err[0], /okit smoke: unknown check "NOPE"/);
+  assert.match(unknown.err[0], /okit-plugin smoke: unknown check "NOPE"/);
   // The refusal is a usage error, so the usage goes with it exactly as it goes
   // with an unknown group: this line is what a `smoke.code` mapping would lose.
-  assert.ok(unknown.err[1]?.startsWith('usage: okit daemon start|stop|status|pause|resume|run-once'),
+  assert.ok(unknown.err[1]?.startsWith('usage: okit-plugin daemon start|stop|status|pause|resume|run-once'),
     `the usage follows the refusal, got ${unknown.err.slice(1).join(' / ') || 'nothing'}`);
 
   const chosen = await childCli(['smoke'], childEnv(scope, { OKWORK_HOME: scope.state }));
   assert.equal(chosen.code, 2, 'a state root the user chose is refused without --real');
   assert.deepEqual(chosen.out, []);
   assert.equal(chosen.err.length, 1, 'this refusal says why and nothing else');
-  assert.match(chosen.err[0], /OKWORK_HOME is set; okit smoke uses a scratch home unless --real is given/);
+  assert.match(chosen.err[0], /OKWORK_HOME is set; okit-plugin smoke uses a scratch home unless --real is given/);
   assert.deepEqual(await readdir(scope.tmp), [], 'a refused run builds no scratch home');
 });
 
@@ -489,7 +505,7 @@ test('smoke --only I1 runs one check of the install group and exits 0', async (t
   const run = await childCli(['smoke', '--only', 'I1'], childEnv(scope));
 
   assert.equal(run.code, 0, run.err.join(' / '));
-  assert.equal(run.out[0], 'okit smoke');
+  assert.equal(run.out[0], 'okit-plugin smoke');
   assert.match(run.out[1], /^run: \d{8}T\d{6}Z-\d+$/);
   assert.match(run.out[2], /^pass I1 files\.placed \d+ms$/);
   assert.equal(run.out[3], 'passed: 1 failed: 0 skipped: 0');

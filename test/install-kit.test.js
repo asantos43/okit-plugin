@@ -16,7 +16,28 @@ import { renderName } from '../src/install/config.js';
 // | missing executable | absent, informational exit 0 | --require exit 1 |
 // | garbage, exit failure, timeout | broken, informational exit 0 | --require exit 1 |
 // | invalid config/flags | | validation/usage |
+// | legacy/current plugin bin, Windows shim | absent, never probe plugin | installed |
+// | plugin and kit together | each command runs its own tool | plugin counted as kit |
 const execute = promisify(execFile);
+
+test('legacy plugin executable is absent; fallback kit alone is installed', async (t) => {
+  const f = await fixture(t, { executables: DEFAULT_CONFIG.install.kit.executables });
+  const plugin = join(f.home, 'plugin');
+  await fs.mkdir(join(plugin, 'src'), { recursive: true });
+  await fs.writeFile(join(plugin, 'package.json'), JSON.stringify({ name: 'okit-plugin', bin: { okit: 'src/cli.js' } }));
+  const target = join(plugin, 'src/cli.js');
+  await fs.writeFile(target, '#!/bin/sh\necho 0.2.0\n', { mode: 0o755 });
+  await fs.symlink(target, join(f.home, 'okit'));
+  const calls = [];
+  const deps = { ...f.deps, run: async (input) => { calls.push(input.command); return f.deps.run(input); } };
+  assert.equal((await detectKit(deps)).state, 'absent');
+  assert.deepEqual(calls, []);
+  const fallback = await f.executable("console.log('kit 4.5.6')", 'kit');
+  assert.equal((await detectKit(deps)).path, fallback);
+  assert.deepEqual(calls, [fallback]);
+  deps.config = installConfig({ kit: { path: join(f.home, 'okit') } });
+  assert.equal((await detectKit(deps)).state, 'absent');
+});
 async function fixture(t, kit = {}) {
   const home = await fs.mkdtemp(join(tmpdir(), 'kit-detector-'));
   t.after(() => fs.rm(home, { recursive: true, force: true }));
@@ -34,6 +55,38 @@ async function fixture(t, kit = {}) {
   };
   return { home, config, deps, io, output, executable };
 }
+
+test('plugin and kit coexist; legacy plugin never counts as kit', async (t) => {
+  const f = await fixture(t, { executables: ['okit', 'kit'] });
+  const folder = join(f.home, 'plugin');
+  await fs.mkdir(folder);
+  const plugin = join(folder, 'cli.cjs');
+  await fs.writeFile(join(folder, 'package.json'), JSON.stringify({ name: 'okit-plugin', bin: { 'okit-plugin': 'cli.cjs' } }));
+  await fs.writeFile(plugin, `#!${process.execPath}\nrequire('node:fs').writeSync(1, 'plugin v0.2.0\\n');`, { mode: 0o755 });
+  await fs.symlink(plugin, join(f.home, 'okit-plugin'));
+  const kit = await f.executable("console.log('kit v1.2.3')", 'okit');
+  assert.match((await f.deps.run({ command: join(f.home, 'okit-plugin'), args: [] })).stdout, /plugin v0.2.0/);
+  assert.equal((await detectKit(f.deps)).path, kit);
+  await fs.unlink(kit);
+  await fs.symlink(plugin, kit);
+  f.deps.run = async () => { throw new Error('plugin must never be probed'); };
+  assert.match((await detectKit(f.deps)).message, /absent.*plugin executable ignored/);
+  const fallback = await f.executable("console.log('kit v2.0.0')", 'kit');
+  f.deps.run = ({ command, args }) => execute(command, args);
+  assert.equal((await detectKit(f.deps)).path, fallback);
+});
+
+test('Windows legacy shim to a recorded plugin is absent without executing it', async (t) => {
+  const f = await fixture(t, { executables: ['okit', 'kit'] });
+  await fs.mkdir(f.config.destination);
+  const path = join(f.config.destination, '0.2.0-codex');
+  await fs.mkdir(path);
+  await fs.writeFile(join(f.config.destination, 'install.codex.json'), JSON.stringify({ client: 'codex', path }));
+  await fs.writeFile(join(f.home, 'okit.cmd'), `@echo off\r\n"node" "${join(path, 'cli.js')}" %*\r\n`);
+  const result = await detectKit({ ...f.deps, platform: 'win32', run: () => { throw new Error('must not execute plugin'); } });
+  assert.equal(result.state, 'absent');
+  assert.match(result.message, /plugin executable ignored/);
+});
 
 test('custom executable and version arguments work on injected PATH; only version is run', async (t) => {
   const f = await fixture(t, { versionArgs: ['version', '--short'] });
@@ -152,7 +205,7 @@ test('install/update summaries and status contain kit; dry-run writes nothing', 
   await f.executable("console.log('kit v1.2.3')");
   const source = join(f.home, 'source');
   await fs.mkdir(join(source, 'src'), { recursive: true });
-  const pkg = { name: 'okit-plugin', version: '1.0.0', bin: { okit: 'src/cli.js' } };
+  const pkg = { name: 'okit-plugin', version: '1.0.0', bin: { 'okit-plugin': 'src/cli.js' } };
   await fs.writeFile(join(source, 'package.json'), JSON.stringify(pkg));
   await fs.writeFile(join(source, 'src/cli.js'), '// fixture');
   const io = { ...f.io, pkg, run: f.deps.run, detect: async () => false, fetch: async () => { throw new Error('must stay offline'); } };

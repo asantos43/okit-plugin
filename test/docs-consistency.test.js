@@ -83,14 +83,14 @@ test('English and Brazilian Portuguese keep the same ordered level-two headings'
 
 test('both READMEs document every command and action from CLI USAGE', async () => {
   const cli = await read('src/cli.js');
-  const usage = cli.match(/const USAGE = \[([\s\S]*?)\]\.join/)[1];
-  const commands = [...usage.matchAll(/okit ([a-z-]+)(?: ([a-z-]+(?:\|[a-z-]+)*))?/g)]
+  const usage = cli.match(/const USAGE = \[([\s\S]*?)\]\.join/)[1].replaceAll('{command}', DEFAULT_CONFIG.install.command);
+  const commands = [...usage.matchAll(/okit-plugin ([a-z-]+)(?: ([a-z-]+(?:\|[a-z-]+)*))?/g)]
     .flatMap(([, group, actions]) => actions
-      ? actions.split('|').map((action) => `okit ${group} ${action}`) : [`okit ${group}`]);
+      ? actions.split('|').map((action) => `okit-plugin ${group} ${action}`) : [`okit-plugin ${group}`]);
   assert.ok(commands.length > 0);
   for (const file of ['README.md', 'README.pt-BR.md']) {
-    const text = (await read(file)).replace(/okit (daemon|autostart) ([a-z-]+(?:\|[a-z-]+)+)/g,
-      (_, group, actions) => actions.split('|').map((action) => `okit ${group} ${action}`).join('\n'));
+    const text = (await read(file)).replace(/okit-plugin (daemon|autostart) ([a-z-]+(?:\|[a-z-]+)+)/g,
+      (_, group, actions) => actions.split('|').map((action) => `okit-plugin ${group} ${action}`).join('\n'));
     for (const command of commands) assert.ok(text.includes(command), `${file}: ${command}`);
   }
 });
