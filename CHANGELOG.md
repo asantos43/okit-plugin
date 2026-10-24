@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Codex adapter with native/process delegation, user quota, capabilities, safe skill copying, explicit hook-installation refusal and tests.
 - Add `/okit-smoke`, the in-client smoke skill that confirms quota spending, narrates the existing runner and reports each check, partial results and exit code; include it in installation checks and C2 skill visibility.
 - Project-qualified demand references in inbox/status output, daemon decisions and bilingual Director guidance, preserving machine-readable ids.
 - Add the configurable, bounded, fail-open `okit hook post-compact` summary and idempotent Claude Code compact-hook installer, with bilingual documentation and tests.
