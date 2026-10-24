@@ -13,7 +13,8 @@
   },
   "scripts": {
     "smoke": "node src/cli.js smoke",
-    "test": "node --test"
+    "test": "node --test",
+    "release:checksums": "node scripts/checksums.js"
   },
   "repository": {
     "type": "git",
