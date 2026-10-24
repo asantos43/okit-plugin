@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 import { artifactName } from '../src/release/build.js';
 import { manifestFileName } from '../src/release/checksums.js';
@@ -21,6 +22,24 @@ async function fixture(raw = history) {
   return { root, io, config: releaseConfig(), packageJson };
 }
 after(async () => { for (const root of roots) await rm(root, { recursive: true, force: true }); });
+
+test('repository package, MCP fallback and release notes versions agree', async () => {
+  const root = fileURLToPath(new URL('../', import.meta.url));
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  const server = await readFile(new URL('../src/mcp/server.js', import.meta.url), 'utf8');
+  assert.equal(server.match(/const FALLBACK_VERSION = '([^']+)'/)?.[1], pkg.version);
+  const result = await buildNotes({ root, packageJson: pkg, config: releaseConfig(), version: pkg.version });
+  assert.equal(result.refusal, null);
+  assert.ok(result.notes.includes(`- Version: \`${pkg.version}\``));
+  const raw = await readFile(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
+  const changes = parseUnreleased(raw).lines.filter((line) => line.startsWith('- '));
+  assert.equal(changes.length, 9);
+  for (const change of changes) assert.ok(result.notes.includes(change));
+  const previous = raw.split('## [0.1.0] - 2026-10-24\n')[1].split('## [0.0.0]')[0];
+  for (const change of previous.split('\n').filter((line) => line.startsWith('- '))) {
+    assert.ok(!result.notes.includes(change));
+  }
+});
 
 test('CLI dry-run writes nothing and two actual runs write identical bytes', async () => {
   const { root, io } = await fixture();
