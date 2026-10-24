@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Include the adapters imported by `src` in every client package through configurable shared adapter paths (D46). / Incluir em cada pacote de cliente os adaptadores importados por `src`, por caminhos de adaptadores compartilhados configuráveis (D46).
+
+## [0.2.1] - 2026-10-24
+
 ### Added
 
 - Rename the plugin command to configurable `okit-plugin`, migrate owned legacy links while preserving the kit, and exclude plugin executables from kit detection (D43). / Renomear o comando do plugin para `okit-plugin` configurável, migrar links legados próprios preservando o kit e excluir executáveis do plugin da detecção do kit.

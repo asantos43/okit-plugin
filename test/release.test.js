@@ -3,10 +3,10 @@
 // writers claim is checked against the bytes on the disk.
 
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { after, test } from 'node:test';
 import { promisify } from 'node:util';
 import { gunzipSync, inflateRawSync } from 'node:zlib';
@@ -436,6 +436,8 @@ test('the build writes nothing outside the output folder', async () => {
 
 test('the payload of a client holds its files and none of the excluded ones', async () => {
   const root = await miniRepo();
+  await mkdir(join(root, 'adapters', 'codex'), { recursive: true });
+  await writeFile(join(root, 'adapters', 'codex', 'index.js'), STUB_ADAPTER);
   const out = await temp('out');
   await buildRelease({
     root,
@@ -459,7 +461,82 @@ test('the payload of a client holds its files and none of the excluded ones', as
 
   assert.ok(!paths.some((path) => path.startsWith('test/')), 'the tests are not there');
   assert.ok(!paths.some((path) => path.startsWith('.git/')), 'the repository is not there');
-  assert.ok(!paths.some((path) => path.includes('codex')), 'another adapter is not there');
+  assert.ok(paths.includes('adapters/codex/index.js'), 'shared adapters are there');
+  assert.equal(paths.length, new Set(paths).size, 'overlapping includes are deduplicated');
+});
+
+function staticRelativeImports(source) {
+  const pattern = /(?:^|\n)\s*(?:import\s+(?:[^;'"`]*?\s+from\s*)?|export\s+[^;'"`]*?\s+from\s*)['"](\.[^'"]+)['"]/g;
+  return [...source.matchAll(pattern)].map((match) => match[1]);
+}
+
+test('static import scan corpus: must pass declarations / must refuse other text', () => {
+  const cases = [
+    ["import { x } from '../a.js';", ['../a.js']],
+    ['import {\n x,\n} from "./b.js";', ['./b.js']],
+    ["import './side-effect.js';", ['./side-effect.js']],
+    ["export { x } from './c.js';\nexport * from './d.js';", ['./c.js', './d.js']],
+    ["// import './comment.js';", []],
+    ["const text = \"import './text.js'\";", []],
+    ["import('node:fs');\nimport { x } from 'node:path';", []],
+  ];
+  for (const [source, expected] of cases) assert.deepEqual(staticRelativeImports(source), expected);
+});
+
+test('all nine extracted payloads run status and resolve every static source import', async () => {
+  const config = releaseConfig();
+  const out = await temp('all-payloads');
+  const result = await buildRelease({ root: REPO, out, env: { SOURCE_DATE_EPOCH: EPOCH } });
+  assert.deepEqual(result.refused, []);
+  const archives = result.built.filter((artifact) => !artifact.bootstrap);
+  assert.equal(archives.length, 9);
+  const sources = (await tree(join(REPO, 'src'))).map((path) => `src/${path}`)
+    .filter((path) => path.endsWith('.js') && !isExcluded(path, config.exclude));
+  for (const artifact of archives) {
+    const extracted = await temp('extracted');
+    const bytes = await readFile(join(out, artifact.file));
+    const entries = artifact.file.endsWith('.zip') ? readZip(bytes) : readTar(untarSync(bytes));
+    for (const entry of entries) {
+      const destination = join(extracted, entry.path);
+      await mkdir(dirname(destination), { recursive: true });
+      await writeFile(destination, entry.data);
+    }
+    for (const source of sources) {
+      const file = join(extracted, source);
+      for (const specifier of staticRelativeImports(await readFile(file, 'utf8'))) {
+        const target = resolve(dirname(file), specifier);
+        assert.ok(!relative(extracted, target).startsWith('..'), `${source}: ${specifier} escapes payload`);
+        assert.ok((await stat(target)).isFile(), `${artifact.file}: ${source} -> ${specifier}`);
+      }
+    }
+    const run = spawnSync(process.execPath, [join(extracted, 'src/cli.js'), 'status'], {
+      cwd: extracted, env: { ...process.env, OKWORK_HOME: await temp('status-state') },
+      timeout: 15000, encoding: 'utf8',
+    });
+    assert.ifError(run.error);
+    assert.doesNotMatch(run.stderr, /ERR_MODULE_NOT_FOUND/, artifact.file);
+    assert.equal(run.status, 0, `${artifact.file}: ${run.stderr}`);
+    assert.match(run.stdout, /executors that can launch now:/, artifact.file);
+  }
+});
+
+test('shared adapter overrides use configured paths and keep the client adapter', async () => {
+  const root = await miniRepo();
+  await mkdir(join(root, 'custom'), { recursive: true });
+  await writeFile(join(root, 'custom', 'index.js'), STUB_ADAPTER);
+  for (const sharedAdapters of [null, [], ['custom']]) {
+    const out = await temp('shared-config');
+    const result = await buildRelease({
+      root, out, client: 'claude-code', system: 'linux',
+      config: { sharedAdapters, adapters: { codex: 'custom' } },
+      env: { SOURCE_DATE_EPOCH: EPOCH },
+    });
+    assert.deepEqual(result.refused, []);
+    const entries = readTar(untarSync(await readFile(join(out, result.built[0].file))));
+    const paths = entries.map((entry) => entry.path);
+    assert.ok(paths.includes('adapters/claude-code/index.js'));
+    assert.equal(paths.includes('custom/index.js'), sharedAdapters === null || sharedAdapters.length > 0);
+  }
 });
 
 test('a file the patterns name never enters the payload', async () => {

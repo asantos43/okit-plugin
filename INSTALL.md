@@ -4,6 +4,11 @@ The plugin command is now `okit-plugin` (configurable via `install.command`); th
 
 ## Install
 
+Each client package includes all runtime adapters by default so `status` can load
+every client. `release.sharedAdapters: null` inherits the paths in `release.adapters`;
+an explicit path list overrides the shared selection. The selected client's adapter
+remains required; custom payloads must retain every adapter imported by `src`.
+
 Read the script before executing it. Node >=20 must already be on PATH
 ([download Node](https://nodejs.org/)). Linux has been exercised by the Director;
 Windows and macOS await the Producer's real-machine checks.

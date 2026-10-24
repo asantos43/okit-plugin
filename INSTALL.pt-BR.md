@@ -1,5 +1,11 @@
 # Instalar e atualizar
 
+Cada pacote de cliente inclui todos os adaptadores de execução por padrão, para
+que `status` carregue todos os clientes. `release.sharedAdapters: null` herda os
+caminhos de `release.adapters`; uma lista explícita substitui a seleção compartilhada.
+O adaptador do cliente selecionado continua obrigatório; pacotes personalizados
+devem manter todos os adaptadores importados por `src`.
+
 O comando do plugin agora é `okit-plugin` (configurável em `install.command`); o kit mantém `okit`/`kit`. Instalar/atualizar migram apenas links `okit` do próprio plugin; desinstalar também os remove. Registros da 0.2.0 continuam legíveis; executáveis alheios do kit são preservados.
 
 ## Install

@@ -104,6 +104,9 @@ export const DEFAULT_CONFIG = {
       codex: 'adapters/codex',
       opencode: 'adapters/opencode',
     },
+    // Shared runtime adapters in every payload; null inherits all adapters above.
+    // An explicit list overrides the shared paths; the client's adapter stays required.
+    sharedAdapters: null,
     adapterEntry: 'index.js',
     // The file names each client requires, and the wiring it needs.
     clientFiles: {

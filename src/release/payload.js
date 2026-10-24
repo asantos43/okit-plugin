@@ -241,7 +241,7 @@ export function instructionsText({ instructions, values }) {
 
 /**
  * The files of the payload of one pair: the shared files of the repository,
- * the adapter of the chosen client and the metadata the client requires.
+ * the configured shared adapters and the metadata the client requires.
  *
  * @param {object} options
  * @param {string} options.root the root of the repository
@@ -261,7 +261,8 @@ export async function payloadEntries({ root, config, packageJson, pair, userConf
 
   const modes = config.modes ?? { executable: '0755', file: '0644' };
   const executables = new Set(binPaths(packageJson));
-  const folders = [...(config.include ?? []), config.adapters?.[client]].filter(
+  const sharedAdapters = config.sharedAdapters ?? Object.values(config.adapters ?? {});
+  const folders = [...(config.include ?? []), ...sharedAdapters, config.adapters?.[client]].filter(
     (folder) => typeof folder === 'string' && folder !== '',
   );
   const paths = [];
@@ -271,7 +272,7 @@ export async function payloadEntries({ root, config, packageJson, pair, userConf
   }
 
   const entries = [];
-  for (const path of paths) {
+  for (const path of new Set(paths)) {
     const data = await readFile(join(root, ...path.split('/')));
     entries.push({
       path,
