@@ -14,6 +14,8 @@ Use o [install.sh](install.sh) da release no Linux/macOS ou
 Depois, use `okit-plugin update --check`, `okit-plugin update` ou `okit-plugin update --rollback`.
 A matriz tem nove pares cliente × sistema; existir um pacote não comprova
 uso real. Veja as [provas por par](docs/RELEASING.pt-BR.md#proof-per-pair).
+Cada pacote inclui todos os adaptadores de execução por padrão (`release.sharedAdapters: null`
+herda `release.adapters`), além dos metadados de instalação do cliente selecionado.
 
 ## Usage — Uso
 

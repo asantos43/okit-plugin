@@ -14,6 +14,8 @@ Use the release's [install.sh](install.sh) on Linux/macOS or
 Use `okit-plugin update --check`, `okit-plugin update` or `okit-plugin update --rollback` afterwards.
 The release matrix has nine client × system pairs; availability of an archive
 does not prove real-client operation. See [proof per pair](docs/RELEASING.md#proof-per-pair).
+Each payload includes all runtime adapters by default (`release.sharedAdapters: null`
+inherits `release.adapters`), plus the selected client's installation metadata.
 
 ## Usage — Uso
 
