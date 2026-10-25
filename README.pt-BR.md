@@ -32,6 +32,10 @@ okit-plugin daemon status [--table [--locale en|pt-BR]]
 okit-plugin autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
 okit-plugin status [--locale en|pt-BR]
 okit-plugin actors [--client <nome>|--all] [--json] [--locale en|pt-BR]
+okit-plugin config show
+okit-plugin config get <key>
+okit-plugin config set <key> <value>
+okit-plugin config unset <key>
 okit-plugin kit [--require]
 okit-plugin hook post-compact
 okit-plugin smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]
@@ -54,7 +58,7 @@ O servidor MCP por stdio expõe 15 ferramentas: `acquire_slot`, `release_slot`,
 
 Um **ator** é um par modelo + esforço configurado, disponível em um cliente. Consulte “quais atores/executores podem rodar?” com `actors` ou MCP `actors_list` antes de dimensionar e escolher. Lista perfis mesmo sem executores rodando; status/vagas é a visão de executores em execução. A seleção segue status: cliente detectado por padrão, `--all` para os configurados (os três quando vazio), `--client` tem prioridade. JSON inclui atores, cota, vagas livres, motivos/soluções e alternativas para tamanhos sem ator.
 
-`actors.sizeClasses` em `DEFAULT_CONFIG` mapeia S→simple, M→normal, L→hard; configure esse mapa nomeado para mudar tamanhos. `actors.criticClass` identifica o crítico à parte. Pares modelo + esforço iguais combinam tamanhos. Um tamanho ausente indica o vizinho disponível mais próximo; cota abaixo do piso ou vagas ocupadas explicam a solução. Cota desconhecida não bloqueia. A tabela mostra o estado da cota, o menor percentual restante e a idade da leitura; `status` mostra o comando para registrar uma cota. Um comando guiado para configurar modelos está a caminho; até lá, peça à pessoa que mantém o okit.
+`actors.sizeClasses` em `DEFAULT_CONFIG` mapeia S→simple, M→normal, L→hard; configure esse mapa nomeado para mudar tamanhos. `actors.criticClass` identifica o crítico à parte. Pares modelo + esforço iguais combinam tamanhos. Um tamanho ausente indica o vizinho disponível mais próximo; cota abaixo do piso ou vagas ocupadas explicam a solução. Cota desconhecida não bloqueia. A tabela mostra o estado da cota, o menor percentual restante e a idade da leitura; `status` mostra o comando para registrar uma cota. Use `okit-plugin config set profiles.<cliente>.<classe>.model <valor>` para mudar o modelo de um cliente e uma classe de trabalho.
 
 `okit-plugin inbox list [--locale en|pt-BR]` e MCP `inbox_list` mostram o dono de cada demanda.
 `okit-plugin inbox take <id> --client codex --session <s> --worktree <path>` toma posse atomicamente;
@@ -71,21 +75,39 @@ Veja [SMOKE.pt-BR.md](docs/SMOKE.pt-BR.md) para orçamento e provas exigidas.
 
 ## Configuration — Configuração
 
-O estado fica em `~/.okwork`; `OKWORK_HOME` substitui essa raiz. Edite ali o
-`config.json`. Os padrões em [src/profiles.js](src/profiles.js) incluem
+O estado fica em `~/.okwork`; `OKWORK_HOME` substitui essa raiz. Gerencie as
+configurações editáveis com `okit-plugin config`; não é preciso editar o
+`config.json` à mão. Os padrões em [src/profiles.js](src/profiles.js) incluem
 `lowQuotaPct: 15`, `limits: {global: 3, clients: {}}`, `staleMinutes: 30`
 e o catálogo padrão de perfis.
+
+`okit-plugin config show` lista toda chave editável com o valor efetivo, a
+origem (`default` ou `user`) e uma explicação simples do efeito.
+`okit-plugin config get <chave>` mostra um valor efetivo e sua origem.
+`okit-plugin config set <chave> <valor>` valida tipo, faixa e cliente ou
+classe conhecidos e então muda só a chave pedida, de forma atômica, preservando
+o resto do arquivo. O comando imprime o valor anterior e o novo. Um valor
+inválido ou chave desconhecida é recusado sem gravação. Nomes de cliente e
+classe em caminhos pontilhados só podem conter letras, dígitos, `-` ou `_`;
+`__proto__`, `constructor` e `prototype` são reservados e recusados.
+`okit-plugin config unset <chave>` volta a chave ao padrão, e os grupos que a
+remoção deixa vazios somem também, de modo que o arquivo se lê como se lia
+antes de o valor ser posto.
 O catálogo padrão dá a cada cliente (`claude-code`, `codex`, `opencode`) um
 perfil por classe (`simple`, `normal`, `hard`), cada um com `model`, `effort`
 (`low`, `medium`, `high`) e `maxTurns` (`20`, `40`, `80`), então uma instalação
 limpa responde `profile_pick` e `actors_list` para cada cliente e classe sem
-nenhuma entrada `profiles`. Preencha `profiles.<client>.simple|normal|hard` com
-`model`, `effort`, `maxTurns` para mudar o catálogo: o seu valor substitui a
-classe que ele nomeia, classe por classe, e as outras classes mantêm o padrão.
-Uma classe com `null` sai do catálogo. Um cliente fora do catálogo não tem
-perfil: `profile_pick` responde com um erro curto bilíngue que nomeia os
-clientes conhecidos. Para atualizar o catálogo em si, edite
+nenhuma entrada `profiles`. Mude um campo do perfil com
+`okit-plugin config set profiles.<cliente>.<classe>.model|effort|maxTurns <valor>`;
+o seu valor substitui a classe que ele nomeia, classe por classe, e as outras
+classes mantêm o padrão. Um cliente fora do catálogo não tem perfil:
+`profile_pick` responde com um erro curto bilíngue que nomeia os clientes
+conhecidos. Para atualizar o catálogo em si, edite
 `DEFAULT_CONFIG.profiles` em [src/profiles.js](src/profiles.js).
+Uma classe com `null` está desligada: `okit-plugin config set profiles.<cliente>.<classe> null`
+desliga, `okit-plugin config unset profiles.<cliente>.<classe>` religa e um `set`
+de um campo sob uma classe desligada é recusado sem gravação; um grupo de
+cliente vazio (`{}`) é a ausência de um cliente, não uma inscrição de um.
 Todos os adaptadores leem a cota do usuário em `quota/<client>.json`.
 Registre o percentual restante mostrado em `/usage` do cliente com
 `okit-plugin quota set claude-code 80 [--window-minutes n]`; os clientes são os que
@@ -102,15 +124,18 @@ informe uma leitura atual e repita; use `--allow-unknown-quota` só por pedido e
 `quotaFloorPct: 20`, `maxUsd: 1`, `maxTurns: null` (cenário completo),
 `maxMinutes: 15`, `checkTimeoutMs: 60000`.
 
-Defina `limits.global` e `limits.clients.<client>` nesse arquivo; não há comando
-de configuração. Exemplo: `"limits": {"global": 3, "clients":
-{"claude-code": 100, "codex": 2}}`. O teto próprio suplanta o padrão; cada
-cliente sem entrada usa `global`. Não há teto somado entre clientes.
+Defina `limits.global` e `limits.clients.<client>` com o comando; por exemplo,
+`okit-plugin config set limits.global 3` e
+`okit-plugin config set limits.clients.claude-code 100`. O teto próprio
+suplanta o padrão; cada cliente sem entrada usa `global`. Não há teto somado
+entre clientes.
 Os valores devem ser inteiros positivos; valores inválidos recusam a leitura,
 e nomes de clientes desconhecidos geram aviso no status. O antigo `perClient`
-suplanta `global` como apelido obsoleto, com aviso no status. O significado
-anterior de `global` como total foi removido. As verificações releem a
-configuração sem reiniciar; o status mostra vivas/teto, vagas e origem própria/padrão.
+suplanta `global` como apelido obsoleto, com aviso no status. O comando remove
+esse apelido legado da configuração do usuário ao gravar ou apagar
+`limits.global`. O significado anterior de `global` como total foi removido.
+As verificações releem a configuração sem reiniciar; o status mostra
+vivas/teto, vagas e origem própria/padrão.
 A tabela de status termina com uma frase fixa, traduzida: vagas são executores
 em execução, e `actors` lista os perfis modelo + esforço disponíveis.
 

@@ -104,6 +104,49 @@ The catalog is a fallback for the profiles, not a list of subscriptions: `client
 
 A refusal is short and bilingual: an unknown client gets the known clients in English and Portuguese, an unknown class gets the classes, and no demand or order id appears in the message. The texts live in `DEFAULT_CONFIG.profileMessages`, so a user replaces them in `config.json`.
 
+### 5.3 The editable configuration schema
+
+`src/config.js` owns `CONFIG_SCHEMA.entries`, the table of every key that
+`okit-plugin config show|get|set|unset` accepts. Each entry names its dotted
+path, type, allowed range or values, default path, and a plain English /
+Portuguese description of its effect. The current keys are `limits.global`,
+`limits.clients.<client>`, `profiles.<client>.<class>`,
+`profiles.<client>.<class>.model`, `profiles.<client>.<class>.effort`,
+`profiles.<client>.<class>.maxTurns`, `lowQuotaPct`,
+`daemon.minQuotaPct`, and `smoke.quotaFloorPct`.
+
+Integer limits and turn caps start at 1. Quota percentages range from 0 to
+100. Model names are non-empty text, and the allowed efforts come from
+`PROFILE_EFFORTS`. Client names come from the default catalog and
+`configuredClientsOf`; classes come from the profile catalog. The schema's
+scope patterns allow only letters, digits, `-` and `_`, and the reserved path
+segments `__proto__`, `constructor` and `prototype` are refused. The command
+expands only safe names into the schema, so an unsafe client or class is
+refused as an unknown key and a client or class outside the catalog is
+refused with the valid list.
+
+`show` prints every expanded key with its effective value, origin (`default`
+or `user`) and effect. `get` prints one. `set` converts the text to the
+schema type, validates it, and changes only that leaf in `config.json`; it
+uses the config lock and `writeJsonAtomic`, so a failed write leaves the old
+file intact. `unset` removes the leaf, removes any legacy alias for that
+entry, and restores the default. An invalid value or unknown key exits 1 and
+writes nothing.
+
+The class key `profiles.<client>.<class>` takes only `null`, the state that
+disables a class, and `unset` on it brings the class back. A `set` never
+crosses an ancestor that is not an object: it refuses with a short bilingual
+message that names the disabled profile and the `config unset` that enables it,
+and writes nothing. A client counts as configured only when its entry in
+`profiles` names a class of its own, so an empty group is the absence of a
+client and removing it changes nothing.
+
+To add a key, add its entry to `CONFIG_SCHEMA.entries`, put its default in
+`DEFAULT_CONFIG` (or point `defaultPath` at the existing default), add the
+type and range to the entry, and add command tests and bilingual docs. Do not
+put a client, class, range, message or key list in the command logic: the
+schema is the single source consumed by the code.
+
 ## 6. Windows rules
 - Build every path with `node:path`, never by concatenating separators; store them with forward slashes, the form Claude Code substitutes, so what we write matches what the client reads.
 - No shell: `child_process.spawn` with an argument array. Shell-form hook commands are the client's concern, not ours.

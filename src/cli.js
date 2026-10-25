@@ -14,6 +14,7 @@ import { promisify } from 'node:util';
 import { homedir } from 'node:os';
 
 import { AUTOSTART_KINDS, applyAutostart, autostartPlan, detectAutostart } from './autostart.js';
+import { configCommand } from './config.js';
 import { daemonPause, daemonResume, daemonRun, daemonStatus, tick } from './daemon.js';
 import { limitsStatus } from './limits.js';
 import { inboxClaim, inboxRelease, inboxProducerTakeover, inboxList, holdText, holdIsStale } from './inbox.js';
@@ -105,6 +106,10 @@ const USAGE = [
   '       {command} autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       {command} status [--all] [--client <name>] [--locale en|pt-BR]',
   '       {command} actors [--all] [--client <name>] [--json] [--locale en|pt-BR]',
+  '       {command} config show',
+  '       {command} config get <key>',
+  '       {command} config set <key> <value>',
+  '       {command} config unset <key>',
   '       {command} quota set <client> <pct> [--window-minutes n]',
   '       {command} quota show [client]',
   '       {command} inbox list [--locale en|pt-BR]',
@@ -492,6 +497,7 @@ export async function main(argv = [], io = {}) {
     spawn: io.spawn,
     run: io.run ?? runCommand,
     write: io.write,
+    writeConfig: io.writeConfig,
     signal: io.signal,
     sleep: io.sleep,
     now,
@@ -508,6 +514,14 @@ export async function main(argv = [], io = {}) {
   const [group, action, ...args] = argv;
   try {
     ctx.command = io.command ?? (await readConfig(ctx.root).catch(() => DEFAULT_CONFIG)).install.command;
+    if (group === '--help' || group === '-h') {
+      out(USAGE.replaceAll('{command}', ctx.command));
+      return 0;
+    }
+    if (group === 'config') {
+      if (action === '--help') { out(USAGE.replaceAll('{command}', ctx.command)); return 0; }
+      return await configCommand(ctx, action, args, { write: ctx.writeConfig });
+    }
     if (group === 'inbox') return await inboxCommand(ctx, action, args, io);
     if (group === 'quota') return await quotaCommand(ctx, action, args);
     if (group === 'kit') {
