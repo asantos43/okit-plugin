@@ -11,6 +11,7 @@ import { join, resolve, basename } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { homedir } from 'node:os';
 
 import { AUTOSTART_KINDS, applyAutostart, autostartPlan, detectAutostart } from './autostart.js';
 import { daemonPause, daemonResume, daemonRun, daemonStatus, tick } from './daemon.js';
@@ -26,8 +27,10 @@ import { adapterQuotaReader, clientsOf, LABELS, statusTable } from './status.js'
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
 import { installerCommand } from './install/index.js';
-import { installConfig } from './install/config.js';
+import { installConfig, installPaths } from './install/config.js';
 import { detectKit } from './install/kit.js';
+import { activationWarning } from './install/link.js';
+import { readRecords } from './install/place.js';
 
 async function confirmTake(io, out) {
   const input = io.stdin ?? process.stdin;
@@ -294,6 +297,13 @@ async function statusCommand(ctx, args) {
   const table = await statusTable(ctx.root, { ...await tableDeps(ctx, locale ?? 'en'), ...selection });
   for (const line of table.markdown.split('\n')) ctx.out(line);
   ctx.out(table.capacityLine);
+  const config = installConfig((await readConfig(ctx.root)).install);
+  const home = ctx.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir();
+  const deps = { ...ctx, config, home, ...installPaths(config, { ...ctx, home }) };
+  const records = Object.values(await readRecords(deps.destination, ctx.fs, config));
+  deps.bin = records.find((record) => record.linkDirectory)?.linkDirectory ?? deps.bin;
+  const warning = await activationWarning(deps);
+  if (warning) ctx.out(warning);
   ctx.out((await kitResult(ctx)).message);
   return 0;
 }
@@ -462,6 +472,7 @@ export async function main(argv = [], io = {}) {
     err,
     command: io.command ?? DEFAULT_CONFIG.install.command,
     env: io.env ?? process.env,
+    home: io.home,
     root: io.root ?? stateRoot(io.env ?? process.env),
     platform: io.platform ?? process.platform,
     fs: io.fs ?? filesystem,

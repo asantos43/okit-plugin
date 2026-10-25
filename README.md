@@ -13,7 +13,9 @@ Use the release's [install.sh](install.sh) on Linux/macOS or
 [INSTALL.md](INSTALL.md) for prerequisites, flags, verified downloads and updates.
 Use `okit-plugin update --check`, `okit-plugin update` or `okit-plugin update --rollback` afterwards.
 
-Install/update make the command available to new shells through an existing writable PATH candidate or managed shell profiles (Windows: user PATH). Open a new terminal or source the reported profile, then restart the AI client. `--no-path` skips PATH edits; uninstall removes only the installer-owned addition. Configuration and fallback instructions: [INSTALL](INSTALL.md).
+Install/update make the command available to new shells through an existing writable PATH candidate or managed shell profiles (Windows: user PATH). Restart the AI client after updating PATH. `--no-path` skips PATH edits; uninstall removes only the installer-owned addition. Configuration and fallback instructions: [INSTALL](INSTALL.md).
+
+If the current terminal's PATH lacks the bin directory, install/update and `okit-plugin status` print a bilingual hint with a manual command from `install.path.activate`: `. '<profile>'` for bash/zsh, `source '<profile>'` for fish, or `$env:Path = '<bin>' + ';' + $env:Path` for PowerShell/Windows. Run the printed command yourself or open a new terminal; unknown shells or missing managed profiles get the new-terminal hint. The hint disappears once bin is in PATH.
 The release matrix has nine client × system pairs; availability of an archive
 does not prove real-client operation. See [proof per pair](docs/RELEASING.md#proof-per-pair).
 Each payload includes all runtime adapters by default (`release.sharedAdapters: null`

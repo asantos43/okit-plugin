@@ -13,7 +13,9 @@ Use o [install.sh](install.sh) da release no Linux/macOS ou
 [INSTALL.pt-BR.md](INSTALL.pt-BR.md) para requisitos, flags, downloads verificados e atualizações.
 Depois, use `okit-plugin update --check`, `okit-plugin update` ou `okit-plugin update --rollback`.
 
-Install/update disponibilizam o comando nas novas shells por um candidato gravável já no PATH ou pelos perfis gerenciados (Windows: PATH do usuário). Abra um terminal novo ou carregue o perfil informado com source, depois reinicie o cliente de IA. `--no-path` recusa edições do PATH; uninstall remove só a adição do instalador. Configuração e instrução alternativa: [INSTALL](INSTALL.pt-BR.md).
+Install/update disponibilizam o comando nas novas shells por um candidato gravável já no PATH ou pelos perfis gerenciados (Windows: PATH do usuário). Reinicie o cliente de IA após atualizar o PATH. `--no-path` recusa edições do PATH; uninstall remove só a adição do instalador. Configuração e instrução alternativa: [INSTALL](INSTALL.pt-BR.md).
+
+Se o PATH do terminal atual não contém o diretório bin, install/update e `okit-plugin status` mostram uma dica bilíngue com um comando manual de `install.path.activate`: `. '<perfil>'` para bash/zsh, `source '<perfil>'` para fish ou `$env:Path = '<bin>' + ';' + $env:Path` para PowerShell/Windows. Rode o comando informado ou abra um terminal novo; shells desconhecidas ou perfis gerenciados ausentes recebem a dica do terminal novo. A dica desaparece quando bin está no PATH.
 A matriz tem nove pares cliente × sistema; existir um pacote não comprova
 uso real. Veja as [provas por par](docs/RELEASING.pt-BR.md#proof-per-pair).
 Cada pacote inclui todos os adaptadores de execução por padrão (`release.sharedAdapters: null`

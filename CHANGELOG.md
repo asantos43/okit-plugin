@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Show configurable shell activation commands in install/update and status only when the current PATH lacks bin (D52). / Mostrar comandos configuráveis de ativação da shell em install/update e status somente quando o PATH atual não contém bin (D52).
 - Add atomic `quota set`/`quota show`, configurable smoke quota aging, Producer guidance and tests (D48). / Adicionar `quota set`/`quota show` atômicos, validade configurável da cota no smoke, orientação ao Produtor e testes (D48).
 
 ### Fixed

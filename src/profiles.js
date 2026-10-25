@@ -23,14 +23,26 @@ export const DEFAULT_CONFIG = {
       enabled: true, candidates: [['.local', 'bin'], ['bin']], stateFile: 'managed-path.json',
       begin: '# >>> okit-plugin PATH >>>', end: '# <<< okit-plugin PATH <<<',
       shells: { bash: { files: ['.bashrc', '.profile'], login: '.profile' }, zsh: { files: ['.zshrc', '.zprofile'], login: '.zprofile' }, fish: { files: ['.config/fish/config.fish'], login: '.config/fish/config.fish' } },
-      fallbackShell: 'bash', windowsExecutable: 'powershell.exe', windowsVariable: 'Path',
+      fallbackShell: 'bash', windowsShell: 'powershell', windowsExecutable: 'powershell.exe', windowsVariable: 'Path',
+      // The environment variable that names the shell of the current terminal.
+      shellVariable: 'SHELL',
+      // The command that makes the managed PATH block effective in the current
+      // shell, per shell. `{file}` is the managed profile; `{bin}` is the link directory.
+      activate: {
+        sh: '. {file}',
+        bash: '. {file}',
+        zsh: '. {file}',
+        fish: 'source {file}',
+        powershell: "$env:Path = {bin} + ';' + $env:Path",
+      },
       messages: {
         link: 'Command link / Link do comando: {value}',
         existing: 'Already in PATH / Já estava no PATH: {value}',
         changed: 'PATH updated / PATH atualizado: {value}',
         manual: 'Add to PATH / Adicione ao PATH: {value}',
         restart: 'Open a new terminal and restart your AI client. / Abra um terminal novo e reinicie o cliente de IA.',
-        source: 'Or run source {value}, then restart your AI client. / Ou rode source {value}, depois reinicie o cliente de IA.',
+        activate: 'To use the command in this terminal, run {value} / Para usar o comando neste terminal, rode {value}',
+        activateTerminal: 'Open a new terminal and the command will work there / Abra um terminal novo e o comando funcionará lá',
         resolved: 'PATH verification / Verificação do PATH: {value}',
         missing: 'Command not found / Comando não encontrado', user: 'User environment / Ambiente do usuário',
         edited: 'Managed PATH block was edited / Bloco de PATH gerenciado foi editado: {value}',
