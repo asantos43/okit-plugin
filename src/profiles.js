@@ -4,6 +4,18 @@ import process from 'node:process';
 
 import { EFFORT_CLASSES } from './classify.js';
 
+const PROFILE_EFFORTS = Object.freeze({
+  simple: 'low',
+  normal: 'medium',
+  hard: 'high',
+});
+
+const PROFILE_MAX_TURNS = Object.freeze({
+  simple: 20,
+  normal: 40,
+  hard: 80,
+});
+
 export const DEFAULT_CONFIG = {
   install: {
     kit: {
@@ -66,8 +78,29 @@ export const DEFAULT_CONFIG = {
   limits: { global: 3, clients: {} },
   staleMinutes: 30,
   inbox: { holdStaleMinutes: 120, gitTimeoutMs: 5000 },
-  // profiles: { <client>: { simple: { model, effort, maxTurns }, ... } }
-  profiles: {},
+  // Editable in config.json; model names change as client catalogues change.
+  profiles: {
+    'claude-code': {
+      simple: { model: 'haiku', effort: PROFILE_EFFORTS.simple, maxTurns: PROFILE_MAX_TURNS.simple },
+      normal: { model: 'sonnet', effort: PROFILE_EFFORTS.normal, maxTurns: PROFILE_MAX_TURNS.normal },
+      hard: { model: 'opus', effort: PROFILE_EFFORTS.hard, maxTurns: PROFILE_MAX_TURNS.hard },
+    },
+    codex: {
+      simple: { model: 'gpt-5-codex', effort: PROFILE_EFFORTS.simple, maxTurns: PROFILE_MAX_TURNS.simple },
+      normal: { model: 'gpt-5-codex', effort: PROFILE_EFFORTS.normal, maxTurns: PROFILE_MAX_TURNS.normal },
+      hard: { model: 'gpt-5-codex', effort: PROFILE_EFFORTS.hard, maxTurns: PROFILE_MAX_TURNS.hard },
+    },
+    opencode: {
+      simple: { model: 'minimax/MiniMax-M3', effort: PROFILE_EFFORTS.simple, maxTurns: PROFILE_MAX_TURNS.simple },
+      normal: { model: 'minimax/MiniMax-M3', effort: PROFILE_EFFORTS.normal, maxTurns: PROFILE_MAX_TURNS.normal },
+      hard: { model: 'minimax/MiniMax-M3', effort: PROFILE_EFFORTS.hard, maxTurns: PROFILE_MAX_TURNS.hard },
+    },
+  },
+  profileMessages: {
+    unknownClient: 'Client "{client}" has no default profile. Define the profile in the plugin configuration or use one of the known clients: {clients}. / O cliente "{client}" não tem perfil padrão. Defina o perfil na configuração do plugin ou use um dos clientes conhecidos: {clients}.',
+    unknownClass: 'Unknown profile class "{class}". Use one of: {classes}. / Classe de perfil desconhecida "{class}". Use uma das classes: {classes}.',
+    missingProfile: 'Client "{client}" has no profile for class "{class}". Define it in the plugin configuration. / O cliente "{client}" não tem perfil para a classe "{class}". Defina-o na configuração do plugin.',
+  },
   actors: {
     sizeClasses: { S: 'simple', M: 'normal', L: 'hard' },
     criticClass: 'critic',
@@ -78,7 +111,7 @@ export const DEFAULT_CONFIG = {
         quota: '{state}; {percentage}; age {age}',
         quotaGreen: 'green', quotaYellow: 'yellow', quotaRed: 'red', quotaOff: 'off',
         percentage: '{value}%', age: '{seconds}s',
-        empty: 'No models are set up for {client} yet. Setting them up from a guided command is coming; until then ask the person who maintains okit.',
+        empty: 'No actor profile is available for {client}. Check the profiles in the plugin configuration.',
         low: 'Quota is below the floor. Wait for quota reset or ask the person who maintains okit to review the quota floor.',
         busy: 'All slots are occupied. Wait for a running executor to finish.',
         gap: '{client}: no actor available for {size}; nearest alternative: {alternative}.',
@@ -91,7 +124,7 @@ export const DEFAULT_CONFIG = {
         quota: '{state}; {percentage}; idade {age}',
         quotaGreen: 'verde', quotaYellow: 'amarelo', quotaRed: 'vermelho', quotaOff: 'desligado',
         percentage: '{value}%', age: '{seconds}s',
-        empty: 'Ainda não há modelos configurados para {client}. Um comando guiado para configurá-los está a caminho; até lá, peça à pessoa que mantém o okit.',
+        empty: 'Nenhum perfil de ator está disponível para {client}. Confira os perfis na configuração do plugin.',
         low: 'Cota abaixo do piso. Aguarde a renovação da cota ou peça à pessoa que mantém o okit para revisar o piso de cota.',
         busy: 'Todas as vagas estão ocupadas. Aguarde um executor em execução terminar.',
         gap: '{client}: nenhum ator disponível para {size}; alternativa mais próxima: {alternative}.',
@@ -318,6 +351,54 @@ function lowQuota(quota, lowQuotaPct) {
   return typeof remaining === 'number' && remaining < lowQuotaPct;
 }
 
+// The default catalog first, the user profiles over it: a root without
+// `config.profiles` keeps every default profile, and a user profile replaces
+// the class it names without erasing the rest of the catalog.
+function mergeProfiles(userProfiles) {
+  const profiles = {};
+  for (const [client, classes] of Object.entries(DEFAULT_CONFIG.profiles)) {
+    profiles[client] = Object.fromEntries(
+      Object.entries(classes).map(([name, profile]) => [name, { ...profile }]),
+    );
+  }
+  if (!userProfiles || typeof userProfiles !== 'object' || Array.isArray(userProfiles)) return profiles;
+  for (const [client, classes] of Object.entries(userProfiles ?? {})) {
+    if (!classes || typeof classes !== 'object' || Array.isArray(classes)) continue;
+    const merged = { ...(profiles[client] ?? {}) };
+    for (const [name, profile] of Object.entries(classes)) {
+      const base = merged[name];
+      merged[name] = base && profile && typeof base === 'object' && typeof profile === 'object'
+        ? { ...base, ...profile } : profile;
+    }
+    profiles[client] = merged;
+  }
+  return profiles;
+}
+
+function knownClients(profiles) {
+  return Object.keys(profiles).sort();
+}
+
+/**
+ * The clients the root's own configuration names. The catalog is a fallback
+ * for the profiles, not a list of subscriptions: a root that names no client
+ * has the known clients, and a root that names one keeps that one, so the
+ * quota command never records a client the root does not have.
+ *
+ * @param {object} config
+ * @returns {string[]}
+ */
+function configuredClientsOf(config) {
+  if (Array.isArray(config?.configuredClients)) return [...config.configuredClients];
+  const stored = config?.profiles;
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return [];
+  return Object.keys(stored).sort();
+}
+
+function fill(text, values) {
+  return text.replace(/\{(\w+)\}/g, (_, key) => values[key]);
+}
+
 export function normalizeLimits(limits = {}) {
   if (!limits || typeof limits !== 'object' || Array.isArray(limits)) {
     throw new Error('limits must be an object');
@@ -361,6 +442,10 @@ export function configOf(config) {
       ))),
     },
     limits: normalizeLimits(config?.limits),
+    profileMessages: {
+      ...DEFAULT_CONFIG.profileMessages,
+      ...(config?.profileMessages ?? {}),
+    },
     limitWarnings: [
       ...(config?.limitWarnings ?? []),
       ...(Object.hasOwn(config?.limits ?? {}, 'perClient') ? ['deprecated perClient'] : []),
@@ -368,7 +453,8 @@ export function configOf(config) {
         (client) => !Object.hasOwn(DEFAULT_CONFIG.release.adapters, client),
       ).map((client) => `unknown client: ${client}`),
     ].filter((value, index, all) => all.indexOf(value) === index),
-    profiles: { ...(merged.profiles ?? {}) },
+    profiles: mergeProfiles(config?.profiles),
+    configuredClients: configuredClientsOf(config),
   };
 }
 
@@ -380,17 +466,27 @@ export function configOf(config) {
  * @throws when the class is unknown or the config has no profile for it.
  */
 export function profilePick({ client, effort, quota, config } = {}) {
-  const { lowQuotaPct, profiles } = configOf(config);
+  const { lowQuotaPct, profiles, profileMessages } = configOf(config);
   if (!EFFORT_CLASSES.includes(effort)) {
-    throw new Error(`Unknown effort "${effort}": expected ${EFFORT_CLASSES.join(', ')}`);
+    throw new Error(fill(profileMessages.unknownClass, {
+      class: effort,
+      classes: EFFORT_CLASSES.join(', '),
+    }));
   }
 
   const chosen = lowQuota(quota, lowQuotaPct) ? LOWER[effort] : effort;
-  const profile = profiles[client]?.[chosen];
+  if (!Object.hasOwn(profiles, client)) {
+    throw new Error(fill(profileMessages.unknownClient, {
+      client,
+      clients: knownClients(profiles).join(', '),
+    }));
+  }
+  const profile = profiles[client][chosen];
   if (!profile || typeof profile.model !== 'string' || profile.model === '') {
-    throw new Error(
-      `No profile for client "${client}" and class "${chosen}": fill config.profiles.${client}.${chosen}`,
-    );
+    throw new Error(fill(profileMessages.missingProfile, {
+      client,
+      class: chosen,
+    }));
   }
 
   return { model: profile.model, effort: profile.effort, maxTurns: profile.maxTurns };

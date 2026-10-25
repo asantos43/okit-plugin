@@ -14,8 +14,8 @@ export function formatActors(result, { json = false } = {}) {
 }
 
 export async function listActors(deps = {}) {
-  const config = configOf({ ...deps.config,
-    ...(deps.profiles === undefined ? {} : { profiles: deps.profiles }) });
+  const config = configOf(deps.config);
+  if (deps.profiles !== undefined) config.profiles = deps.profiles;
   const settings = config.actors;
   const messages = settings.messages[deps.locale] ?? settings.messages.en;
   const table = await statusTable(deps.root, { ...deps, config, demands: [], orders: [] });

@@ -74,9 +74,19 @@ Veja [SMOKE.pt-BR.md](docs/SMOKE.pt-BR.md) para orçamento e provas exigidas.
 O estado fica em `~/.okwork`; `OKWORK_HOME` substitui essa raiz. Edite ali o
 `config.json`. Os padrões em [src/profiles.js](src/profiles.js) incluem
 `lowQuotaPct: 15`, `limits: {global: 3, clients: {}}`, `staleMinutes: 30`
-e `profiles` vazio. Preencha `profiles.<client>.simple|normal|hard` com `model`,
-`effort`, `maxTurns`; não há modelo padrão. Todos os adaptadores leem a cota do
-usuário em `quota/<client>.json`.
+e o catálogo padrão de perfis.
+O catálogo padrão dá a cada cliente (`claude-code`, `codex`, `opencode`) um
+perfil por classe (`simple`, `normal`, `hard`), cada um com `model`, `effort`
+(`low`, `medium`, `high`) e `maxTurns` (`20`, `40`, `80`), então uma instalação
+limpa responde `profile_pick` e `actors_list` para cada cliente e classe sem
+nenhuma entrada `profiles`. Preencha `profiles.<client>.simple|normal|hard` com
+`model`, `effort`, `maxTurns` para mudar o catálogo: o seu valor substitui a
+classe que ele nomeia, classe por classe, e as outras classes mantêm o padrão.
+Uma classe com `null` sai do catálogo. Um cliente fora do catálogo não tem
+perfil: `profile_pick` responde com um erro curto bilíngue que nomeia os
+clientes conhecidos. Para atualizar o catálogo em si, edite
+`DEFAULT_CONFIG.profiles` em [src/profiles.js](src/profiles.js).
+Todos os adaptadores leem a cota do usuário em `quota/<client>.json`.
 Registre o percentual restante mostrado em `/usage` do cliente com
 `okit-plugin quota set claude-code 80 [--window-minutes n]`; os clientes são os que
 a raiz configura (`claude-code`, `codex` e `opencode` quando ela não configura nenhum),

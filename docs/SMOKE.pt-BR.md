@@ -153,7 +153,7 @@ Um passo nomeia um recurso, a chamada que o toca e o **comportamento** que ele a
 | `C11` | esforço | `classify` dá `simple` para uma demanda curta conhecida | o `effort` da resposta é `simple`, com o motivo `short-body` |
 | `C12` | esforço | `classify` dá `normal` para uma demanda média conhecida | o `effort` da resposta é `normal`, com o motivo `mid-body` |
 | `C13` | esforço | `classify` dá `hard` para uma demanda longa conhecida | o `effort` da resposta é `hard`, com o motivo `long-body` |
-| `C14` | perfil | `profile_pick` resolve o perfil que a config declara para a classe pedida | o `model` da resposta contra `config.profiles.<client>.<class>` — e a classe rebaixada quando a cota está abaixo do piso; sem `config.json` não há perfil para escolher, então é um `skip` com o motivo `config-missing` e o relatório diz que a instalação está incompleta |
+| `C14` | perfil | `profile_pick` resolve o perfil que a config declara para a classe pedida | o `model` da resposta contra o perfil da classe, o catálogo padrão incluído — e a classe rebaixada quando a cota está abaixo do piso; sem `config.json` a instalação está sem configuração, então é um `skip` com o motivo `config-missing` e o relatório diz que a instalação está incompleta |
 | `C15` | caixa de entrada | `inbox_add` guarda a demanda que respondeu | a resposta, e o `inbox.json` tem o item com o título que mandamos |
 | `C16` | caixa de entrada | `inbox_list` a lista | a lista da resposta tem aquele item |
 | `C17` | caixa de entrada | `inbox_set_status` a move e o movimento persiste | a resposta, e o `inbox.json` lê `delegated` |
@@ -269,7 +269,7 @@ Sem flags offline, o runner usa a instalação, configuração, login e estado r
 Seis, tomadas pelo Produtor em 2026-10-23. São decisões, não perguntas: a seção acima já as segue.
 
 1. **O piso de cota é o da ordem.** O piso da execução in-client é o mesmo limiar que a ordem O5 do kit usa — `smoke.quotaFloorPct`, o que a configuração disser que é —, para a execução in-client exatamente como para o kit.
-2. **Config ausente é um `skip`, e o relatório diz que a instalação está incompleta.** `profile_pick` precisa de `config.profiles.<client>.<class>`; sem `config.json` não há perfil para escolher, então `C14` é um `skip` com o motivo `config-missing`, e o log humano diz em palavras que a instalação está incompleta, porque é o único skip que o usuário tem de consertar.
+2. **Config ausente é um `skip`, e o relatório diz que a instalação está incompleta.** `profile_pick` precisa de um perfil para a classe pedida, o do catálogo padrão ou o configurado; sem `config.json` a instalação está sem configuração, então `C14` é um `skip` com o motivo `config-missing`, e o log humano diz em palavras que a instalação está incompleta, porque é o único skip que o usuário tem de consertar.
 3. **`C4` toma os próprios eventos de hook do cliente.** A prova é o que o cliente relata com `--include-hook-events` (com `stream-json --verbose`); se faltar evidência de hook, o check é um `skip` com o motivo `hook-evidence-unavailable`, então a execução diz que os hooks estão sem prova em vez de dizer que estão quebrados.
 4. **A demo narra e relata.** O modo demo narra cada passo com as palavras do cliente *e* imprime no fim o mesmo relatório de uma linha por check dos outros modos: a narração é o que a pessoa assiste, o relatório é o que a pessoa confere.
 5. **`--dry-run` existe.** O runner percorre o roteiro e relata o que chamaria, sem chamar o modelo e sem gastar cota — o jeito barato de conferir o próprio roteiro.

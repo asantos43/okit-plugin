@@ -341,16 +341,19 @@ export function shouldShowStatus({ size, slices, executors } = {}) {
 const ADAPTER_QUOTA = { 'claude-code': readClientQuota, codex: readCodexQuota, opencode: readOpencodeQuota };
 
 /**
- * The subscriptions a table shows: the clients `config.profiles` gives a
- * profile to, and the known clients when it gives none, so a root that never
- * wrote a profile still shows its rows instead of an empty table.
+ * The subscriptions a table shows: the clients the root's own configuration
+ * names, and the known clients when it names none, so a root that never wrote
+ * a profile still shows its rows instead of an empty table. The default
+ * catalog of `config.profiles` is a fallback for the profiles, not a
+ * subscription: it never adds a client to the list.
  *
  * @param {object} config
  * @param {string[]} [fallback]
  * @returns {string[]}
  */
 export function clientsOf(config, fallback = CLIENTS) {
-  const configured = Object.keys(config?.profiles ?? {}).sort();
+  const configured = Array.isArray(config?.configuredClients) ? [...config.configuredClients]
+    : Object.keys(config?.profiles ?? {}).sort();
   const wanted = Array.isArray(fallback) && fallback.length > 0 ? fallback : CLIENTS;
   return configured.length > 0 ? configured : [...wanted];
 }
