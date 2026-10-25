@@ -4,7 +4,7 @@ import process from 'node:process';
 
 import { EFFORT_CLASSES } from './classify.js';
 
-const PROFILE_EFFORTS = Object.freeze({
+export const PROFILE_EFFORTS = Object.freeze({
   simple: 'low',
   normal: 'medium',
   hard: 'high',
@@ -75,6 +75,7 @@ export const DEFAULT_CONFIG = {
     pathExtensions: ['', '.exe', '.cmd', '.bat'],
   },
   lowQuotaPct: 15,
+  daemon: { minQuotaPct: 10 },
   limits: { global: 3, clients: {} },
   staleMinutes: 30,
   inbox: { holdStaleMinutes: 120, gitTimeoutMs: 5000 },
@@ -388,11 +389,21 @@ function knownClients(profiles) {
  * @param {object} config
  * @returns {string[]}
  */
-function configuredClientsOf(config) {
+export function configuredClientsOf(config) {
   if (Array.isArray(config?.configuredClients)) return [...config.configuredClients];
   const stored = config?.profiles;
   if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return [];
-  return Object.keys(stored).sort();
+  // A client counts as configured only when its entry names a class of its
+  // own: an empty object is the absence of a client, not a subscription of
+  // one. The removal of an empty group therefore never changes what the root
+  // has, whatever the file looked like before the value was set.
+  return Object.keys(stored)
+    .filter((client) => {
+      const classes = stored[client];
+      return classes !== null && typeof classes === 'object' && !Array.isArray(classes)
+        && Object.keys(classes).length > 0;
+    })
+    .sort();
 }
 
 function fill(text, values) {
@@ -426,6 +437,8 @@ export function normalizeLimits(limits = {}) {
 export function configOf(config) {
   const merged = { ...DEFAULT_CONFIG, ...(config ?? {}) };
   const inbox = { ...DEFAULT_CONFIG.inbox, ...config?.inbox };
+  const daemon = { ...DEFAULT_CONFIG.daemon, ...config?.daemon };
+  const smoke = { ...DEFAULT_CONFIG.smoke, ...config?.smoke };
   for (const key of ['holdStaleMinutes', 'gitTimeoutMs']) {
     if (!Number.isInteger(inbox[key]) || inbox[key] < 1) {
       throw new TypeError(`inbox.${key} must be an integer >= 1`);
@@ -434,6 +447,8 @@ export function configOf(config) {
   return {
     ...merged,
     inbox,
+    daemon,
+    smoke,
     actors: {
       ...DEFAULT_CONFIG.actors, ...config?.actors,
       sizeClasses: config?.actors?.sizeClasses ?? DEFAULT_CONFIG.actors.sizeClasses,

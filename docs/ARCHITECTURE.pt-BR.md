@@ -104,6 +104,50 @@ O catálogo é um reserva para os perfis, não uma lista de assinaturas: `client
 
 Uma recusa é curta e bilíngue: um cliente desconhecido recebe os clientes conhecidos em inglês e português, uma classe desconhecida recebe as classes, e nenhum id de demanda ou de ordem aparece na mensagem. Os textos vivem em `DEFAULT_CONFIG.profileMessages`, então o usuário os substitui no `config.json`.
 
+### 5.3 O esquema editável da configuração
+
+`src/config.js` guarda `CONFIG_SCHEMA.entries`, a tabela de toda chave que
+`okit-plugin config show|get|set|unset` aceita. Cada entrada informa o
+caminho pontilhado, o tipo, a faixa ou os valores permitidos, o caminho do
+padrão e uma descrição simples em inglês e português do efeito. As chaves
+atuais são `limits.global`, `limits.clients.<client>`,
+`profiles.<client>.<class>`, `profiles.<client>.<class>.model`,
+`profiles.<client>.<class>.effort`, `profiles.<client>.<class>.maxTurns`,
+`lowQuotaPct`, `daemon.minQuotaPct` e `smoke.quotaFloorPct`.
+
+Limites inteiros e tetos de voltas começam em 1. Percentuais de cota vão de
+0 a 100. Modelos são textos não vazios, e os esforços permitidos vêm de
+`PROFILE_EFFORTS`. Os nomes de clientes vêm do catálogo padrão e de
+`configuredClientsOf`; as classes vêm do catálogo de perfis. Os padrões de
+escopo do esquema permitem apenas letras, dígitos, `-` e `_`, e os segmentos
+reservados `__proto__`, `constructor` e `prototype` são recusados. O comando
+expande apenas nomes seguros no esquema, então um cliente ou classe inseguro é
+recusado como chave desconhecida e um cliente ou classe fora do catálogo é
+recusado com a lista válida.
+
+`show` imprime toda chave expandida com seu valor efetivo, origem (`default`
+ou `user`) e efeito. `get` imprime uma. `set` converte o texto para o tipo
+do esquema, valida e muda só essa folha em `config.json`; usa a trava de
+configuração e `writeJsonAtomic`, então uma escrita falha deixa o arquivo
+antigo intacto. `unset` remove a folha, remove qualquer apelido legado da
+entrada e restaura o padrão. Valor inválido ou chave desconhecida sai com 1 e
+não grava nada.
+
+A chave de classe `profiles.<client>.<class>` aceita só `null`, o estado que
+desliga a classe, e `unset` nela religa a classe. Um `set` nunca atravessa um
+ancestral que não seja objeto: ele recusa com uma mensagem curta bilíngue que
+nomeia o perfil desligado e o `config unset` que o liga, e não grava nada. Um
+cliente só conta como configurado quando sua entrada em `profiles` nomeia uma
+classe sua, então um grupo vazio é a ausência de um cliente e removê-lo não
+muda nada.
+
+Para acrescentar uma chave, acrescente sua entrada em
+`CONFIG_SCHEMA.entries`, coloque o padrão em `DEFAULT_CONFIG` (ou aponte
+`defaultPath` para o padrão existente), acrescente tipo e faixa à entrada e
+adicione testes do comando e documentação bilíngue. Não coloque cliente,
+classe, faixa, mensagem ou lista de chaves na lógica do comando: o esquema é
+a única fonte consumida pelo código.
+
 ## 6. Windows rules
 - Construir todo caminho com `node:path`, nunca concatenando separadores; guardar com barra direta, a forma que o Claude Code substitui, para que o que escrevemos corresponda ao que o cliente lê.
 - Sem shell: `child_process.spawn` com array de argumentos. Comandos de hook na forma shell são preocupação do cliente, não nossa.

@@ -32,6 +32,10 @@ okit-plugin daemon status [--table [--locale en|pt-BR]]
 okit-plugin autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
 okit-plugin status [--locale en|pt-BR]
 okit-plugin actors [--client <name>|--all] [--json] [--locale en|pt-BR]
+okit-plugin config show
+okit-plugin config get <key>
+okit-plugin config set <key> <value>
+okit-plugin config unset <key>
 okit-plugin kit [--require]
 okit-plugin hook post-compact
 okit-plugin smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]
@@ -53,7 +57,7 @@ The stdio MCP server exposes 15 tools: `acquire_slot`, `release_slot`,
 
 An **actor** is a configured model + effort pair available in a client. Ask “which actors/executors can run?” with `actors` or MCP `actors_list` before sizing and choosing. It lists profiles even when no executors are running; status/slots is the view of running executors. Selection follows status: detected client by default, `--all` for configured clients (all three if empty), `--client` overrides both. JSON includes actors, quota, free slots, launch reasons/remedies and missing-size alternatives.
 
-`actors.sizeClasses` in `DEFAULT_CONFIG` maps S→simple, M→normal, L→hard; configure this named map to change sizes. `actors.criticClass` names the separate critic role. Identical model + effort pairs combine sizes. The nearest available size is suggested for a missing size; quota below the floor or occupied slots explain the remedy. Unknown quota does not block. The table shows the quota state, lowest remaining percentage and reading age; `status` shows the command to record a quota. Setting up models from a guided command is coming; until then ask the person who maintains okit.
+`actors.sizeClasses` in `DEFAULT_CONFIG` maps S→simple, M→normal, L→hard; configure this named map to change sizes. `actors.criticClass` names the separate critic role. Identical model + effort pairs combine sizes. The nearest available size is suggested for a missing size; quota below the floor or occupied slots explain the remedy. Unknown quota does not block. The table shows the quota state, lowest remaining percentage and reading age; `status` shows the command to record a quota. Use `okit-plugin config set profiles.<client>.<class>.model <value>` to change the model for a client and work class.
 
 `okit-plugin inbox list [--locale en|pt-BR]` and MCP `inbox_list` show each holder.
 `okit-plugin inbox take <id> --client codex --session <s> --worktree <path>` claims atomically;
@@ -70,32 +74,53 @@ See [SMOKE.md](docs/SMOKE.md) for budgets and evidence requirements.
 
 ## Configuration — Configuração
 
-State defaults to `~/.okwork`; `OKWORK_HOME` overrides it. Edit `config.json`
-there. Defaults in [src/profiles.js](src/profiles.js) include `lowQuotaPct: 15`,
+State defaults to `~/.okwork`; `OKWORK_HOME` overrides it. Manage editable
+settings with `okit-plugin config`; there is no need to edit `config.json` by
+hand. Defaults in [src/profiles.js](src/profiles.js) include `lowQuotaPct: 15`,
 `limits: {global: 3, clients: {}}`, `staleMinutes: 30`, and the default
 profile catalog.
-Set `limits.global` and `limits.clients.<client>` in that file; there is no
-configuration command. For example, `"limits": {"global": 3, "clients":
-{"claude-code": 100, "codex": 2}}`. A client's own cap replaces the default;
-clients without an entry each use `global`. There is no shared total cap.
+
+`okit-plugin config show` lists every editable key with its effective value,
+its origin (`default` or `user`) and a plain explanation of its effect.
+`okit-plugin config get <key>` shows one effective value and origin.
+`okit-plugin config set <key> <value>` validates the type, range and known
+client or class, then atomically changes only that key while preserving the
+rest of the file. It prints the previous and new values. An invalid value or
+unknown key is refused without a write. Client and class names in dotted paths
+may contain only letters, digits, `-` or `_`; `__proto__`, `constructor` and
+`prototype` are reserved and refused. `okit-plugin config unset <key>` returns
+the key to its default, and the groups the removal leaves empty are removed
+too, so the file reads the same as it read before the value was set.
+
+Set `limits.global` and `limits.clients.<client>` with the command; for
+example, `okit-plugin config set limits.global 3` and
+`okit-plugin config set limits.clients.claude-code 100`. A client's own cap
+replaces the default; clients without an entry each use `global`. There is no
+shared total cap.
 Positive integers are required; invalid values fail configuration reads, and
 unknown client names warn in status. Legacy `perClient` overrides `global`
-as a deprecated alias, with a status warning. The old total meaning of `global`
-is removed. Checks re-read configuration without restart; status shows live/cap,
-available slots and whether the cap is from the client or the default.
+as a deprecated alias, with a status warning. The command removes that legacy
+alias from the user configuration when it writes or unsets `limits.global`.
+The old total meaning of `global` is removed. Checks re-read configuration
+without restart; status shows live/cap, available slots and whether the cap is
+from the client or the default.
 The status table ends with one fixed, localized sentence: slots are running
 executors, and `actors` lists the available model + effort profiles.
 The default catalog gives every client (`claude-code`, `codex`, `opencode`) a
 profile per class (`simple`, `normal`, `hard`), each with `model`, `effort`
 (`low`, `medium`, `high`) and `maxTurns` (`20`, `40`, `80`), so a clean
 install answers `profile_pick` and `actors_list` for every client and class
-without a `profiles` entry. Set `profiles.<client>.simple|normal|hard` with
-`model`, `effort`, `maxTurns` to change the catalog: your value replaces the
-class it names, class by class, and the other classes keep the default. A
-class set to `null` is dropped from the catalog. A client outside the catalog
-has no profile: `profile_pick` answers with a short bilingual error naming the
-known clients. To update the catalog itself, edit `DEFAULT_CONFIG.profiles` in
+without a `profiles` entry. Change one profile field with
+`okit-plugin config set profiles.<client>.<class>.model|effort|maxTurns <value>`;
+your value replaces the class it names, class by class, and the other classes
+keep the default. A client outside the catalog has no profile: `profile_pick`
+answers with a short bilingual error naming the known clients. To update the
+catalog itself, edit `DEFAULT_CONFIG.profiles` in
 [src/profiles.js](src/profiles.js).
+A class set to `null` is disabled: `okit-plugin config set profiles.<client>.<class> null`
+turns it off, `okit-plugin config unset profiles.<client>.<class>` turns it back
+on and a `set` of a field under a disabled class is refused without a write; an
+empty client group (`{}`) is the absence of a client, not a subscription of one.
 All adapters read user quota from `quota/<client>.json`.
 Record the remaining percentage shown in the client's `/usage` with
 `okit-plugin quota set claude-code 80 [--window-minutes n]`; the clients are the ones
