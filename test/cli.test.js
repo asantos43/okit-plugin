@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import * as filesystem from 'node:fs/promises';
 import { join } from 'node:path';
 import process from 'node:process';
 import { test } from 'node:test';
@@ -8,10 +9,49 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { main } from '../src/cli.js';
+import { installConfig } from '../src/install/config.js';
 import { inboxAdd, inboxClaim, inboxList } from '../src/inbox.js';
 import { readQuota as claudeQuota } from '../adapters/claude-code/index.js';
 import { readQuota as codexQuota } from '../adapters/codex/index.js';
 import { readQuota as opencodeQuota } from '../adapters/opencode/index.js';
+
+// | Input | Must pass | Must refuse |
+// | status with absent bin, each shell | configured install hint | spawned process |
+// | status with bin present | hide hint | redundant warning |
+for (const shell of ['bash', 'zsh', 'fish', 'powershell']) test(`status PATH hint for ${shell}`, async (t) => {
+  const root = await tempRoot(t);
+  const bin = join(root, 'bin');
+  const windows = shell === 'powershell';
+  const config = installConfig({ linkDirectory: bin,
+    path: { activate: { [shell]: windows ? 'refresh {bin}' : 'reload {file}' } } });
+  await writeFile(join(root, 'config.json'), JSON.stringify({ ...CONFIG, install: config }));
+  const profile = windows ? null : join(root, config.path.shells[shell].login);
+  if (profile) {
+    await mkdir(join(profile, '..'), { recursive: true });
+    await writeFile(profile, config.path.begin + '\n' + config.path.end);
+  }
+  const io = { root, home: root, env: { HOME: root, SHELL: `/bin/${shell}`, PATH: '' },
+    platform: windows ? 'win32' : 'linux', readQuota: async () => ({ source: 'off' }),
+    run: () => assert.fail('must not run'), spawn: () => assert.fail('must not spawn') };
+  const expected = config.path.messages.activate.replaceAll('{value}',
+    config.path.activate[shell].replaceAll('{bin}', `'${bin}'`).replaceAll('{file}', `'${profile}'`));
+  const absent = await cli(['status'], io);
+  assert.equal(absent.code, 0, absent.err.join('\n'));
+  assert.ok(absent.out.includes(expected));
+  const present = await cli(['status'], { ...io, env: { ...io.env, PATH: bin } });
+  assert.equal(present.code, 0, present.err.join('\n'));
+  assert.ok(!present.out.includes(expected));
+});
+
+test('status without an install record never probes directory writability', async (t) => {
+  const root = await tempRoot(t);
+  await mkdir(join(root, '.local', 'bin'), { recursive: true });
+  const result = await cli(['status'], { root, home: root,
+    env: { HOME: root, PATH: join(root, '.local', 'bin') },
+    fs: { ...filesystem, access: () => assert.fail('status must not probe writability') },
+    readQuota: async () => ({ source: 'off' }) });
+  assert.equal(result.code, 0, result.err.join('\n'));
+});
 
 // Must pass / must refuse:
 // | pass: known clients, 0/80.5/100, positive window, show |

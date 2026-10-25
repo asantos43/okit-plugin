@@ -13,7 +13,7 @@ import { latestRelease } from '../src/install/release.js';
 import { downloadRelease } from '../src/install/download.js';
 import { extract } from '../src/install/extract.js';
 import { place, readRecord, readRecords, saveRecord } from '../src/install/place.js';
-import { applyLink, managePath } from '../src/install/link.js';
+import { applyLink, managePath, activationWarning, activationCommand, currentShell } from '../src/install/link.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { register } from '../src/install/register.js';
 import { installerCommand } from '../src/install/index.js';
@@ -23,6 +23,19 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const execute = promisify(execFile);
 import { detectKit } from '../src/install/kit.js';
+
+test('currentShell lowercases Unix shell basenames and Windows-style names', () => {
+  const config = installConfig();
+  assert.equal(currentShell({ SHELL: '/usr/bin/ZSH' }, config), 'zsh');
+  assert.equal(currentShell({ SHELL: 'PowerShell.ExE' }, config), 'powershell.exe');
+});
+
+test('currentShell returns null for empty or whitespace values', () => {
+  const config = installConfig();
+  for (const SHELL of ['', ' ', '\t\n']) {
+    assert.equal(currentShell({ SHELL }, config), null);
+  }
+});
 
 // | Input | Must pass | Must refuse |
 // | legacy owned link, every client, install/update | migrate and uninstall | |
@@ -145,6 +158,61 @@ for (const shell of ['bash', 'zsh', 'fish']) test(`${shell} creates its configur
   assert.ok(content.includes(f.config.path.begin));
   assert.equal(await main(['install', '--client', 'codex'], f.io), 0);
   assert.equal(await fs.readFile(profile, 'utf8'), content);
+});
+
+// | Input | Must pass | Must refuse |
+// | bash/zsh/fish/PowerShell, configured commands | exact activation hint | spawning a shell |
+// | bin already in PATH, even without executable | no activation hint | redundant warning |
+for (const shell of ['bash', 'zsh', 'fish', 'powershell']) {
+  for (const custom of [false, true]) test(`${shell} activation command; custom=${custom}`, async (t) => {
+    const f = await fixture(t);
+    const windows = shell === 'powershell';
+    const config = installConfig({ ...f.config, path: { ...f.config.path, enabled: !windows,
+      activate: custom ? { [shell]: windows ? 'manual {bin}' : 'manual {file}' } : f.config.path.activate } });
+    const deps = { ...f.deps, config, platform: windows ? 'win32' : 'linux',
+      env: { SHELL: `/bin/${shell}`, PATH: '' },
+      run: () => assert.fail('must not run'), spawn: () => assert.fail('must not spawn'),
+      pathExecute: () => assert.fail('must not execute PowerShell') };
+    await managePath(deps);
+    const profile = windows ? null : join(f.home, config.path.shells[shell].login);
+    const literal = (value) => `'${value.replaceAll("'", windows ? "''" : "'\\''")}'`;
+    const command = config.path.activate[shell].replaceAll('{bin}', literal(f.bin)).replaceAll('{file}', literal(profile ?? ''));
+    const expected = config.path.messages.activate.replaceAll('{value}', command);
+    assert.ok(f.output.includes(expected), f.output.join('\n'));
+    assert.equal(await activationWarning(deps), expected);
+    deps.env = windows ? { Path: f.bin.toUpperCase() + '/' } : { ...deps.env, PATH: f.bin + '/' };
+    f.output.length = 0;
+    await managePath(deps);
+    assert.equal(await activationWarning(deps), null);
+    assert.ok(!f.output.includes(expected));
+  });
+}
+
+// | shellVariable/windowsShell overrides | configured shell and quoting | default shell selection |
+test('activation hints detect shells using configured shellVariable and windowsShell', async (t) => {
+  const f = await fixture(t);
+  const config = installConfig({ path: { shellVariable: 'CUSTOM_SHELL', windowsShell: 'pwsh',
+    activate: { zsh: 'custom {file}', pwsh: 'windows {bin}' } } });
+  assert.equal(installConfig({ path: { enabled: false } }).path.shellVariable, 'SHELL');
+  const profile = join(f.home, config.path.shells.zsh.login);
+  await fs.writeFile(profile, config.path.begin);
+  const deps = { ...f.deps, config, platform: 'linux',
+    env: { PATH: '', SHELL: '/bin/bash', CUSTOM_SHELL: '/bin/zsh' } };
+  assert.equal(await activationWarning(deps),
+    config.path.messages.activate.replaceAll('{value}', `custom '${profile}'`));
+  assert.equal(await activationWarning({ ...deps, platform: 'win32', bin: "a'b c" }),
+    config.path.messages.activate.replaceAll('{value}', "windows 'a''b c'"));
+});
+
+test('activation hints quote profile/bin names and fall back for unknown shells or missing blocks', async (t) => {
+  const f = await fixture(t);
+  assert.equal(activationCommand(f.config, 'bash', "a'b c"), ". 'a'\\''b c'");
+  assert.equal(activationCommand(f.config, 'fish', "a'b c"), "source 'a'\\''b c'");
+  assert.equal(activationCommand(f.config, 'powershell', null, "a'b c"), "$env:Path = 'a''b c' + ';' + $env:Path");
+  for (const shell of ['unknown', 'bash', '']) {
+    assert.equal(await activationWarning({ ...f.deps, env: { PATH: '', SHELL: shell } }),
+      f.config.path.messages.activateTerminal);
+  }
 });
 
 for (const owned of [true, false]) test(`Windows user PATH preserves existing entries; owns addition=${owned}`, async (t) => {

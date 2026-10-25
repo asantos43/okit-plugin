@@ -7,8 +7,147 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execute = promisify(execFile);
-const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+export const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 const missingFile = (error) => { if (error.code !== 'ENOENT') throw error; return null; };
+
+/**
+ * The shell of the current terminal, from the environment only: the basename
+ * of the configured variable, or null when the environment names no shell.
+ *
+ * @param {object} env the environment of the current terminal
+ * @param {object} config the install configuration
+ * @returns {string|null} the shell name
+ */
+export function currentShell(env, config) {
+  const variable = config.path.shellVariable;
+  const value = env?.[variable];
+  if (typeof value !== 'string' || !value.trim()) return null;
+  return basename(value).toLowerCase();
+}
+
+/**
+ * The exact command that makes the command resolve in the given shell, or null
+ * when the shell is unknown or no profile holds the managed PATH block.
+ *
+ * @param {object} config the install configuration
+ * @param {string|null} shell the shell of the current terminal
+ * @param {string|null} profile the profile file that holds the block
+ * @param {string} bin the command link directory
+ * @returns {string|null} the command to run
+ */
+export function activationCommand(config, shell, profile, bin) {
+  const settings = config.path;
+  const template = settings.activate?.[shell];
+  if (!template || (template.includes('{file}') && !profile)) return null;
+  const literal = shell === settings.windowsShell ? (value) => `'${value.replaceAll("'", "''")}'` : quote;
+  return template.replaceAll('{file}', literal(profile ?? '')).replaceAll('{bin}', literal(bin ?? ''));
+}
+
+/**
+ * The plain sentence with the exact command that makes the command resolve in
+ * the current terminal, or the generic sentence when there is no command.
+ *
+ * @param {object} config the install configuration
+ * @param {object} deps
+ * @param {object} deps.env the environment of the current terminal
+ * @param {string} deps.platform the platform of the current terminal
+ * @param {string|null} deps.profile the profile file that holds the block
+ * @param {string} deps.bin the command link directory
+ * @returns {string} the sentence for the user
+ */
+export function activationMessage(config, { env, platform, profile, bin }) {
+  const settings = config.path;
+  const shell = platform === config.windowsPlatform ? settings.windowsShell : currentShell(env, config);
+  const command = activationCommand(config, shell, profile, bin);
+  return command
+    ? settings.messages.activate.replaceAll('{value}', command)
+    : settings.messages.activateTerminal;
+}
+
+/**
+ * The profile files of a shell that can hold the managed PATH block: the
+ * existing ones, or the login profile when the shell has none.
+ *
+ * @param {object} deps
+ * @param {object} deps.fs the filesystem
+ * @param {object} deps.config the install configuration
+ * @param {string} deps.home the home folder of the current user
+ * @param {string|null} shell the shell of the current terminal
+ * @returns {Promise<string[]>} the profile files, in order
+ */
+export async function shellProfiles(deps, shell) {
+  const { fs, config, home } = deps;
+  const settings = config.path;
+  const shells = settings.shells[shell] ?? settings.shells[settings.fallbackShell];
+  const paths = [];
+  for (const name of shells.files) {
+    const path = join(home, name);
+    if (await fs.stat(path).catch(missingFile)) paths.push(path);
+  }
+  if (!paths.length) paths.push(join(home, shells.login));
+  return paths;
+}
+
+/**
+ * The profile file that holds the managed PATH block of the given shell, or
+ * null when no profile of that shell holds it.
+ *
+ * @param {object} deps
+ * @param {object} deps.fs the filesystem
+ * @param {object} deps.config the install configuration
+ * @param {string} deps.home the home folder of the current user
+ * @param {string|null} shell the shell of the current terminal
+ * @returns {Promise<string|null>} the profile file
+ */
+export async function managedProfile(deps, shell) {
+  const { fs, config } = deps;
+  if (!shell) return null;
+  for (const path of await shellProfiles(deps, shell)) {
+    const content = await fs.readFile(path, 'utf8').catch(missingFile);
+    if (content?.includes(config.path.begin)) return path;
+  }
+  return null;
+}
+
+/**
+ * Whether the current terminal's PATH contains the installation's bin directory.
+ *
+ * @param {object} deps
+ * @param {object} deps.env the environment of the current terminal
+ * @param {object} deps.config the install configuration
+ * @param {string} deps.platform the platform of the current terminal
+ * @param {string} deps.bin the command link directory
+ * @returns {boolean} true when bin is already in PATH
+ */
+export function binInPath({ env, config, platform, bin }) {
+  const windows = platform === config.windowsPlatform;
+  const path = windows ? Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] : env.PATH;
+  const normalize = (value) => {
+    const directory = windows ? value.replaceAll('\\', '/') : value;
+    const normalized = directory.replace(/\/+$/, '') || '/';
+    return windows ? normalized.toLowerCase() : normalized;
+  };
+  return (path ?? '').split(windows ? ';' : delimiter).some((part) => part && normalize(part) === normalize(bin));
+}
+
+/**
+ * The warning that tells the user the exact command that makes the command
+ * resolve in the current terminal, or null when bin is already in PATH.
+ *
+ * @param {object} deps
+ * @param {object} deps.fs the filesystem
+ * @param {object} deps.env the environment of the current terminal
+ * @param {object} deps.config the install configuration
+ * @param {string} deps.platform the platform of the current terminal
+ * @param {string} deps.home the home folder of the current user
+ * @returns {Promise<string|null>} the sentence for the user
+ */
+export async function activationWarning(deps) {
+  const { config, env, platform } = deps;
+  if (binInPath(deps)) return null;
+  const profile = platform === config.windowsPlatform ? null : await managedProfile(deps, currentShell(env, config));
+  return activationMessage(config, { env, platform, profile, bin: deps.bin });
+}
 
 export async function chooseLinkDirectory(deps) {
   if (deps.config.linkDirectory || deps.platform === deps.config.windowsPlatform) return deps.bin;
@@ -61,7 +200,7 @@ export async function managePath(deps, remove = false) {
   const say = (key, value) => deps.out(settings.messages[key].replaceAll('{value}', value));
   const windows = deps.platform === config.windowsPlatform;
   const separator = windows ? ';' : delimiter;
-  const present = (env.PATH ?? '').split(separator).some((part) => windows ? part.toLowerCase() === bin.toLowerCase() : part === bin);
+  const present = binInPath(deps);
   say('link', join(bin, config.command));
   const enabled = settings.enabled && !deps.noPath;
   const changed = [];
@@ -69,14 +208,8 @@ export async function managePath(deps, remove = false) {
     if (!state.windows && await windowsPath(deps, bin)) state.windows = bin;
     if (state.windows) changed.push(settings.messages.user);
   } else if (enabled && !present) {
-    const shell = basename(env.SHELL ?? settings.fallbackShell);
-    const profiles = settings.shells[shell] ?? settings.shells[settings.fallbackShell];
-    const paths = [];
-    for (const name of profiles.files) {
-      const path = join(deps.home, name);
-      if (await fs.stat(path).catch(missingFile)) paths.push(path);
-    }
-    if (!paths.length) paths.push(join(deps.home, profiles.login));
+    const shell = currentShell(env, config) ?? settings.fallbackShell;
+    const paths = await shellProfiles(deps, shell);
     for (const path of paths) {
       const content = await fs.readFile(path, 'utf8').catch(missingFile) ?? '';
       const block = profileBlock(settings, bin, shell === 'fish');
@@ -97,8 +230,8 @@ export async function managePath(deps, remove = false) {
   }
   say(changed.length ? 'changed' : present ? 'existing' : enabled && windows ? 'existing' : 'manual', changed.join(', ') || bin);
   say('restart', '');
-  const profile = windows ? null : changed[0] ?? state.profiles[0]?.path;
-  if (profile) say('source', quote(profile));
+  const warning = await activationWarning(deps);
+  if (warning) deps.out(warning);
   const newPath = present || !enabled ? env.PATH ?? '' : [bin, env.PATH].filter(Boolean).join(separator);
   let resolved;
   for (const directory of newPath.split(separator)) {
