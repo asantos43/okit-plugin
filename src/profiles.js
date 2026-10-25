@@ -102,6 +102,55 @@ export const DEFAULT_CONFIG = {
     unknownClass: 'Unknown profile class "{class}". Use one of: {classes}. / Classe de perfil desconhecida "{class}". Use uma das classes: {classes}.',
     missingProfile: 'Client "{client}" has no profile for class "{class}". Define it in the plugin configuration. / O cliente "{client}" não tem perfil para a classe "{class}". Defina-o na configuração do plugin.',
   },
+  // D61: how each client lists the models it offers. The command, its
+  // arguments, the deadline, the interpreter of the output and the message of
+  // a missing executable are configuration, never code: the user replaces them
+  // in `config.json` and the logic only reads them.
+  setup: {
+    detect: {
+      'claude-code': {
+        // No listing command of this client was verified, so the catalog answers.
+        command: null,
+        args: [],
+        timeoutMs: 5000,
+        parse: 'lines',
+        activeField: null,
+        activeValues: null,
+        candidates: [],
+        // The family rule of this client: `separator` divides the provider
+        // from the rest of the model name, and `minimumPrefix` is the length
+        // the common prefix of the rest must reach for two names to be of the
+        // same family. A different provider is never of the same family.
+        family: { separator: '/', minimumPrefix: 5 },
+        notFoundMessage: 'Claude Code was not found on this machine, so the built-in catalog is used. / O Claude Code não foi encontrado nesta máquina, então o catálogo interno é usado.',
+      },
+      codex: {
+        // `codex debug models` prints the raw catalog as JSON; `--bundled`
+        // answers from the binary itself, with no network refresh.
+        command: 'codex',
+        args: ['debug', 'models', '--bundled'],
+        timeoutMs: 5000,
+        parse: 'json-array',
+        activeField: 'visibility',
+        activeValues: ['list'],
+        candidates: [],
+        family: { separator: '/', minimumPrefix: 5 },
+        notFoundMessage: 'Codex was not found on this machine, so the built-in catalog is used. / O Codex não foi encontrado nesta máquina, então o catálogo interno é usado.',
+      },
+      opencode: {
+        // `opencode models` prints one `provider/model` per line.
+        command: 'opencode',
+        args: ['models'],
+        timeoutMs: 5000,
+        parse: 'lines',
+        activeField: null,
+        activeValues: null,
+        candidates: [],
+        family: { separator: '/', minimumPrefix: 5 },
+        notFoundMessage: 'opencode was not found on this machine, so the built-in catalog is used. / O opencode não foi encontrado nesta máquina, então o catálogo interno é usado.',
+      },
+    },
+  },
   actors: {
     sizeClasses: { S: 'simple', M: 'normal', L: 'hard' },
     criticClass: 'critic',
@@ -343,6 +392,23 @@ export const DEFAULT_CONFIG = {
   },
 };
 
+// D61: the reasons a model listing answers with. Every one of them says in
+// plain words what happened, in English and in Portuguese, and none of them
+// carries a demand or an order id.
+export const LIST_MESSAGES = Object.freeze({
+  listed: 'The model list came from the client command: {listed} models listed, {active} active, {hidden} hidden. / A lista de modelos veio do comando do cliente: {listed} modelos listados, {active} ativos, {hidden} ocultos.',
+  noCommand: 'No model-listing command is configured for {client}, so the built-in catalog is used. / Nenhum comando de listagem de modelos está configurado para {client}, então o catálogo interno é usado.',
+  notFound: '{client} was not found on this machine, so the built-in catalog is used. / O {client} não foi encontrado nesta máquina, então o catálogo interno é usado.',
+  timeout: 'The model list did not answer within {timeoutMs} ms, so the built-in catalog is used. / A lista de modelos não respondeu em {timeoutMs} ms, então o catálogo interno é usado.',
+  failed: 'The model list command failed with exit code {code}, so the built-in catalog is used. / O comando de listagem de modelos falhou com o código de saída {code}, então o catálogo interno é usado.',
+  unknownOutput: 'The model list output was not understood, so the built-in catalog is used. / A saída da lista de modelos não foi entendida, então o catálogo interno é usado.',
+  emptyList: 'The client answered and listed no model. / O cliente respondeu e não listou nenhum modelo.',
+  noneActive: 'The client answered and listed {listed} models, but none of them is active. / O cliente respondeu e listou {listed} modelos, mas nenhum deles está ativo.',
+  unknownParser: 'The configured output interpreter "{parse}" is unknown, so the built-in catalog is used. / O interpretador de saída "{parse}" configurado é desconhecido, então o catálogo interno é usado.',
+  badTimeout: 'The configured deadline for the model list of {client} is not a valid number, so the built-in catalog is used. / O prazo configurado para a lista de modelos de {client} não é um número válido, então o catálogo interno é usado.',
+  error: 'The model list command could not be run ({code}), so the built-in catalog is used. / O comando de listagem de modelos não pôde ser executado ({code}), então o catálogo interno é usado.',
+});
+
 // One step down the effort scale. Nothing goes back up.
 const LOWER = { hard: 'normal', normal: 'simple', simple: 'simple' };
 
@@ -374,6 +440,42 @@ function mergeProfiles(userProfiles) {
     profiles[client] = merged;
   }
   return profiles;
+}
+
+// D61: the family rule of a client is merged key by key, like the rest of the
+// detection settings: changing the minimum prefix never erases the separator,
+// and changing the separator never erases the minimum prefix. `null` is the
+// user's own answer: no family rule, so no automatic replacement at all.
+function mergeFamily(base, given) {
+  if (given === null) return null;
+  const own = given && typeof given === 'object' && !Array.isArray(given) ? given : {};
+  const defaults = base && typeof base === 'object' && !Array.isArray(base) ? base : {};
+  return { ...defaults, ...own };
+}
+
+// D61: the detection settings of every client. The user's `config.json`
+// replaces the default of the client it names, key by key, and the other
+// clients keep their own defaults: one override never erases the rest.
+function mergeSetup(userSetup) {
+  const defaults = DEFAULT_CONFIG.setup?.detect ?? {};
+  const given = userSetup?.detect;
+  const own = given && typeof given === 'object' && !Array.isArray(given) ? given : {};
+  const rest = userSetup && typeof userSetup === 'object' && !Array.isArray(userSetup) ? userSetup : {};
+  const detect = {};
+  for (const [client, settings] of Object.entries(defaults)) {
+    const given = own[client];
+    const settingsOfClient = given && typeof given === 'object' && !Array.isArray(given) ? given : null;
+    detect[client] = {
+      ...settings,
+      ...(settingsOfClient ?? {}),
+      family: mergeFamily(settings.family, settingsOfClient?.family),
+    };
+  }
+  // A client the defaults do not name keeps the user's own settings.
+  for (const [client, settings] of Object.entries(own)) {
+    if (!Object.hasOwn(detect, client)) detect[client] = { ...settings };
+  }
+  return { ...DEFAULT_CONFIG.setup, ...rest, detect };
 }
 
 function knownClients(profiles) {
@@ -449,6 +551,7 @@ export function configOf(config) {
     inbox,
     daemon,
     smoke,
+    setup: mergeSetup(config?.setup),
     actors: {
       ...DEFAULT_CONFIG.actors, ...config?.actors,
       sizeClasses: config?.actors?.sizeClasses ?? DEFAULT_CONFIG.actors.sizeClasses,

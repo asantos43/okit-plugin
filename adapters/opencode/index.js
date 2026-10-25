@@ -6,7 +6,8 @@ import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import process from 'node:process';
 import { installSkillFiles } from '../../src/skills.js';
-import { makeSpawner } from '../../src/spawn-process.js';
+import { configOf } from '../../src/profiles.js';
+import { listModelsOf, makeSpawner } from '../../src/spawn-process.js';
 import { readJson } from '../../src/state.js';
 import { paths, stateRoot } from '../../src/store.js';
 
@@ -62,6 +63,23 @@ export async function readQuota({ stateRoot: root, env, now = Date.now } = {}) {
     ...(Number.isFinite(recorded) ? { recordedAt: stored.recordedAt,
       ageMinutes: Math.max(0, now() - recorded) / 60_000 } : {}),
     ...(finite(stored.windowMinutes) ? { windowMinutes: stored.windowMinutes } : {}) };
+}
+
+/** Lists the models this client offers, read-only.
+ *
+ * The command, its arguments, the deadline and the interpreter of the output
+ * come from the configuration (`setup.detect.opencode`); this adapter only
+ * reads them. A missing executable, a command that does not answer in time, a
+ * command that fails and an output the plugin does not understand are answers
+ * with a reason in plain words, never exceptions.
+ *
+ * @param {{env?: object, run?: Function, config?: object, cwd?: string}} [opts]
+ * @returns {Promise<{client: string, installed: boolean|null, models: string[],
+ *   hidden: string[], source: 'listing'|'catalog', reason: string}>}
+ */
+export async function listModels(opts = {}) {
+  const settings = configOf(opts.config).setup?.detect?.[CLIENT] ?? {};
+  return listModelsOf(CLIENT, { ...opts, settings });
 }
 
 /** Start `opencode run` through makeSpawner; the Task bridge is not implemented.
@@ -130,4 +148,4 @@ export async function installHooks(files, opts = {}) {
   }
 }
 
-export default { CLIENT, spawn, readQuota, capabilities, installSkill, installHooks, configRoot };
+export default { CLIENT, spawn, readQuota, capabilities, installSkill, installHooks, configRoot, listModels };
