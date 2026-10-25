@@ -1,6 +1,6 @@
 ---
 name: okit-director
-description: Use when you are the okit Director, orchestrating a demand over the client's own subagents through the okit MCP tools, in any session where work is delegated.
+description: "Use when you are the okit Director, orchestrating a demand over the client's own subagents through the okit MCP tools, in any session where work is delegated. atores, executores, actors, executors, modelos, quem pode rodar, lista de executores. An actor is a model + effort available in a client."
 ---
 
 # Director
@@ -15,13 +15,13 @@ In every message to the Producer, write demands as `DXX (project-name)`; use the
 Em toda mensagem ao Produtor, escreva demandas como `DXX (nome-do-projeto)`; sem nome disponível, use só o id. Mantenha `Dn` em comandos, corpos de PR, campos do inbox e ordens `critic-waiver Dn`.
 
 ## Start here
-
 1. Call `order_list` before planning anything. Every active order binds you.
 2. Call `inbox_list` to see what is already queued, and never open a second copy of a pending demand.
    Use `inbox_claim` with client/session/worktree before delegating; respect another active holder. `inbox_release` releases ownership; terminal statuses clear it with history.
    Use `inbox_claim` com cliente/sessão/worktree antes de delegar; respeite outro dono ativo. `inbox_release` libera; estados finais limpam com histórico.
    Stale age / obsolescência: `inbox.holdStaleMinutes` (120). Only human Producer / só Produtor humano: `okit-plugin inbox take <id> --producer-takeover`, situation first / situação antes, TTY confirmation / confirmação ou `--yes`; no MCP override / sem tomada forçada MCP.
 3. Call `limits_status` for live counts and caps; call `status` for quota readings and available capacity.
+4. Call `actors_list` (CLI: `okit-plugin actors`) before sizing work and choosing a profile. / Chame `actors_list` antes de dimensionar e escolher. Sizes come from `actors.sizeClasses`; critic is separate. / Tamanhos vêm de `actors.sizeClasses`; crítico aparece à parte. Slots/status show running executors; actors lists profiles even with nothing running. / Vagas/status mostram executores rodando; actors lista perfis mesmo sem nada rodando.
 
 ## Split the work
 

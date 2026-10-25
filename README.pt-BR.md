@@ -31,6 +31,7 @@ okit-plugin daemon start|stop|status|pause|resume|run-once
 okit-plugin daemon status [--table [--locale en|pt-BR]]
 okit-plugin autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
 okit-plugin status [--locale en|pt-BR]
+okit-plugin actors [--client <nome>|--all] [--json] [--locale en|pt-BR]
 okit-plugin kit [--require]
 okit-plugin hook post-compact
 okit-plugin smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]
@@ -47,9 +48,13 @@ Quando ambos estão presentes, a linha aponta para as
 [regras de sobreposição D1](docs/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
 Veja a [configuração do kit](INSTALL.pt-BR.md#kit-de-orquestração).
 
-O servidor MCP por stdio expõe 14 ferramentas: `acquire_slot`, `release_slot`,
-`limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
+O servidor MCP por stdio expõe 15 ferramentas: `acquire_slot`, `release_slot`,
+`limits_status`, `status`, `actors_list`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
 `inbox_set_status`, `inbox_claim`, `inbox_release`, `order_add`, `order_list`, `order_remove`.
+
+Um **ator** é um par modelo + esforço configurado, disponível em um cliente. Consulte “quais atores/executores podem rodar?” com `actors` ou MCP `actors_list` antes de dimensionar e escolher. Lista perfis mesmo sem executores rodando; status/vagas é a visão de executores em execução. A seleção segue status: cliente detectado por padrão, `--all` para os configurados (os três quando vazio), `--client` tem prioridade. JSON inclui atores, cota, vagas livres, motivos/soluções e alternativas para tamanhos sem ator.
+
+`actors.sizeClasses` em `DEFAULT_CONFIG` mapeia S→simple, M→normal, L→hard; configure esse mapa nomeado para mudar tamanhos. `actors.criticClass` identifica o crítico à parte. Pares modelo + esforço iguais combinam tamanhos. Um tamanho ausente indica o vizinho disponível mais próximo; cota abaixo do piso ou vagas ocupadas explicam a solução. Cota desconhecida não bloqueia. A tabela mostra o estado da cota, o menor percentual restante e a idade da leitura; `status` mostra o comando para registrar uma cota. Um comando guiado para configurar modelos está a caminho; até lá, peça à pessoa que mantém o okit.
 
 `okit-plugin inbox list [--locale en|pt-BR]` e MCP `inbox_list` mostram o dono de cada demanda.
 `okit-plugin inbox take <id> --client codex --session <s> --worktree <path>` toma posse atomicamente;
@@ -96,6 +101,8 @@ e nomes de clientes desconhecidos geram aviso no status. O antigo `perClient`
 suplanta `global` como apelido obsoleto, com aviso no status. O significado
 anterior de `global` como total foi removido. As verificações releem a
 configuração sem reiniciar; o status mostra vivas/teto, vagas e origem própria/padrão.
+A tabela de status termina com uma frase fixa, traduzida: vagas são executores
+em execução, e `actors` lista os perfis modelo + esforço disponíveis.
 
 ## Uninstall — Desinstalar
 

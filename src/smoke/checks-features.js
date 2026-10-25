@@ -473,6 +473,7 @@ const TOOL_ARGS = {
   release_slot: () => ({ runId: 'smoke-e14' }),
   limits_status: () => ({}),
   status: () => ({}),
+  actors_list: () => ({}),
   classify: () => ({ title: 'the smoke demand' }),
   profile_pick: () => ({ client: 'claude-code', effort: 'simple' }),
   inbox_add: () => ({ title: 'the smoke demand', client: 'claude-code' }),
@@ -608,14 +609,14 @@ async function statusTableCheck(deps) {
   need(pt.markdown.split('\n')[2].includes('64%'), 'the reading must reach the row');
 }
 
-// E19: every CLI action of the three groups exits 0 with the injected run,
+// E19: every listed CLI action exits 0 with the injected run,
 // spawn and write.
 async function commandsEvery(deps) {
   const actions = [
     ['daemon', 'start'], ['daemon', 'stop'], ['daemon', 'status'],
     ['daemon', 'pause'], ['daemon', 'resume'], ['daemon', 'run-once'],
     ['autostart', 'show'], ['autostart', 'install'], ['autostart', 'uninstall'],
-    ['status'],
+    ['status'], ['actors'],
   ];
   for (const argv of actions) {
     const run = await cli(deps, argv, { ...onePass(), spawn: deps.spawn });

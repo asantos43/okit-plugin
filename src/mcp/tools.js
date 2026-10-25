@@ -6,7 +6,8 @@ import { projectName, withDemandRef } from '../demand-ref.js';
 import { inboxAdd, inboxClaim, inboxRelease, inboxList, inboxSetStatus, holdText, STATUSES } from '../inbox.js';
 import { acquireSlot, limitsStatus, releaseSlot } from '../limits.js';
 import { orderAdd, orderList, orderRemove, SCOPES } from '../orders.js';
-import { configOf as normalizeConfig, profilePick } from '../profiles.js';
+import { configOf as normalizeConfig, DEFAULT_CONFIG, profilePick } from '../profiles.js';
+import { listActors } from '../actors.js';
 import { adapterQuotaReader, clientsOf, LABELS, shouldShowStatus, statusTable } from '../status.js';
 import { CLIENTS } from '../spawn-process.js';
 import { readJson } from '../state.js';
@@ -197,6 +198,29 @@ const limitsStatusTool = {
   handler: async (args, ctx) => {
     argsOf('limits_status', args, []);
     return reply(await limitsStatus(ctx.root, await configOf(ctx)));
+  },
+};
+
+// Actors lists configured model + effort pairs and their availability without changing state.
+const actorsTool = {
+  name: 'actors_list',
+  description: DEFAULT_CONFIG.actors.messages.en.description,
+  inputSchema: {
+    type: 'object', properties: {
+      locale: { type: 'string', enum: LOCALES },
+      all: { type: 'boolean' }, client: { type: 'string', enum: CLIENTS },
+    }, required: [], additionalProperties: false,
+  },
+  async handler(args, ctx) {
+    const a = argsOf('actors_list', args, ['locale', 'all', 'client']);
+    const config = await configOf(ctx);
+    const env = ctx.env ?? process.env;
+    return reply(await listActors({ root: ctx.root, config, env, all: a.all,
+      client: optionalChoice('actors_list', a, 'client', CLIENTS),
+      locale: optionalChoice('actors_list', a, 'locale', LOCALES),
+      readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env }),
+      now: ctx.now, cache: ctx.quotaCache, orders: ctx.orders ?? await orderList(ctx.root),
+      limits: await limitsStatus(ctx.root, config) }));
   },
 };
 
@@ -488,6 +512,7 @@ export const TOOLS = [
   releaseSlotTool,
   limitsStatusTool,
   statusTool,
+  actorsTool,
   classifyTool,
   profilePickTool,
   inboxAddTool,

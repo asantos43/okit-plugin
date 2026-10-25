@@ -384,15 +384,17 @@ test('daemon status --table prints the quota table under the daemon lines', asyn
   assert.equal(run.out[5], '', 'a blank line separates the two halves');
   assert.equal(run.out[6], '| Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age) |');
   assert.equal(run.out[8], '| claude-code | 64% | - | - | green | api (0s) |');
-  assert.equal(run.out[9], 'executors that can launch now: claude-code: 0/3 (default), 3 available; quota floor 15%');
-  assert.equal(run.out.length, 10, 'nothing else is printed');
+  assert.match(run.out[10], /Slots show running executors; actors lists/);
+  assert.equal(run.out[11], 'executors that can launch now: claude-code: 0/3 (default), 3 available; quota floor 15%');
+  assert.equal(run.out.length, 12, 'the views explanation accompanies the table');
   assert.deepEqual(calls, ['claude-code']);
 
   const pt = await cli(['daemon', 'status', '--table', '--locale', 'pt-BR'], io);
   assert.equal(pt.code, 0);
   assert.equal(pt.out[6], '| Assinatura | Restante 5h | Restante semana | Reseta em | Situação | Origem (idade) |');
   assert.equal(pt.out[8], '| claude-code | 64% | - | - | verde | api (0s) |');
-  assert.equal(pt.out[9], 'executores que podem iniciar agora: claude-code: 0/3 (padrão), 3 disponíveis; piso de cota 15%');
+  assert.match(pt.out[10], /Vagas mostram executores em execução; actors lista/);
+  assert.equal(pt.out[11], 'executores que podem iniciar agora: claude-code: 0/3 (padrão), 3 disponíveis; piso de cota 15%');
 
   // Without the flag nothing changes and no quota is read: the second table came
   // from the shared cache, since both calls fall inside the TTL.

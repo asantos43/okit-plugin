@@ -31,6 +31,7 @@ okit-plugin daemon start|stop|status|pause|resume|run-once
 okit-plugin daemon status [--table [--locale en|pt-BR]]
 okit-plugin autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
 okit-plugin status [--locale en|pt-BR]
+okit-plugin actors [--client <name>|--all] [--json] [--locale en|pt-BR]
 okit-plugin kit [--require]
 okit-plugin hook post-compact
 okit-plugin smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]
@@ -46,9 +47,13 @@ unless installed; otherwise the check is informational. Install/update summaries
 present, it links to the [D1 overlap rules](docs/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
 See [kit configuration](INSTALL.md#orchestration-kit).
 
-The stdio MCP server exposes 14 tools: `acquire_slot`, `release_slot`,
-`limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
+The stdio MCP server exposes 15 tools: `acquire_slot`, `release_slot`,
+`limits_status`, `status`, `actors_list`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
 `inbox_set_status`, `inbox_claim`, `inbox_release`, `order_add`, `order_list`, `order_remove`.
+
+An **actor** is a configured model + effort pair available in a client. Ask “which actors/executors can run?” with `actors` or MCP `actors_list` before sizing and choosing. It lists profiles even when no executors are running; status/slots is the view of running executors. Selection follows status: detected client by default, `--all` for configured clients (all three if empty), `--client` overrides both. JSON includes actors, quota, free slots, launch reasons/remedies and missing-size alternatives.
+
+`actors.sizeClasses` in `DEFAULT_CONFIG` maps S→simple, M→normal, L→hard; configure this named map to change sizes. `actors.criticClass` names the separate critic role. Identical model + effort pairs combine sizes. The nearest available size is suggested for a missing size; quota below the floor or occupied slots explain the remedy. Unknown quota does not block. The table shows the quota state, lowest remaining percentage and reading age; `status` shows the command to record a quota. Setting up models from a guided command is coming; until then ask the person who maintains okit.
 
 `okit-plugin inbox list [--locale en|pt-BR]` and MCP `inbox_list` show each holder.
 `okit-plugin inbox take <id> --client codex --session <s> --worktree <path>` claims atomically;
@@ -77,6 +82,8 @@ unknown client names warn in status. Legacy `perClient` overrides `global`
 as a deprecated alias, with a status warning. The old total meaning of `global`
 is removed. Checks re-read configuration without restart; status shows live/cap,
 available slots and whether the cap is from the client or the default.
+The status table ends with one fixed, localized sentence: slots are running
+executors, and `actors` lists the available model + effort profiles.
 Set `profiles.<client>.simple|normal|hard` with `model`, `effort`, `maxTurns`;
 no default model is supplied. All adapters read user quota from `quota/<client>.json`.
 Record the remaining percentage shown in the client's `/usage` with

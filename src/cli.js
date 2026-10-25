@@ -20,6 +20,7 @@ import { inboxClaim, inboxRelease, inboxProducerTakeover, inboxList, holdText, h
 import { runPostCompact } from './hook-post-compact.js';
 import { orderList } from './orders.js';
 import { configOf, DEFAULT_CONFIG } from './profiles.js';
+import { listActors, formatActors } from './actors.js';
 import { runSmoke } from './smoke.js';
 import { runClientSmoke } from './smoke/client.js';
 import { CLIENTS, makeSpawner } from './spawn-process.js';
@@ -103,6 +104,7 @@ const USAGE = [
   '       {command} daemon status [--table [--locale en|pt-BR]]',
   '       {command} autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       {command} status [--all] [--client <name>] [--locale en|pt-BR]',
+  '       {command} actors [--all] [--client <name>] [--json] [--locale en|pt-BR]',
   '       {command} quota set <client> <pct> [--window-minutes n]',
   '       {command} quota show [client]',
   '       {command} inbox list [--locale en|pt-BR]',
@@ -287,6 +289,17 @@ function readStatusSelection(args) {
     else rest.push(arg);
   }
   return { all, client, invalid: rest.length > 0 || (client !== undefined && !CLIENTS.includes(client)) };
+}
+
+async function actorsCommand(ctx, args) {
+  const { locale, rest } = readLocale(args);
+  const json = rest.includes('--json');
+  const selection = readStatusSelection(rest.filter((arg) => arg !== '--json'));
+  if (selection.invalid || (locale !== null && !Object.hasOwn(LABELS, locale))) return ctx.unknown();
+  const result = await listActors({ root: ctx.root, ...await tableDeps(ctx, locale ?? 'en'), ...selection });
+  if (json) ctx.out(formatActors(result, { json: true }));
+  else for (const line of formatActors(result).split('\n')) ctx.out(line);
+  return 0;
 }
 
 async function statusCommand(ctx, args) {
@@ -516,6 +529,9 @@ export async function main(argv = [], io = {}) {
     }
     if (group === 'daemon') return await daemonCommand(ctx, action, args);
     if (group === 'autostart') return await autostartCommand(ctx, action, args);
+    if (group === 'actors') {
+      return await actorsCommand(ctx, action === undefined ? args : [action, ...args]);
+    }
     if (group === 'status') {
       // `okit-plugin status` takes no action, so the flag lands where one would be.
       return await statusCommand(ctx, action === undefined ? args : [action, ...args]);
