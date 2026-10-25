@@ -13,10 +13,10 @@ import process from 'node:process';
 
 import { installSkillFiles } from '../../src/skills.js';
 import { postCompactConfig } from '../../src/hook-post-compact.js';
-import { makeSpawner } from '../../src/spawn-process.js';
+import { configOf, DEFAULT_CONFIG } from '../../src/profiles.js';
+import { listModelsOf, makeSpawner } from '../../src/spawn-process.js';
 import { readJson } from '../../src/state.js';
 import { paths, stateRoot } from '../../src/store.js';
-import { DEFAULT_CONFIG } from '../../src/profiles.js';
 
 export const CLIENT = 'claude-code';
 
@@ -142,6 +142,26 @@ export async function readQuota({ stateRoot: root, env, now = Date.now } = {}) {
     ...(windowMinutes === null ? {} : { windowMinutes }),
     ...(Number.isFinite(recorded) ? { recordedAt: stored.recordedAt,
       ageMinutes: Math.max(0, now() - recorded) / 60_000 } : {}) };
+}
+
+/**
+ * Lists the models this client offers, read-only.
+ *
+ * The command, its arguments, the deadline and the interpreter of the output
+ * come from the configuration (`setup.detect.claude-code`); this adapter only
+ * reads them, and the default configuration names no command for this client,
+ * so the answer says so and the catalog is used. A missing executable, a
+ * command that does not answer in time, a command that fails and an output
+ * the plugin does not understand are answers with a reason in plain words,
+ * never exceptions.
+ *
+ * @param {{env?: object, run?: Function, config?: object, cwd?: string}} [opts]
+ * @returns {Promise<{client: string, installed: boolean|null, models: string[],
+ *   hidden: string[], source: 'listing'|'catalog', reason: string}>}
+ */
+export async function listModels(opts = {}) {
+  const settings = configOf(opts.config).setup?.detect?.[CLIENT] ?? {};
+  return listModelsOf(CLIENT, { ...opts, settings });
 }
 
 /** The actor profile as the Agent tool takes it: a model, and an effort we know. */
@@ -293,4 +313,4 @@ export function installPostCompactHook(opts = {}) {
 }
 
 export default { CLIENT, spawn, readQuota, capabilities, installSkill, installHooks, configRoot,
-  postCompactHooks, installPostCompactHook };
+  listModels, postCompactHooks, installPostCompactHook };

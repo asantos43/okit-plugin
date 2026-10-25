@@ -6,7 +6,9 @@ import child_process from 'node:child_process';
 import { mkdir, open, stat } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import process from 'node:process';
+import { promisify } from 'node:util';
 
+import { LIST_MESSAGES } from './profiles.js';
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
 
@@ -293,4 +295,212 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
 
     return { runId, pid: child.pid ?? null, mode: 'PROCESS' };
   };
+}
+
+// D61: listing the models a client offers. The command, its arguments, the
+// deadline and the interpreter of the output come from the configuration
+// (`setup.detect.<client>` in `src/profiles.js`); this part only runs the
+// command and reads what it printed. The listing writes nothing and starts no
+// client beyond that one command.
+
+// The fields that name a model in the catalog of a client, in the order the
+// clients use them.
+const MODEL_FIELDS = ['slug', 'id', 'name', 'model'];
+
+/** The name of one model of a catalog, or null when the entry names none. */
+function modelNameOf(item) {
+  if (typeof item === 'string') return item.trim() === '' ? null : item.trim();
+  if (!item || typeof item !== 'object') return null;
+  for (const field of MODEL_FIELDS) {
+    const value = item[field];
+    if (typeof value === 'string' && value.trim() !== '') return value.trim();
+  }
+  return null;
+}
+
+/**
+ * The named interpreters of a listing output. The configuration names one of
+ * them; `null` means the output was not understood.
+ */
+const LIST_ITEMS = Object.freeze({
+  lines: (stdout) => String(stdout).split(/\r?\n/).map((line) => line.trim())
+    .filter((line) => line !== '').map((name) => ({ name, value: null })),
+  'json-array': (stdout) => {
+    let parsed;
+    try {
+      parsed = JSON.parse(stdout);
+    } catch {
+      return null;
+    }
+    const items = Array.isArray(parsed) ? parsed
+      : (Array.isArray(parsed?.models) ? parsed.models : null);
+    if (items === null) return null;
+    return items.map((value) => ({ name: modelNameOf(value), value }));
+  },
+});
+
+export const LIST_PARSE = Object.freeze({
+  // One model per line, as `opencode models` prints them.
+  lines: (stdout) => LIST_ITEMS.lines(stdout).map((item) => item.name),
+  // A JSON array of models, or a JSON object with a `models` array, as
+  // `codex debug models` prints them.
+  'json-array': (stdout) => {
+    const items = LIST_ITEMS['json-array'](stdout);
+    return items === null ? null : items.map((item) => item.name)
+      .filter((name) => name !== null);
+  },
+});
+
+/** The message of the table with its placeholders filled. */
+function fill(text, values) {
+  return text.replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ''));
+}
+
+function isActive(item, activeField, activeValues) {
+  if (activeField === null || activeField === undefined) return true;
+  if (typeof activeField !== 'string' || !Array.isArray(activeValues)) return false;
+  const value = item.value !== null && typeof item.value === 'object'
+    ? item.value[activeField] : undefined;
+  return activeValues.includes(value);
+}
+
+/** The answer of a listing that found no models: the catalog answers. */
+function catalogAnswer(client, installed, reason) {
+  return { client, installed, models: [], hidden: [], source: 'catalog', reason };
+}
+
+const execFileAsync = promisify(child_process.execFile);
+
+/**
+ * Runs one listing command and answers what it printed. The command is a
+ * value and is run without a shell, so nothing in it is read as shell syntax.
+ *
+ * A missing executable is an error with the code `ENOENT`; a command that does
+ * not answer in time is an error with the code `ETIMEDOUT`; a command that
+ * fails is an answer with its exit code.
+ *
+ * @param {{command: string, args?: string[], cwd?: string, env?: object, timeoutMs?: number}} call
+ * @returns {Promise<{code: number, stdout: string, stderr: string}>}
+ */
+async function execRun({ command, args = [], cwd, env, timeoutMs }) {
+  try {
+    const { stdout, stderr } = await execFileAsync(command, args, {
+      windowsHide: true, cwd, env, timeout: timeoutMs, killSignal: 'SIGKILL',
+    });
+    return { code: 0, stdout, stderr };
+  } catch (error) {
+    if (error?.code === 'ENOENT') throw error;
+    if (error?.killed === true || error?.signal === 'SIGKILL') {
+      throw Object.assign(new Error(`no answer within ${timeoutMs} ms`), { code: 'ETIMEDOUT' });
+    }
+    if (typeof error?.code === 'number') {
+      return { code: error.code, stdout: error.stdout ?? '', stderr: error.stderr ?? '' };
+    }
+    throw error;
+  }
+}
+
+/**
+ * The deadline of the configuration. The runner may answer late, but the
+ * listing never waits longer than the configuration says.
+ *
+ * @param {Promise<unknown>} pending the run of the command
+ * @param {number} timeoutMs the deadline of the configuration
+ * @returns {Promise<unknown>} the answer of the run
+ */
+function withDeadline(pending, timeoutMs) {
+  let timer = null;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(
+      Object.assign(new Error(`no answer within ${timeoutMs} ms`), { code: 'ETIMEDOUT' }),
+    ), timeoutMs);
+  });
+  return Promise.race([pending, deadline]).finally(() => clearTimeout(timer));
+}
+
+/** A command that is not on this machine, and one that answered too late. */
+const isMissing = (error) => error?.code === 'ENOENT';
+const isTimeout = (error) => error?.code === 'ETIMEDOUT' || error?.killed === true;
+
+/**
+ * Lists the models a client offers, read-only.
+ *
+ * The command, its arguments, the deadline, the interpreter of the output and
+ * the message of a missing executable come from the configuration; this
+ * function only runs the command and reads what it printed. A missing
+ * executable, a command that does not answer in time, a command that fails and
+ * an output the plugin does not understand are answers, never exceptions: the
+ * caller always gets a result and a reason in plain words.
+ *
+ * Only an exit code of zero (or no code at all) is a success; any other value
+ * is a failure. A command that answered is always a listing, even when it
+ * listed no model at all: only the catalog answers for a client that is
+ * absent, for a failure, for a deadline and for an output the plugin does not
+ * understand.
+ *
+ * @param {string} client the client the listing is about
+ * @param {{settings?: {command?: string|null, args?: string[], timeoutMs?: number,
+ *   parse?: string, activeField?: string|null, activeValues?: unknown[]|null,
+ *   notFoundMessage?: string}, env?: object, run?: Function, cwd?: string}} [options]
+ * @returns {Promise<{client: string, installed: boolean|null, models: string[],
+ *   hidden: string[], source: 'listing'|'catalog', reason: string}>}
+ */
+export async function listModelsOf(client, { settings = {}, env = process.env, run = execRun, cwd } = {}) {
+  const command = typeof settings.command === 'string' && settings.command.trim() !== ''
+    ? settings.command : null;
+  if (command === null) {
+    return catalogAnswer(client, null, fill(LIST_MESSAGES.noCommand, { client }));
+  }
+  const timeoutMs = settings.timeoutMs;
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+    return catalogAnswer(client, null, fill(LIST_MESSAGES.badTimeout, { client, timeoutMs: String(timeoutMs) }));
+  }
+  const args = Array.isArray(settings.args) ? settings.args.map((arg) => String(arg)) : [];
+  const parser = LIST_PARSE[settings.parse] ?? null;
+  const itemParser = LIST_ITEMS[settings.parse] ?? null;
+  try {
+    const outcome = await withDeadline(run({ command, args, cwd, env, timeoutMs }), timeoutMs);
+    // Only a plain zero (or no code at all) is a success. A numeric string, a
+    // missing code or any other value is a failure of the command, never a
+    // listing the plugin may read.
+    const code = outcome?.code;
+    if (code !== undefined && code !== 0) {
+      return catalogAnswer(client, true, fill(LIST_MESSAGES.failed, { client, code: String(code) }));
+    }
+    if (parser === null || itemParser === null) {
+      return catalogAnswer(client, true, fill(LIST_MESSAGES.unknownParser, { client, parse: settings.parse }));
+    }
+    const items = itemParser(String(outcome?.stdout ?? ''));
+    if (items === null) return catalogAnswer(client, true, fill(LIST_MESSAGES.unknownOutput, { client }));
+    const named = items.filter((item) => item.name !== null);
+    const active = named.filter((item) => isActive(item, settings.activeField, settings.activeValues));
+    const models = active.map((item) => item.name);
+    const hidden = named.filter((item) => !active.includes(item)).map((item) => item.name);
+    if (named.length === 0) {
+      // The client answered: the list is empty, so no model is proposed and
+      // every class of the client asks for a manual choice.
+      return {
+        client, installed: true, models: [], hidden: [], source: 'listing',
+        reason: fill(LIST_MESSAGES.emptyList, { client }),
+      };
+    }
+    if (models.length === 0) {
+      return {
+        client, installed: true, models: [], hidden, source: 'listing',
+        reason: fill(LIST_MESSAGES.noneActive, { client, listed: named.length }),
+      };
+    }
+    const reason = fill(LIST_MESSAGES.listed, {
+      listed: named.length, active: models.length, hidden: hidden.length,
+    });
+    return { client, installed: true, models, hidden, source: 'listing', reason };
+  } catch (error) {
+    if (isMissing(error)) {
+      return catalogAnswer(client, false, settings.notFoundMessage ?? fill(LIST_MESSAGES.notFound, { client }));
+    }
+    if (isTimeout(error)) {
+      return catalogAnswer(client, true, fill(LIST_MESSAGES.timeout, { client, timeoutMs }));
+    }
+    return catalogAnswer(client, true, fill(LIST_MESSAGES.error, { client, code: error?.code ?? 'unknown' }));
+  }
 }
