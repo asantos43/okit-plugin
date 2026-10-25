@@ -68,6 +68,38 @@ export const DEFAULT_CONFIG = {
   inbox: { holdStaleMinutes: 120, gitTimeoutMs: 5000 },
   // profiles: { <client>: { simple: { model, effort, maxTurns }, ... } }
   profiles: {},
+  actors: {
+    sizeClasses: { S: 'simple', M: 'normal', L: 'hard' },
+    criticClass: 'critic',
+    messages: {
+      en: {
+        columns: ['Client', 'Model', 'Effort', 'Sizes / role', 'Free slots', 'Quota', 'Can launch', 'Reason / remedy'],
+        critic: 'critic', yes: 'yes', no: 'no', missing: '-',
+        quota: '{state}; {percentage}; age {age}',
+        quotaGreen: 'green', quotaYellow: 'yellow', quotaRed: 'red', quotaOff: 'off',
+        percentage: '{value}%', age: '{seconds}s',
+        empty: 'No models are set up for {client} yet. Setting them up from a guided command is coming; until then ask the person who maintains okit.',
+        low: 'Quota is below the floor. Wait for quota reset or ask the person who maintains okit to review the quota floor.',
+        busy: 'All slots are occupied. Wait for a running executor to finish.',
+        gap: '{client}: no actor available for {size}; nearest alternative: {alternative}.',
+        none: 'none available now; follow the launch remedies or ask the person who maintains okit to set up models',
+        description: 'Read-only actors (model + effort available in a client), sizes, slots, quota and remedies. atores, executores, actors, executors, modelos, quem pode rodar, lista de executores. Somente leitura: ator = modelo + esforço disponível em um cliente; tamanhos, vagas, cota e soluções.',
+      },
+      'pt-BR': {
+        columns: ['Cliente', 'Modelo', 'Esforço', 'Tamanhos / papel', 'Vagas livres', 'Cota', 'Pode iniciar', 'Motivo / solução'],
+        critic: 'crítico', yes: 'sim', no: 'não', missing: '-',
+        quota: '{state}; {percentage}; idade {age}',
+        quotaGreen: 'verde', quotaYellow: 'amarelo', quotaRed: 'vermelho', quotaOff: 'desligado',
+        percentage: '{value}%', age: '{seconds}s',
+        empty: 'Ainda não há modelos configurados para {client}. Um comando guiado para configurá-los está a caminho; até lá, peça à pessoa que mantém o okit.',
+        low: 'Cota abaixo do piso. Aguarde a renovação da cota ou peça à pessoa que mantém o okit para revisar o piso de cota.',
+        busy: 'Todas as vagas estão ocupadas. Aguarde um executor em execução terminar.',
+        gap: '{client}: nenhum ator disponível para {size}; alternativa mais próxima: {alternative}.',
+        none: 'nenhuma disponível agora; siga as soluções para iniciar ou peça à pessoa que mantém o okit para configurar modelos',
+        description: 'Somente leitura: atores (modelo + esforço disponível em um cliente), tamanhos, vagas, cota e soluções. Atores, executores, modelos, quem pode rodar, lista de executores.',
+      },
+    },
+  },
   postCompact: {
     enabled: true,
     timeoutSec: 5,
@@ -321,6 +353,13 @@ export function configOf(config) {
   return {
     ...merged,
     inbox,
+    actors: {
+      ...DEFAULT_CONFIG.actors, ...config?.actors,
+      sizeClasses: config?.actors?.sizeClasses ?? DEFAULT_CONFIG.actors.sizeClasses,
+      messages: Object.fromEntries(Object.entries(DEFAULT_CONFIG.actors.messages).map(([locale, messages]) => (
+        [locale, { ...messages, ...config?.actors?.messages?.[locale] }]
+      ))),
+    },
     limits: normalizeLimits(config?.limits),
     limitWarnings: [
       ...(config?.limitWarnings ?? []),

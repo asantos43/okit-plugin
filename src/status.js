@@ -48,6 +48,7 @@ export const LABELS = {
     missing: MISSING,
     noQuota: (client) => `No quota value recorded. Record it with: okit-plugin quota set ${client} <pct>`,
     unknownClient: 'Client not recognized. Showing all clients; use --client <name> to choose one.',
+    views: 'Slots show running executors; actors lists available model + effort profiles, even when nothing is running.',
     pct: (value) => `${Math.round(value)}%`,
     capacity: (clients, floor) => (
       `executors that can launch now: ${clients}; quota floor ${floor}%`
@@ -66,6 +67,7 @@ export const LABELS = {
     missing: MISSING,
     noQuota: (client) => `Nenhum valor de cota registrado. Registre com: okit-plugin quota set ${client} <pct>`,
     unknownClient: 'Cliente não reconhecido. Mostrando todos os clientes; use --client <nome> para escolher um.',
+    views: 'Vagas mostram executores em execução; actors lista perfis modelo + esforço disponíveis, mesmo sem nada rodando.',
     pct: (value) => `${Math.round(value)}%`,
     capacity: (clients, floor) => (
       `executores que podem iniciar agora: ${clients}; piso de cota ${floor}%`
@@ -169,7 +171,7 @@ function floorQuote(orders, floor, labels) {
 }
 
 /** A reading is aged by the clock it arrived on, in whole seconds. */
-function ageOf(readAt, now, labels) {
+export function ageOf(readAt, now, labels) {
   if (typeof readAt !== 'number') return MISSING;
   return labels.age(Math.max(0, Math.round((now - readAt) / 1000)));
 }
@@ -304,14 +306,14 @@ export async function statusTable(root, deps = {}) {
     return labels.cap(client, byClient[client] ?? 0, cap, labels.capSource[source], room(cap, byClient[client]));
   }).join('; ');
   const warnings = (deps.limits?.warnings ?? config.limitWarnings).map(labels.warning);
-  const name = await projectName(root);
+  const name = deps.demands?.length === 0 ? null : await projectName(root);
   const demands = (deps.demands ?? await inboxList(root)).map((item) => withDemandRef(item, name));
   const demandTable = demands.length === 0 ? '' : `\n\n${markdownOf(
     labels.demandColumns,
     demands.map((item) => ({ cells: [item.ref, item.status, item.title, holdText(item, config, deps.locale, now())] })),
   )}`;
   return {
-    markdown: markdownOf(labels.columns, rows) + demandTable + note,
+    markdown: markdownOf(labels.columns, rows) + demandTable + note + `\n\n${labels.views}`,
     capacityLine: [labels.capacity(capacity, floor), ...warnings].join('\n'),
     rows,
     demands,

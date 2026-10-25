@@ -1,6 +1,6 @@
 ---
 name: okit-executor
-description: Use when you were spawned by the okit Director as the executor of one step, to do exactly the briefing you received and report back.
+description: "Use when you were spawned by the okit Director as the executor of one step, to do exactly the briefing you received and report back. atores, executores, actors, executors, modelos, quem pode rodar, lista de executores. An actor is a model + effort available in a client."
 ---
 
 # Executor
@@ -9,6 +9,7 @@ You do one step, the one in your briefing. Nobody is watching the client, so the
 
 ## Before you start
 
+- An actor is a model + effort available in a client.
 - Read the briefing: goal, where to work, the accept checks, the limits.
 - Read the standing orders of the project, if the briefing points at them. They bind you like the briefing does.
 - Ask for nothing that the briefing already answers.

@@ -10,7 +10,7 @@ The inbox stores demands with `id`, `title`, `body`, `kind`, `accept`, `effort`,
 
 ## 2. MCP tools
 
-The core exposes 14 MCP tools in `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_claim`, `inbox_release`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planning, briefing, critique and consolidation are skill guidance, not MCP tools.
+The core exposes 15 MCP tools in `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `actors_list`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_claim`, `inbox_release`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planning, briefing, critique and consolidation are skill guidance, not MCP tools.
 
 Inbox items optionally carry `hold: {client, session, worktree, takenAt, via}`;
 `via` is `claim` or `producer`. `heldBefore` records previous holders with
@@ -26,6 +26,7 @@ changes with `inbox.gitTimeoutMs`, default 5000) and TTY confirmation or `--yes`
 The confirmed holder is compared again inside the lock to reject intervening changes.
 
 ## 3. State on disk
+
 Root: `node:path.join(os.homedir(), '.okwork')`, overridable with `OKWORK_HOME`. Never inside a client plugin directory: a plugin root moves on update.
 
 ```
@@ -78,7 +79,12 @@ Each adapter provides these five operations, plus its documented helpers. The co
 Never estimate quota. `profilePick` lowers one class when `remainingPct < lowQuotaPct`; `source: off` and absent readings do not downgrade. Adapters return `source: user`, with numbers only when stored.
 
 ### 5.1 The quota table
-`src/status.js` is the view of those readings, not a second source of them: `statusTable(root, deps)` is pure over the readings, the clock, the cap counts and the standing orders that arrive in `deps`, and returns `{markdown, capacityLine, rows}`. Columns are `Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age)`; a `windows` array fills both columns, and without it the single `remainingPct` goes to the 5h column when `windowMinutes <= 360` and to the week otherwise, including when `windowMinutes` is absent.
+
+The actors Quota column shows the localized state, tightest remaining percentage and reading age, without standing-order text in either Markdown or JSON. A client with no configured actors gets only the setup note. Invalid CLI `--client` values print usage and exit 2, as for `status`. Extra locales in `actors.messages` are limited to those accepted by the CLI and MCP (`LABELS`/`LOCALES`).
+
+`actors_list` / `okit-plugin actors [--client <name>|--all] [--json] [--locale en|pt-BR]` is read-only. An actor is a model + effort pair available in a client, with sizes derived from the configured `actors.sizeClasses` map (default S→simple, M→normal, L→hard); `actors.criticClass` is shown separately. `src/actors.js` shares status client selection/quota and reads `limitsStatus` without acquiring/releasing slots. Status describes running executors; actors lists configured profiles even with none running. Duplicate pairs merge sizes. Missing sizes name the nearest runnable size, ties favor the earlier size in the map. Low quota and full capacity include reasons and remedies; unknown quota does not block. Setting up models from a guided command is coming; until then ask the person who maintains okit.
+
+`src/status.js` is the view of those readings, not a second source of them: `statusTable(root, deps)` formats the readings, clock, cap counts and standing orders supplied in `deps`, using the locale's fixed `LABELS`, and returns `{markdown, capacityLine, rows}`. The table ends with one fixed, localized sentence saying slots are running executors and `actors` lists the available model + effort profiles. This sentence is a label, not an input reading in `deps`. Columns are `Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age)`; a `windows` array fills both columns, and without it the single `remainingPct` goes to the 5h column when `windowMinutes <= 360` and to the week otherwise, including when `windowMinutes` is absent.
 
 `okit-plugin status [--all] [--client <name>] [--locale en|pt-BR]` shows only the detected client by default. `--all` shows every configured client (the three known clients when no profiles exist); `--client claude-code|codex|opencode` chooses one and takes priority over `--all`. If detection fails, all clients appear with a note explaining `--client`. MCP `status` accepts optional `all` and `client` with the same behavior. Executor counts and available slots include only the clients shown.
 
@@ -237,6 +243,7 @@ The working directory is the demand's `appliesTo` when it is one existing absolu
 
 | Tool | Input | Wraps | One line |
 | :- | :- | :- | :- |
+| `actors_list` | `locale?`, `all?`, `client?` | `listActors` | Configured actors, sizes, quota, free slots, launch reasons and alternatives; read-only. |
 | `acquire_slot` | `runId`, `client`, `waitMs?` | `acquireSlot` | Reserves a slot, or answers `ok: false` with the cap that refused it. |
 | `release_slot` | `runId` | `releaseSlot` | Frees the slot of a run. |
 | `limits_status` | none | `limitsStatus` | The caps and the live runs per client. |

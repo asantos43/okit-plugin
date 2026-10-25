@@ -13,6 +13,7 @@ const NAMES = [
   'release_slot',
   'limits_status',
   'status',
+  'actors_list',
   'classify',
   'profile_pick',
   'inbox_add',

@@ -78,5 +78,5 @@ test('DEFAULT_CONFIG ships limits, lowQuotaPct and no model names', () => {
   assert.deepEqual(DEFAULT_CONFIG.limits, { global: 3, clients: {} });
   assert.equal(DEFAULT_CONFIG.lowQuotaPct, 15);
   assert.deepEqual(DEFAULT_CONFIG.profiles, {});
-  assert.equal(JSON.stringify(DEFAULT_CONFIG).includes('model'), false);
+  assert.doesNotMatch(JSON.stringify(DEFAULT_CONFIG), /"model"\s*:/);
 });

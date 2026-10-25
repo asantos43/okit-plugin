@@ -10,7 +10,7 @@ O inbox guarda demandas com `id`, `title`, `body`, `kind`, `accept`, `effort`, `
 
 ## 2. MCP tools
 
-O núcleo expõe 14 ferramentas MCP em `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_claim`, `inbox_release`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planejamento, briefing, crítica e consolidação são orientações das skills; não são ferramentas MCP.
+O núcleo expõe 15 ferramentas MCP em `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `actors_list`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_claim`, `inbox_release`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planejamento, briefing, crítica e consolidação são orientações das skills; não são ferramentas MCP.
 
 Itens podem ter `hold: {client, session, worktree, takenAt, via}`;
 `via` vale `claim` ou `producer`. `heldBefore` guarda donos anteriores com
@@ -26,6 +26,7 @@ com `inbox.gitTimeoutMs`, padrão 5000) e confirmação TTY ou `--yes`.
 O dono confirmado é comparado novamente sob a trava para recusar mudanças intervenientes.
 
 ## 3. State on disk
+
 Raiz: `node:path.join(os.homedir(), '.okwork')`, sobrescrevível com `OKWORK_HOME`. Nunca dentro do diretório de um plugin de cliente: a raiz do plugin se move a cada atualização.
 
 ```
@@ -78,7 +79,12 @@ Cada adaptador fornece estas cinco operações, além dos auxiliares documentado
 Não estimar cota. `profilePick` rebaixa uma classe quando `remainingPct < lowQuotaPct`; `source: off` e leitura ausente não rebaixam. Os adaptadores devolvem `source: user`, com números apenas quando armazenados.
 
 ### 5.1 A tabela de cota
-`src/status.js` é a visão dessas leituras, não uma segunda fonte delas: `statusTable(root, deps)` é puro sobre as leituras, o relógio, as contagens do limite e as ordens permanentes que chegam em `deps`, e devolve `{markdown, capacityLine, rows}`. As colunas são `Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age)`; um array `windows` preenche as duas colunas e, sem ele, o `remainingPct` único vai para a coluna de 5h quando `windowMinutes <= 360` e para a da semana caso contrário, inclusive quando `windowMinutes` está ausente.
+
+A coluna Cota dos atores mostra o estado traduzido, o menor percentual restante e a idade da leitura, sem texto de ordens em Markdown ou JSON. Um cliente sem atores configurados recebe apenas a nota de configuração. Um `--client` inválido na CLI imprime o uso e sai com código 2, como em `status`. Locales extras em `actors.messages` se limitam aos aceitos pela CLI e pelo MCP (`LABELS`/`LOCALES`).
+
+`actors_list` / `okit-plugin actors [--client <nome>|--all] [--json] [--locale en|pt-BR]` é somente leitura. Ator é um par modelo + esforço disponível em um cliente, com tamanhos derivados do mapa configurado `actors.sizeClasses` (padrão S→simple, M→normal, L→hard); `actors.criticClass` aparece à parte. `src/actors.js` compartilha seleção de cliente/cota do status e lê `limitsStatus` sem adquirir/liberar vagas. Status descreve executores rodando; actors lista perfis mesmo sem nada rodando. Pares iguais combinam tamanhos. Tamanhos ausentes indicam o vizinho disponível mais próximo; empates favorecem o anterior no mapa. Cota baixa e vagas ocupadas incluem motivos e soluções; cota desconhecida não bloqueia. Um comando guiado para configurar modelos está a caminho; até lá, peça à pessoa que mantém o okit.
+
+`src/status.js` é a visão dessas leituras, não uma segunda fonte delas: `statusTable(root, deps)` formata as leituras, o relógio, as contagens do limite e as ordens permanentes fornecidos em `deps`, usando os `LABELS` fixos do idioma, e devolve `{markdown, capacityLine, rows}`. A tabela termina com uma frase fixa, traduzida, dizendo que vagas são executores em execução e `actors` lista os perfis modelo + esforço disponíveis. Essa frase é um rótulo, não uma leitura de entrada em `deps`. As colunas são `Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age)`; um array `windows` preenche as duas colunas e, sem ele, o `remainingPct` único vai para a coluna de 5h quando `windowMinutes <= 360` e para a da semana caso contrário, inclusive quando `windowMinutes` está ausente.
 
 `okit-plugin status [--all] [--client <nome>] [--locale en|pt-BR]` mostra apenas o cliente detectado por padrão. `--all` mostra todos os clientes configurados (os três conhecidos quando não há perfis); `--client claude-code|codex|opencode` escolhe um e tem prioridade sobre `--all`. Se a detecção falhar, todos aparecem com uma nota explicando `--client`. O `status` do MCP aceita `all` e `client` opcionais com a mesma regra. As contagens de executores em uso e disponíveis incluem apenas os clientes mostrados.
 
@@ -237,6 +243,7 @@ O diretório de trabalho é o `appliesTo` da demanda quando ele é uma única pa
 
 | Ferramenta | Entrada | Embrulha | Uma linha |
 | :- | :- | :- | :- |
+| `actors_list` | `locale?`, `all?`, `client?` | `listActors` | Atores configurados, tamanhos, cota, vagas, motivos e alternativas; somente leitura. |
 | `acquire_slot` | `runId`, `client`, `waitMs?` | `acquireSlot` | Reserva uma vaga, ou responde `ok: false` com o teto que recusou. |
 | `release_slot` | `runId` | `releaseSlot` | Libera a vaga de uma execução. |
 | `limits_status` | nenhum | `limitsStatus` | Os tetos e as execuções vivas por cliente. |

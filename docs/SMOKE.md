@@ -64,7 +64,7 @@ or `skip`, and only `pass` counts as a success.
 | `E16` | `orders.flow` | add, list, revoke; the row survives with `revokedReason` and a second revoke is refused | 15 s |
 | `E17` | `templates.flow` | add, list, pause and resume, remove; `openDue` twice in one period opens one child | 20 s |
 | `E18` | `status.table` | `statusTable` has its six columns, a capacity line, no ANSI, and another word per locale | 15 s |
-| `E19` | `commands.every` | each CLI action (`daemon start|stop|status|pause|resume|run-once`, `autostart show|install|uninstall`, `status`) exits `0` with an injected `run`/`spawn` | 30 s |
+| `E19` | `commands.every` | each CLI action (`daemon start|stop|status|pause|resume|run-once`, `autostart show|install|uninstall`, `status`, `actors`) exits `0` with an injected `run`/`spawn` | 30 s |
 
 **C. Uninstall and idempotence (`U`)**
 

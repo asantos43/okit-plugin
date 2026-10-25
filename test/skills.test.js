@@ -20,6 +20,7 @@ const TOOLS = new Set([
   'acquire_slot',
   'release_slot',
   'limits_status',
+  'actors_list',
   'classify',
   'profile_pick',
   'inbox_add',
@@ -34,6 +35,23 @@ const TOOLS = new Set([
 
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
 const OLD_CLI = /\bkit\s+(?:daemon|autostart|status|inbox|smoke|client-smoke|hook)\b/;
+
+test('actor routing preserves skill triggers and executor boundaries', async () => {
+  const triggers = {
+    'okit-director': "Use when you are the okit Director, orchestrating a demand over the client's own subagents through the okit MCP tools, in any session where work is delegated.",
+    'okit-executor': 'Use when you were spawned by the okit Director as the executor of one step, to do exactly the briefing you received and report back.',
+  };
+  for (const [name, trigger] of Object.entries(triggers)) {
+    const { fields } = await readSkill(name);
+    assert.ok(fields.description.startsWith(`${trigger} `));
+    assert.ok(fields.description.includes('atores, executores, actors, executors, modelos, quem pode rodar, lista de executores.'));
+    assert.ok(fields.description.endsWith('An actor is a model + effort available in a client.'));
+  }
+  const { body } = await readSkill('okit-executor');
+  assert.doesNotMatch(body, /actors_list|before sizing|choosing a profile/);
+  const source = await readFile(join(SKILLS_DIR, 'okit-executor', 'SKILL.md'), 'utf8');
+  assert.ok(source.endsWith('- Stop at the edge of the step. Merging, pushing, opening a pull request or editing an order happens only when the briefing says so.'));
+});
 
 test('Director requires project-qualified Producer messages in both languages', async () => {
   const { body } = await readSkill('okit-director');
