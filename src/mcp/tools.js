@@ -325,7 +325,7 @@ const profilePickTool = {
     const a = argsOf('profile_pick', args, ['client', 'effort', 'quota']);
     return reply(profilePick({
       client: requiredText('profile_pick', a, 'client'),
-      effort: optionalChoice('profile_pick', a, 'effort', EFFORT_CLASSES),
+      effort: requiredText('profile_pick', a, 'effort'),
       quota: optionalQuota('profile_pick', a, 'quota'),
       config: await configOf(ctx),
     }));

@@ -72,7 +72,8 @@ See [SMOKE.md](docs/SMOKE.md) for budgets and evidence requirements.
 
 State defaults to `~/.okwork`; `OKWORK_HOME` overrides it. Edit `config.json`
 there. Defaults in [src/profiles.js](src/profiles.js) include `lowQuotaPct: 15`,
-`limits: {global: 3, clients: {}}`, `staleMinutes: 30`, and empty `profiles`.
+`limits: {global: 3, clients: {}}`, `staleMinutes: 30`, and the default
+profile catalog.
 Set `limits.global` and `limits.clients.<client>` in that file; there is no
 configuration command. For example, `"limits": {"global": 3, "clients":
 {"claude-code": 100, "codex": 2}}`. A client's own cap replaces the default;
@@ -84,8 +85,18 @@ is removed. Checks re-read configuration without restart; status shows live/cap,
 available slots and whether the cap is from the client or the default.
 The status table ends with one fixed, localized sentence: slots are running
 executors, and `actors` lists the available model + effort profiles.
-Set `profiles.<client>.simple|normal|hard` with `model`, `effort`, `maxTurns`;
-no default model is supplied. All adapters read user quota from `quota/<client>.json`.
+The default catalog gives every client (`claude-code`, `codex`, `opencode`) a
+profile per class (`simple`, `normal`, `hard`), each with `model`, `effort`
+(`low`, `medium`, `high`) and `maxTurns` (`20`, `40`, `80`), so a clean
+install answers `profile_pick` and `actors_list` for every client and class
+without a `profiles` entry. Set `profiles.<client>.simple|normal|hard` with
+`model`, `effort`, `maxTurns` to change the catalog: your value replaces the
+class it names, class by class, and the other classes keep the default. A
+class set to `null` is dropped from the catalog. A client outside the catalog
+has no profile: `profile_pick` answers with a short bilingual error naming the
+known clients. To update the catalog itself, edit `DEFAULT_CONFIG.profiles` in
+[src/profiles.js](src/profiles.js).
+All adapters read user quota from `quota/<client>.json`.
 Record the remaining percentage shown in the client's `/usage` with
 `okit-plugin quota set claude-code 80 [--window-minutes n]`; the clients are the ones
 the root configures (`claude-code`, `codex` and `opencode` when it configures none),

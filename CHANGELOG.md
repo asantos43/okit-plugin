@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add a default profile catalog per client and class, so a clean install answers `profile_pick` and `actors_list` for every client; the user's profile wins per class and an unknown client gets a short bilingual message (D59). / Adicionar um catálogo padrão de perfis por cliente e classe, para que uma instalação limpa responda `profile_pick` e `actors_list` para cada cliente; o perfil do usuário vence por classe e um cliente desconhecido recebe uma mensagem curta bilíngue (D59).
 - Add read-only CLI `actors` and MCP `actors_list` with configured sizes, slots, quota and remedies (D56). / Adicionar CLI `actors` e MCP `actors_list` somente leitura, com tamanhos configurados, vagas, cota e soluções (D56).
 - Show configurable shell activation commands in install/update and status only when the current PATH lacks bin (D52). / Mostrar comandos configuráveis de ativação da shell em install/update e status somente quando o PATH atual não contém bin (D52).
 - Add atomic `quota set`/`quota show`, configurable smoke quota aging, Producer guidance and tests (D48). / Adicionar `quota set`/`quota show` atômicos, validade configurável da cota no smoke, orientação ao Produtor e testes (D48).

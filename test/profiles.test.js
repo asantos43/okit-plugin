@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { DEFAULT_CONFIG, configOf, profilePick } from '../src/profiles.js';
+import { clientsOf } from '../src/status.js';
 
 const CONFIG = {
   lowQuotaPct: 15,
@@ -59,6 +60,70 @@ test('a rich quota never promotes a class', () => {
   assert.equal(pick('simple', { source: 'api', remainingPct: 100 }).model, 'alpha-lite');
 });
 
+const CATALOG = {
+  'claude-code': {
+    simple: { model: 'haiku', effort: 'low', maxTurns: 20 },
+    normal: { model: 'sonnet', effort: 'medium', maxTurns: 40 },
+    hard: { model: 'opus', effort: 'high', maxTurns: 80 },
+  },
+  codex: {
+    simple: { model: 'gpt-5-codex', effort: 'low', maxTurns: 20 },
+    normal: { model: 'gpt-5-codex', effort: 'medium', maxTurns: 40 },
+    hard: { model: 'gpt-5-codex', effort: 'high', maxTurns: 80 },
+  },
+  opencode: {
+    simple: { model: 'minimax/MiniMax-M3', effort: 'low', maxTurns: 20 },
+    normal: { model: 'minimax/MiniMax-M3', effort: 'medium', maxTurns: 40 },
+    hard: { model: 'minimax/MiniMax-M3', effort: 'high', maxTurns: 80 },
+  },
+};
+
+test('the default catalog covers every client and class', () => {
+  assert.deepEqual(DEFAULT_CONFIG.profiles, CATALOG);
+  for (const [client, classes] of Object.entries(CATALOG)) {
+    for (const [effort, profile] of Object.entries(classes)) {
+      assert.deepEqual(profilePick({ client, effort }), profile);
+    }
+  }
+});
+
+test('a user profile wins per class without erasing the rest of the catalog', () => {
+  const config = { profiles: { 'claude-code': { hard: { model: 'custom-opus', effort: 'medium', maxTurns: 12 } } } };
+  const merged = configOf(config);
+  assert.deepEqual(merged.profiles['claude-code'].hard, config.profiles['claude-code'].hard);
+  assert.deepEqual(merged.profiles['claude-code'].simple, CATALOG['claude-code'].simple);
+  assert.deepEqual(merged.profiles['claude-code'].normal, CATALOG['claude-code'].normal);
+  assert.deepEqual(merged.profiles.codex, CATALOG.codex);
+  assert.deepEqual(merged.profiles.opencode, CATALOG.opencode);
+  assert.deepEqual(profilePick({ client: 'claude-code', effort: 'hard', config }), config.profiles['claude-code'].hard);
+});
+
+test('an unknown client gets a simple bilingual message without demand or order ids', () => {
+  assert.throws(() => profilePick({ client: 'ghost', effort: 'normal' }), (error) => {
+    assert.match(error.message, /Client "ghost" has no default profile/);
+    assert.match(error.message, /O cliente "ghost" não tem perfil padrão/);
+    assert.match(error.message, /claude-code, codex, opencode/);
+    assert.doesNotMatch(error.message, /\b[IDOG]\d+\b/);
+    return true;
+  });
+});
+
+test('an unknown class gets a simple bilingual message', () => {
+  assert.throws(() => profilePick({ client: 'codex', effort: 'urgent' }), (error) => {
+    assert.match(error.message, /Unknown profile class "urgent"/);
+    assert.match(error.message, /Classe de perfil desconhecida "urgent"/);
+    assert.match(error.message, /simple, normal, hard/);
+    return true;
+  });
+});
+
+test('a low quota descends one class using the default catalog', () => {
+  assert.deepEqual(profilePick({ client: 'codex', effort: 'hard', quota: { source: 'api', remainingPct: 5 } }),
+    CATALOG.codex.normal);
+  assert.deepEqual(profilePick({ client: 'opencode', effort: 'normal', quota: { source: 'api', remainingPct: 5 } }),
+    CATALOG.opencode.simple);
+});
+
 test('a missing profile throws an error naming the client and the class', () => {
   assert.throws(() => profilePick({ client: 'beta', effort: 'hard', config: CONFIG }),
     (error) => {
@@ -67,16 +132,29 @@ test('a missing profile throws an error naming the client and the class', () => 
       return true;
     });
   assert.throws(() => profilePick({ client: 'alpha', effort: 'normal' }),
-    /alpha.*normal|normal.*alpha/);
+    /alpha/);
 });
 
 test('an unknown effort class throws instead of guessing', () => {
   assert.throws(() => pick('urgent', undefined), /urgent/);
 });
 
-test('DEFAULT_CONFIG ships limits, lowQuotaPct and no model names', () => {
+test('DEFAULT_CONFIG keeps its limits and quota floor beside the editable catalog', () => {
   assert.deepEqual(DEFAULT_CONFIG.limits, { global: 3, clients: {} });
   assert.equal(DEFAULT_CONFIG.lowQuotaPct, 15);
-  assert.deepEqual(DEFAULT_CONFIG.profiles, {});
-  assert.doesNotMatch(JSON.stringify(DEFAULT_CONFIG), /"model"\s*:/);
+  assert.deepEqual(Object.keys(DEFAULT_CONFIG.profiles), ['claude-code', 'codex', 'opencode']);
+});
+
+// Must pass / must refuse:
+// | pass: a root that names a client keeps it, a root that names none keeps the known ones |
+// | refuse: the default catalog never adds a client to the list of the root |
+test('the default catalog does not widen the clients of a root', () => {
+  const named = configOf({ profiles: { 'claude-code': {
+    hard: { model: 'custom-opus', effort: 'high', maxTurns: 9 } } } });
+  assert.deepEqual(named.configuredClients, ['claude-code']);
+  assert.deepEqual(clientsOf(named), ['claude-code']);
+  assert.deepEqual(Object.keys(named.profiles), ['claude-code', 'codex', 'opencode']);
+  const clean = configOf({});
+  assert.deepEqual(clean.configuredClients, []);
+  assert.deepEqual(clientsOf(clean), ['claude-code', 'codex', 'opencode']);
 });

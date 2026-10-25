@@ -49,7 +49,7 @@ test('merged sizes follow sizeClasses order regardless of profile order', async 
 test('configured size map, deduplication and nearest missing-size alternative', async (t) => {
   const deps = await fixture(t);
   deps.config.profiles.codex.normal = deps.config.profiles.codex.simple;
-  delete deps.config.profiles.codex.hard;
+  deps.config.profiles.codex.hard = null;
   const result = await listActors({ ...deps, client: 'codex' });
   assert.deepEqual(result.actors[0].sizes, ['S', 'M']);
   assert.match(result.notes.join('\n'), /L; nearest alternative: M/);
@@ -86,7 +86,7 @@ test('pair identity includes effort and merges sizes only for identical pairs', 
   ]);
 });
 
-test('unknown client and empty profiles give actionable explanations', async (t) => {
+test('unknown client and disabled profiles give actionable explanations', async (t) => {
   const deps = await fixture(t);
   await assert.rejects(listActors({ ...deps, client: 'xyz' }), /claude-code, codex, opencode/);
   for (const locale of ['en', 'pt-BR']) {
@@ -94,7 +94,7 @@ test('unknown client and empty profiles give actionable explanations', async (t)
     const result = await listActors({ ...deps, profiles: {}, client: 'codex', locale });
     assert.equal(result.actors.length, 0);
     assert.deepEqual(result.notes, [messages.empty.replace('{client}', 'codex')]);
-    assert.match(messages.empty, locale === 'en' ? /guided command.*person who maintains okit/ : /comando guiado.*pessoa que mantém o okit/);
+    assert.match(messages.empty, locale === 'en' ? /Check the profiles in the plugin configuration/ : /Confira os perfis na configuração do plugin/);
     assert.doesNotMatch(JSON.stringify(messages), /D50|O30|Producer|Produtor/);
     assert.doesNotMatch(result.markdown, /D50|O30|Producer|Produtor/);
   }
@@ -130,7 +130,7 @@ test('low quota uses the tightest window and supplies reason and remedy', async 
 
 for (const blockedBy of ['quota', 'slots']) test(`blocked L actor is not an alternative (${blockedBy})`, async (t) => {
   const deps = await fixture(t);
-  deps.config.profiles.codex = { hard: { model: 'large-only', effort: 'high' } };
+  deps.config.profiles.codex = { simple: null, normal: null, hard: { model: 'large-only', effort: 'high' } };
   const blocked = blockedBy === 'quota'
     ? { readQuota: async () => ({ source: 'user', remainingPct: 2 }) }
     : { limits: { limits: { global: 1, clients: {} }, byClient: { codex: 1 } } };
