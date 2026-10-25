@@ -9,6 +9,7 @@ import { tick } from '../src/daemon.js';
 import { loadConfig, TOOLS, TOOL_NAMES } from '../src/mcp/tools.js';
 import { readJson, writeJsonAtomic } from '../src/state.js';
 import { invokeClient, runClientSmoke } from '../src/smoke/client.js';
+import { clientEnv } from './helpers/env.js';
 
 const HELP = '--output-format --include-hook-events --verbose --max-budget-usd --permission-mode --no-session-persistence';
 
@@ -23,7 +24,10 @@ async function fixture(t, options = {}) {
   await writeJsonAtomic(join(root, 'config.json'), { profiles: { 'claude-code': profiles }, smoke: options.smoke ?? {} });
   await writeJsonAtomic(join(root, 'quota/claude-code.json'), { remainingPct: options.quota ?? 80 });
   const lines = []; const calls = [];
-  const io = { root, env: { OKWORK_HOME: root, CLAUDE_CONFIG_DIR: join(root, 'real-config') },
+  // The client of the smoke is claude-code, so the environment names it: the
+  // markers of the machine that runs the suite never decide what it sees.
+  const env = clientEnv('claude-code', { OKWORK_HOME: root, CLAUDE_CONFIG_DIR: join(root, 'real-config') });
+  const io = { root, env,
     out: (line) => lines.push(line), err: (line) => lines.push(line),
     run: async ({ args }) => {
       assert.equal(args[0], join(plugin, 'src/cli.js'));
@@ -44,7 +48,7 @@ async function fixture(t, options = {}) {
       for (const operation of [request.operation, request.operation?.then].filter((entry) => entry?.tool)) {
         const tool = TOOLS.find((entry) => entry.name === operation.tool);
         let value; let isError = false;
-        try { value = await tool.handler(operation.arguments, { root }); }
+        try { value = await tool.handler(operation.arguments, { root, env }); }
         catch (error) { value = JSON.stringify({ error: error.message }); isError = true; }
         const id = `${request.step.id}-${operation.tool}`;
         events.push({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: `mcp__okit__${operation.tool}` }] } });

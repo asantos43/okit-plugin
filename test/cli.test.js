@@ -14,6 +14,7 @@ import { inboxAdd, inboxClaim, inboxList } from '../src/inbox.js';
 import { readQuota as claudeQuota } from '../adapters/claude-code/index.js';
 import { readQuota as codexQuota } from '../adapters/codex/index.js';
 import { readQuota as opencodeQuota } from '../adapters/opencode/index.js';
+import { ambientMarker, clientEnv } from './helpers/env.js';
 
 // | Input | Must pass | Must refuse |
 // | status with absent bin, each shell | configured install hint | spawned process |
@@ -368,6 +369,9 @@ test('daemon status --table prints the quota table under the daemon lines', asyn
   const calls = [];
   const io = {
     root,
+    // The table shows the client of the environment the test injects, never the
+    // client of the machine that runs the suite.
+    env: clientEnv('claude-code', { HOME: root }),
     now: () => T0,
     quotaCache: new Map(),
     readQuota: async (client) => {
@@ -403,6 +407,27 @@ test('daemon status --table prints the quota table under the daemon lines', asyn
     'running: false', 'pid: -', 'started: -', 'paused: false', 'last pass: -',
   ]);
   assert.deepEqual(calls, ['claude-code'], 'two tables inside the TTL read once');
+});
+
+// Must pass / must refuse table (the client of the table):
+// | case                       | must pass                              | must refuse       |
+// | a machine running opencode | the row of the client the test injects | the opencode row |
+test('the table shows the client the test injects, not the one the process environment names', async (t) => {
+  const root = await tempRoot(t);
+  // The machine runs opencode, so its marker is in the environment of the process.
+  const restore = ambientMarker('OPENCODE_PID', '1');
+  t.after(restore);
+
+  const run = await cli(['daemon', 'status', '--table'], {
+    root,
+    env: clientEnv('claude-code', { HOME: root }),
+    now: () => T0,
+    quotaCache: new Map(),
+    readQuota: async () => ({ source: 'api', remainingPct: 64, windowMinutes: 300 }),
+  });
+  assert.equal(run.code, 0, run.err.join('\n'));
+  assert.ok(run.out.some((line) => line.startsWith('| claude-code |')), run.out.join('\n'));
+  assert.ok(!run.out.some((line) => line.includes('opencode')), run.out.join('\n'));
 });
 
 test('daemon status refuses a locale without the table and a flag on another action', async (t) => {
