@@ -19,7 +19,7 @@ import { orderAdd, orderList, orderRemove } from '../orders.js';
 import { DEFAULT_CONFIG } from '../profiles.js';
 import { installSkillFiles } from '../skills.js';
 import { buildCommand, makeSpawner } from '../spawn-process.js';
-import { ATOMIC_WRITE_RETRY_BUDGET_MS, isTransientError, withLock, writeJsonAtomic } from '../state.js';
+import { withLock, writeJsonAtomic } from '../state.js';
 import { statusTable } from '../status.js';
 import { paths } from '../store.js';
 import { openDue, templateAdd, templateList, templateRemove, templateSet } from '../templates.js';
@@ -77,11 +77,6 @@ async function deadPid() {
 // it needs instead of guessing a pause.
 const POLL_MS = 2;
 const POLL_ATTEMPTS = 400;
-// The daemon writes its pid file while this check reads it in a loop, and
-// Windows refuses the rename while the reader holds the file open. The read
-// that loses the race with the rename is a refusal, not a failure, and the wait
-// covers the whole budget of the write that is being waited for.
-const PID_WRITE_POLL_ATTEMPTS = Math.ceil(ATOMIC_WRITE_RETRY_BUDGET_MS / POLL_MS) + POLL_ATTEMPTS;
 
 async function waitFor(cond, attempts = POLL_ATTEMPTS) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -234,29 +229,24 @@ async function daemonStatusCheck(deps) {
   const controller = new AbortController();
   let release = () => {};
   const held = new Promise((resolve) => { release = resolve; });
+  let ready;
+  const firstPass = new Promise((resolve) => { ready = resolve; });
   const loop = daemonRun(root, { now: () => SLOT, spawn: deps.spawn }, {
     signal: controller.signal,
-    sleep: async () => { await held; },
+    sleep: async () => { ready(); await held; },
   });
-  // This check reads the pid file in a loop while the daemon renames its own
-  // over it, and Windows refuses that rename while the reader holds the file
-  // open. The read that loses the race is a refusal to wait out, not a failure.
-  const status = async () => {
-    try {
-      return await daemonStatus(root, { now: deps.now() });
-    } catch (error) {
-      if (!isTransientError(error)) throw error;
-      return null;
-    }
-  };
-  await waitFor(async () => (await status())?.running === true, PID_WRITE_POLL_ATTEMPTS);
-  const live = await status();
-  need(live !== null && live.running === true && live.pid === process.pid, `the live loop must read as running, got ${live?.running}`);
-  need(live?.lastTick !== null, 'the live loop must have left its decision line');
-
-  controller.abort();
-  release();
-  await loop;
+  try {
+    // The pid is written before tick finishes. Reaching sleep acknowledges
+    // both writes; reading the pid alone races the first decision record.
+    await Promise.race([firstPass, loop]);
+    const live = await daemonStatus(root, { now: deps.now() });
+    need(live.running === true && live.pid === process.pid, `the live loop must read as running, got ${live.running}`);
+    need(live.lastTick !== null, 'the live loop must have left its decision line');
+  } finally {
+    controller.abort();
+    release();
+    await loop;
+  }
   need(await exists(pidFile) === false, 'the pid file must be gone when the loop leaves');
 }
 
@@ -492,7 +482,7 @@ const TOOL_ARGS = {
 async function mcpTools(deps) {
   await writeConfig(deps);
   for (const name of TOOL_NAMES) need(TOOL_ARGS[name] !== undefined, `${name} has no arguments in this check`);
-  const server = createServer({ tools: TOOLS, ctx: { root: deps.stateRoot }, version: await serverVersion() });
+  const server = createServer({ tools: TOOLS, ctx: { ...deps, root: deps.stateRoot }, version: await serverVersion() });
 
   const state = {};
   let asked = 0;

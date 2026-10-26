@@ -19,7 +19,8 @@ import { UNINSTALL_CHECKS } from '../src/smoke/checks-uninstall.js';
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 
 // The same instant the tables' own checks use: in the past, so a pid file this
-// clock writes is never stale.
+// clock writes is never stale. Each fixture controls Date and setTimeout;
+// filesystem work cannot exhaust a deadline because the host is busy.
 const SLOT = Date.UTC(2026, 8, 23, 9, 15, 0);
 
 const ALL = [...INSTALL_CHECKS, ...FEATURE_CHECKS, ...UNINSTALL_CHECKS];
@@ -60,11 +61,19 @@ const DOC = [
 ];
 // The child of the injected spawn: a pid, the two events `makeSpawner` listens
 // for, and the `kill` a `maxMinutes` timer calls. Nothing is ever started.
-function child(pid, calls) {
+function child(pid, calls, clock) {
   return {
     pid,
     kill: (signal) => { calls.push({ event: 'kill', signal }); return true; },
-    unref: () => {},
+    // makeSpawner registers maxMinutes before unref. Advance its 60 ms
+    // deadline explicitly, after registration, without waiting on the host.
+    unref: () => {
+      const kills = calls.filter((call) => call.event === 'kill').length;
+      clock.tick(59);
+      assert.equal(calls.filter((call) => call.event === 'kill').length, kills,
+        'maxMinutes must not kill before its virtual deadline');
+      clock.tick(1);
+    },
     on: (event) => { calls.push({ event }); return this; },
   };
 }
@@ -75,6 +84,7 @@ function child(pid, calls) {
  * spawn, run, clock, sleep and `runChecks`. Removed with the test that owns it.
  */
 async function depsOf(t, overrides = {}) {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: SLOT });
   const base = await mkdtemp(join(tmpdir(), 'smoke-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const home = join(base, 'home');
@@ -101,10 +111,13 @@ async function depsOf(t, overrides = {}) {
       TEMP: scope.tmp,
       TMP: scope.tmp,
     },
-    now: () => SLOT,
+    now: Date.now,
     platform: 'linux',
-    spawn: () => child(4242, calls),
-    run: async (command) => ({ ...command, stdout: '', stderr: '' }),
+    spawn: () => child(4242, calls, t.mock.timers),
+    run: async (command) => {
+      calls.push({ event: 'run', command });
+      return { ...command, stdout: '', stderr: '' };
+    },
     sleep: async () => {},
     runChecks: (checks, scopeOfRun) => runChecks(checks, scopeOfRun),
     calls,
@@ -188,12 +201,14 @@ test('every check passes on a scratch home with the injected spawn and run', asy
   }
 });
 
-test('the injected spawn was called and no real client was started', async (t) => {
+test('the injected spawn and command runner were called without starting a real client', async (t) => {
   const deps = await depsOf(t);
   const records = [];
-  for (const check of [FEATURE_CHECKS[8], FEATURE_CHECKS[18]]) records.push(await runOne(check, deps));
+  for (const check of [FEATURE_CHECKS[8], FEATURE_CHECKS[13], FEATURE_CHECKS[18]]) records.push(await runOne(check, deps));
   for (const record of records) assert.equal(record.status, 'pass', `${record.id}: ${record.error}`);
   assert.ok(deps.calls.some((call) => call.event === 'kill'), 'the injected child was the one killed');
+  assert.ok(deps.calls.some((call) => call.event === 'run' && call.command.args.includes('--version')),
+    'MCP environment reporting must use the injected command runner');
 });
 
 test('a check whose module call throws is reported as a failure', async (t) => {
@@ -208,9 +223,13 @@ test('a check whose module call throws is reported as a failure', async (t) => {
   assert.match(record.error, /the command runner is broken/);
 });
 
-test('a body that never settles is reported as a timeout', async () => {
+test('a body that never settles is reported as a timeout', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: SLOT });
   const hanging = { id: 'X1', name: 'hangs', group: 'E', timeoutMs: 20, run: () => new Promise(() => {}) };
-  const record = await runOne(hanging, {});
+  const pending = runOne(hanging, {});
+  t.mock.timers.tick(hanging.timeoutMs);
+  const record = await pending;
   assert.equal(record.status, 'timeout');
+  assert.equal(record.durationMs, 20);
   assert.match(record.error, /timed out after 20 ms/);
 });
