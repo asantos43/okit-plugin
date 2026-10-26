@@ -17,6 +17,11 @@ const PROFILE_MAX_TURNS = Object.freeze({
 });
 
 export const DEFAULT_CONFIG = {
+  statuslineCollector: {
+    previous: [], timeoutMs: 500, maxInputBytes: 1048576, maxOutputBytes: 1048576,
+    fields: { rateLimits: 'rate_limits', usedPercentage: 'used_percentage', resetsAt: 'resets_at' },
+    windows: { five_hour: 300, seven_day: 10080 },
+  },
   codexQuota: {
     sessionsDirectory: '~/.codex/sessions', sessionsEnv: 'CODEX_SESSIONS_DIR',
     recentFiles: 3, tailBytes: 16384, maxTailBytes: 1048576, maxAgeMinutes: 120,
@@ -551,6 +556,26 @@ export function configOf(config) {
   const inbox = { ...DEFAULT_CONFIG.inbox, ...config?.inbox };
   const daemon = { ...DEFAULT_CONFIG.daemon, ...config?.daemon };
   const smoke = { ...DEFAULT_CONFIG.smoke, ...config?.smoke };
+  const statuslineCollector = { ...DEFAULT_CONFIG.statuslineCollector, ...config?.statuslineCollector,
+    fields: { ...DEFAULT_CONFIG.statuslineCollector.fields, ...config?.statuslineCollector?.fields },
+    windows: config?.statuslineCollector?.windows ?? DEFAULT_CONFIG.statuslineCollector.windows };
+  for (const key of ['timeoutMs', 'maxInputBytes', 'maxOutputBytes']) {
+    if (!Number.isSafeInteger(statuslineCollector[key]) || statuslineCollector[key] < 1) {
+      throw new TypeError('Reading limits: use positive integers / Limites da leitura: use inteiros positivos');
+    }
+  }
+  if (!Array.isArray(statuslineCollector.previous)
+    || statuslineCollector.previous.some((part) => typeof part !== 'string')
+    || (statuslineCollector.previous.length && !statuslineCollector.previous[0].trim())) {
+    throw new TypeError('Previous command: use a list of words / Comando anterior: use uma lista de palavras');
+  }
+  if (Object.values(statuslineCollector.fields).some((value) => typeof value !== 'string' || !value.trim())
+    || !statuslineCollector.windows || Array.isArray(statuslineCollector.windows)
+    || !Object.keys(statuslineCollector.windows).length
+    || Object.entries(statuslineCollector.windows).some(([key, minutes]) => !key.trim()
+      || !Number.isSafeInteger(minutes) || minutes < 1)) {
+    throw new TypeError('Quota fields and windows are invalid / Campos e períodos de cota inválidos');
+  }
   const codexQuota = { ...DEFAULT_CONFIG.codexQuota, ...config?.codexQuota,
     fields: { ...DEFAULT_CONFIG.codexQuota.fields, ...config?.codexQuota?.fields } };
   for (const key of ['recentFiles', 'tailBytes', 'maxTailBytes', 'maxAgeMinutes']) {
@@ -575,6 +600,7 @@ export function configOf(config) {
     inbox,
     daemon,
     smoke,
+    statuslineCollector,
     codexQuota,
     setup: mergeSetup(config?.setup),
     actors: {

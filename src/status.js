@@ -188,7 +188,7 @@ export function ageOf(readAt, now, labels) {
 export function quotaOrigin(reading, now, labels = LABELS.en) {
   const recorded = Date.parse(reading?.recordedAt);
   const age = Number.isFinite(recorded) ? Math.max(0, now - recorded) / 60_000 : reading?.ageMinutes;
-  return `${labels.quotaSource[reading?.source] ?? reading?.source ?? labels.missing} (${typeof age === 'number'
+  return `${labels.quotaSource[reading?.source === 'user' ? 'manual' : reading?.source] ?? reading?.source ?? labels.missing} (${typeof age === 'number'
     ? labels.quotaAge(Math.floor(age)) : labels.unknownAge})`;
 }
 

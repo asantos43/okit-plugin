@@ -133,6 +133,20 @@ A class set to `null` is disabled: `okit-plugin config set profiles.<client>.<cl
 turns it off, `okit-plugin config unset profiles.<client>.<class>` turns it back
 on and a `set` of a field under a disabled class is refused without a write; an
 empty client group (`{}`) is the absence of a client, not a subscription of one.
+`okit-plugin statusline-collector [--previous <command> <args...>]` reads Claude
+Code's status bar input and atomically saves quota to `<stateRoot>/quota/claude-code.json`.
+It passes the original input to your previous command and prints its exact output.
+Configure `statuslineCollector` in the state root's `config.json`: `previous` is
+an array such as `["node", "my-bar.js"]`; the flag overrides that array for one run.
+Commands run without a shell; scripts needing a shell must name it explicitly.
+Defaults in `src/profiles.js` set `timeoutMs` to 500, `maxInputBytes` and
+`maxOutputBytes` to 1048576, `fields` to the incoming quota field names, and
+`windows` to `{"five_hour":300,"seven_day":10080}` (minutes).
+Invalid or missing quota preserves the old sample. Missing, failing or slow
+previous commands produce no output and exit successfully. Oversized input is
+drained and ignored; oversized output is discarded. `quota show` reports source
+and age. This command does not register or change any Claude Code settings.
+
 All adapters support manual quota from `quota/<client>.json`. Codex also reads
 the latest local session automatically, without changing any session files.
 The automatic reading wins only when newer than the manual sample; otherwise
