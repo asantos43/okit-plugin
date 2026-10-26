@@ -32,6 +32,7 @@ okit-plugin daemon start|stop|status|pause|resume|run-once
 okit-plugin daemon status [--table [--locale en|pt-BR]]
 okit-plugin autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
 okit-plugin status [--locale en|pt-BR]
+okit-plugin env report [--client <name>] [--locale en|pt-BR]
 okit-plugin actors [--client <name>|--all] [--json] [--locale en|pt-BR]
 okit-plugin config show
 okit-plugin config get <key>
@@ -52,8 +53,8 @@ unless installed; otherwise the check is informational. Install/update summaries
 present, it links to the [D1 overlap rules](docs/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
 See [kit configuration](INSTALL.md#orchestration-kit).
 
-The stdio MCP server exposes 15 tools: `acquire_slot`, `release_slot`,
-`limits_status`, `status`, `actors_list`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
+The stdio MCP server exposes 16 tools: `acquire_slot`, `release_slot`,
+`limits_status`, `status`, `actors_list`, `env_report`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
 `inbox_set_status`, `inbox_claim`, `inbox_release`, `order_add`, `order_list`, `order_remove`.
 
 An **actor** is a configured model + effort pair available in a client. Ask “which actors/executors can run?” with `actors` or MCP `actors_list` before sizing and choosing. It lists profiles even when no executors are running; status/slots is the view of running executors. Selection follows status: detected client by default, `--all` for configured clients (all three if empty), `--client` overrides both. JSON includes actors, quota, free slots, launch reasons/remedies and missing-size alternatives.
@@ -76,7 +77,9 @@ it shows the owner, session, worktree, timestamp, staleness and uncommitted Git 
 TTY confirmation (or `--yes`). Transfer preserves `heldBefore` with reason `producer takeover`.
 `inbox.holdStaleMinutes` defaults to 120 (integer >= 1); stale claims/releases record `stale`.
 `inbox.gitTimeoutMs` defaults to 5000 (integer >= 1). Terminal statuses clear ownership.
-The Director, Executor, Critic, Smoke and Setup skills guide delegation, verification and configuration.
+The Director, Executor, Critic, Smoke, Setup and Environment skills guide delegation, verification and configuration.
+
+Ask “where are you?”, “what do you have here?” or “which environment?” to use the installed `okit-environment` skill. It runs `okit-plugin env report` (or MCP `env_report`) and explains the client in use, installed clients, confirmed active models, quota, free slots and folders. Each missing item includes its repair command; unconfirmed readings stay unknown. Choose one client with `--client` and a language with `--locale en|pt-BR`. MCP accepts optional `client` and `locale` and returns the same report object plus its formatted `text`.
 `smoke` runs 31 isolated checks; `client-smoke` has 23 scenario checks and its
 real driver supports Claude Code. Dry-run and rehearsal are offline walks.
 See [SMOKE.md](docs/SMOKE.md) for budgets and evidence requirements.

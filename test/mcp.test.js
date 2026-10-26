@@ -7,6 +7,8 @@ import { after, test } from 'node:test';
 
 import { createServer } from '../src/mcp/server.js';
 import { makeContext, TOOLS } from '../src/mcp/tools.js';
+import { environmentReport, formatEnvironmentReport } from '../src/env/report.js';
+import { DEFAULT_CONFIG } from '../src/profiles.js';
 
 const NAMES = [
   'acquire_slot',
@@ -14,6 +16,7 @@ const NAMES = [
   'limits_status',
   'status',
   'actors_list',
+  'env_report',
   'classify',
   'profile_pick',
   'inbox_add',
@@ -27,6 +30,50 @@ const NAMES = [
 ];
 
 const roots = [];
+
+// | Input | Must pass | Must refuse |
+// | known client | same report and text as CLI | other clients in a selected report |
+// | current client | retained even without profiles | dropping the client in use |
+// | unknown client | simple localized answer | technical error |
+test('env_report shares core readings and bilingual text for each client', async () => {
+  const clients = Object.keys(DEFAULT_CONFIG.install.clients);
+  const ctx = { root: await tempRoot(), config: {}, env: { CODEX_THREAD_ID: 'session' }, now: () => 123456,
+    plugin: { path: 'read-plugin', onPath: false }, versions: {},
+    readQuota: async () => ({ source: 'off' }),
+    detectClients: async () => ({ clients: clients.map((client) => ({ client,
+      installed: false, models: [], source: 'listing' })) }) };
+  const server = harness(ctx);
+  for (const client of clients) {
+    for (const locale of ['en', 'pt-BR']) {
+      const frame = await server.call('env_report', { client, locale });
+      assert.equal(frame.result.isError, false);
+      const { text, ...report } = server.data(frame);
+      assert.deepEqual(report, await environmentReport({ ...ctx, client }));
+      assert.equal(text, formatEnvironmentReport(report, locale));
+      assert.deepEqual(report.clients.map((row) => row.client), [client]);
+    }
+  }
+  await server.stop();
+});
+
+test('env_report keeps the current unconfigured client and handles unknown clients simply', async () => {
+  for (const [client, marker] of [['codex', 'CODEX_THREAD_ID'], ['claude-code', 'CLAUDECODE'], ['opencode', 'OPENCODE']]) {
+    const server = harness({ root: await tempRoot(), config: { profiles: {} },
+      env: { [marker]: 'session', LANG: 'pt_BR.UTF-8' }, plugin: {}, versions: {},
+      readQuota: async () => ({ source: 'off' }), detectClients: async () => ({ clients: [] }) });
+    const report = server.data(await server.call('env_report', {}));
+    assert.equal(report.clients[0].client, client);
+    assert.equal(report.clients[0].inUse, true);
+    assert.match(report.text, /em uso/);
+    for (const locale of ['en', 'pt-BR']) {
+      const frame = await server.call('env_report', { client: 'unknown', locale });
+      assert.equal(frame.result.isError, false);
+      assert.deepEqual(server.data(frame), { unknownClient: true,
+        text: formatEnvironmentReport({ unknownClient: true }, locale) });
+    }
+    await server.stop();
+  }
+});
 
 test('MCP claims, lists ownership in both languages, refuses takeover and releases', async () => {
   const root = await tempRoot();
@@ -340,6 +387,9 @@ const REFUSED = [
   ['acquire_slot', { runId: 'r', client: 'alpha', waitMs: -1 }],
   ['release_slot', {}],
   ['limits_status', { junk: true }],
+  ['env_report', { junk: true }],
+  ['env_report', { client: 42 }],
+  ['env_report', { locale: 'unknown' }],
   ['classify', 'title'],
   ['classify', { title: 'x', body: 7 }],
   ['classify', { body: 'no title' }],

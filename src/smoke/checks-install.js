@@ -12,7 +12,7 @@ import { handleLine, serverVersion } from '../mcp/server.js';
 import { TOOLS, TOOL_NAMES } from '../mcp/tools.js';
 import { DEFAULT_CONFIG } from '../profiles.js';
 
-const SKILLS = ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke', 'okit-setup'];
+const SKILLS = ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke', 'okit-setup', 'okit-environment'];
 
 // The hooks the plugin installs; the entry the user writes next to it is the one
 // that has to survive a second install.
