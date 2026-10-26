@@ -21,12 +21,12 @@ Itens podem ter `hold: {client, session, worktree, takenAt, via}`;
 `releasedAt` e `reason` (incluindo `stale` e `producer takeover`). Itens antigos sem
 posse continuam válidos. Toda mutação usa a trava da inbox e escrita atômica.
 A identidade é cliente mais sessão. O mesmo dono repete idempotentemente; outro dono
-ativo é recusado. A obsolescência usa `inbox.holdStaleMinutes` (padrão 120, inteiro >= 1).
+ativo é recusado. A obsolescência usa `inbox.holdStaleMinutes` (inteiro >= 1).
 Liberação pelo dono ou obsoleta e `consolidated`/`failed` limpam a posse. Delegação aceita
 `holder` opcional; quando fornecido, deve corresponder ao dono existente. Chamadas antigas o omitem.
 Listagem MCP e status mostram a posse em inglês ou português. Só `okit-plugin inbox take`
 com `--producer-takeover` força transferência, após mostrar a situação (incluindo Git
-com `inbox.gitTimeoutMs`, padrão 5000) e confirmação TTY ou `--yes`.
+com `inbox.gitTimeoutMs`) e confirmação TTY ou `--yes`.
 O dono confirmado é comparado novamente sob a trava para recusar mudanças intervenientes.
 
 ## 3. State on disk
@@ -51,7 +51,7 @@ Arquivos do lado do projeto ficam ao lado do projeto, não nesta raiz: o `CLAUDE
 
 - Escrita: serializar para `<file>.<pid>.<random>.tmp`, depois `fs.rename` sobre o destino, para que nenhum leitor veja arquivo pela metade. Em `EPERM` ou `EBUSY` (Windows), tentar o rename de novo algumas vezes antes de falhar.
 - Trava: `fs.mkdir` na pasta `<name>.lock`, que guarda `owner.json` `{pid, startedAt}`; `EEXIST` significa ocupado; liberar com `rmdir`, que espera `EPERM`/`EBUSY` como toda outra chamada: o arquivo removido foi escrito e fechado há um instante, e uma trava deixada para trás por essa recusa guarda o dono de um processo que já saiu e é mais nova que `staleMs`, ou seja, que nenhum concorrente consegue tomar. Uma liberação respondida por `ENOTEMPTY` (esvaziada, mas um concorrente escreveu uma entrada de volta antes do `rmdir`) ou por `ENOENT` (outro concorrente já removeu) conta como liberada: a entrada que respondeu é a única evidência que todo concorrente lê, de modo que tentar de novo tiraria a trava de um dono vivo.
-- Trava velha: uma trava é velha quando passa de `staleMs` (padrão 30 s) **e** seu pid está morto; sem `owner.json` legível, usa-se o `mtime` da pasta e não há checagem de pid. A tomada reivindica a pasta do dono morto no lugar: renomeia o `owner.json` do dono morto para fora da pasta (só um rename pode vencer) e depois cria o seu próprio `owner.json` de forma exclusiva (`wx`), para que dois concorrentes não vençam os dois. A pasta nunca é movida para o lado. Uma recusa do Windows que dure mais que as tentativas de qualquer passo dessa reivindicação abandona a tentativa e deixa a pasta como foi encontrada, para que o laço de espera a julgue de novo em vez de a aquisição terminar num código cru.
+- Trava velha: uma trava é velha quando passa de `staleMs` **e** seu pid está morto; sem `owner.json` legível, usa-se o `mtime` da pasta e não há checagem de pid. A tomada reivindica a pasta do dono morto no lugar: renomeia o `owner.json` do dono morto para fora da pasta (só um rename pode vencer) e depois cria o seu próprio `owner.json` de forma exclusiva (`wx`), para que dois concorrentes não vençam os dois. A pasta nunca é movida para o lado. Uma recusa do Windows que dure mais que as tentativas de qualquer passo dessa reivindicação abandona a tentativa e deixa a pasta como foi encontrada, para que o laço de espera a julgue de novo em vez de a aquisição terminar num código cru.
 - Um escritor por arquivo: caixa, ordens e execuções são arquivos separados, para que dois passos do mesmo item não se bloqueiem.
 
 ## 4. Adapter interface
@@ -73,12 +73,13 @@ Cada adaptador fornece estas cinco operações, além dos auxiliares documentado
 | Codex | Descritor NATIVE; PROCESS | Recusa explícita, sem I/O |
 | opencode | PROCESS | Copia um módulo JS global |
 
-`adapters/claude-code/index.js` são as cinco funções desta seção para um cliente, e é o adaptador que o núcleo importa em vez da CLI. `spawn` devolve `{mode: 'NATIVE', runId, agentCall: {model, effort, prompt}}` sem iniciar processo, e em `PROCESS` reaproveita `makeSpawner` de `src/spawn-process.js`. `readQuota` responde `{source: 'user'}` e só acrescenta `remainingPct`/`windowMinutes` a partir de `quota/claude-code.json`. `installSkill` copia para `<root>/skills/<name>/` por `installSkillFiles`, `installHooks` combina `<root>/hooks/hooks.json` sem descartar entrada alguma do usuário, e a raiz é `opts.root`, depois `CLAUDE_CONFIG_DIR`, depois `~/.claude`. Codex também implementa descritores nativos e processos; opencode suporta só PROCESS. A instalação de hooks do Codex recusa; opencode instala um módulo JS.
+`adapters/claude-code/index.js` implementa o contrato do cliente. `spawn` devolve um descritor NATIVE ou usa `makeSpawner` em PROCESS. `readQuota` lê a amostra automática da barra de status ou a manual em `quota/claude-code.json`, com origem e idade. `installSkill` preserva arquivos diferentes e `installHooks` combina entradas sem descartar as do usuário. A raiz vem de `opts.root`, `CLAUDE_CONFIG_DIR` ou da pasta pessoal. Codex oferece NATIVE e PROCESS, mas recusa instalação de hooks. opencode oferece PROCESS e instala módulo JS global.
 
 ## 5. Quota
-- `source: api` — leitura de API injetada; nenhum adaptador incluído consulta API de cota.
-- `source: user` — sem número; perguntar uma vez, guardar em `quota/<client>.json`,velho depois de `windowMinutes`.
-- `source: off` — o usuário recusou, ou o cliente não tem canal; a escolha de classe ignora a cota.
+- Claude Code: `statusline-collector` salva a entrada da barra após registro consentido com `install --statusline` ou `update --statusline`.
+- Codex: `codexQuota` controla a leitura das sessões locais; a automática vence quando mais nova que a manual.
+- opencode: `opencodeQuota.sources` fornece comandos ou arquivos por provedor; uma fonte válida vence a manual.
+- Todos aceitam leitura manual via `okit-plugin quota set <client> <pct>`; sem leitura válida, a cota permanece desconhecida.
 
 Não estimar cota. `profilePick` rebaixa uma classe quando `remainingPct < lowQuotaPct`; `source: off` e leitura ausente não rebaixam. Os adaptadores devolvem leituras automáticas quando disponíveis, com alternativa manual.
 
@@ -90,8 +91,8 @@ Fonte inválida, com erro ou antiga usa o valor manual. Vale o menor restante
 entre provedores e períodos válidos. `quotaOrigin` mostra origem, idade e
 provedor em `status` e `quota show`. O smoke lê os adaptadores e preserva os
 avisos e a expiração por `ageMinutes`. O cenário continua sendo Claude Code;
-se sua cota estiver ausente ou expirada, o menor restante ainda válido de outro
-cliente configurado pode alimentar a verificação de cota.
+só a leitura do adaptador desse cliente autoriza a execução; cota ausente ou
+expirada permanece desconhecida. A cota de outro cliente nunca a autoriza.
 
 ### 5.1 A tabela de cota
 
@@ -105,9 +106,9 @@ A coluna Cota dos atores mostra o estado traduzido, o menor percentual restante 
 
 `detectClient(deps.env)` usa a tabela nomeada `CLIENT_ENV_MARKERS`: `CLAUDECODE` para Claude Code, `CODEX_THREAD_ID` ou `CODEX_CI` para Codex, `OPENCODE` ou `OPENCODE_PID` para opencode. Valores vazios ou `0` não identificam uma sessão; pastas de configuração não identificam um cliente em uso. CLI e MCP passam `ctx.env` (o ambiente real do processo quando não injetado); a tabela em si lê apenas o ambiente injetado.
 
-A coluna Situação é uma palavra, nunca ANSI: `verde` com 15 pontos ou mais acima de `lowQuotaPct`, `amarelo` do piso até essa marca e `vermelho` abaixo do piso. A palavra vem da janela mais apertada; uma linha vermelha cita a ordem sobre o piso, recorrendo a `lowQuotaPct` quando não existe uma. Sem leitura, diz “Nenhum valor de cota registrado” e informa o comando que registra: `okit-plugin quota set <cliente> <pct>`. Nenhum percentual é estimado e não há coleta automática. O valor registrado mostra a idade desde `recordedAt`, inclusive após renovar o cache; leituras antigas sem data usam a hora da primeira leitura. Abaixo da tabela, cada cliente mostrado tem vivas/teto, origem própria/padrão e vagas disponíveis com mínimo zero, além do piso. Toda palavra vive em `LABELS` com `en` e `pt-BR`, escolhida por `deps.locale`.
+A coluna Situação é uma palavra, nunca ANSI: `verde` com 15 pontos ou mais acima de `lowQuotaPct`, `amarelo` do piso até essa marca e `vermelho` abaixo do piso. A palavra vem da janela mais apertada; uma linha vermelha cita a ordem sobre o piso, recorrendo a `lowQuotaPct` quando não existe uma. Sem leitura, diz “Nenhum valor de cota registrado” e informa o comando que registra: `okit-plugin quota set <cliente> <pct>`. Nenhum percentual é estimado; os adaptadores leem amostras automáticas ou manuais. O valor registrado mostra a idade desde `recordedAt`, inclusive após renovar o cache; leituras antigas sem data usam a hora da primeira leitura. Abaixo da tabela, cada cliente mostrado tem vivas/teto, origem própria/padrão e vagas disponíveis com mínimo zero, além do piso. Toda palavra vive em `LABELS` com `en` e `pt-BR`, escolhida por `deps.locale`.
 
-As leituras ficam em cache por cliente durante `ttlMs` (60 s por padrão) medido em `deps.now`, então duas chamadas seguidas custam uma leitura. `shouldShowStatus({size, slices, executors})` é verdadeiro para tamanho `L`, `slices >= 2` ou `executors > 1`, e é quando o Diretor mostra a tabela. `okit-plugin daemon status --table [--locale en|pt-BR]` imprime a mesma tabela embaixo das linhas do daemon, e uma passagem do daemon nunca lê cota por ela: `daemonStatus(root, { table })` só monta a tabela quando essas dependências são entregues.
+As leituras ficam em cache por cliente durante `ttlMs` medido em `deps.now`, então duas chamadas seguidas custam uma leitura. `shouldShowStatus({size, slices, executors})` é verdadeiro para tamanho `L`, `slices >= 2` ou `executors > 1`, e é quando o Diretor mostra a tabela. `okit-plugin daemon status --table [--locale en|pt-BR]` imprime a mesma tabela embaixo das linhas do daemon, e uma passagem do daemon nunca lê cota por ela: `daemonStatus(root, { table })` só monta a tabela quando essas dependências são entregues.
 
 ### 5.2 O catálogo de perfis
 
@@ -191,7 +192,7 @@ O modo `PROCESS` inicia os clientes sem shell; no Windows os shims `.cmd` exigem
 ## 7. Concurrency limit
 | Escopo | Padrão | Lido de |
 | :- | :- | :- |
-| Padrão para cada cliente | 3 atores ao mesmo tempo | `limits.global` em `config.json` |
+| Padrão para cada cliente | Definido na configuração | `limits.global` em `config.json` |
 | Configuração própria | Suplanta o padrão | `limits.clients.<client>`; cota não altera o teto |
 
 Não há teto somado entre clientes. Por exemplo, `clients: {"claude-code": 100}`
@@ -200,7 +201,7 @@ Inteiros positivos são validados na leitura; clientes desconhecidos geram aviso
 O antigo `perClient` é apelido obsoleto que suplanta `global`, com aviso no status;
 `global` não significa mais um total compartilhado. Cada verificação relê a configuração sem reiniciar.
 
-O núcleo conta execuções vivas em `runs/<runId>.json` (`status: live`) em vez de confiar que o cliente respeita o teto. `acquireSlot` usa `waitMs: 0` por padrão e retorna `ok: false` sem vaga; o chamador pode pedir espera. `releaseSlot` encerra a reserva; a contagem ignora execuções mais velhas que `staleMinutes` (30 por padrão). O Codex se limita sozinho com `agents.max_concurrent_threads_per_session`; deixar no mesmo número para os dois concordarem.
+O núcleo conta execuções vivas em `runs/<runId>.json` (`status: live`) em vez de confiar que o cliente respeita o teto. `acquireSlot` usa `waitMs: 0` por padrão e retorna `ok: false` sem vaga; o chamador pode pedir espera. `releaseSlot` encerra a reserva; a contagem ignora execuções mais velhas que `staleMinutes` . O Codex se limita sozinho com `agents.max_concurrent_threads_per_session`; deixar no mesmo número para os dois concordarem.
 
 ## 8. Schedules and recurrence
 `src/schedule.js` é puro: um instante injetado, nada de I/O. `src/templates.js` guarda uma demanda que o próprio agendamento abre, um item da caixa por período.
@@ -261,7 +262,7 @@ O status é computado a partir da linha e nunca é gravado no arquivo, então qu
 | `expired` | `until` é uma data que não está no futuro. No instante exato de `until` a ordem já está vencida. |
 | `active` | Qualquer outra coisa: nunca revogada e ainda dentro do seu `until`. |
 
-Revogar marca, não apaga: a linha continua com `active: false`, `revokedAt` e `revokedReason`. Adicionar de novo o mesmo texto depois cria uma ordem nova com id novo, e uma segunda revogação do mesmo id é recusada para que o primeiro motivo sobreviva. Uma ordem inativa é então expurgada para sempre quando a retenção acaba, e a expurgo fica registrado: `purgeAfter` é `revokedAt` para uma ordem revogada e `until` para uma vencida, mais `orders.retentionDays` (padrão 90) no `config.json`; `orderPurge` remove a linha do armazenamento único só quando essa data chega, e escreve `{ at, purged: [ids] }` em `logs/<date>.jsonl` para que o rastro do que saiu sobreviva à remoção. Um `orders.retentionDays` quebrado volta ao padrão em vez de travar quem lê.
+Revogar marca, não apaga: a linha continua com `active: false`, `revokedAt` e `revokedReason`. Adicionar de novo o mesmo texto depois cria uma ordem nova com id novo, e uma segunda revogação do mesmo id é recusada para que o primeiro motivo sobreviva. Uma ordem inativa é então expurgada para sempre quando a retenção acaba, e a expurgo fica registrado: `purgeAfter` é `revokedAt` para uma ordem revogada e `until` para uma vencida, mais `orders.retentionDays`  no `config.json`; `orderPurge` remove a linha do armazenamento único só quando essa data chega, e escreve `{ at, purged: [ids] }` em `logs/<date>.jsonl` para que o rastro do que saiu sobreviva à remoção. Um `orders.retentionDays` quebrado volta ao padrão em vez de travar quem lê.
 
 Um armazenamento: toda ordem vive em `orders.json` na raiz do estado e o id é `G000001`. Não existe mais a camada de projeto — o projeto é escolhido pelo `appliesTo`, que nomeia os ids ou caminhos aos quais a ordem se liga, e uma ordem sem ele vale para todos. `orderAdd` com `layer` é recusado com `layer is gone: use appliesTo`. A migração única `orderMigrateProjects(root, projectRoots)` copia cada `<projectRoot>/.okwork/orders.json` do layout antigo para o armazenamento com `appliesTo` apontando para aquele projeto, `origin` `migrated:project` e um id `G` novo, preservando texto, escopo, `until`, `active` e os campos de revogação; uma linha já copiada é pulada (mesmo texto mais `appliesTo`), a cópia acontece antes de o arquivo antigo ser renomeado para `orders.json.migrated` e ele nunca é apagado. Ela roda de forma preguiçosa em `orderList`/`orderAdd` quando um `projectRoot` é passado, que é o único uso que resta de `projectRoot`. `scope` é `all` ou `effort:simple`, `effort:normal`, `effort:hard`; `origin` é texto livre, com padrão `maintainer`, e um modelo escreve `template:<name>`. A ordem de um modelo é criada junto com o registro, movida em uma renomeação e revogada com motivo na remoção, então a ordem que permitia a execução deixa de permitir.
 
@@ -293,7 +294,7 @@ O daemon nunca recusa uma demanda por conta própria: uma demanda é pulada apen
 
 O iniciador é injetado: `deps` traz `now()`, `quota(client)`, `idle(client)` e `spawn(demand, { client, profile, limits, maxTurns, maxMinutes, runId })`. O `runId` que ele recebe é a vaga já reservada para a execução, então devolver o mesmo id é o caminho barato; devolver outro move a vaga para esse id, e quando esse id não pode ser tomado o original é tomado de novo.
 
-Ritmo: o intervalo é marcado por um relógio monotônico, então um salto do relógio de parede para frente ou para trás não muda nem o número de passagens nem a idempotência por período. Um daemon por raiz: `daemonRun` segura a trava `daemon` e lança erro quando outro já a segura. `daemonStatus` exige um pid vivo e um arquivo de pid que não esteja velho, então um daemon que morreu lido como parado mesmo com o arquivo de pid ainda em disco. Os padrões vivem em `daemon` no `config.json`: `intervalSeconds` 60, `minQuotaPct` 10, `logKeepDays` 14; um valor quebrado nunca para o laço. A retenção das ordens permanentes mora ao lado, em `orders`: `retentionDays` 90, os dias inteiros que uma ordem inativa é guardada antes de ser expurgada, onde um valor quebrado volta ao padrão.
+Ritmo: um relógio monotônico mantém o intervalo mesmo quando o relógio de parede muda. Um daemon por raiz segura a trava `daemon`. `daemonStatus` exige pid vivo e registro recente. `daemon.intervalSeconds`, `daemon.minQuotaPct` e `daemon.logKeepDays` controlam ritmo, piso e retenção de logs; `orders.retentionDays` controla a retenção das ordens inativas. Valores inválidos usam os padrões configurados.
 
 ## 12. Spawn modes
 Claude Code e Codex suportam descritores NATIVE e processos PROCESS. opencode suporta apenas PROCESS; NATIVE é recusado.
@@ -367,3 +368,18 @@ Então: ausente significa todos os projetos, um nome significa aquele projeto, u
 ## 15. Implementation and limits
 
 Os três adaptadores, estado JSON, daemon, agendamento, instalador, release e servidor MCP estão implementados. O runner real de `client-smoke` atende Claude Code; os demais drivers e as provas Windows/macOS continuam pendentes. Veja [RELEASING.pt-BR.md](RELEASING.pt-BR.md#proof-per-pair).
+
+<a id="kit-and-plugin-overlap-d1"></a>
+
+### Kit and plugin overlap
+
+O kit de orquestração e o plugin podem coexistir. O plugin cuida dos adaptadores,
+ferramentas MCP e estado em `OKWORK_HOME`. Instalar ou atualizar o plugin não
+instala, atualiza nem migra o kit. Mantenha a configuração de cada ferramenta
+com ela e escolha o executável desejado no PATH (`install.kit.path` escolhe a sondagem).
+Evite dois orquestradores na mesma demanda: filas e limites são independentes.
+
+`okit-plugin kit`, resumos de instalação/atualização e status usam um detector
+somente leitura, com dependências injetadas. Só o comando de versão configurado
+executa, com prazo limitado. O detector informa caminho e versão; não adivinha
+pastas pessoais/configuração do kit nem detecta o plugin de dentro do kit.

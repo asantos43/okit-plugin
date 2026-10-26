@@ -36,7 +36,7 @@ or `skip`, and only `pass` counts as a success.
 | :- | :- | :- | :- |
 | `I1` | `files.placed` | `src/cli.js` (the `okit-plugin` bin), `src/mcp/server.js`, `adapters/claude-code/index.js` and `skills/okit-{director,executor,critic,smoke}/SKILL.md` are readable | 5 s |
 | `I2` | `commands.registered` | `main()` accepts `daemon`, `autostart`, `status`; each exits `0`, an unknown group exits `2` | 15 s |
-| `I3` | `mcp.registered` | `initialize` and `tools/list` over `handleLine` name the 12 tools of `TOOL_NAMES` | 15 s |
+| `I3` | `mcp.registered` | `initialize` and `tools/list` over `handleLine` name the tools of `TOOL_NAMES` | 15 s |
 | `I4` | `skills.installed` | `installSkill('okit-director')` writes `skills/okit-director/SKILL.md` under the scratch config root; a second call reports `identical` | 10 s |
 | `I5` | `hooks.merged` | `installHooks` writes `hooks/hooks.json`; over a user-edited file it keeps the user's entry and reports `written: false` | 10 s |
 | `I6` | `permissions.readable` | the `bin` entry and every `SKILL.md` are readable files; the mode is asserted off Windows only | 5 s |
@@ -55,11 +55,11 @@ or `skip`, and only `pass` counts as a success.
 | `E7` | `state.locks` | `withLock` refuses a second holder, releases, and takes over a stale lock whose pid is dead | 20 s |
 | `E8` | `spawn.command` | `buildCommand` returns the documented argument array for `claude-code`, `codex` and `opencode`, briefing last, no shell | 10 s |
 | `E9` | `spawn.process` | `makeSpawner` with an injected `spawn` writes `runs/<runId>.json` as `live` and `runs/<runId>.out`, and `maxMinutes` kills the child | 15 s |
-| `E10` | `limits.slots` | `acquireSlot` takes `limits.perClient` slots, then answers `ok: false` with the cap; `releaseSlot` frees one | 15 s |
+| `E10` | `limits.slots` | `acquireSlot` takes `limits.clients.<client>` or `limits.global` slots, then answers `ok: false` with the cap; `releaseSlot` frees one | 15 s |
 | `E11` | `autostart.plan` | `detectAutostart` per platform and `autostartPlan` for `systemd`, `cron`, `launchd`, `schtasks`; `win32` paths keep forward slashes | 10 s |
 | `E12` | `autostart.apply` | `applyAutostart` with an injected `run`/`write` installs, uninstalls and reports what it wrote; a second install writes nothing new | 15 s |
 | `E13` | `skills.packaged` | each `skills/*/SKILL.md` has `name` and `description` frontmatter, and `installSkillFiles` never overwrites a file that differs | 10 s |
-| `E14` | `mcp.tools` | all 12 tools answer `tools/call`; an unknown tool is `-32602` and a bad line is `-32700`, and the loop keeps reading | 30 s |
+| `E14` | `mcp.tools` | all tools answer `tools/call`; an unknown tool is `-32602` and a bad line is `-32700`, and the loop keeps reading | 30 s |
 | `E15` | `inbox.flow` | add, list, `inboxSetStatus` along the sequence, all persisted | 15 s |
 | `E16` | `orders.flow` | add, list, revoke; the row survives with `revokedReason` and a second revoke is refused | 15 s |
 | `E17` | `templates.flow` | add, list, pause and resume, remove; `openDue` twice in one period opens one child | 20 s |
@@ -213,17 +213,17 @@ The runner reads the client's **event stream**, not the model's prose: the `init
 
 A real run spends the user's money, so it has a price and a floor. Each has a default in `DEFAULT_CONFIG.smoke` and is a **configuration variable**, a key in `config.json` under the state root, that the smoke reads and that a flag can override for one run.
 
-| variable (a key in `config.json`) | what it limits | the default value of the variable |
-| :- | :- | :- |
-| `smoke.quotaFloorPct` | the quota below which the run is refused before it starts | `20` |
-| `smoke.maxUsd` | the money one run may spend; the client itself enforces it (`--max-budget-usd` for Claude Code, which `claude --help` confirms) | `1.00` |
-| `smoke.maxTurns` | the steps the scenario may take; the runner enforces it and never passes it to the client (the client has no `--max-turns`) | the number of steps in the scenario |
-| `smoke.maxMinutes` | the wall clock of one run | `15` |
-| `smoke.checkTimeoutMs` | the deadline of one check | `60000` |
+| variable in `config.json` | what it limits |
+| :- | :- |
+| `smoke.quotaFloorPct` | the quota below which the run is refused before it starts |
+| `smoke.maxUsd` | the money one run may spend; the client itself enforces it (`--max-budget-usd` for Claude Code, which `claude --help` confirms) |
+| `smoke.maxTurns` | the steps the scenario may take; the runner enforces it and never passes it to the client (the client has no `--max-turns`) |
+| `smoke.maxMinutes` | the wall clock of one run |
+| `smoke.checkTimeoutMs` | the deadline of one check |
 
 The flags are one-run overrides of those variables and nothing else: `--quota-floor` overrides `smoke.quotaFloorPct`, `--max-usd` overrides `smoke.maxUsd`, `--max-turns` overrides `smoke.maxTurns`, `--max-minutes` overrides `smoke.maxMinutes` and `--timeout` overrides `smoke.checkTimeoutMs`. A flag without a value takes the value of the variable, and a variable with no key in `config.json` takes its default value. The in-process runner of the section above keeps its own defaults, so the two layers never drift into each other.
 
-The **quota pre-check** reads the client's own reading (`quota/<client>.json`, the file `readQuota` of the adapter already reads) *before* the first step. Below the floor — `smoke.quotaFloorPct`, the same threshold the order O5 of the kit uses — the run does not start: nothing is spent, no check runs, and the run answers `2`, because nothing was verified. The reason is written in the run header of the report, not as a check, since no check exists. A missing reading is not a zero: the run proceeds only with `--allow-unknown-quota`, which says out loud that nobody knows the quota.
+The **quota pre-check** reads the client's own reading (automatic or manual, returned by the adapter's `readQuota`) *before* the first step. Below the floor — `smoke.quotaFloorPct` — the run does not start: nothing is spent, no check runs, and the run answers `2`, because nothing was verified. The reason is written in the run header of the report, not as a check, since no check exists. A missing reading is not a zero: the run proceeds only with `--allow-unknown-quota`, which says out loud that nobody knows the quota.
 
 The ceiling is *hard* in the sense that it is the client's own flag, not a promise in a prompt: `--max-budget-usd` makes the client stop spending, and the client's own `result` event says so — `terminal_reason: "budget_exhausted"` with `subtype: "error_max_budget_usd"`. The steps that did not run are `skip` with the reason `budget-exhausted`. A step that never ran is never a `pass`.
 
@@ -253,11 +253,11 @@ The reason is a fixed word, so a reader can count refusals without reading prose
 
 A `config-missing` skip carries its own sentence in the human log: **the installation is incomplete**, because without a `config.json` there is no profile to pick. It is the one skip that names a thing the user has to fix, so the report says so in words and not only in a word.
 
-### The log joins the D19 one
+### Shared artifacts
 
-The in-client run writes **the same two artifacts, in the same place, in the same format**: `<state root>/logs/smoke/smoke-<runid>.jsonl` and `smoke-<runid>.log`, the run id in the same shape (`20261023T091530Z-4242`), one JSON object per line, the header first and one record per check after it. The record keeps the fields of the D19 record — `id`, `name`, `group`, `status`, `durationMs`, `timeoutMs`, `error`, `command`, `environment`, `logTail` — and the group of an in-client record is `C`.
+The in-client run writes **the same two artifacts, in the same place, in the same format**: `<state root>/logs/smoke/smoke-<runid>.jsonl` and `smoke-<runid>.log`, the run id in the same shape (`20261023T091530Z-4242`), one JSON object per line, the header first and one record per check after it. The record keeps the fields of the in-process record — `id`, `name`, `group`, `status`, `durationMs`, `timeoutMs`, `error`, `command`, `environment`, `logTail` — and the group of an in-client record is `C`.
 
-The header includes `kind: "smoke-in-client"`, `client` (`claude-code`) and `scenario` (the scenario version). A reader of the D19 log can read the in-client log without a new parser, and both are found by the same glob.
+The header includes `kind: "smoke-in-client"`, `client` (`claude-code`) and `scenario` (the scenario version). A reader of the in-process log can read the in-client log without a new parser, and both are found by the same glob.
 
 The `logTail` of an in-client record is the tail of the file that decided the step: the state file, the run file, the daemon log or the client's own JSON output. Nothing of the session is kept: a run leaves two files and a line of stdout.
 
@@ -269,7 +269,7 @@ Without offline flags, the runner uses the real installation, configuration, log
 
 Six, taken by the Producer on 2026-10-23. They are decisions, not questions: the section above already follows them.
 
-1. **The quota floor is the order's.** The floor of the in-client run is the same threshold the order O5 of the kit uses — `smoke.quotaFloorPct`, whatever the configuration says it is — for the in-client run exactly as for the kit.
+1. **The quota floor is configurable.** The floor of the in-client run is set by configuration — `smoke.quotaFloorPct`, whatever the configuration says it is — for the in-client run exactly as for the kit.
 2. **A missing config is a `skip`, and the report says the installation is incomplete.** `profile_pick` needs a profile for the class asked, the default catalog or the configured one; with no `config.json` the installation is unconfigured, so `C14` is a `skip` with the reason `config-missing`, and the human log says in words that the installation is incomplete, because that is the one skip the user has to fix.
 3. **`C4` takes the client's own hook events.** The evidence is what the client reports with `--include-hook-events` (with `stream-json --verbose`); if hook evidence is absent, the check is a `skip` with the reason `hook-evidence-unavailable`, so the run says the hooks are unproven instead of saying they are broken.
 4. **The demo narrates and reports.** The demo mode narrates each step in the client's own words *and* prints the same one-line-per-check report as the other modes at the end: the narration is what a person watches, the report is what a person checks.

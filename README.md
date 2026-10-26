@@ -1,5 +1,7 @@
 # okit-plugin
 
+![okit plugin: a neon terminal with a director's chair and the plugin's main features](docs/art/banner.svg)
+
 Migration: use `okit-plugin` for the plugin; `okit`/`kit` belong to the orchestration kit. Install/update replace only legacy plugin links; unrelated kit commands and 0.2.0 records are preserved. See [installation](INSTALL.md).
 
 A plugin for AI clients (Claude Code, Codex, opencode) that helps a Director
@@ -28,14 +30,14 @@ inherits `release.adapters`), plus the selected client's installation metadata.
 ## Usage — Uso
 
 ```text
-okit-plugin install [--from <dir>] [--client <c>] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--no-path] [--autostart] [--dry-run] [--yes]
-okit-plugin update [--check] [--rollback] [--dry-run] [--no-path]
-okit-plugin uninstall [--purge] [--yes] [--dry-run]
+okit-plugin install [--from <dir>] [--client <c>|all] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--no-path] [--autostart] [--dry-run] [--yes] [--statusline|--no-statusline]
+okit-plugin update [--client <c>] [--check] [--rollback] [--dry-run] [--no-path] [--statusline|--no-statusline]
+okit-plugin uninstall [--client <c>] [--purge] [--yes] [--dry-run]
 okit-plugin setup [--defaults] [--again]
 okit-plugin daemon start|stop|status|pause|resume|run-once
 okit-plugin daemon status [--table [--locale en|pt-BR]]
 okit-plugin autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
-okit-plugin status [--locale en|pt-BR]
+okit-plugin status [--all] [--client <name>] [--locale en|pt-BR]
 okit-plugin env report [--client <name>] [--locale en|pt-BR]
 okit-plugin actors [--client <name>|--all] [--json] [--locale en|pt-BR]
 okit-plugin config show
@@ -54,7 +56,7 @@ okit-plugin client-smoke [--client claude-code] [--headless|--demo|--dry-run|--r
 hint), or broken. It only runs the configured version command. `--require` exits 1
 unless installed; otherwise the check is informational. Install/update summaries
 (including dry-run) and `okit-plugin status` include a `kit: …` line. When both tools are
-present, it links to the [D1 overlap rules](docs/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
+present, it links to the [overlap rules](docs/ARCHITECTURE.md#kit-and-plugin-overlap).
 See [kit configuration](INSTALL.md#orchestration-kit).
 
 The stdio MCP server exposes 16 tools: `acquire_slot`, `release_slot`,
@@ -79,8 +81,8 @@ another active client/session is refused. `okit-plugin inbox release <id> --clie
 Only the human CLI allows `okit-plugin inbox take <id> --producer-takeover [--client <c>] [--yes]`:
 it shows the owner, session, worktree, timestamp, staleness and uncommitted Git changes before
 TTY confirmation (or `--yes`). Transfer preserves `heldBefore` with reason `producer takeover`.
-`inbox.holdStaleMinutes` defaults to 120 (integer >= 1); stale claims/releases record `stale`.
-`inbox.gitTimeoutMs` defaults to 5000 (integer >= 1). Terminal statuses clear ownership.
+`inbox.holdStaleMinutes` controls hold age; stale claims/releases record `stale`.
+`inbox.gitTimeoutMs` limits the Git check. Terminal statuses clear ownership.
 The Director, Executor, Critic, Smoke, Setup and Environment skills guide delegation, verification and configuration.
 
 Ask “where are you?”, “what do you have here?” or “which environment?” to use the installed `okit-environment` skill. It runs `okit-plugin env report` (or MCP `env_report`) and explains the client in use, installed clients, confirmed active models, quota, free slots and folders. Each missing item includes its repair command; unconfirmed readings stay unknown. Choose one client with `--client` and a language with `--locale en|pt-BR`. MCP accepts optional `client` and `locale` and returns the same report object plus its formatted `text`.
@@ -92,9 +94,8 @@ See [SMOKE.md](docs/SMOKE.md) for budgets and evidence requirements.
 
 State defaults to `~/.okwork`; `OKWORK_HOME` overrides it. Manage editable
 settings with `okit-plugin config`; there is no need to edit `config.json` by
-hand. Defaults in [src/profiles.js](src/profiles.js) include `lowQuotaPct: 15`,
-`limits: {global: 3, clients: {}}`, `staleMinutes: 30`, and the default
-profile catalog.
+hand. [src/profiles.js](src/profiles.js) defines `lowQuotaPct`,
+`limits.global`, `limits.clients`, `staleMinutes` and the profile catalog.
 
 `okit-plugin config show` lists every editable key with its effective value,
 its origin (`default` or `user`) and a plain explanation of its effect.
@@ -109,8 +110,8 @@ the key to its default, and the groups the removal leaves empty are removed
 too, so the file reads the same as it read before the value was set.
 
 Set `limits.global` and `limits.clients.<client>` with the command; for
-example, `okit-plugin config set limits.global 3` and
-`okit-plugin config set limits.clients.claude-code 100`. A client's own cap
+example, `okit-plugin config set limits.global <positive-integer>` and
+`okit-plugin config set limits.clients.claude-code <positive-integer>`. A client's own cap
 replaces the default; clients without an entry each use `global`. There is no
 shared total cap.
 Positive integers are required; invalid values fail configuration reads, and
@@ -124,7 +125,7 @@ The status table ends with one fixed, localized sentence: slots are running
 executors, and `actors` lists the available model + effort profiles.
 The default catalog gives every client (`claude-code`, `codex`, `opencode`) a
 profile per class (`simple`, `normal`, `hard`), each with `model`, `effort`
-(`low`, `medium`, `high`) and `maxTurns` (`20`, `40`, `80`), so a clean
+(`low`, `medium`, `high`) and `maxTurns`, so a clean
 install answers `profile_pick` and `actors_list` for every client and class
 without a `profiles` entry. Change one profile field with
 `okit-plugin config set profiles.<client>.<class>.model|effort|maxTurns <value>`;
@@ -143,9 +144,8 @@ It passes the original input to your previous command and prints its exact outpu
 Configure `statuslineCollector` in the state root's `config.json`: `previous` is
 an array such as `["node", "my-bar.js"]`; the flag overrides that array for one run.
 Commands run without a shell; scripts needing a shell must name it explicitly.
-Defaults in `src/profiles.js` set `timeoutMs` to 500, `maxInputBytes` and
-`maxOutputBytes` to 1048576, `fields` to the incoming quota field names, and
-`windows` to `{"five_hour":300,"seven_day":10080}` (minutes).
+`statuslineCollector.timeoutMs`, `maxInputBytes` and `maxOutputBytes` bound execution;
+`fields` maps incoming quota names and `windows` defines window lengths.
 Invalid or missing quota preserves the old sample. Missing, failing or slow
 previous commands produce no output and exit successfully. Oversized input is
 drained and ignored; oversized output is discarded. `quota show` reports source
@@ -154,9 +154,9 @@ and age. This command does not register or change any Claude Code settings.
 OpenCode can read configured provider sources without reading credentials:
 `opencodeQuota.sources` maps provider names to `{"command":["program","argument"]}`
 or `{"file":"path/to/quota.json"}`; it defaults to `{}`. Commands run without a
-shell, with the caller's environment unchanged. Defaults: `timeoutMs: 3000`,
-`maxOutputBytes: 1048576`, `maxAgeMinutes: 120`. `fields` maps contract names;
-`windows` defaults to `{"five_hour":300,"weekly":10080}` (minutes).
+shell, with the caller's environment unchanged. `opencodeQuota.timeoutMs`,
+`maxOutputBytes` and `maxAgeMinutes` bound execution and freshness;
+`fields` maps contract names and `windows` defines window lengths.
 Each source returns one JSON object:
 `{"version":1,"company":"example","source":"quota","read_at":1793016000,"five_hour":{"remaining_percent":80,"reset_at":null},"weekly":null}`.
 At least one window is required; percentages are integers from 0 to 100.
@@ -171,10 +171,10 @@ All adapters support manual quota from `quota/<client>.json`. Codex also reads
 the latest local session automatically, without changing any session files.
 The automatic reading wins only when newer than the manual sample; otherwise
 the manual sample is used. `quota show` and `status` show its source and age.
-Configure `codexQuota` with `config set`: `sessionsDirectory` (default
-`~/.codex/sessions`), `sessionsEnv` (`CODEX_SESSIONS_DIR`, an injected environment
-override), `recentFiles` (3), `tailBytes` (16384), `maxTailBytes` (1048576),
-`maxAgeMinutes` (120), `filePrefix`/`fileSuffix` and `fields.*` for event field names.
+Configure `codexQuota` in `config.json`: `sessionsDirectory` and `sessionsEnv`
+choose the folder (`CODEX_SESSIONS_DIR` can override it); `recentFiles`,
+`tailBytes`, `maxTailBytes` and `maxAgeMinutes` bound the reading;
+`filePrefix`/`fileSuffix` and `fields.*` define file and event names.
 Files are ordered by modification time. The reader starts at the end, expands
 the read window only to its limit, and skips malformed or unknown lines.
 Record the remaining percentage shown in the client's `/usage` with
@@ -186,13 +186,13 @@ stores `remainingPct`, optional `windowMinutes` and `recordedAt` under `OKWORK_H
 Smoke uses only the tested client's adapter reading, automatic or manual.
 Another client's remaining quota never authorizes the run; missing readings stay
 unknown, without estimates. The execution scenario remains Claude Code.
-Smoke warns after `smoke.quotaMaxAgeMinutes` (default 30) and treats the record
-as unknown after `smoke.quotaExpireMinutes` (default 120). Both are configurable
+Smoke warns after `smoke.quotaMaxAgeMinutes` and treats the record
+as unknown after `smoke.quotaExpireMinutes`. Both are configurable
 in `config.json`; records without `recordedAt` remain valid. On `quota-unknown`,
 provide a fresh reading and retry; use `--allow-unknown-quota` only on explicit request.
-`postCompact` defaults to enabled, `timeoutSec: 5`, `maxLines: 20`, all sections
-enabled. `smoke` defaults: `quotaFloorPct: 20`, `maxUsd: 1`, `maxTurns: null`
-(full scenario), `maxMinutes: 15`, `checkTimeoutMs: 60000`.
+`postCompact.enabled`, `timeoutSec`, `maxLines` and `sections` control compact summaries.
+`smoke.quotaFloorPct`, `maxUsd`, `maxTurns`, `maxMinutes` and `checkTimeoutMs`
+control the real smoke budget; see the [smoke guide](docs/SMOKE.md).
 
 ## Uninstall — Desinstalar
 
@@ -200,7 +200,7 @@ Run `okit-plugin uninstall --dry-run` to review, then `okit-plugin uninstall` to
 daemon, unregister the client and remove recorded versions and the command link.
 State/configuration remain; `okit-plugin uninstall --purge --yes` removes the state root.
 Use the installation destination and state root from the installation record.
-These are documentation steps; there is no separate uninstall script.
+Update and uninstall use the installed CLI; no extra tool is required.
 
 ## Development — Desenvolvimento
 

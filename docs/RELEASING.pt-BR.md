@@ -3,7 +3,7 @@
 Migração do comando: `bin` do pacote e `install.command` agora usam `okit-plugin`; instalar/atualizar migram links antigos `okit` próprios sem tocar no kit. Registros da 0.2.0 continuam aceitos; identidades MCP e estado permanecem iguais.
 
 Status: publicado (veja a página de releases para a versão atual). Build, checksums, notas, checklist, publicador e instalador estão implementados; publicação não prova uso real.
-Estende [ARCHITECTURE.md](ARCHITECTURE.md) e [SMOKE.md](SMOKE.md), incluindo o cenário D25 no cliente real. Inglês: [RELEASING.md](RELEASING.md).
+Estende [ARCHITECTURE.md](ARCHITECTURE.md) e [SMOKE.md](SMOKE.md), incluindo o cenário smoke no cliente no cliente real. Inglês: [RELEASING.md](RELEASING.md).
 
 ## What a release is
 
@@ -18,16 +18,16 @@ A tabela é requisito de empacotamento/prova, não afirmação de que todos os a
 | Cliente | Linux | Windows | macOS |
 | :- | :- | :- | :- |
 | Claude Code | Raiz do plugin configurada; raiz do adaptador por opção explícita, `CLAUDE_CONFIG_DIR`, depois home. systemd do usuário ou cron explícito; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. | Mesma precedência de raiz com home nativo; schtasks no logon; preservar LF e caminhos substituídos com barras normais, arquivos legíveis e shim de comando configurado no PATH. Prova nativa pelo Produtor. | Mesma precedência de raiz com home nativo; agente launchd; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Prova pelo Produtor. |
-| Codex | Fonte de marketplace escolhida resolve raiz do plugin ([D-Q2](#decisions)); systemd do usuário ou cron explícito; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador implementado; prova do par pendente. | Fonte de marketplace escolhida e home nativo ([D-Q2](#decisions)); schtasks; LF, escape de caminhos, arquivos legíveis e shim configurado no PATH. Adaptador implementado; Produtor prova par nativo. | Fonte de marketplace escolhida e home nativo ([D-Q2](#decisions)); launchd; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador implementado; Produtor prova par. |
-| opencode | Destinos globais de plugins e skills configurados ([D-Q3](#decisions)); systemd do usuário ou cron explícito; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador implementado; prova do par pendente. | Resolver destinos globais no Windows nativo ([D-Q3](#decisions)); schtasks; LF, escape de caminhos, arquivos legíveis e shim configurado no PATH. Adaptador implementado; Produtor prova par nativo. | Resolver destinos globais no macOS nativo ([D-Q3](#decisions)); launchd; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador implementado; Produtor prova par. |
+| Codex | Fonte de marketplace escolhida resolve raiz do plugin ([decisões](#decisions)); systemd do usuário ou cron explícito; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador implementado; prova do par pendente. | Fonte de marketplace escolhida e home nativo ([decisões](#decisions)); schtasks; LF, escape de caminhos, arquivos legíveis e shim configurado no PATH. Adaptador implementado; Produtor prova par nativo. | Fonte de marketplace escolhida e home nativo ([decisões](#decisions)); launchd; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador implementado; Produtor prova par. |
+| opencode | Destinos globais de plugins e skills configurados ([decisões](#decisions)); systemd do usuário ou cron explícito; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador implementado; prova do par pendente. | Resolver destinos globais no Windows nativo ([decisões](#decisions)); schtasks; LF, escape de caminhos, arquivos legíveis e shim configurado no PATH. Adaptador implementado; Produtor prova par nativo. | Resolver destinos globais no macOS nativo ([decisões](#decisions)); launchd; LF, arquivos legíveis e CLI executável; link do bin configurado no PATH. Adaptador implementado; Produtor prova par. |
 
-`src/autostart.js` seleciona hoje systemd no Linux, schtasks no Windows e launchd no macOS. Cron é alternativa explícita, não fallback automático do systemd; o plano atual substitui o crontab do usuário e sua desinstalação o remove. Preservar linhas existentes do cron é requisito antes de oferecer esse caminho ([D-Q4](#decisions)).
+`src/autostart.js` seleciona hoje systemd no Linux, schtasks no Windows e launchd no macOS. Cron é alternativa explícita, não fallback automático do systemd; o plano atual substitui o crontab do usuário e sua desinstalação o remove. Preservar linhas existentes do cron é requisito antes de oferecer esse caminho ([decisões](#decisions)).
 
-Preservar UTF-8/LF na carga e nos logs em todos os sistemas. Conferir bits de execução POSIX após extração; no Windows conferir leitura por ACL e o shim no shell pretendido. Derivar nome e destino do comando de `package.json.bin` (hoje `okit-plugin`) e configurar o destino do link/shim ([D-Q4](#decisions)). Descoberta de plugin pelo cliente não estabelece PATH. Autostart deve resolver explicitamente caminhos do Node e da CLI instalados; o PATH do shell de login é insuficiente. Refazer o plano se a atualização mover a instalação.
+Preservar UTF-8/LF na carga e nos logs em todos os sistemas. Conferir bits de execução POSIX após extração; no Windows conferir leitura por ACL e o shim no shell pretendido. Derivar nome e destino do comando de `package.json.bin` (hoje `okit-plugin`) e configurar o destino do link/shim ([decisões](#decisions)). Descoberta de plugin pelo cliente não estabelece PATH. Autostart deve resolver explicitamente caminhos do Node e da CLI instalados; o PATH do shell de login é insuficiente. Refazer o plano se a atualização mover a instalação.
 
 ## Artifacts
 
-O build implementado usa os seguintes modelos de nomes. `P` é uma codificação segura para arquivos de `package.json.name`, `V` é sua `version`, `C`/`S` são identificadores de cliente/sistema da configuração de release e `A` é a arquitetura. Diretório de saída, formato/extensão `E`, codificação do nome e arquiteturas aceitas vêm da configuração conforme [D-Q5](#decisions); nunca rotular uma arquitetura como se cobrisse todas.
+O build implementado usa os seguintes modelos de nomes. `P` é uma codificação segura para arquivos de `package.json.name`, `V` é sua `version`, `C`/`S` são identificadores de cliente/sistema da configuração de release e `A` é a arquitetura. Diretório de saída, formato/extensão `E`, codificação do nome e arquiteturas aceitas vêm da configuração conforme [decisões](#decisions); nunca rotular uma arquitetura como se cobrisse todas.
 
 | Saída | Nome derivado | Conteúdo |
 | :- | :- | :- |
@@ -42,11 +42,11 @@ As notas vêm do histórico de mudanças mantido à mão na raiz em `CHANGELOG.m
 
 O manifesto de hashes é escrito e conferido por `src/release/checksums.js`, conduzido por `scripts/checksums.js` (`npm run release:checksums -- write|verify`). Uma linha por arquivo traz o digest SHA-256 minúsculo, dois espaços e o nome exato, ordenadas por nome, LF e UTF-8, calculados sobre os bytes finais do arquivo sem mantê-lo em memória; o manifesto nunca carrega o próprio hash. A verificação recusa arquivo alterado, ausente ou não listado, linha malformada e caminho inseguro.
 
-Fluxo do usuário: obter par e manifesto de hashes da página de releases do GitHub ([D-Q5](#decisions)), verificar SHA-256 antes de extrair, conferir Node contra engines do pacote, extrair no destino configurado e seguir instruções do par. Configurar link/shim do bin, MCP, skills e autostart conforme aplicável; depois provar instalação. SHA-256 detecta bytes alterados; não autentica a origem do download ([D-Q5](#decisions)).
+Fluxo do usuário: obter par e manifesto de hashes da página de releases do GitHub ([decisões](#decisions)), verificar SHA-256 antes de extrair, conferir Node contra engines do pacote, extrair no destino configurado e seguir instruções do par. Configurar link/shim do bin, MCP, skills e autostart conforme aplicável; depois provar instalação. SHA-256 detecta bytes alterados; não autentica a origem do download ([decisões](#decisions)).
 
-Para Claude Code, o instalador registra o marketplace e chama instalação/atualização pelo cliente. Para Codex, registra a fonte e pede ativação por `/plugins`. Para opencode, instala o módulo global e copia as skills, preservando arquivos diferentes; não configura MCP separadamente. A prova por eventos nativos continua pendente ([D-Q3](#decisions)).
+Para Claude Code, o instalador registra o marketplace e chama instalação/atualização pelo cliente. Para Codex, registra a fonte e pede ativação por `/plugins`. Para opencode, instala o módulo global e copia as skills, preservando arquivos diferentes; não configura MCP separadamente. A prova por eventos nativos continua pendente ([decisões](#decisions)).
 
-Antes de atualizar, parar daemon anterior, guardar backup do estado configurado e skills/hooks editados, verificar nova carga, trocar referências do cliente e registro no PATH, regenerar caminhos de autostart movidos, reiniciar e repetir provas. Instaladores atuais recusam skills divergentes e preservam entradas de hooks do usuário: não prometer sobrescrita na atualização. Fazer backup do estado e dos skills editados pelo usuário e permitir volta à versão anterior ([D-Q6](#decisions)).
+Antes de atualizar, parar daemon anterior, guardar backup do estado configurado e skills/hooks editados, verificar nova carga, trocar referências do cliente e registro no PATH, regenerar caminhos de autostart movidos, reiniciar e repetir provas. Instaladores atuais recusam skills divergentes e preservam entradas de hooks do usuário: não prometer sobrescrita na atualização. Fazer backup do estado e dos skills editados pelo usuário e permitir volta à versão anterior ([decisões](#decisions)).
 
 ## Installer and updater
 
@@ -148,23 +148,23 @@ Imediatamente antes de chamar o GitHub, o git é verificado novamente: árvore s
 
 ## Proof per pair
 
-Cada marca significa **ambas** as camadas no candidato instalado daquele par: `okit-plugin smoke` (em processo, home temporário) e cenário D25 dentro do cliente real indicado, carregando a instalação real com login/estado reais. `--dry-run`, ensaio e spawns simulados não provam uso real. `okit-plugin client-smoke` está implementado para Claude Code; veja [SMOKE.pt-BR.md](SMOKE.pt-BR.md#in-client-smoke-real). Os demais drivers reais estão pendentes. Manter cada par desmarcado até registrar e aceitar ambas as camadas.
+Cada marca significa **ambas** as camadas no candidato instalado daquele par: `okit-plugin smoke` (em processo, home temporário) e cenário smoke no cliente dentro do cliente real indicado, carregando a instalação real com login/estado reais. `--dry-run`, ensaio e spawns simulados não provam uso real. `okit-plugin client-smoke` está implementado para Claude Code; veja [SMOKE.pt-BR.md](SMOKE.pt-BR.md#in-client-smoke-real). Os demais drivers reais estão pendentes. Manter cada par desmarcado até registrar e aceitar ambas as camadas.
 
 | Checklist por par | Quem executa e assina ambas as camadas |
 | :- | :- |
-| [ ] Claude Code × Linux | Máquina Linux do Diretor ([D-Q7](#decisions)) |
+| [ ] Claude Code × Linux | Máquina Linux do Diretor ([decisões](#decisions)) |
 | [ ] Claude Code × Windows | Produtor na máquina Windows nativa |
 | [ ] Claude Code × macOS | Produtor na máquina macOS |
-| [ ] Codex × Linux | Máquina Linux do Diretor ([D-Q7](#decisions)) |
+| [ ] Codex × Linux | Máquina Linux do Diretor ([decisões](#decisions)) |
 | [ ] Codex × Windows | Produtor na máquina Windows nativa |
 | [ ] Codex × macOS | Produtor na máquina macOS |
-| [ ] opencode × Linux | Máquina Linux do Diretor ([D-Q7](#decisions)) |
+| [ ] opencode × Linux | Máquina Linux do Diretor ([decisões](#decisions)) |
 | [ ] opencode × Windows | Produtor na máquina Windows nativa |
 | [ ] opencode × macOS | Produtor na máquina macOS |
 
-Registrar por linha: responsável/data; revisão; versão do pacote; arquivo e SHA-256; sistema/versão/arquitetura; versões de Node/cliente; escopo; caminhos resolvidos de plugin/configuração/estado/bin; passos de instalação e atualização do candidato anterior; verificações de PATH e permissões; resultado de autostart show/install/reinício; ambos os comandos smoke, saídas, totais e motivos; locais de JSONL/log e revisão do cenário D25. Anexar arquivos ou links duráveis, não só “funcionou”. Nunca publicar credenciais. Instalação nova e atualização devem preservar configuração e estado do usuário, inclusive após reiniciar cliente.
+Registrar por linha: responsável/data; revisão; versão do pacote; arquivo e SHA-256; sistema/versão/arquitetura; versões de Node/cliente; escopo; caminhos resolvidos de plugin/configuração/estado/bin; passos de instalação e atualização do candidato anterior; verificações de PATH e permissões; resultado de autostart show/install/reinício; ambos os comandos smoke, saídas, totais e motivos; locais de JSONL/log e revisão do cenário smoke no cliente. Anexar arquivos ou links duráveis, não só “funcionou”. Nunca publicar credenciais. Instalação nova e atualização devem preservar configuração e estado do usuário, inclusive após reiniciar cliente.
 
-Prova em processo exige saída 0 e todos os checks selecionados passando; no release usar conjunto completo. D25 exige C1–C5 passando, nenhuma falha e registro explícito de cada check posterior. Sua saída 0 ainda pode significar `PARCIAL`; falta de prova de hook impede passar o gate de instalação. Configuração ausente significa instalação incompleta. Manter linha com skip/parcial não resolvido desmarcada até aceite escrito do Produtor ([D-Q7](#decisions)); resultado sintético ou ausente não preenche outro par.
+Prova em processo exige saída 0 e todos os checks selecionados passando; no release usar conjunto completo. smoke no cliente exige C1–C5 passando, nenhuma falha e registro explícito de cada check posterior. Sua saída 0 ainda pode significar `PARCIAL`; falta de prova de hook impede passar o gate de instalação. Configuração ausente significa instalação incompleta. Manter linha com skip/parcial não resolvido desmarcada até aceite escrito do Produtor ([decisões](#decisions)); resultado sintético ou ausente não preenche outro par.
 
 ## Decisions
 
@@ -172,14 +172,14 @@ Prova em processo exige saída 0 e todos os checks selecionados passando; no rel
 2. Build local. GitHub Actions não executa o release sozinho.
 3. Cortar tag ou publicar só quando o Produtor pedir explicitamente; preparar candidatos é separado de cortar release.
 4. Derivar versões, nomes e caminhos de `package.json` e configuração; sem constantes fixas do projeto no desenho ou na futura implementação.
-5. D26 é só documentação: sem código, script, dependência, tag, publicação ou alteração de `SMOKE.md`.
-6. **D-Q1 — Claude Code:** usar o marketplace do projeto no GitHub (`asantos43/okit-plugin`), escopo de usuário e uma entrada por sistema.
-7. **D-Q2 — Codex:** usar o manifesto portátil (`plugin.json` na raiz), no mesmo marketplace e na mesma versão do Claude Code; validar contra o Codex real instalado.
-8. **D-Q3 — opencode:** instalar módulo JS global em `~/.config/opencode/plugins/`; provar o hook do D25 pelos eventos do próprio opencode, sem supor o formato de hook do Claude.
-9. **D-Q4 — Integração na máquina:** obter destinos do bin/shim e identidades do autostart da configuração, sem constantes no código; o cron preserva as linhas existentes.
-10. **D-Q5 — Saída:** usar `.tar.gz` no Linux e no macOS, `.zip` no Windows, uma carga por arquitetura, com nome `<P>-<V>-<C>-<S>.<E>` e manifesto SHA-256; baixar da página de releases do GitHub.
-11. **D-Q6 — Ciclo de vida:** começar em `0.1.0`, manter o pacote privado (sem npm); antes de atualizar, fazer backup do estado e dos skills editados pelo usuário, com volta atrás para a versão anterior.
-12. **D-Q7 — Provas:** o Produtor verifica Windows e macOS; o Linux fica com a máquina do Diretor. Guardar os registros de prova em `docs/` deste repositório; um pulo parcial do smoke exige aceite escrito do Produtor.
+
+6. **Claude Code:** usar o marketplace do projeto no GitHub (`asantos43/okit-plugin`), escopo de usuário e uma entrada por sistema.
+7. **Codex:** usar o manifesto portátil (`plugin.json` na raiz), no mesmo marketplace e na mesma versão do Claude Code; validar contra o Codex real instalado.
+8. **opencode:** instalar módulo JS global em `~/.config/opencode/plugins/`; provar o hook do smoke no cliente pelos eventos do próprio opencode, sem supor o formato de hook do Claude.
+9. **Integração na máquina:** obter destinos do bin/shim e identidades do autostart da configuração, sem constantes no código; o cron preserva as linhas existentes.
+10. **Saída:** usar `.tar.gz` no Linux e no macOS, `.zip` no Windows, uma carga por arquitetura, com nome `<P>-<V>-<C>-<S>.<E>` e manifesto SHA-256; baixar da página de releases do GitHub.
+11. **Ciclo de vida:** começar em `0.1.0`, manter o pacote privado (sem npm); antes de atualizar, fazer backup do estado e dos skills editados pelo usuário, com volta atrás para a versão anterior.
+12. **Provas:** o Produtor verifica Windows e macOS; o Linux fica com a máquina do Diretor. Guardar os registros de prova em `docs/` deste repositório; um pulo parcial do smoke exige aceite escrito do Produtor.
 
 ## Open questions
 
