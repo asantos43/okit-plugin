@@ -13,28 +13,33 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { homedir } from 'node:os';
 
-import { AUTOSTART_KINDS, applyAutostart, autostartPlan, detectAutostart } from './autostart.js';
-import { configCommand } from './config.js';
-import { daemonPause, daemonResume, daemonRun, daemonStatus, tick } from './daemon.js';
-import { limitsStatus } from './limits.js';
-import { inboxClaim, inboxRelease, inboxProducerTakeover, inboxList, holdText, holdIsStale } from './inbox.js';
-import { runPostCompact } from './hook-post-compact.js';
-import { orderList } from './orders.js';
+const collectorEntry = process.argv[2] === 'statusline-collector';
+const { AUTOSTART_KINDS, applyAutostart, autostartPlan, detectAutostart } = collectorEntry
+  ? {} : await import('./autostart.js');
+const { configCommand } = collectorEntry ? {} : await import('./config.js');
+const { daemonPause, daemonResume, daemonRun, daemonStatus, tick } = collectorEntry
+  ? {} : await import('./daemon.js');
+const { limitsStatus } = collectorEntry ? {} : await import('./limits.js');
+const { inboxClaim, inboxRelease, inboxProducerTakeover, inboxList, holdText, holdIsStale } = collectorEntry
+  ? {} : await import('./inbox.js');
+const { runPostCompact } = collectorEntry ? {} : await import('./hook-post-compact.js');
+const { orderList } = collectorEntry ? {} : await import('./orders.js');
 import { configOf, DEFAULT_CONFIG } from './profiles.js';
-import { listActors, formatActors } from './actors.js';
-import { environmentReadings, environmentReport, formatEnvironmentReport } from './env/report.js';
-import { runSmoke } from './smoke.js';
-import { runClientSmoke } from './smoke/client.js';
-import { CLIENTS, makeSpawner } from './spawn-process.js';
-import { adapterQuotaReader, clientsOf, LABELS, quotaOrigin, setupPendingLine, statusTable } from './status.js';
+const { listActors, formatActors } = collectorEntry ? {} : await import('./actors.js');
+const { environmentReadings, environmentReport, formatEnvironmentReport } = collectorEntry
+  ? {} : await import('./env/report.js');
+const { CLIENTS, makeSpawner } = collectorEntry ? {} : await import('./spawn-process.js');
+const { adapterQuotaReader, clientsOf, LABELS, quotaOrigin, setupPendingLine, statusTable } = collectorEntry
+  ? {} : await import('./status.js');
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
-import { installerCommand } from './install/index.js';
-import { installConfig, installPaths } from './install/config.js';
-import { detectKit } from './install/kit.js';
-import { activationWarning } from './install/link.js';
-import { readRecords } from './install/place.js';
-import { runSetup, setupReader, formatUnreadable, isReadableConfig, SetupSaveError } from './setup/setup.js';
+const { installerCommand } = collectorEntry ? {} : await import('./install/index.js');
+const { installConfig, installPaths } = collectorEntry ? {} : await import('./install/config.js');
+const { detectKit } = collectorEntry ? {} : await import('./install/kit.js');
+const { activationWarning } = collectorEntry ? {} : await import('./install/link.js');
+const { readRecords } = collectorEntry ? {} : await import('./install/place.js');
+const { runSetup, setupReader, formatUnreadable, isReadableConfig, SetupSaveError } = collectorEntry
+  ? {} : await import('./setup/setup.js');
 
 async function confirmTake(io, out) {
   const input = io.stdin ?? process.stdin;
@@ -116,6 +121,7 @@ const USAGE = [
   '       {command} config unset <key>',
   '       {command} quota set <client> <pct> [--window-minutes n]',
   '       {command} quota show [client]',
+  '       {command} statusline-collector [--previous <command> <args...>]',
   '       {command} inbox list [--locale en|pt-BR]',
   '       {command} inbox take <id> [--producer-takeover] [--client <c>] [--session <s>] [--worktree <path>] [--yes]',
   '       {command} inbox release <id> [--client <c>] [--session <s>]',
@@ -125,7 +131,7 @@ const USAGE = [
   '       {command} client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]',
   '         [--only <C ids>] [--keep] [--allow-unknown-quota]',
   '         [--max-usd [n]] [--max-turns [n]] [--max-minutes [n]] [--quota-floor [pct]] [--timeout [ms]]',
-  `OKWORK_HOME names the state root; --kind defaults to ${AUTOSTART_KINDS.join(', ')} by platform.`,
+  `OKWORK_HOME names the state root; --kind defaults to ${AUTOSTART_KINDS?.join(', ') ?? ''} by platform.`,
 ].join('\n');
 
 const execFileAsync = promisify(execFile);
@@ -292,7 +298,7 @@ async function quotaCommand(ctx, action, args) {
     if (args.length > 1 || (args.length && !known.includes(args[0]))) return invalid();
     for (const client of args.length ? args : known) {
       const reading = await readers(client);
-      const origin = ['automatic', 'manual'].includes(reading.source)
+      const origin = ['automatic', 'manual', 'user'].includes(reading.source)
         ? ` — ${quotaOrigin(reading, ctx.now(), LABELS.en)} / ${quotaOrigin(reading, ctx.now(), LABELS['pt-BR'])}` : '';
       ctx.out(`Quota / Cota ${client}: ${JSON.stringify(reading)}${origin}`);
     }
@@ -513,6 +519,7 @@ async function daemonCommand(ctx, action, args) {
  * them, and the runner answers with its own stub otherwise.
  */
 async function smokeCommand(ctx, args, io) {
+  const { runSmoke } = await import('./smoke.js');
   const smoke = await runSmoke(args, { ...ctx, run: io.run, spawn: io.spawn });
   // A flag or an `--only` id the runner refuses is a usage error, so the usage
   // text goes with it exactly as it goes with an unknown group.
@@ -563,6 +570,10 @@ function installerLifecycle(ctx, io) {
  * @returns {Promise<number>} exit code
  */
 export async function main(argv = [], io = {}) {
+  if (argv[0] === 'statusline-collector') {
+    const { statuslineCommand } = await import('./quota/statusline-collector.js');
+    return statuslineCommand(argv.slice(1), io);
+  }
   const out = io.stdout ?? ((text) => process.stdout.write(`${text}\n`));
   const err = io.stderr ?? ((text) => process.stderr.write(`${text}\n`));
   const now = io.now ?? Date.now;
@@ -639,6 +650,7 @@ export async function main(argv = [], io = {}) {
     // `okit-plugin smoke` takes no action either, so its first flag lands where one would be.
     if (group === 'smoke') return await smokeCommand(ctx, action === undefined ? args : [action, ...args], io);
     if (group === 'client-smoke') {
+      const { runClientSmoke } = await import('./smoke/client.js');
       const flags = action === undefined ? args : [action, ...args];
       if (flags.length === 1 && ['--help', '-h'].includes(flags[0])) { out(USAGE.replaceAll('{command}', ctx.command)); return 0; }
       return (await runClientSmoke(flags, { ...ctx, ...io, run: io.run, out, err })).code;
@@ -675,5 +687,6 @@ export async function runCli(argv = process.argv.slice(2), io = {}) {
 
 const entry = fileURLToPath(import.meta.url);
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === entry) {
-  process.exitCode = await runCli();
+  // Let module evaluation finish before smoke checks import this CLI again.
+  runCli().then((code) => { process.exitCode = code; });
 }

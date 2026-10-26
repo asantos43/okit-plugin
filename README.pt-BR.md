@@ -120,6 +120,21 @@ Uma classe com `null` está desligada: `okit-plugin config set profiles.<cliente
 desliga, `okit-plugin config unset profiles.<cliente>.<classe>` religa e um `set`
 de um campo sob uma classe desligada é recusado sem gravação; um grupo de
 cliente vazio (`{}`) é a ausência de um cliente, não uma inscrição de um.
+`okit-plugin statusline-collector [--previous <comando> <argumentos...>]` lê a
+entrada da barra do Claude Code e salva a cota atomicamente em
+`<stateRoot>/quota/claude-code.json`. Repassa a entrada original ao comando anterior
+e imprime a saída dele exatamente. Configure `statuslineCollector` no `config.json`
+da pasta de estado: `previous` é uma lista como `["node", "minha-barra.js"]`;
+a opção substitui essa lista somente nesta execução. Comandos rodam sem shell;
+scripts que precisam dela devem indicar o interpretador explicitamente.
+Os padrões em `src/profiles.js` são `timeoutMs: 500`, `maxInputBytes` e
+`maxOutputBytes: 1048576`, `fields` com os nomes dos campos recebidos e
+`windows: {"five_hour":300,"seven_day":10080}` (minutos).
+Cota ausente ou inválida preserva a leitura antiga. Comando anterior ausente,
+com falha ou lento produz saída vazia e termina com sucesso. Entrada grande
+demais é consumida e ignorada; saída grande demais é descartada. `quota show`
+mostra origem e idade. Este comando não registra nem altera ajustes do Claude Code.
+
 Todos os adaptadores aceitam cota manual em `quota/<client>.json`. O Codex também
 lê automaticamente a sessão local mais recente, sem alterar os arquivos.
 A leitura automática vence apenas quando é mais nova que a amostra manual;

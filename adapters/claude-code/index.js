@@ -124,13 +124,10 @@ export function capabilities() {
 }
 
 /**
- * The quota of this client. Section 4.1: there is no machine-readable per-user
- * number, so the source is always `user` and the fields appear only when the
- * core already stored what the user gave. Never an estimate, never a leftover
- * of another client, never a zero in place of a reading nobody made.
+ * Reads the latest automatic status bar sample or the user's manual sample.
  *
  * @param {{stateRoot?: string, env?: object, now?: Function}} [opts]
- * @returns {Promise<{source: 'user', remainingPct?: number, windowMinutes?: number, recordedAt?: string, ageMinutes?: number}>}
+ * @returns {Promise<object>}
  */
 export async function readQuota({ stateRoot: root, env, now = Date.now } = {}) {
   const stored = await readJson(join(paths(root ?? stateRoot(env)).quota, `${CLIENT}.json`), null);
@@ -138,7 +135,8 @@ export async function readQuota({ stateRoot: root, env, now = Date.now } = {}) {
   const windowMinutes = number(stored?.windowMinutes);
   if (remainingPct === null) return { source: 'user' };
   const recorded = Date.parse(stored.recordedAt);
-  return { source: 'user', remainingPct,
+  return { source: stored.source === 'automatic' ? 'automatic' : 'user', remainingPct,
+    ...(stored.source === 'automatic' && Array.isArray(stored.windows) ? { windows: stored.windows } : {}),
     ...(windowMinutes === null ? {} : { windowMinutes }),
     ...(Number.isFinite(recorded) ? { recordedAt: stored.recordedAt,
       ageMinutes: Math.max(0, now() - recorded) / 60_000 } : {}) };
