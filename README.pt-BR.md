@@ -150,12 +150,31 @@ injetada que substitui a pasta), `recentFiles` (3), `tailBytes` (16384),
 e `fields.*` para os nomes dos campos. Os arquivos são ordenados pela data de
 modificação. O leitor começa pelo fim, aumenta a janela até o limite e pula
 linhas malformadas ou desconhecidas.
+O OpenCode pode ler fontes por provedor sem ler credenciais. Em
+`opencodeQuota.sources`, associe cada provedor a `{"command":["programa","argumento"]}`
+ou `{"file":"caminho/cota.json"}`; o padrão é `{}`. Comandos executam sem shell,
+com o ambiente recebido intacto. Padrões: `timeoutMs: 3000`,
+`maxOutputBytes: 1048576`, `maxAgeMinutes: 120`. `fields` define os nomes dos
+campos; `windows` vem com `{"five_hour":300,"weekly":10080}` (minutos).
+A fonte retorna um único JSON:
+`{"version":1,"company":"exemplo","source":"cota","read_at":1793016000,"five_hour":{"remaining_percent":80,"reset_at":null},"weekly":null}`.
+Ao menos um período deve existir; percentuais são inteiros de 0 a 100.
+Versões desconhecidas, erros e leituras inválidas, grandes demais ou antigas
+levam ao valor manual. Entre provedores e períodos, vale o menor restante.
+`quota show` e `status` mostram origem automática/manual, idade e provedor.
+Comandos devem terminar com sucesso dentro de `timeoutMs`, mesmo após imprimir JSON válido.
+Fontes configuradas sem leitura válida acrescentam `reason` bilíngue, com ou sem
+valor manual salvo; sem fontes configuradas, não há `reason`.
+
 Registre o percentual restante mostrado em `/usage` do cliente com
 `okit-plugin quota set claude-code 80 [--window-minutes n]`; os clientes são os que
 a raiz configura (`claude-code`, `codex` e `opencode` quando ela não configura nenhum),
 e o percentual deve ser numérico, entre 0 e 100.
 Consulte com `okit-plugin quota show [client]`. O comando grava atomicamente
 `remainingPct`, `windowMinutes` opcional e `recordedAt` sob `OKWORK_HOME`.
+O smoke usa somente a leitura do adaptador do cliente testado, automática ou manual.
+A sobra de outro cliente nunca autoriza a execução; sem leitura própria, a cota
+fica desconhecida, sem estimativas. O cenário executado continua sendo o do Claude Code.
 O smoke avisa após `smoke.quotaMaxAgeMinutes` (padrão 30) e considera a cota
 desconhecida após `smoke.quotaExpireMinutes` (padrão 120), configuráveis em
 `config.json`. Registros sem `recordedAt` continuam válidos. Em `quota-unknown`,

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { arch, homedir, release } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
-import { readQuota } from '../../adapters/claude-code/index.js';
+import { adapterQuotaReader } from '../status.js';
 import { loadConfig } from '../mcp/tools.js';
 import { DEFAULT_CONFIG } from '../profiles.js';
 import { readJson } from '../state.js';
@@ -191,7 +191,8 @@ async function runScenario(argv, io) {
     out(`rehearsal: no client; maximum USD ${budget.maxUsd}; steps ${budget.maxTurns}; minutes ${budget.maxMinutes}`);
     return { code: 0, records: [], budget };
   }
-  let quota = await (io.readQuota ?? (() => readQuota({ stateRoot: root, env, now })))(flags.client);
+  const read = io.readQuota ?? adapterQuotaReader({ stateRoot: root, env, now, config: stored });
+  let quota = await read(flags.client);
   if (quota?.ageMinutes > budget.quotaMaxAgeMinutes) {
     out('quota-stale: refresh quota / cota antiga: atualize a cota (smoke.quotaMaxAgeMinutes)');
   }

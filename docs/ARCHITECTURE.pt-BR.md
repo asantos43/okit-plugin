@@ -80,7 +80,18 @@ Cada adaptador fornece estas cinco operações, além dos auxiliares documentado
 - `source: user` — sem número; perguntar uma vez, guardar em `quota/<client>.json`,velho depois de `windowMinutes`.
 - `source: off` — o usuário recusou, ou o cliente não tem canal; a escolha de classe ignora a cota.
 
-Não estimar cota. `profilePick` rebaixa uma classe quando `remainingPct < lowQuotaPct`; `source: off` e leitura ausente não rebaixam. Os adaptadores devolvem `source: user`, com números apenas quando armazenados.
+Não estimar cota. `profilePick` rebaixa uma classe quando `remainingPct < lowQuotaPct`; `source: off` e leitura ausente não rebaixam. Os adaptadores devolvem leituras automáticas quando disponíveis, com alternativa manual.
+
+OpenCode lê `opencodeQuota.sources` (provedor → palavras do comando ou arquivo),
+sem ler credenciais. Comandos reaproveitam `execRun`, sem shell nem acréscimos ao
+ambiente, com limites configuráveis de prazo e saída. Versão do contrato, nomes
+dos campos e minutos das janelas ficam em `DEFAULT_CONFIG.opencodeQuota`.
+Fonte inválida, com erro ou antiga usa o valor manual. Vale o menor restante
+entre provedores e períodos válidos. `quotaOrigin` mostra origem, idade e
+provedor em `status` e `quota show`. O smoke lê os adaptadores e preserva os
+avisos e a expiração por `ageMinutes`. O cenário continua sendo Claude Code;
+se sua cota estiver ausente ou expirada, o menor restante ainda válido de outro
+cliente configurado pode alimentar a verificação de cota.
 
 ### 5.1 A tabela de cota
 

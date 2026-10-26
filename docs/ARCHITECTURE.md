@@ -80,7 +80,18 @@ Each adapter provides these five operations, plus its documented helpers. The co
 - `source: user` — no number; ask once, store it in `quota/<client>.json`, stale after `windowMinutes`.
 - `source: off` — the user declined, or the client has no channel; class choice then ignores quota.
 
-Never estimate quota. `profilePick` lowers one class when `remainingPct < lowQuotaPct`; `source: off` and absent readings do not downgrade. Adapters return `source: user`, with numbers only when stored.
+Never estimate quota. `profilePick` lowers one class when `remainingPct < lowQuotaPct`; `source: off` and absent readings do not downgrade. Adapters return automatic readings when available, with manual fallback.
+
+OpenCode reads configured `opencodeQuota.sources` (provider → command words or
+file), never credentials. Commands reuse `execRun`, without a shell or added
+environment, with configured time/output limits. Contract version, field names
+and window minutes live in `DEFAULT_CONFIG.opencodeQuota`. Invalid, failed or
+old sources yield the manual sample. The lowest remaining percentage among
+valid providers/windows wins. `quotaOrigin` shows source, age and provider in
+`status` and `quota show`. Client smoke reads adapters and preserves its
+warning/expiration checks on `ageMinutes`. The execution scenario stays Claude
+Code; if its quota is absent or expired, the lowest unexpired reading from
+another configured client can supply the quota check.
 
 ### 5.1 The quota table
 

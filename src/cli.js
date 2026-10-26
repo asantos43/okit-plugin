@@ -285,11 +285,12 @@ async function setupCommand(ctx, flags, io) {
 }
 
 async function quotaCommand(ctx, action, args) {
-  const readers = adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env, now: ctx.now });
+  const config = await readConfig(ctx.root);
+  const readers = adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env, now: ctx.now, config });
   // The clients of this root, the same list the quota table shows: the ones
   // the configuration names, or the known clients when it names none. A
   // client outside that list has no reading and no record.
-  const known = clientsOf(await readConfig(ctx.root), ctx.clients);
+  const known = clientsOf(config, ctx.clients);
   const invalid = () => {
     ctx.err('Invalid quota arguments / Argumentos de cota inválidos');
     return ctx.unknown();

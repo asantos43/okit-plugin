@@ -380,13 +380,14 @@ const execFileAsync = promisify(child_process.execFile);
  * not answer in time is an error with the code `ETIMEDOUT`; a command that
  * fails is an answer with its exit code.
  *
- * @param {{command: string, args?: string[], cwd?: string, env?: object, timeoutMs?: number}} call
+ * @param {{command: string, args?: string[], cwd?: string, env?: object, timeoutMs?: number, maxOutputBytes?: number}} call
  * @returns {Promise<{code: number, stdout: string, stderr: string}>}
  */
-async function execRun({ command, args = [], cwd, env, timeoutMs }) {
+export async function execRun({ command, args = [], cwd, env, timeoutMs, maxOutputBytes }) {
   try {
     const { stdout, stderr } = await execFileAsync(command, args, {
       windowsHide: true, cwd, env, timeout: timeoutMs, killSignal: 'SIGKILL',
+      ...(maxOutputBytes === undefined ? {} : { maxBuffer: maxOutputBytes }),
     });
     return { code: 0, stdout, stderr };
   } catch (error) {

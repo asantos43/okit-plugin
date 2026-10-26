@@ -151,6 +151,22 @@ previous commands produce no output and exit successfully. Oversized input is
 drained and ignored; oversized output is discarded. `quota show` reports source
 and age. This command does not register or change any Claude Code settings.
 
+OpenCode can read configured provider sources without reading credentials:
+`opencodeQuota.sources` maps provider names to `{"command":["program","argument"]}`
+or `{"file":"path/to/quota.json"}`; it defaults to `{}`. Commands run without a
+shell, with the caller's environment unchanged. Defaults: `timeoutMs: 3000`,
+`maxOutputBytes: 1048576`, `maxAgeMinutes: 120`. `fields` maps contract names;
+`windows` defaults to `{"five_hour":300,"weekly":10080}` (minutes).
+Each source returns one JSON object:
+`{"version":1,"company":"example","source":"quota","read_at":1793016000,"five_hour":{"remaining_percent":80,"reset_at":null},"weekly":null}`.
+At least one window is required; percentages are integers from 0 to 100.
+Unknown versions, errors, invalid, oversized or old readings use the manual
+sample instead. Across providers and windows, the lowest remaining percentage
+wins. `quota show` and `status` show automatic/manual origin, age and provider.
+Commands must exit successfully within `timeoutMs`, even after printing valid JSON.
+Configured sources with no valid reading add a bilingual `reason`, with or without
+a saved manual value; unconfigured sources add no `reason`.
+
 All adapters support manual quota from `quota/<client>.json`. Codex also reads
 the latest local session automatically, without changing any session files.
 The automatic reading wins only when newer than the manual sample; otherwise
@@ -167,6 +183,9 @@ the root configures (`claude-code`, `codex` and `opencode` when it configures no
 and percentages must be numeric, from 0 to 100.
 Use `okit-plugin quota show [client]` to inspect records. The command atomically
 stores `remainingPct`, optional `windowMinutes` and `recordedAt` under `OKWORK_HOME`.
+Smoke uses only the tested client's adapter reading, automatic or manual.
+Another client's remaining quota never authorizes the run; missing readings stay
+unknown, without estimates. The execution scenario remains Claude Code.
 Smoke warns after `smoke.quotaMaxAgeMinutes` (default 30) and treats the record
 as unknown after `smoke.quotaExpireMinutes` (default 120). Both are configurable
 in `config.json`; records without `recordedAt` remain valid. On `quota-unknown`,
