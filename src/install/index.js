@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
-import { DEFAULT_CONFIG } from '../profiles.js';
+import { DEFAULT_CONFIG, configOf } from '../profiles.js';
 import { writeJsonAtomic } from '../state.js';
 import { installConfig, installPaths, clientRoot } from './config.js';
 import { chooseClient } from './menu.js';
@@ -18,11 +18,12 @@ import { detectKit } from './kit.js';
 import { applyLink, chooseLinkDirectory } from './link.js';
 import { offerSetup } from '../setup/offer.js';
 import { setupReader, formatUnreadable } from '../setup/setup.js';
+import { registerStatusline } from './statusline.js';
 
 const packageDirectory = fileURLToPath(new URL('../../', import.meta.url));
 const allowed = {
-  install: ['client', 'from', 'prerelease', 'repo', 'dest', 'no-link', 'no-path', 'autostart', 'dry-run', 'yes'],
-  update: ['client', 'check', 'rollback', 'dry-run', 'no-path'], uninstall: ['client', 'purge', 'yes', 'dry-run'],
+  install: ['client', 'from', 'prerelease', 'repo', 'dest', 'no-link', 'no-path', 'autostart', 'dry-run', 'yes', 'statusline', 'no-statusline'],
+  update: ['client', 'check', 'rollback', 'dry-run', 'no-path', 'statusline', 'no-statusline'], uninstall: ['client', 'purge', 'yes', 'dry-run'],
 };
 function flagsOf(command, args) {
   const flags = {};
@@ -35,6 +36,7 @@ function flagsOf(command, args) {
     } else flags[flag] = true;
   }
   if (flags.check && flags.rollback) throw new TypeError('--check and --rollback cannot be combined');
+  if (flags.statusline && flags['no-statusline']) throw new TypeError('--statusline and --no-statusline cannot be combined');
   return flags;
 }
 
@@ -70,6 +72,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
     const config = installConfig({ ...user.install, ...(flags.dest ? { destination: flags.dest } : {}) });
     const locations = installPaths(config, { env: ctx.env, platform: ctx.platform, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir() });
     const deps = { ...ctx, ...io, fs, config, ...locations, out: ctx.out,
+      statuslineConfig: configOf(user).statuslineRegistration,
       home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir(),
       temporary: io.tmpdir ?? tmpdir(), now: ctx.now, platform: ctx.platform, env: ctx.env,
       fetch: io.fetch ?? globalThis.fetch, tty: io.tty ?? Boolean(process.stdin.isTTY),
@@ -170,16 +173,21 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
     ctx.out(`Destination: ${deps.destination}`);
     ctx.out('SHA-256 detects altered bytes; it does not authenticate the source.');
     if (current?.version === selected.version && current.client === client) {
+      await registerStatusline(current, flags, deps);
       if (!deps.dryRun && !flags.check && current.link) await applyLink(current, deps);
       ctx.out('up to date'); return 0;
     }
-    if (flags.check) { ctx.out(`New version available: ${selected.version}`); return 0; }
+    if (flags.check) {
+      await registerStatusline(current, flags, deps);
+      ctx.out(`New version available: ${selected.version}`); return 0;
+    }
     if (current && local) command = 'update';
     const bin = pkg.bin[deps.config.command];
     if (!bin) throw new TypeError(`Package has no configured command: ${deps.config.command}`);
     const planned = { path: join(deps.destination, `${selected.version}-${client}`), client };
     registrationPlan(planned, deps, command === 'update' ? 'update' : 'install').forEach((item) => ctx.out(`command: ${[item.command, ...item.args].join(' ')}`));
     if (deps.dryRun) {
+      await registerStatusline(current ?? planned, flags, deps);
       if (command === 'update') ctx.out('Would stop daemon, back up state/client files, activate and run smoke.');
       ctx.out(`Would ${flags['no-link'] ? 'skip' : 'create'} command link in ${deps.bin}`);
       if (flags.autostart || current?.autostart) ctx.out('Would regenerate autostart using installed paths.');
@@ -199,6 +207,8 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
         autostart: Boolean(flags.autostart || current?.autostart || deps.sharedAutostart), wasRunning,
         prerelease: Boolean(flags.prerelease), settings: deps.config }, deps);
       await activate(record, current, deps, command === 'update' ? 'update' : 'install');
+      if (current?.statusline) record.statusline = current.statusline;
+      await registerStatusline(record, flags, deps);
       if (command === 'update') {
         if (io.smoke) {
           const smoke = await io.smoke(record);

@@ -8,6 +8,10 @@ with JSON state.
 
 ## Install — Instalar
 
+For Claude Code, `install --statusline` (also `update --statusline`) records quota while keeping the current status bar command and its other settings. Without a flag, a terminal asks for consent; unattended installs skip it. `--no-statusline` declines. The installer previews the file and previous command; `--dry-run` and `update --check` write nothing. Invalid or unreadable settings are preserved.
+
+The settings folder uses `install.clients.claude-code.configEnv` (`CLAUDE_CONFIG_DIR`), falling back to its configured home-relative `rootParts`. `statuslineRegistration` configures `settingsFile`, `backupFile`, `subcommand` and shell argument lists per platform. Backups stay in plugin state. `uninstall` restores the original bytes (or removes a newly created file); after later edits it restores only the previous status bar and keeps other settings.
+
 Use the release's [install.sh](install.sh) on Linux/macOS or
 [install.ps1](install.ps1) in Windows PowerShell. Read the scripts and follow
 [INSTALL.md](INSTALL.md) for prerequisites, flags, verified downloads and updates.
@@ -184,6 +188,9 @@ These are documentation steps; there is no separate uninstall script.
 Run `node --test test/docs-consistency.test.js` for documentation checks and
 `node --test` for the complete suite. Release commands are documented in the
 release guide below.
+
+Interactive installer tests count status bar consent separately from other
+questions and decline the initial setup offer when testing `--no-statusline`.
 
 Quota tests inject a temporary HOME/USERPROFILE and `CODEX_SESSIONS_DIR` (or a
 quota reader); they must never discover sessions in the machine's real home.

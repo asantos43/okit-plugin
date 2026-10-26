@@ -8,6 +8,10 @@ sem dependências, com estado em JSON.
 
 ## Install — Instalar
 
+No Claude Code, `install --statusline` (também `update --statusline`) registra a cota mantendo o comando da barra atual e seus outros ajustes. Sem flag, o terminal pede consentimento; instalações sem terminal pulam esse registro. `--no-statusline` recusa. O instalador mostra o arquivo e o comando anterior antes de alterar; `--dry-run` e `update --check` não escrevem. Ajustes inválidos ou ilegíveis são preservados.
+
+A pasta usa `install.clients.claude-code.configEnv` (`CLAUDE_CONFIG_DIR`) ou os `rootParts` configurados relativos à pasta pessoal. `statuslineRegistration` configura `settingsFile`, `backupFile`, `subcommand` e listas de argumentos de shell por plataforma. A cópia fica no estado do plugin. `uninstall` restaura os bytes originais (ou remove o arquivo criado); após edições posteriores, restaura apenas a barra anterior e mantém os demais ajustes.
+
 Use o [install.sh](install.sh) da release no Linux/macOS ou
 [install.ps1](install.ps1) no PowerShell do Windows. Leia os scripts e siga
 [INSTALL.pt-BR.md](INSTALL.pt-BR.md) para requisitos, flags, downloads verificados e atualizações.
@@ -191,6 +195,9 @@ Rode `node --test test/docs-consistency.test.js` para verificar a documentação
 temporários e `CODEX_SESSIONS_DIR` (ou um leitor de cota); nunca devem descobrir
 sessões na pasta pessoal real da máquina. Os comandos de release estão no guia
 referenciado abaixo.
+
+Os testes interativos do instalador contam o consentimento da barra de status
+separadamente e recusam a oferta de setup inicial ao testar `--no-statusline`.
 
 Pull requests são bem-vindos. Leia [CONTRIBUTING.md](CONTRIBUTING.md) antes.
 

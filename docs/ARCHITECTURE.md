@@ -1,5 +1,7 @@
 # Architecture
 
+`src/install/statusline.js` plans, applies and undoes Claude status bar registration with injected filesystem dependencies. The per-client installation record stores the settings path, hash of written bytes and backup path in plugin state. A prior command is tokenized or wrapped with `statuslineRegistration.shell[platform]`; other status bar fields survive. Approved updates repair a missing collector or a changed plugin command; an existing collector without ownership is left alone. Uninstall restores original bytes when the hash matches, otherwise changes only an owned status bar. Preview/check paths never write.
+
 The plugin CLI uses `install.command` (default `okit-plugin`) and its package `bin`. Legacy plugin links migrate on install/update; kit links remain untouched. The kit detector rejects plugin executables, including old `okit` links. MCP identity and `~/.okwork` are unchanged.
 
 Extends [DESIGN.md](DESIGN.md); answers its open questions. One Node core (>=20, zero dependencies), three thin adapters, one MCP server over the core.

@@ -1,5 +1,7 @@
 # Arquitetura
 
+`src/install/statusline.js` planeja, aplica e desfaz o registro da barra do Claude com sistema de arquivos injetável. O registro por cliente guarda caminho dos ajustes, hash dos bytes escritos e caminho da cópia no estado do plugin. O comando anterior vira palavras ou usa `statuslineRegistration.shell[platform]`; os demais campos da barra são preservados. Atualizações autorizadas reparam coletor ausente ou comando do plugin alterado; coletor existente sem registro de posse fica intacto. A desinstalação restaura os bytes originais quando o hash confere; caso contrário, altera só a barra que pertence ao plugin. Modos de checagem não escrevem.
+
 A CLI usa `install.command` (padrão `okit-plugin`) e o `bin` do pacote. Links antigos do plugin migram ao instalar/atualizar; links do kit são preservados. O detector rejeita executáveis do plugin, inclusive links antigos `okit`. A identidade MCP e `~/.okwork` permanecem iguais.
 
 Estende [DESIGN.md](DESIGN.md); responde às perguntas em aberto. Um núcleo em Node (>=20, sem dependências), três adaptadores finos, um servidor MCP sobre o núcleo.
