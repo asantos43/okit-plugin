@@ -59,6 +59,9 @@ export const LABELS = {
     floorOrder: (floor) => `lowQuotaPct is ${floor}%`,
     resets: (minutes) => `${minutes}m`,
     age: (seconds) => `${seconds}s`,
+    quotaSource: { automatic: 'automatic', manual: 'manual' },
+    quotaAge: (minutes) => `${minutes} minute${minutes === 1 ? '' : 's'} ago`,
+    unknownAge: 'age unknown',
     setupPending: (command) => `Setup is not done yet. Run ${command} setup to choose the models.`,
   },
   'pt-BR': {
@@ -79,6 +82,9 @@ export const LABELS = {
     floorOrder: (floor) => `lowQuotaPct é ${floor}%`,
     resets: (minutes) => `${minutes}m`,
     age: (seconds) => `${seconds}s`,
+    quotaSource: { automatic: 'automática', manual: 'manual' },
+    quotaAge: (minutes) => `há ${minutes} minuto${minutes === 1 ? '' : 's'}`,
+    unknownAge: 'idade desconhecida',
     setupPending: (command) => `O setup ainda não foi feito. Rode ${command} setup para escolher os modelos.`,
   },
 };
@@ -114,16 +120,17 @@ function readingOf(reading) {
  * `remainingPct` is the 5h window when `windowMinutes` says so and the week
  * window otherwise, including when `windowMinutes` is absent.
  */
-function windowsOf(reading) {
+function windowsOf(reading, now) {
   let fiveHour = null;
   let week = null;
   for (const window of Array.isArray(reading.windows) ? reading.windows : []) {
     const remaining = finite(window?.remainingPct);
     if (remaining === null) continue;
     const entry = {
-      minutes: finite(window.minutes) ?? Number.NaN,
+      minutes: finite(window.windowMinutes) ?? finite(window.minutes) ?? Number.NaN,
       remainingPct: remaining,
-      resetsInMinutes: finite(window.resetsInMinutes),
+      resetsInMinutes: finite(window.resetsInMinutes) ?? (Number.isFinite(Date.parse(window.resetsAt))
+        ? Math.max(0, Date.parse(window.resetsAt) - now) / 60_000 : null),
     };
     const short = entry.minutes <= FIVE_HOURS_MINUTES;
     const held = short ? fiveHour : week;
@@ -178,6 +185,13 @@ export function ageOf(readAt, now, labels) {
   return labels.age(Math.max(0, Math.round((now - readAt) / 1000)));
 }
 
+export function quotaOrigin(reading, now, labels = LABELS.en) {
+  const recorded = Date.parse(reading?.recordedAt);
+  const age = Number.isFinite(recorded) ? Math.max(0, now - recorded) / 60_000 : reading?.ageMinutes;
+  return `${labels.quotaSource[reading?.source] ?? reading?.source ?? labels.missing} (${typeof age === 'number'
+    ? labels.quotaAge(Math.floor(age)) : labels.unknownAge})`;
+}
+
 /**
  * Reads a client once per TTL. The cache is shared by default so two calls in a
  * row cost one read, and `deps.cache` hands a caller one of its own instead.
@@ -204,7 +218,7 @@ async function readingWithAge(cache, root, client, read, now, ttlMs) {
 function rowOf(client, reading, readAt, config, labels, now, orders) {
   const recordedAt = Date.parse(reading?.recordedAt);
   if (Number.isFinite(recordedAt)) readAt = recordedAt;
-  const { fiveHour, week } = reading === null ? { fiveHour: null, week: null } : windowsOf(reading);
+  const { fiveHour, week } = reading === null ? { fiveHour: null, week: null } : windowsOf(reading, now);
   const floor = config.lowQuotaPct;
   const status = reading === null ? 'off' : statusOf(remainingOf({ fiveHour, week }), floor);
   const cell = (value) => {
@@ -231,7 +245,8 @@ function rowOf(client, reading, readAt, config, labels, now, orders) {
       typeof resets === 'number' ? labels.resets(resets) : labels.missing,
       reading === null ? labels.noQuota(client)
         : order === null ? labels.status[status] : `${labels.status[status]}: ${order}`,
-      reading === null ? labels.missing : `${source} (${ageOf(readAt, now, labels)})`,
+      reading === null ? labels.missing : labels.quotaSource[source]
+        ? quotaOrigin(reading, now, labels) : `${source} (${ageOf(readAt, now, labels)})`,
     ],
   };
 }
@@ -381,10 +396,10 @@ export function clientsOf(config, fallback = CLIENTS) {
  * @param {{stateRoot: string, env?: object, adapters?: object}} input
  * @returns {Function} `async (client) => reading`
  */
-export function adapterQuotaReader({ stateRoot: root, env, adapters = ADAPTER_QUOTA } = {}) {
+export function adapterQuotaReader({ stateRoot: root, env, now, config, adapters = ADAPTER_QUOTA } = {}) {
   return async (client) => {
     const read = adapters[client];
     if (read === undefined) return { source: 'off' };
-    return read({ stateRoot: root, env });
+    return read({ stateRoot: root, env, now, config });
   };
 }

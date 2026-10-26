@@ -17,6 +17,15 @@ const PROFILE_MAX_TURNS = Object.freeze({
 });
 
 export const DEFAULT_CONFIG = {
+  codexQuota: {
+    sessionsDirectory: '~/.codex/sessions', sessionsEnv: 'CODEX_SESSIONS_DIR',
+    recentFiles: 3, tailBytes: 16384, maxTailBytes: 1048576, maxAgeMinutes: 120,
+    filePrefix: 'rollout-', fileSuffix: '.jsonl',
+    fields: { timestamp: 'timestamp', type: 'type', event: 'event_msg',
+      payload: 'payload', tokenCount: 'token_count', rateLimits: 'rate_limits',
+      primary: 'primary', secondary: 'secondary', usedPercent: 'used_percent',
+      windowMinutes: 'window_minutes', resetsAt: 'resets_at' },
+  },
   install: {
     kit: {
       executables: ['okit', 'kit'], path: null, versionArgs: ['--version'],
@@ -542,6 +551,20 @@ export function configOf(config) {
   const inbox = { ...DEFAULT_CONFIG.inbox, ...config?.inbox };
   const daemon = { ...DEFAULT_CONFIG.daemon, ...config?.daemon };
   const smoke = { ...DEFAULT_CONFIG.smoke, ...config?.smoke };
+  const codexQuota = { ...DEFAULT_CONFIG.codexQuota, ...config?.codexQuota,
+    fields: { ...DEFAULT_CONFIG.codexQuota.fields, ...config?.codexQuota?.fields } };
+  for (const key of ['recentFiles', 'tailBytes', 'maxTailBytes', 'maxAgeMinutes']) {
+    if (!Number.isSafeInteger(codexQuota[key]) || codexQuota[key] < 1) {
+      throw new TypeError(`codexQuota.${key} must be an integer >= 1`);
+    }
+  }
+  if (codexQuota.tailBytes > codexQuota.maxTailBytes) {
+    throw new TypeError('codexQuota.tailBytes must not exceed maxTailBytes');
+  }
+  for (const [key, value] of Object.entries({ ...codexQuota, ...codexQuota.fields })) {
+    if (['fields', 'recentFiles', 'tailBytes', 'maxTailBytes', 'maxAgeMinutes'].includes(key)) continue;
+    if (typeof value !== 'string' || !value.trim()) throw new TypeError(`codexQuota.${key} must be non-empty text`);
+  }
   for (const key of ['holdStaleMinutes', 'gitTimeoutMs']) {
     if (!Number.isInteger(inbox[key]) || inbox[key] < 1) {
       throw new TypeError(`inbox.${key} must be an integer >= 1`);
@@ -552,6 +575,7 @@ export function configOf(config) {
     inbox,
     daemon,
     smoke,
+    codexQuota,
     setup: mergeSetup(config?.setup),
     actors: {
       ...DEFAULT_CONFIG.actors, ...config?.actors,

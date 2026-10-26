@@ -14,7 +14,7 @@ import { inboxAdd, inboxClaim, inboxList } from '../src/inbox.js';
 import { readQuota as claudeQuota } from '../adapters/claude-code/index.js';
 import { readQuota as codexQuota } from '../adapters/codex/index.js';
 import { readQuota as opencodeQuota } from '../adapters/opencode/index.js';
-import { ambientMarker, clientEnv } from './helpers/env.js';
+import { ambientMarker, clientEnv, quotaEnv } from './helpers/env.js';
 
 // | Input | Must pass | Must refuse |
 // | status with absent bin, each shell | configured install hint | spawned process |
@@ -66,15 +66,15 @@ test('quota command records timestamped samples read by every adapter', async (t
       assert.match(result.out[0], /Quota recorded \/ Cota registrada/);
       const stored = JSON.parse(await readFile(join(root, 'quota', `${client}.json`), 'utf8'));
       assert.deepEqual(stored, { remainingPct: pct, windowMinutes: 300, recordedAt: new Date(T0).toISOString() });
-      assert.deepEqual(await readQuota({ stateRoot: root, now: () => T0 + 60_000 }),
-        { source: 'user', ...stored, ageMinutes: 1 });
+      assert.deepEqual(await readQuota({ stateRoot: root, env: quotaEnv(root), now: () => T0 + 60_000 }),
+        { source: client === 'codex' ? 'manual' : 'user', ...stored, ageMinutes: 1 });
     }
   }
   assert.equal((await cli(['quota', 'show'], { root })).out.length, 3);
   assert.match((await cli(['quota', 'show', 'codex'], { root })).out[0], /"remainingPct":100/);
   for (const [client, readQuota] of [['claude-code', claudeQuota], ['codex', codexQuota], ['opencode', opencodeQuota]]) {
     await writeFile(join(root, 'quota', `${client}.json`), JSON.stringify({ remainingPct: 80 }));
-    assert.deepEqual(await readQuota({ stateRoot: root }), { source: 'user', remainingPct: 80 });
+    assert.deepEqual(await readQuota({ stateRoot: root, env: quotaEnv(root) }), { source: client === 'codex' ? 'manual' : 'user', remainingPct: 80 });
   }
 });
 
@@ -174,6 +174,7 @@ async function tempRoot(t) {
   await mkdir(TMP, { recursive: true });
   const root = await mkdtemp(join(TMP, 'cli-'));
   t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'sessions'));
   await writeFile(join(root, 'config.json'), JSON.stringify(CONFIG), 'utf8');
   return root;
 }
@@ -186,6 +187,7 @@ async function quotaRoot(t) {
   await mkdir(TMP, { recursive: true });
   const root = await mkdtemp(join(TMP, 'cli-'));
   t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'sessions'));
   const profiles = Object.fromEntries(['claude-code', 'codex', 'opencode']
     .map((client) => [client, CONFIG.profiles['claude-code']]));
   await writeFile(join(root, 'config.json'), JSON.stringify({ ...CONFIG, profiles }), 'utf8');
@@ -200,6 +202,7 @@ async function cli(argv, io = {}) {
   const wrote = [];
   const code = await main(argv, {
     ...io,
+    env: quotaEnv(io.root ?? io.env?.OKWORK_HOME, io.env),
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
     run: io.run ?? (async (command) => {

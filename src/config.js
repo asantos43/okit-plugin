@@ -89,6 +89,17 @@ export const CONFIG_SCHEMA = Object.freeze({
         'pt-BR': 'O smoke recusa iniciar quando a cota restante fica abaixo deste percentual.',
       },
     },
+    ...Object.entries(DEFAULT_CONFIG.codexQuota).filter(([key]) => key !== 'fields')
+      .concat(Object.entries(DEFAULT_CONFIG.codexQuota.fields).map(([key, value]) => [`fields.${key}`, value]))
+      .map(([key, value]) => ({
+        path: `codexQuota.${key}`, defaultPath: `codexQuota.${key}`,
+        type: typeof value === 'number' ? 'integer' : 'string',
+        ...(typeof value === 'number' ? { minimum: 1 } : {}),
+        constraint: { en: typeof value === 'number' ? 'an integer >= 1' : 'non-empty text',
+          'pt-BR': typeof value === 'number' ? 'um inteiro >= 1' : 'texto não vazio' },
+        description: { en: 'Codex automatic quota reading setting.',
+          'pt-BR': 'Ajuste da leitura automática de cota do Codex.' },
+      })),
   ],
   scopeMessages: { clients: 'unknownClient', classes: 'unknownClass' },
   scopePatterns: {
@@ -447,6 +458,10 @@ async function setConfig(ctx, args, write) {
     const previous = effectiveValue(resolved.entry, raw, config);
     const written = setPath(raw, key, parsed.value);
     if (written.error) return { error: written.error, entry: resolved.entry };
+    if (key.startsWith('codexQuota.')) {
+      try { configOf(raw); }
+      catch { return { error: { type: 'invalidValue' }, entry: resolved.entry }; }
+    }
     const removedAliases = removeLegacyAliases(raw, resolved.entry);
     return {
       entry: resolved.entry,

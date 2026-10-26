@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Read Codex quota automatically from recent session tails, with configurable reading limits, manual fallback, source and age. / Ler a cota do Codex automaticamente pelo fim das sessões recentes, com limites configuráveis, alternativa manual, origem e idade.
 - Add the setup command to detect installed clients, save validated model choices, and record that setup finished. / Adicionar o comando de setup para detectar clientes instalados, salvar escolhas de modelo validadas e registrar que o setup foi concluído.
 - Show one pending-setup line in `okit-plugin status`, offer the setup at the end of install and update, and add the `okit-setup` skill that guides the same setup in a conversation. / Mostrar uma única linha de setup pendente em `okit-plugin status`, oferecer o setup no fim da instalação e da atualização e adicionar a skill `okit-setup` que conduz o mesmo setup em uma conversa.
 - Add read-only model detection that filters listed models to active candidates, proposes explainable profiles without writing configuration, and supports configurable activity fields, candidates and client listings. / Adicionar detecção de modelos somente leitura que filtra modelos listados para candidatos ativos, propõe perfis explicáveis sem gravar configuração e oferece campos de atividade, candidatos e listagens de clientes configuráveis.
