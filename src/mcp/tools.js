@@ -534,6 +534,24 @@ const orderRemoveTool = {
 
 // The order of the table is the order `tools/list` reports, and the names are
 // what the rest of the plugin calls.
+const smokeDemoTool = {
+  name: 'smoke_demo',
+  description: 'Preview practice work and confirm its allowance ceiling. / Veja os trabalhos de exemplo e confirme o teto de cota.',
+  inputSchema: { type: 'object', properties: {
+    dryRun: { type: 'boolean' }, client: { type: 'string', enum: CLIENTS },
+    locale: { type: 'string', enum: LOCALES }, confirm: { type: 'string' },
+  }, additionalProperties: false },
+  async handler(args, ctx) {
+    const a = argsOf('smoke_demo', args, ['dryRun', 'client', 'locale', 'confirm']);
+    if (a.dryRun !== undefined && typeof a.dryRun !== 'boolean') fail('smoke_demo: dryRun must be boolean');
+    const { smokeDemo } = await import('../smoke/demo/entry.js');
+    return reply(await smokeDemo({ dryRun: a.dryRun,
+      client: optionalChoice('smoke_demo', a, 'client', CLIENTS),
+      locale: optionalChoice('smoke_demo', a, 'locale', LOCALES),
+      confirm: optionalText('smoke_demo', a, 'confirm') }, { ...ctx, config: await configOf(ctx) }));
+  },
+};
+
 export const TOOLS = [
   acquireSlotTool,
   releaseSlotTool,
@@ -541,6 +559,7 @@ export const TOOLS = [
   statusTool,
   actorsTool,
   envReportTool,
+  smokeDemoTool,
   classifyTool,
   profilePickTool,
   inboxAddTool,

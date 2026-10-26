@@ -14,6 +14,14 @@ import { collectStatusline } from '../src/quota/statusline-collector.js';
 
 const HELP = '--output-format --include-hook-events --verbose --max-budget-usd --permission-mode --no-session-persistence';
 
+test('demo settings do not change the numeric limits of the C1–C23 runner', async (t) => {
+  const f = await fixture(t, { smoke: { demoMaxReworkRounds: 0, demoDemandMaxUsd: null,
+    demoRequireQuotaConfirmation: false } });
+  const result = await runClientSmoke(['--rehearsal'], f.io);
+  assert.equal(result.code, 0);
+  assert.equal(f.calls.length, 0);
+});
+
 async function fixture(t, options = {}) {
   const root = await mkdtemp(join(tmpdir(), 'okit-client-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));

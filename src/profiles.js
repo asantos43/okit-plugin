@@ -225,6 +225,9 @@ export const DEFAULT_CONFIG = {
     },
   },
   smoke: {
+    demoMaxReworkRounds: 1,
+    demoDemandMaxUsd: null,
+    demoRequireQuotaConfirmation: true,
     quotaFloorPct: 20,
     quotaMaxAgeMinutes: 30,
     quotaExpireMinutes: 120,
@@ -588,6 +591,11 @@ export function configOf(config) {
   const inbox = { ...DEFAULT_CONFIG.inbox, ...config?.inbox };
   const daemon = { ...DEFAULT_CONFIG.daemon, ...config?.daemon };
   const smoke = { ...DEFAULT_CONFIG.smoke, ...config?.smoke };
+  if (!Number.isInteger(smoke.demoMaxReworkRounds) || smoke.demoMaxReworkRounds < 0
+    || (smoke.demoDemandMaxUsd !== null && (!Number.isFinite(smoke.demoDemandMaxUsd)
+      || smoke.demoDemandMaxUsd <= 0)) || typeof smoke.demoRequireQuotaConfirmation !== 'boolean') {
+    throw new TypeError('Invalid demo limits / Limites da demonstração inválidos');
+  }
   const statuslineCollector = { ...DEFAULT_CONFIG.statuslineCollector, ...config?.statuslineCollector,
     fields: { ...DEFAULT_CONFIG.statuslineCollector.fields, ...config?.statuslineCollector?.fields },
     windows: config?.statuslineCollector?.windows ?? DEFAULT_CONFIG.statuslineCollector.windows };

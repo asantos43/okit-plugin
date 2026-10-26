@@ -17,6 +17,7 @@ const NAMES = [
   'status',
   'actors_list',
   'env_report',
+  'smoke_demo',
   'classify',
   'profile_pick',
   'inbox_add',

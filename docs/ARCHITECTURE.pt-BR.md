@@ -8,11 +8,13 @@ Estende [DESIGN.md](DESIGN.md); responde às perguntas em aberto. Um núcleo em 
 
 ## 1. Core contract
 
+`src/smoke/demo/index.js` compõe classificador, seleção de atores do instantâneo, perfis, inbox e funções de vagas existentes em uma árvore temporária isolada. Módulos pequenos de cenário, tentativa, agendador, orçamento e relatório implementam a [demonstração injetada](DEMO.pt-BR.md); cada tentativa de executor/crítico reserva vaga e orçamento. Somente atores de teste são lançados no passo 2. Entrada CLI/MCP/skill, consentimento e controladores pagos continuam no passo 3; C1–C23 preservam seu significado atual.
+
 O inbox guarda demandas com `id`, `title`, `body`, `kind`, `accept`, `effort`, `client`, `appliesTo`, `status`, `stepIds`, `ext`, `createdAt`. `kind` é texto livre. Ordens ficam em um único arquivo, filtradas por `appliesTo`. Briefing, crítica e consolidação são instruções das skills e não APIs adicionais do núcleo.
 
 ## 2. MCP tools
 
-O núcleo expõe 16 ferramentas MCP em `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `actors_list`, `env_report`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_claim`, `inbox_release`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planejamento, briefing, crítica e consolidação são orientações das skills; não são ferramentas MCP.
+O núcleo expõe 17 ferramentas MCP em `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `actors_list`, `env_report`, `smoke_demo`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_claim`, `inbox_release`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planejamento, briefing, crítica e consolidação são orientações das skills; não são ferramentas MCP.
 
 `src/env/report.js` fornece as leituras compartilhadas de ambiente somente leitura (`environmentReadings`), o objeto do relatório (`environmentReport`) e o texto bilíngue (`formatEnvironmentReport`). CLI `okit-plugin env report [--client <nome>] [--locale en|pt-BR]` e MCP `env_report` reutilizam essas funções. O MCP aceita `client` e `locale` opcionais e devolve o objeto com `text` formatado; clientes desconhecidos recebem uma frase curta traduzida. Sem filtro de cliente, todos os conhecidos aparecem com o cliente em uso primeiro, mesmo sem configuração. Modelos exigem confirmação por listagem ativa; leituras ausentes ficam desconhecidas. Setup, comando ou modelos ausentes incluem um comando de correção vindo da configuração. A skill instalada `okit-environment` explica esse relatório sem alterar configurações.
 

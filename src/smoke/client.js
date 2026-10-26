@@ -192,6 +192,7 @@ async function runScenario(argv, io) {
   const budget = { ...DEFAULT_CONFIG.smoke, ...stored.smoke, ...flags.overrides };
   budget.maxTurns ??= SCENARIO.length;
   for (const [key, value] of Object.entries(budget)) {
+    if (['demoMaxReworkRounds', 'demoDemandMaxUsd', 'demoRequireQuotaConfirmation'].includes(key)) continue;
     if (!Number.isFinite(value) || value < 0 || (key !== 'quotaFloorPct' && value === 0)
       || (key === 'maxTurns' && !Number.isInteger(value))) {
       err(`Invalid smoke.${key}`); return { code: 2, records: [] };

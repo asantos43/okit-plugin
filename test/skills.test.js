@@ -22,6 +22,7 @@ const TOOLS = new Set([
   'limits_status',
   'actors_list',
   'env_report',
+  'smoke_demo',
   'classify',
   'profile_pick',
   'inbox_add',
@@ -36,6 +37,17 @@ const TOOLS = new Set([
 
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
 const OLD_CLI = /\bkit\s+(?:daemon|autostart|status|inbox|smoke|client-smoke|hook)\b/;
+
+// | Input | Must pass | Must refuse |
+// | bilingual demo requests | smoke skill, preview and bound consent | automatic spending |
+test('demonstration requests route to the smoke skill in both languages', async () => {
+  const smoke = await readSkill('okit-smoke'), director = await readSkill('okit-director');
+  for (const phrase of ['show a demonstration', 'run a real test', 'mostre uma demonstração', 'faça um teste de verdade']) {
+    assert.ok(smoke.fields.description.includes(phrase), phrase);
+    assert.ok(director.body.toLowerCase().includes(phrase), phrase);
+  }
+  for (const term of ['smoke_demo', 'planHash', 'Never approve automatically', 'measured usage']) assert.ok(smoke.body.includes(term));
+});
 
 test('all six skills share bilingual routing, glossary and read-only boundaries', async () => {
   for (const name of EXPECTED_SKILLS) {
