@@ -22,6 +22,7 @@ import { runPostCompact } from './hook-post-compact.js';
 import { orderList } from './orders.js';
 import { configOf, DEFAULT_CONFIG } from './profiles.js';
 import { listActors, formatActors } from './actors.js';
+import { environmentReadings, environmentReport, formatEnvironmentReport } from './env/report.js';
 import { runSmoke } from './smoke.js';
 import { runClientSmoke } from './smoke/client.js';
 import { CLIENTS, makeSpawner } from './spawn-process.js';
@@ -107,6 +108,7 @@ const USAGE = [
   '       {command} daemon status [--table [--locale en|pt-BR]]',
   '       {command} autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       {command} status [--all] [--client <name>] [--locale en|pt-BR]',
+  '       {command} env report [--client <name>] [--locale en|pt-BR]',
   '       {command} actors [--all] [--client <name>] [--json] [--locale en|pt-BR]',
   '       {command} config show',
   '       {command} config get <key>',
@@ -348,6 +350,25 @@ function readStatusSelection(args) {
   return { all, client, invalid: rest.length > 0 || (client !== undefined && !CLIENTS.includes(client)) };
 }
 
+async function environmentCommand(ctx, args, io) {
+  const parsed = readLocale(args);
+  const locale = parsed.locale ?? (/^pt(?:[_-]|$)/i.test(ctx.env.LC_ALL || ctx.env.LC_MESSAGES || ctx.env.LANG || '') ? 'pt-BR' : 'en');
+  const selection = readStatusSelection(parsed.rest);
+  if (!Object.hasOwn(LABELS, locale) || parsed.rest.includes('--all')) return ctx.unknown();
+  if (selection.client !== undefined && !CLIENTS.includes(selection.client)) {
+    ctx.err(formatEnvironmentReport({ unknownClient: true }, locale));
+    return 1;
+  }
+  if (selection.invalid || args.at(-1) === '--locale') return ctx.unknown();
+  const deps = await tableDeps(ctx, locale);
+  const readings = await environmentReadings({ ...ctx, config: deps.config,
+    client: selection.client, plugin: io.plugin, versions: io.versions });
+  const report = await environmentReport({ ...deps, root: ctx.root, client: selection.client,
+    command: ctx.command, adapters: io.adapters, detectClients: io.detectClients, ...readings });
+  ctx.out(formatEnvironmentReport(report, locale));
+  return 0;
+}
+
 async function actorsCommand(ctx, args) {
   const { locale, rest } = readLocale(args);
   const json = rest.includes('--json');
@@ -584,6 +605,7 @@ export async function main(argv = [], io = {}) {
       return await configCommand(ctx, action, args, { write: ctx.writeConfig });
     }
     if (group === 'inbox') return await inboxCommand(ctx, action, args, io);
+    if (group === 'env' && action === 'report') return await environmentCommand(ctx, args, io);
     if (group === 'quota') return await quotaCommand(ctx, action, args);
     if (group === 'kit') {
       const flags = argv.slice(1);

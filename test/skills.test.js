@@ -9,7 +9,7 @@ import { installSkillFiles } from '../src/skills.js';
 import { installSkill } from '../adapters/claude-code/index.js';
 
 const SKILLS_DIR = fileURLToPath(new URL('../skills/', import.meta.url));
-const EXPECTED_SKILLS = ['okit-critic', 'okit-director', 'okit-executor', 'okit-setup', 'okit-smoke'];
+const EXPECTED_SKILLS = ['okit-critic', 'okit-director', 'okit-environment', 'okit-executor', 'okit-setup', 'okit-smoke'];
 const MAX_DESCRIPTION = 300;
 const MAX_BODY_LINES = 60;
 const FENCE = '---';
@@ -21,6 +21,7 @@ const TOOLS = new Set([
   'release_slot',
   'limits_status',
   'actors_list',
+  'env_report',
   'classify',
   'profile_pick',
   'inbox_add',
@@ -308,6 +309,20 @@ test('installSkillFiles never overwrites a file the user changed', async (t) => 
   assert.equal(await readFile(join(dest, 'SKILL.md'), 'utf8'), 'theirs\n');
   assert.deepEqual(result.skipped, [{ path: 'SKILL.md', reason: 'differs' }]);
   assert.deepEqual(result.written, ['refs/extra.md']);
+});
+
+test('environment skill routes bilingual questions to the report and explains remedies', async () => {
+  const { fields, body } = await readSkill('okit-environment');
+  for (const trigger of ['where you are', 'what you have here', 'which environment',
+    'onde você está', 'o que você tem aqui', 'qual ambiente']) assert.ok(fields.description.includes(trigger));
+  assert.match(body, /okit-plugin env report/);
+  assert.match(body, /env_report/);
+  assert.match(body, /--locale en/);
+  assert.match(body, /--locale pt-BR/);
+  assert.match(body, /each missing item/);
+  assert.match(body, /cada item que falta/);
+  assert.match(body, /comando informado para corrigir/);
+  assert.match(body, /CLAUDE_PLUGIN_ROOT/);
 });
 
 test('installSkillFiles installs the real skills of the plugin', async (t) => {
