@@ -229,7 +229,7 @@ function templateMatch(template, key) {
   return values;
 }
 
-function resolveEntry(key, raw) {
+export function resolveEntry(key, raw) {
   if (!isSafePath(key)) return { error: { type: 'unknown' } };
   const entries = schemaEntries(raw);
   const exact = entries.find((entry) => entry.path === key);

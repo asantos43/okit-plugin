@@ -163,8 +163,10 @@ test('a command that does not answer in time stops at the configured deadline', 
   assert.ok(elapsed < 2000, `the listing waited ${elapsed} ms for a deadline of 150 ms`);
   assert.equal(result.source, 'catalog');
   assert.equal(result.installed, true);
-  assert.match(result.reason, /did not answer within 150 ms/);
-  assert.match(result.reason, /não respondeu em 150 ms/);
+  assert.match(result.reason, /did not answer in time/);
+  assert.match(result.reason, /não respondeu a tempo/);
+  assert.doesNotMatch(result.reason, /150|\bms\b/);
+  assert.equal(result.error, '150');
 });
 
 test('a command that fails is an answer with its exit code', async () => {
@@ -174,8 +176,8 @@ test('a command that fails is an answer with its exit code', async () => {
   });
   assert.equal(result.source, 'catalog');
   assert.deepEqual(result.models, []);
-  assert.match(result.reason, /exit code 3/);
-  assert.match(result.reason, /código de saída 3/);
+  assert.doesNotMatch(result.reason, /\b3\b|exit code|código de saída/);
+  assert.equal(result.error, '3');
 });
 
 test('a client that answered with no model is a listing, not the catalog', async () => {
@@ -224,8 +226,8 @@ test('only a plain zero is a success and any other code is a failure', async () 
   });
   assert.equal(failed.source, 'catalog');
   assert.deepEqual(failed.models, []);
-  assert.match(failed.reason, /exit code 7/);
-  assert.match(failed.reason, /código de saída 7/);
+  assert.doesNotMatch(failed.reason, /\b7\b|exit code|código de saída/);
+  assert.equal(failed.error, '7');
   const zero = fakeRun({ code: '0', stdout: JSON.stringify(models), stderr: '' });
   const stringZero = await codex.listModels({
     run: zero,

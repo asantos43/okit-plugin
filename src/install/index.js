@@ -16,6 +16,8 @@ import { uninstall } from './uninstall.js';
 import { localSource } from './source.js';
 import { detectKit } from './kit.js';
 import { applyLink, chooseLinkDirectory } from './link.js';
+import { offerSetup } from '../setup/offer.js';
+import { setupReader, formatUnreadable } from '../setup/setup.js';
 
 const packageDirectory = fileURLToPath(new URL('../../', import.meta.url));
 const allowed = {
@@ -41,13 +43,30 @@ async function read(question) {
   try { return await input.question(question); } finally { input.close(); }
 }
 
+/**
+ * The reader of the setup the end of an installation offers: the injected
+ * `ask` when the caller has one, and a terminal reader otherwise. The reader is
+ * opened only when a question is really asked, and it is closed when the offer
+ * ends, so the process is never held by it.
+ */
+function setupReaderOf(io) {
+  if (typeof io.ask === 'function') return { ask: io.ask, close: () => {} };
+  return setupReader({ stdin: io.stdin, output: io.output });
+}
+
 export async function installerCommand(command, args, ctx, io = {}) {
   try {
     const flags = flagsOf(command, args);
     const fs = io.fs ?? filesystem;
     let user;
     try { user = JSON.parse(await fs.readFile(join(ctx.root, 'config.json'), 'utf8')); }
-    catch (error) { if (error.code !== 'ENOENT') throw error; user = {}; }
+    catch (error) {
+      // A file that is not JSON is not a configuration: the refusal is the
+      // simple sentence the setup says, without the technical detail.
+      if (error.code === 'ENOENT') user = {};
+      else if (error instanceof SyntaxError) throw new Error(formatUnreadable('both', ctx.command));
+      else throw error;
+    }
     const config = installConfig({ ...user.install, ...(flags.dest ? { destination: flags.dest } : {}) });
     const locations = installPaths(config, { env: ctx.env, platform: ctx.platform, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir() });
     const deps = { ...ctx, ...io, fs, config, ...locations, out: ctx.out,
@@ -83,6 +102,25 @@ export async function installerCommand(command, args, ctx, io = {}) {
       results.push({ client, code });
     }
     results.forEach(({ client, code }) => ctx.out(`${client}: ${code === 0 ? 'success' : 'failed'}`));
+    // The setup was not done yet: offer it. A setup that cannot run is
+    // reported and never fails the installation.
+    if ((command === 'install' || command === 'update') && !deps.dryRun && !flags.check
+      && results.every(({ code }) => code === 0)) {
+      const reader = setupReaderOf(io);
+      try {
+        await offerSetup({
+          root: ctx.root,
+          command: deps.config.command,
+          tty: deps.tty,
+          ask: reader.ask,
+          out: ctx.out,
+          run: ctx.run,
+          env: ctx.env,
+          adapters: io.setupAdapters ?? io.adapters,
+          write: ctx.writeConfig ?? ctx.write,
+        });
+      } finally { reader.close(); }
+    }
     if (command === 'install' || command === 'update') ctx.out((await detectKit(deps)).message);
     return results.every(({ code }) => code === 0) ? 0 : results.every(({ code }) => code === 2) ? 2 : 1;
   } catch (error) {

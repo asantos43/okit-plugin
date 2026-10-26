@@ -107,6 +107,7 @@ export const DEFAULT_CONFIG = {
   // a missing executable are configuration, never code: the user replaces them
   // in `config.json` and the logic only reads them.
   setup: {
+    maxAttempts: 3,
     detect: {
       'claude-code': {
         // No listing command of this client was verified, so the catalog answers.
@@ -399,14 +400,14 @@ export const LIST_MESSAGES = Object.freeze({
   listed: 'The model list came from the client command: {listed} models listed, {active} active, {hidden} hidden. / A lista de modelos veio do comando do cliente: {listed} modelos listados, {active} ativos, {hidden} ocultos.',
   noCommand: 'No model-listing command is configured for {client}, so the built-in catalog is used. / Nenhum comando de listagem de modelos está configurado para {client}, então o catálogo interno é usado.',
   notFound: '{client} was not found on this machine, so the built-in catalog is used. / O {client} não foi encontrado nesta máquina, então o catálogo interno é usado.',
-  timeout: 'The model list did not answer within {timeoutMs} ms, so the built-in catalog is used. / A lista de modelos não respondeu em {timeoutMs} ms, então o catálogo interno é usado.',
-  failed: 'The model list command failed with exit code {code}, so the built-in catalog is used. / O comando de listagem de modelos falhou com o código de saída {code}, então o catálogo interno é usado.',
+  timeout: 'The model list did not answer in time, so the built-in catalog is used. / A lista de modelos não respondeu a tempo, então o catálogo interno é usado.',
+  failed: 'The model list could not be read, so the built-in catalog is used. / A lista de modelos não pôde ser lida, então o catálogo interno é usado.',
   unknownOutput: 'The model list output was not understood, so the built-in catalog is used. / A saída da lista de modelos não foi entendida, então o catálogo interno é usado.',
   emptyList: 'The client answered and listed no model. / O cliente respondeu e não listou nenhum modelo.',
   noneActive: 'The client answered and listed {listed} models, but none of them is active. / O cliente respondeu e listou {listed} modelos, mas nenhum deles está ativo.',
   unknownParser: 'The configured output interpreter "{parse}" is unknown, so the built-in catalog is used. / O interpretador de saída "{parse}" configurado é desconhecido, então o catálogo interno é usado.',
   badTimeout: 'The configured deadline for the model list of {client} is not a valid number, so the built-in catalog is used. / O prazo configurado para a lista de modelos de {client} não é um número válido, então o catálogo interno é usado.',
-  error: 'The model list command could not be run ({code}), so the built-in catalog is used. / O comando de listagem de modelos não pôde ser executado ({code}), então o catálogo interno é usado.',
+  error: 'The model list could not be read, so the built-in catalog is used. / A lista de modelos não pôde ser lida, então o catálogo interno é usado.',
 });
 
 // One step down the effort scale. Nothing goes back up.
@@ -574,6 +575,19 @@ export function configOf(config) {
     profiles: mergeProfiles(config?.profiles),
     configuredClients: configuredClientsOf(config),
   };
+}
+
+/**
+ * Whether the setup is still pending: `setup.done` is the record the setup
+ * leaves in the settings, and an absent record means nobody chose the models
+ * yet.
+ *
+ * @param {object} config
+ * @returns {boolean}
+ */
+export function setupPending(config) {
+  const done = configOf(config).setup?.done;
+  return done === undefined || done === null || done === false;
 }
 
 /**

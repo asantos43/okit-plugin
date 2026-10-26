@@ -17,6 +17,7 @@ import { detectClients, proposeProfiles } from '../src/setup/detect.js';
 // | invalid separator | the configured model that is active | any replacement when the separator is empty or not text |
 // | separator out of the names | a candidate compared whole, without a provider | a provider the separator never divides |
 // | empty listing | an omission with the manual command | the catalog model |
+// | a listing that cannot be read | the catalog model and a plain reason | the technical code of the failure |
 
 function fakeRun(answer) {
   const calls = [];
@@ -314,7 +315,7 @@ test('a missing client, a timeout and unknown output keep the catalog with a rea
     },
     {
       answer: () => new Promise(() => {}),
-      expected: /did not answer within 20 ms|não respondeu em 20 ms/,
+      expected: /did not answer in time|não respondeu a tempo/,
     },
     {
       answer: { code: 0, stdout: 'unknown prose', stderr: '' },
@@ -334,6 +335,34 @@ test('a missing client, a timeout and unknown output keep the catalog with a rea
     assert.ok(client.profiles.simple.reason.includes(' / '));
     assert.doesNotMatch(client.profiles.simple.reason, /\b[DO]\d+\b/);
   }
+});
+
+test('a client whose listing fails keeps the technical code out of the reason', async () => {
+  // The listing of this client cannot be read: the run of the adapter
+  // refuses with a technical code. The reason the user reads names neither
+  // the code nor the message of the failure; the record keeps the code.
+  const refused = {
+    CLIENT: 'codex',
+    async listModels({ run }) {
+      await run({ command: 'codex', args: [] });
+      return { client: 'codex', installed: true, models: [], hidden: [], source: 'listing' };
+    },
+  };
+  const run = fakeRun(() => {
+    throw Object.assign(new Error('spawn codex EACCES'), { code: 'EACCES' });
+  });
+  const config = codexConfig();
+  const detected = await detectClients({ config, run, adapters: [refused] });
+  const client = detected.clients.find((entry) => entry.client === 'codex');
+  assert.equal(client.source, 'catalog');
+  assert.equal(client.error, 'EACCES');
+  assert.doesNotMatch(client.reason, /EACCES|spawn codex/);
+  assert.match(client.reason, /could not be read/);
+  assert.match(client.reason, /não pôde ser lida/);
+  const proposal = clientOf(proposeProfiles(detected, config), 'codex').profiles.simple;
+  assert.equal(proposal.source, 'catalog');
+  assert.equal(proposal.model, 'gpt-5-codex');
+  assert.doesNotMatch(proposal.reason, /EACCES|spawn codex/);
 });
 
 test('the adapters start together and an adapter failure never escapes', async () => {
@@ -362,7 +391,8 @@ test('the adapters start together and an adapter failure never escapes', async (
   assert.equal(detected.clients.find((entry) => entry.client === 'codex').source, 'listing');
   const failed = detected.clients.find((entry) => entry.client === 'opencode');
   assert.equal(failed.source, 'catalog');
-  assert.match(failed.reason, /boom/);
+  assert.doesNotMatch(failed.reason, /boom/);
+  assert.equal(failed.error, 'boom');
 });
 
 test('detection and proposals write nothing to disk', async (t) => {

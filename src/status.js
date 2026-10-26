@@ -6,7 +6,7 @@
 import { readQuota as readClientQuota } from '../adapters/claude-code/index.js';
 import { readQuota as readCodexQuota } from '../adapters/codex/index.js';
 import { readQuota as readOpencodeQuota } from '../adapters/opencode/index.js';
-import { configOf, normalizeLimits } from './profiles.js';
+import { configOf, DEFAULT_CONFIG, normalizeLimits, setupPending } from './profiles.js';
 import { capOf } from './limits.js';
 import { CLIENTS } from './spawn-process.js';
 import { projectName, withDemandRef } from './demand-ref.js';
@@ -59,6 +59,7 @@ export const LABELS = {
     floorOrder: (floor) => `lowQuotaPct is ${floor}%`,
     resets: (minutes) => `${minutes}m`,
     age: (seconds) => `${seconds}s`,
+    setupPending: (command) => `Setup is not done yet. Run ${command} setup to choose the models.`,
   },
   'pt-BR': {
     columns: ['Assinatura', 'Restante 5h', 'Restante semana', 'Reseta em', 'Situação', 'Origem (idade)'],
@@ -78,6 +79,7 @@ export const LABELS = {
     floorOrder: (floor) => `lowQuotaPct é ${floor}%`,
     resets: (minutes) => `${minutes}m`,
     age: (seconds) => `${seconds}s`,
+    setupPending: (command) => `O setup ainda não foi feito. Rode ${command} setup para escolher os modelos.`,
   },
 };
 
@@ -318,6 +320,20 @@ export async function statusTable(root, deps = {}) {
     rows,
     demands,
   };
+}
+
+/**
+ * The one line the status shows while the setup is pending: what is missing and
+ * the command that does it. `null` once the setup is done, so the line is gone
+ * and the rest of the table is untouched.
+ *
+ * @param {object} config the settings of the root
+ * @param {{locale?: string, command?: string}} [deps]
+ * @returns {string|null}
+ */
+export function setupPendingLine(config, { locale = 'en', command = DEFAULT_CONFIG.install.command } = {}) {
+  if (!setupPending(config)) return null;
+  return labelsOf(locale).setupPending(command);
 }
 
 /**

@@ -137,7 +137,7 @@ A step names a resource, the call that touches it and the **behaviour** it asser
 | id | resource | what it proves | judged from |
 | :- | :- | :- | :- |
 | `C1` | plugin | the client loaded the installed plugin | the `init` event's `plugins[]`: our plugin's name and the path it was loaded from |
-| `C2` | skills | the installed skills are visible to the session | the `init` event's `skills[]`: `okit-director`, `okit-executor`, `okit-critic` and `okit-smoke` under the plugin's namespace |
+| `C2` | skills | the installed skills are visible to the session | the `init` event's `skills[]`: `okit-director`, `okit-executor`, `okit-critic`, `okit-smoke` and `okit-setup` under the plugin's namespace |
 | `C3` | MCP | the server answered over the real stdio pipe | the `init` event's `mcp_servers[]` holds our server with `status: "connected"`, and the server answered `initialize` and `tools/list` with the 12 names |
 | `C4` | hooks | a hook of the plugin fired | the client's hook events; while the plugin ships no `hooks/hooks.json`, it is a `skip` with the reason `hook-evidence-unavailable` |
 | `C5` | daemon | the daemon of the installation ticked | the runner runs the installed `okit-plugin` bin with `daemon run-once`, and the decision line lands in `logs/<date>.jsonl` |

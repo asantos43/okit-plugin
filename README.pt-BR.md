@@ -27,6 +27,7 @@ herda `release.adapters`), além dos metadados de instalação do cliente seleci
 okit-plugin install [--from <dir>] [--client <c>] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--no-path] [--autostart] [--dry-run] [--yes]
 okit-plugin update [--check] [--rollback] [--dry-run] [--no-path]
 okit-plugin uninstall [--purge] [--yes] [--dry-run]
+okit-plugin setup [--defaults] [--again]
 okit-plugin daemon start|stop|status|pause|resume|run-once
 okit-plugin daemon status [--table [--locale en|pt-BR]]
 okit-plugin autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
@@ -62,6 +63,12 @@ Um **ator** é um par modelo + esforço configurado, disponível em um cliente. 
 
 A detecção de modelos considera apenas modelos ativos como candidatos: estar listado não basta para propor um perfil. A substituição vem da mesma família: o mesmo provedor, com `setup.detect.<cliente>.family.separator` separando o provedor do nome e `family.minimumPrefix` o tamanho que o prefixo comum precisa alcançar. Um nome que não contém o separador configurado não tem provedor e é comparado inteiro; portanto o separador deve ser o que o cliente usa nos nomes (ex.: `/` para `provedor/modelo`), e um separador que não aparece em nenhum nome deixa todos os nomes sem provedor. Um separador vazio, ou que não é texto, desliga a troca automática: um modelo configurado que está ativo permanece (`source: 'listing'`), e uma classe cujo modelo configurado não está ativo é omitida com `okit-plugin config set profiles.<cliente>.<classe>.model <valor>`. Um cliente que responde sem nenhum modelo ativo não propõe nada e pede uma escolha manual com `okit-plugin config set profiles.<cliente>.<classe>.model <valor>`.
 
+### Setup
+
+`okit-plugin setup` detecta os clientes instalados, mostra o modelo que será usado em cada classe de trabalho e explica o motivo. Ele pergunta apenas quando nenhum modelo ativo serve; Enter aceita o modelo recomendado, e uma resposta inválida é perguntada novamente até `setup.maxAttempts` vezes. Todas as perguntas usam a mesma sessão de entrada, então nenhuma resposta se perde; o fim da entrada cancela sem gravar, e uma entrada que já havia terminado cancela do mesmo jeito. Um nome de cliente ou classe fora do esquema da configuração é recusado antes de o arquivo mudar. Um arquivo de configuração que não pode ser lido, ou cuja raiz não é um objeto, é recusado com uma frase simples nas duas línguas: nada é gravado e o arquivo fica como está. Um `profiles` que não é um objeto, ou um cliente dentro dele que não é um objeto, é recusado do mesmo jeito. Quando nenhum cliente com modelo ativo é encontrado, o setup diz isso com uma frase simples nas duas línguas, não grava nada, e a configuração continua pendente. `--defaults` não pergunta nada, aceita as escolhas detectadas e mantém sem alteração as classes sem correspondência, para você escolher depois com `okit-plugin config set profiles.<cliente>.<classe>.model <valor>`. O resultado fica registrado em `config.json`; executar o setup novamente mantém as configurações ativas, enquanto `--again` repete o setup.
+
+Enquanto o setup não foi feito, `okit-plugin status` mostra uma linha que nomeia o passo que falta, o fim de uma instalação ou de uma atualização oferece o setup, e a skill `okit-setup` conduz o mesmo setup em uma conversa. A skill deixa o setup pedir cada escolha de modelo e grava o conjunto completo uma única vez, somente depois da confirmação final.
+
 `okit-plugin inbox list [--locale en|pt-BR]` e MCP `inbox_list` mostram o dono de cada demanda.
 `okit-plugin inbox take <id> --client codex --session <s> --worktree <path>` toma posse atomicamente;
 outro cliente/sessão ativo é recusado. `okit-plugin inbox release <id> --client codex --session <s>` libera a posse.
@@ -70,7 +77,7 @@ mostra dono, sessão, worktree, data, obsolescência e mudanças Git não commit
 da confirmação TTY (ou `--yes`). A transferência guarda `heldBefore` com motivo `producer takeover`.
 `inbox.holdStaleMinutes` tem padrão 120 (inteiro >= 1); posses obsoletas guardam motivo `stale`.
 `inbox.gitTimeoutMs` tem padrão 5000 (inteiro >= 1). Estados finais limpam a posse.
-As skills Director, Executor, Critic e Smoke orientam delegação e verificação.
+As skills Director, Executor, Critic, Smoke e Setup orientam delegação, verificação e configuração.
 `smoke` roda 31 checks isolados; `client-smoke` tem 23 checks de cenário e seu
 driver real suporta Claude Code. Dry-run e rehearsal são percursos offline.
 Veja [SMOKE.pt-BR.md](docs/SMOKE.pt-BR.md) para orçamento e provas exigidas.

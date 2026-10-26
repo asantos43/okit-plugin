@@ -127,7 +127,7 @@ export async function judge(step, ctx, answers) {
       break;
     case 'C2':
       evidence = init?.skills;
-      ok = ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke'].every((name) =>
+      ok = ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke', 'okit-setup'].every((name) =>
         evidence?.some((entry) => (typeof entry === 'string' ? entry : entry.name)?.endsWith(`:${name}`)));
       break;
     case 'C3':

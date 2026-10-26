@@ -25,7 +25,7 @@ import { listActors, formatActors } from './actors.js';
 import { runSmoke } from './smoke.js';
 import { runClientSmoke } from './smoke/client.js';
 import { CLIENTS, makeSpawner } from './spawn-process.js';
-import { adapterQuotaReader, clientsOf, LABELS, statusTable } from './status.js';
+import { adapterQuotaReader, clientsOf, LABELS, setupPendingLine, statusTable } from './status.js';
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
 import { installerCommand } from './install/index.js';
@@ -33,6 +33,7 @@ import { installConfig, installPaths } from './install/config.js';
 import { detectKit } from './install/kit.js';
 import { activationWarning } from './install/link.js';
 import { readRecords } from './install/place.js';
+import { runSetup, setupReader, formatUnreadable, isReadableConfig, SetupSaveError } from './setup/setup.js';
 
 async function confirmTake(io, out) {
   const input = io.stdin ?? process.stdin;
@@ -102,6 +103,7 @@ const USAGE = [
   '       {command} install [--from <dir>] [--client <c>|all] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--autostart] [--dry-run] [--yes]',
   '       {command} update [--client <c>] [--check] [--rollback] [--dry-run]',
   '       {command} uninstall [--client <c>] [--purge] [--yes] [--dry-run]',
+  '       {command} setup [--defaults] [--again]',
   '       {command} daemon status [--table [--locale en|pt-BR]]',
   '       {command} autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       {command} status [--all] [--client <name>] [--locale en|pt-BR]',
@@ -224,6 +226,56 @@ async function readConfig(root) {
   return configOf(stored);
 }
 
+async function setupCommand(ctx, flags, io) {
+  if (flags.some((flag) => flag === '--help' || flag === '-h')) {
+    ctx.out(USAGE.replaceAll('{command}', ctx.command));
+    return 0;
+  }
+  let defaults = false;
+  let again = false;
+  for (const flag of flags) {
+    if (flag === '--defaults') defaults = true;
+    else if (flag === '--again') again = true;
+    else return ctx.unknown();
+  }
+  const locale = io.locale ?? 'both';
+  // A configuration that cannot be read stops the command here: the same
+  // simple sentence everywhere, the file untouched and nothing written.
+  let stored;
+  try {
+    stored = await readJson(paths(ctx.root).config, {});
+  } catch {
+    ctx.err(formatUnreadable(locale, ctx.command));
+    return 1;
+  }
+  if (!isReadableConfig(stored)) {
+    ctx.err(formatUnreadable(locale, ctx.command));
+    return 1;
+  }
+  const reader = io.ask
+    ? { ask: io.ask, close: () => {} }
+    : setupReader({ stdin: io.stdin, output: io.output });
+  try {
+    const result = await runSetup({
+      root: ctx.root,
+      config: stored,
+      env: ctx.env,
+      run: ctx.run,
+      ask: reader.ask,
+      defaults,
+      adapters: io.setupAdapters ?? io.adapters,
+      write: ctx.writeConfig ?? ctx.write,
+      locale,
+      again,
+      command: ctx.command,
+    });
+    for (const message of result.messages) ctx.out(message);
+    return result.code;
+  } finally {
+    reader.close();
+  }
+}
+
 async function quotaCommand(ctx, action, args) {
   const readers = adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env });
   // The clients of this root, the same list the quota table shows: the ones
@@ -315,7 +367,12 @@ async function statusCommand(ctx, args) {
   const table = await statusTable(ctx.root, { ...await tableDeps(ctx, locale ?? 'en'), ...selection });
   for (const line of table.markdown.split('\n')) ctx.out(line);
   ctx.out(table.capacityLine);
-  const config = installConfig((await readConfig(ctx.root)).install);
+  const stored = await readConfig(ctx.root);
+  const config = installConfig(stored.install);
+  // One line, only while the setup is pending: what is missing and the command
+  // that does it. It is gone once the setup was done.
+  const pending = setupPendingLine(stored, { locale: locale ?? 'en', command: config.command });
+  if (pending) ctx.out(pending);
   const home = ctx.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir();
   const deps = { ...ctx, config, home, ...installPaths(config, { ...ctx, home }) };
   const records = Object.values(await readRecords(deps.destination, ctx.fs, config));
@@ -518,6 +575,10 @@ export async function main(argv = [], io = {}) {
       out(USAGE.replaceAll('{command}', ctx.command));
       return 0;
     }
+    if (group === 'setup') {
+      const flags = action === undefined ? args : [action, ...args];
+      return await setupCommand(ctx, flags, io);
+    }
     if (group === 'config') {
       if (action === '--help') { out(USAGE.replaceAll('{command}', ctx.command)); return 0; }
       return await configCommand(ctx, action, args, { write: ctx.writeConfig });
@@ -559,7 +620,9 @@ export async function main(argv = [], io = {}) {
     }
     return ctx.unknown();
   } catch (error) {
-    err(`${ctx.command}: ${error.message}`);
+    // A configuration that could not be saved says its own simple sentence,
+    // without the technical text of the system.
+    err(error instanceof SetupSaveError ? error.message : `${ctx.command}: ${error.message}`);
     return 1;
   }
 }

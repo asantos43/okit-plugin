@@ -41,7 +41,7 @@ async function fixture(t, options = {}) {
         if (response) return response;
       }
       const init = { type: 'system', subtype: 'init', plugins: [{ name: 'okit', path: plugin }],
-        skills: (options.skills ?? ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke'])
+        skills: (options.skills ?? ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke', 'okit-setup'])
           .map((name) => `okit:${name}`),
         mcp_servers: [{ name: 'okit', status: 'connected' }], tools: TOOL_NAMES.map((name) => `mcp__okit__${name}`) };
       const events = [init, { type: 'system', subtype: 'hook_response', path: plugin }];

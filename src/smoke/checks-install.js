@@ -12,7 +12,7 @@ import { handleLine, serverVersion } from '../mcp/server.js';
 import { TOOLS, TOOL_NAMES } from '../mcp/tools.js';
 import { DEFAULT_CONFIG } from '../profiles.js';
 
-const SKILLS = ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke'];
+const SKILLS = ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke', 'okit-setup'];
 
 // The hooks the plugin installs; the entry the user writes next to it is the one
 // that has to survive a second install.
@@ -56,7 +56,7 @@ async function cli(deps, argv) {
   return { code, out, err, wrote };
 }
 
-// I1: the files a client loads and the four skills it reads are readable
+// I1: the files a client loads and the skills it reads are readable
 // in the checkout the run was given, at the paths the plugin declares.
 async function filesPlaced(deps) {
   const wanted = [

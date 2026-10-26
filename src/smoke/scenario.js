@@ -28,7 +28,7 @@ export const SCENARIO = [
   step('C1', 'plugin.loaded', 'plugin', 'reading', null,
     'The client loaded the installed plugin.', 'init.plugins[]: plugin name and loaded path'),
   step('C2', 'skills.visible', 'skills', 'reading', null,
-    'okit-director, okit-executor, okit-critic and okit-smoke are visible under the plugin namespace.',
+    'okit-director, okit-executor, okit-critic, okit-smoke and okit-setup are visible under the plugin namespace.',
     'init.skills[]'),
   step('C3', 'mcp.connected', 'MCP', 'reading', { methods: ['initialize', 'tools/list'], tools: TOOL_NAMES },
     'The real stdio server is connected and answers the handshake with every tool name.',
