@@ -8,7 +8,9 @@
 // | timeout | the deadline of the configuration, the catalog | a wait longer than the deadline |
 // | unknown output | the catalog, a reason | a guess of the models |
 // | no command | the catalog, a reason | a command of the plugin's own |
-// | empty listing | `source: 'listing'` and no model | the catalog |
+// | empty JSON listing | `source: 'listing'` and no model | the catalog |
+// | model lines | provider + configured separator + model | prose, spaces, empty ends |
+// | unrecognized lines | catalog and bilingual reason | an active model |
 // | exit code | zero, or no code at all | a numeric string |
 // | user configuration | the command, the arguments and the interpreter of the user | a value fixed in the logic |
 // | disk | nothing written, nothing read from the user's home | a write of any kind |
@@ -23,6 +25,7 @@ import * as claudeCode from '../adapters/claude-code/index.js';
 import * as codex from '../adapters/codex/index.js';
 import * as opencode from '../adapters/opencode/index.js';
 import { DEFAULT_CONFIG, configOf } from '../src/profiles.js';
+import { LIST_PARSE } from '../src/spawn-process.js';
 
 const ADAPTERS = [claudeCode, codex, opencode];
 
@@ -80,6 +83,44 @@ test('the listing answers the models the command printed', async () => {
   assert.equal(run.calls[0].command, 'opencode');
   assert.deepEqual(run.calls[0].args, ['models']);
   assert.equal(run.calls[0].timeoutMs, 1000);
+});
+
+test('OpenCode refuses error lines and malformed names even with exit code zero', async () => {
+  const invalid = ['SYSTEM: unsupported operation', '', '   ', 'model',
+    '/model', 'provider/', 'provider/my model', 'pro vider/model', 'provider/mo\tdel'];
+  for (const stdout of invalid) {
+    const result = await opencode.listModels({ run: fakeRun({ code: 0, stdout }) });
+    assert.deepEqual(result.models, [], stdout);
+    assert.deepEqual(result.hidden, [], stdout);
+    assert.equal(result.installed, true);
+    assert.equal(result.source, 'catalog', stdout);
+    assert.match(result.reason, /output was not understood/);
+    assert.match(result.reason, /não foi entendida/);
+  }
+});
+
+test('OpenCode keeps only valid models in mixed output', async () => {
+  const stdout = 'SYSTEM: unsupported operation\nprovider/one\n/model\nprovider/\nprovider/my model\n other/two \r\n';
+  const result = await opencode.listModels({ run: fakeRun({ code: 0, stdout }) });
+  assert.equal(result.source, 'listing');
+  assert.deepEqual(result.models, ['provider/one', 'other/two']);
+  assert.deepEqual(result.hidden, []);
+  assert.match(result.reason, /2 models listed, 2 active, 0 hidden/);
+});
+
+test('OpenCode uses the configured separator literally', async () => {
+  const settings = { family: { separator: '::' } };
+  const stdout = 'provider/ignored\nprovider::one\nother::two\n::model\nprovider::\nSYSTEM: unsupported operation';
+  const result = await opencode.listModels({
+    run: fakeRun({ code: 0, stdout }), config: detectConfig('opencode', settings),
+  });
+  assert.equal(result.source, 'listing');
+  assert.deepEqual(result.models, ['provider::one', 'other::two']);
+  assert.deepEqual(LIST_PARSE.lines(stdout, settings), result.models);
+  assert.equal(LIST_PARSE.lines('SYSTEM: unsupported operation', settings), null);
+  for (const separator of ['', null, 7]) {
+    assert.equal(LIST_PARSE.lines(stdout, { family: { separator } }), null);
+  }
 });
 
 test('the json interpreter reads the catalog of a client as json', async () => {
@@ -180,18 +221,18 @@ test('a command that fails is an answer with its exit code', async () => {
   assert.equal(result.error, '3');
 });
 
-test('a client that answered with no model is a listing, not the catalog', async () => {
+test('empty lines use the catalog while an empty JSON array is a listing', async () => {
   const empty = fakeRun({ code: 0, stdout: '', stderr: '' });
   const lines = await opencode.listModels({
     run: empty,
     config: detectConfig('opencode', { command: 'opencode', args: ['models'], timeoutMs: 1000, parse: 'lines' }),
   });
-  assert.equal(lines.source, 'listing');
+  assert.equal(lines.source, 'catalog');
   assert.equal(lines.installed, true);
   assert.deepEqual(lines.models, []);
   assert.deepEqual(lines.hidden, []);
-  assert.match(lines.reason, /answered and listed no model/);
-  assert.match(lines.reason, /respondeu e não listou nenhum modelo/);
+  assert.match(lines.reason, /output was not understood/);
+  assert.match(lines.reason, /não foi entendida/);
   const json = fakeRun({ code: 0, stdout: JSON.stringify({ models: [] }), stderr: '' });
   const array = await codex.listModels({
     run: json,
@@ -365,10 +406,11 @@ test('the default export of every adapter offers the listing', () => {
 
 // The corpus of the interpreters: what must be read, and what must be refused.
 const CORPUS = [
-  { parse: 'lines', stdout: 'a\nb\n', models: ['a', 'b'] },
-  { parse: 'lines', stdout: 'a\r\nb\r\n', models: ['a', 'b'] },
-  { parse: 'lines', stdout: '  a  \n\n', models: ['a'] },
-  { parse: 'lines', stdout: '', models: [] },
+  { parse: 'lines', stdout: 'p/a\np/b\n', models: ['p/a', 'p/b'] },
+  { parse: 'lines', stdout: 'p/a\r\np/b\r\n', models: ['p/a', 'p/b'] },
+  { parse: 'lines', stdout: '  p/a  \n\n', models: ['p/a'] },
+  { parse: 'lines', stdout: '', models: null },
+  { parse: 'lines', stdout: 'SYSTEM: unsupported operation', models: null },
   { parse: 'json-array', stdout: '["a","b"]', models: ['a', 'b'] },
   { parse: 'json-array', stdout: '{"models":[{"slug":"a"},{"id":"b"}]}', models: ['a', 'b'] },
   { parse: 'json-array', stdout: '{"models":["a"]}', models: ['a'] },
@@ -391,7 +433,7 @@ test('the interpreters read the corpus and refuse what they cannot', async () =>
       continue;
     }
     assert.deepEqual(result.models, entry.models, `read: ${entry.stdout}`);
-    // An answered command is a listing, even when it listed no model at all.
+    // An empty JSON array is still a recognized listing.
     assert.equal(result.source, 'listing');
   }
 });
