@@ -55,6 +55,9 @@ Arquivos do lado do projeto ficam ao lado do projeto, não nesta raiz: o `CLAUDE
 - Um escritor por arquivo: caixa, ordens e execuções são arquivos separados, para que dois passos do mesmo item não se bloqueiem.
 
 ## 4. Adapter interface
+O [desenho da integração](INTEGRATION.pt-BR.md) ([English](INTEGRATION.md))
+define ambiente comum, papéis nativos, glossário e encaminhamento do fluxo inteiro (passos 2–4 concluídos).
+
 Cada adaptador fornece estas cinco operações, além dos auxiliares documentados. O núcleo importa um adaptador, nunca um cliente.
 
 | Função | Entrada | Saída |
@@ -64,6 +67,10 @@ Cada adaptador fornece estas cinco operações, além dos auxiliares documentado
 | `capabilities()` | nenhuma | `{ models[], efforts[], skills, hooks, mcp, desktop, windows }` |
 | `installSkill(name, files)` | pasta da skill | `{ path }` |
 | `installHooks(files)` | configuração do cliente ou caminho do módulo | `{ path }` |
+| `deliverRole(context)` | cliente, briefing explícito ou sessão principal, instantâneo comum, demandas/ordens/limites aplicáveis, ator | `ready` com contexto nativo, `clarification` ou `unsupported` |
+| `installRole(opts)`, `removeRole(opts)` | raiz do cliente injetada e suporte nativo | artefato gerenciado idempotente; preserva instruções do usuário |
+
+`src/roles.js` compõe o mesmo contrato bilíngue sem ramos por cliente nem efeitos colaterais. Claude SessionStart injeta contexto em startup/resume/compact; Codex usa bloco delimitado AGENTS.md e prompt de lançamento; opencode usa hook config nativo para agentes principais e comandos. Briefings explícitos escolhem Executor/Critic, nunca modelo+esforço. Papéis ausentes/ambíguos e formatos sem suporte são relatados antes de iniciar. Respostas usam ferramentas existentes do núcleo e títulos legíveis; perguntas de ambiente nunca salvam configuração, iniciam trabalho ou gastam cota. Registro do instalador e ligação do hook Claude empacotado fazem parte desse caminho. Testes herméticos do fluxo inteiro isolam HOME e raízes dos três clientes, passando por setup confirmado, fatos comuns, Director e smoke offline injetado. As seis skills têm o mesmo mapa bilíngue; aceite real continua separado.
 
 ### 4.1 Os adaptadores incluídos
 
@@ -89,7 +96,7 @@ ambiente, com limites configuráveis de prazo e saída. Versão do contrato, nom
 dos campos e minutos das janelas ficam em `DEFAULT_CONFIG.opencodeQuota`.
 Fonte inválida, com erro ou antiga usa o valor manual. Vale o menor restante
 entre provedores e períodos válidos. `quotaOrigin` mostra origem, idade e
-provedor em `status` e `quota show`. O smoke lê os adaptadores e preserva os
+provedor em `status` e `quota show`. O smoke consome o instantâneo comum do env e preserva os
 avisos e a expiração por `ageMinutes`. O cenário continua sendo Claude Code;
 só a leitura do adaptador desse cliente autoriza a execução; cota ausente ou
 expirada permanece desconhecida. A cota de outro cliente nunca a autoriza.

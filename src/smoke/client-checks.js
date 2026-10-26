@@ -191,9 +191,10 @@ export async function judge(step, ctx, answers) {
       for (const entry of inbox.filter((entry) => entry.ext?.template === ctx.templateName)) ctx.owned.inbox.add(entry.id);
       break;
     case 'C22': {
-      const quota = await readJson(join(root, 'quota', `${ctx.client}.json`), null);
+      const quota = ctx.snapshot ? null : await readJson(join(root, 'quota', `${ctx.client}.json`), null);
       const row = answer.rows?.find((entry) => entry.client === ctx.client);
-      const table = await statusTable(root, { clients: [ctx.client], config, readQuota: async () => quota,
+      const table = await statusTable(root, { snapshot: ctx.snapshot, env: ctx.env,
+        clients: [ctx.client], config, readQuota: async () => quota,
         cache: new Map(), orders: [], limits: { limits: config.limits, live: 0, byClient: {} } });
       const expected = table.rows[0];
       ok = row && ['fiveHour', 'week', 'status'].every((key) => row[key] === expected[key]);

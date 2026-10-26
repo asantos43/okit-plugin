@@ -1,6 +1,7 @@
 // Actor profile choice: the maintainer owns the model names, the core only
 // picks which configured profile to use and may lower it on low quota.
 import process from 'node:process';
+import { setupPending as environmentSetupPending } from './env/configuration.js';
 
 import { EFFORT_CLASSES } from './classify.js';
 
@@ -689,8 +690,7 @@ export function configOf(config) {
  * @returns {boolean}
  */
 export function setupPending(config) {
-  const done = configOf(config).setup?.done;
-  return done === undefined || done === null || done === false;
+  return environmentSetupPending(configOf(config));
 }
 
 /**

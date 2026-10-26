@@ -12,8 +12,39 @@ import { readCodexSessionQuota } from '../adapters/codex/session-quota.js';
 import { configOf } from '../src/profiles.js';
 import { runCli } from '../src/cli.js';
 import { statusTable } from '../src/status.js';
+import { rolePrompt } from '../src/roles.js';
+const brief = (text) => `Role: Executor\n${text}`;
+const roleText = (text) => rolePrompt({ client: 'codex', briefing: brief(text) });
 
 const temps = [];
+// | Must pass | Must refuse |
+// | AGENTS main Director, explicit briefed roles, user bytes survive | ambiguous role, shadowed/unsupported format |
+test('native role instructions and prompt preserve user configuration and actor', async () => {
+  const root = await temp();
+  const user = '# User instructions\nKeep my conventions.\n';
+  await writeFile(join(root, 'AGENTS.md'), user);
+  await writeFile(join(root, 'config.toml'), 'model = "user-model"\n');
+  for (let n = 0; n < 2; n++) await adapter.installRole({ root });
+  const native = await readFile(join(root, 'AGENTS.md'), 'utf8');
+  assert.equal(native.split('<!-- okit role:begin -->').length, 2);
+  assert.match(native, /Role: Director/);
+  await writeFile(join(root, 'AGENTS.md'), `${native}\nLater user instructions.`);
+  for (const role of ['Executor', 'Critic']) {
+    const result = await spawn({ model: 'chosen', effort: 'high' }, `Role: ${role}\nDo the step`);
+    assert.match(result.agentCall.prompt, new RegExp(`Role: ${role}`));
+    assert.equal(result.agentCall.model, 'chosen');
+    assert.equal(result.agentCall.effort, 'high');
+    for (const field of ['Orders:', 'Limits:', 'Work in hand:', 'Available actors:', 'Unknown facts:', 'Ordens:', 'Fatos desconhecidos:']) assert.ok(result.agentCall.prompt.includes(field));
+  }
+  for (let n = 0; n < 2; n++) await adapter.removeRole({ root });
+  assert.equal(await readFile(join(root, 'AGENTS.md'), 'utf8'), `${user}\nLater user instructions.`);
+  assert.equal(await readFile(join(root, 'config.toml'), 'utf8'), 'model = "user-model"\n');
+  assert.equal((await adapter.installRole({ root, briefing: 'do the step' })).status, 'clarification');
+  assert.equal((await adapter.installRole({ root, nativeSupported: false })).status, 'unsupported');
+  await writeFile(join(root, 'AGENTS.override.md'), '# user override');
+  assert.equal((await adapter.installRole({ root })).status, 'unsupported');
+  await assert.rejects(spawn({ model: 'chosen' }, 'do the step'), /Clarify/);
+});
 async function temp() {
   const dir = await mkdtemp(join(tmpdir(), 'okit-codex-'));
   temps.push(dir);
@@ -247,12 +278,12 @@ test('configRoot uses explicit option, CODEX_HOME, then runtime home', async () 
 });
 
 test('spawn native returns a descriptor without starting a process', async () => {
-  const result = await spawn({ model: 'chosen-model', effort: 'high' }, 'brief', {
+  const result = await spawn({ model: 'chosen-model', effort: 'high' }, brief('brief'), {
     spawn() { assert.fail('native must not start a process'); }, runId: 'native-test',
   });
   assert.deepEqual(result, { mode: 'NATIVE', runId: 'native-test',
-    agentCall: { model: 'chosen-model', effort: 'high', prompt: 'brief' } });
-  assert.equal((await spawn({ model: 'custom' }, 'brief')).agentCall.effort, null);
+    agentCall: { model: 'chosen-model', effort: 'high', prompt: roleText('brief') } });
+  assert.equal((await spawn({ model: 'custom' }, brief('brief'))).agentCall.effort, null);
 });
 
 test('spawn PROCESS builds exact Codex argv and preserves injected environment', async () => {
@@ -263,7 +294,7 @@ test('spawn PROCESS builds exact Codex argv and preserves injected environment',
     return { pid: 4242, on() {}, unref() {} };
   };
   const prompt = 'literal $(never-execute); with spaces';
-  const result = await spawn({ model: 'chosen-model', effort: 'high' }, prompt, {
+  const result = await spawn({ model: 'chosen-model', effort: 'high' }, brief(prompt), {
     headless: true, spawn: fake, logDir: join(root, 'runs'), cwd: root,
     root, env: { CUSTOM: 'kept', CODEX_HOME: 'ignored' }, runId: 'codex-test', sandbox: 'read-only',
   });
@@ -272,7 +303,7 @@ test('spawn PROCESS builds exact Codex argv and preserves injected environment',
   assert.equal(calls[0].command, 'codex');
   assert.deepEqual(calls[0].args, ['exec', '--cd', root, '--model', 'chosen-model',
     '--sandbox', 'read-only', '--json', '--skip-git-repo-check',
-    '-c', 'model_reasoning_effort=high', prompt]);
+    '-c', 'model_reasoning_effort=high', roleText(prompt)]);
   assert.deepEqual(calls[0].options.env, { CUSTOM: 'kept', CODEX_HOME: root, OKWORK_NO_DAEMON: '1' });
   assert.equal(calls[0].options.cwd, root);
   assert.equal(calls[0].options.detached, true);

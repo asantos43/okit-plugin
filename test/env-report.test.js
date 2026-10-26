@@ -1,10 +1,93 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { main } from '../src/cli.js';
 import { environmentReadings, environmentReport, formatEnvironmentReport } from '../src/env/report.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
+import { environmentSnapshot } from '../src/env/snapshot.js';
+import { statusTable } from '../src/status.js';
+import { listActors } from '../src/actors.js';
 
 const clients = Object.keys(DEFAULT_CONFIG.install.clients);
+
+test('one injected snapshot agrees across env, status and actors without rereading', async () => {
+  let reads = 0;
+  const now = () => Date.parse('2026-10-26T12:05:00Z');
+  const deps = readings({ client: 'codex', env: { CODEX_THREAD_ID: 'session' }, now,
+    limits: { limits: { global: 7 }, byClient: { codex: 2 } },
+    readQuota: async () => { reads += 1; return { source: 'automatic', remainingPct: 72,
+      provider: 'fixture', recordedAt: '2026-10-26T12:00:00Z' }; } });
+  const snapshot = await environmentSnapshot(deps);
+  const refuse = () => { throw new Error('must not reread'); };
+  for (const locale of ['en', 'pt-BR']) {
+    const shared = { snapshot, locale, client: 'codex', demands: [],
+      readQuota: refuse, detectClients: refuse, run: refuse };
+    const env = await environmentReport(shared);
+    const status = await statusTable(undefined, shared);
+    const actors = await listActors(shared);
+    assert.equal(env.inUse, 'codex');
+    assert.deepEqual(status.rows[0].models, env.clients[0].models);
+    assert.deepEqual(actors.actors.filter((actor) => actor.confirmed).map((actor) => actor.model), env.clients[0].actors.map((actor) => actor.model));
+    assert.deepEqual(status.missing, env.plugin.missing);
+    assert.deepEqual(actors.missing, env.plugin.missing);
+    assert.equal(actors.actors[0].freeSlots, status.rows[0].slots.available);
+    assert.equal(status.rows[0].slots.available, env.clients[0].slots.available);
+    for (const quota of [env.clients[0].quota, status.rows[0], actors.actors[0].quota]) {
+      assert.equal(quota.source, 'automatic');
+      assert.equal(quota.ageMinutes, 5);
+    }
+    const age = locale === 'en' ? /5 minutes ago/ : /há 5 minutos/;
+    assert.match(formatEnvironmentReport(env, locale), age);
+    assert.match(status.markdown, age);
+    assert.match(actors.markdown, age);
+    const catalog = actors.actors.find((actor) => actor.model === 'hidden-model');
+    assert.equal(catalog.confirmed, false);
+    assert.equal(catalog.canLaunch, false);
+  }
+  assert.equal(reads, 1);
+});
+
+test('unknown and expired quota never authorize confirmed actors', async () => {
+  for (const quota of [{ source: 'off' }, { source: 'manual', remainingPct: 90,
+    recordedAt: '2026-10-26T10:00:00Z' }]) {
+    const snapshot = await environmentSnapshot(readings({ client: 'codex',
+      now: () => Date.parse('2026-10-26T12:00:00Z'), readQuota: async () => quota }));
+    const actors = await listActors({ snapshot });
+    assert.ok(actors.actors.some((actor) => actor.confirmed));
+    assert.ok(actors.actors.every((actor) => !actor.canLaunch));
+  }
+});
+
+test('version and model observations reuse an identical injected probe', async () => {
+  let probes = 0;
+  const snapshot = await environmentSnapshot({ client: 'codex', env: {}, plugin: {},
+    config: { install: { clients: { codex: { executable: 'fixture', versionArgs: ['models'] } } } },
+    fs: { readFile: async () => { throw Object.assign(new Error(), { code: 'ENOENT' }); } },
+    run: async () => { probes += 1; return { code: 0, stdout: 'active-model' }; },
+    detectClients: async ({ run, env }) => {
+      const result = await run({ command: 'fixture', args: ['models'], env });
+      return { clients: [{ client: 'codex', installed: true, source: 'listing', models: [result.stdout] }] };
+    } });
+  assert.equal(probes, 1);
+  assert.deepEqual(snapshot.clients[0].models, ['active-model']);
+});
+
+test('quota set refreshes the injected cache and show consumes its sample', async (t) => {
+  const root = await mkdtemp('.delegate/quota-snapshot-');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const now = () => Date.parse('2026-10-26T12:00:00Z');
+  const quotaCache = new Map([[`${root}\ncodex`, { at: now(), reading: { source: 'manual', remainingPct: 10 } }]]);
+  const output = [];
+  const io = { root, quotaCache, now, env: { HOME: root, CODEX_HOME: `${root}/codex` },
+    plugin: {}, versions: {}, detectClients: async () => ({ clients: [] }),
+    stdout: (text) => output.push(text) };
+  assert.equal(await main(['quota', 'set', 'codex', '73'], io), 0);
+  assert.equal(quotaCache.get(`${root}\ncodex`).reading.remainingPct, 73);
+  output.length = 0;
+  assert.equal(await main(['quota', 'show', 'codex'], io), 0);
+  assert.match(output[0], /"remainingPct":73/);
+  assert.match(output[0], /manual.*0 minutes ago/);
+});
 
 test('shared runtime readings use configured version commands and the selected client', async () => {
   const calls = [];

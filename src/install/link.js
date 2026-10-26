@@ -1,3 +1,4 @@
+import { binInPath, commandInPath } from '../env/path.js';
 import { join, delimiter, dirname, resolve, relative, isAbsolute } from 'node:path';
 import { createRequire } from 'node:module';
 import { readRecords } from './place.js';
@@ -119,16 +120,7 @@ export async function managedProfile(deps, shell) {
  * @param {string} deps.bin the command link directory
  * @returns {boolean} true when bin is already in PATH
  */
-export function binInPath({ env, config, platform, bin }) {
-  const windows = platform === config.windowsPlatform;
-  const path = windows ? Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] : env.PATH;
-  const normalize = (value) => {
-    const directory = windows ? value.replaceAll('\\', '/') : value;
-    const normalized = directory.replace(/\/+$/, '') || '/';
-    return windows ? normalized.toLowerCase() : normalized;
-  };
-  return (path ?? '').split(windows ? ';' : delimiter).some((part) => part && normalize(part) === normalize(bin));
-}
+export { binInPath } from '../env/path.js';
 
 /**
  * The warning that tells the user the exact command that makes the command
@@ -153,7 +145,7 @@ export async function chooseLinkDirectory(deps) {
   if (deps.config.linkDirectory || deps.platform === deps.config.windowsPlatform) return deps.bin;
   for (const parts of deps.config.path.candidates) {
     const candidate = join(deps.home, ...parts);
-    if (!(deps.env.PATH ?? '').split(delimiter).includes(candidate)) continue;
+    if (!binInPath({ ...deps, bin: candidate })) continue;
     try { if (!(await deps.fs.stat(candidate)).isDirectory()) continue; await deps.fs.access(candidate, constants.W_OK); return candidate; }
     catch (error) { if (!['ENOENT', 'EACCES', 'EPERM'].includes(error.code)) throw error; }
   }
@@ -233,16 +225,7 @@ export async function managePath(deps, remove = false) {
   const warning = await activationWarning(deps);
   if (warning) deps.out(warning);
   const newPath = present || !enabled ? env.PATH ?? '' : [bin, env.PATH].filter(Boolean).join(separator);
-  let resolved;
-  for (const directory of newPath.split(separator)) {
-    if (!directory) continue;
-    for (const extension of windows ? config.pathExtensions : ['']) {
-      const path = join(directory, config.command + extension);
-      try { await fs.access(path, windows ? constants.F_OK : constants.X_OK); resolved = path; break; }
-      catch (error) { if (!['ENOENT', 'EACCES', 'ENOTDIR'].includes(error.code)) throw error; }
-    }
-    if (resolved) break;
-  }
+  const resolved = await commandInPath({ fs, config, windows, path: newPath, separator });
   say('resolved', resolved ?? settings.messages.missing);
 }
 const inside = (root, path) => { const part = relative(root, path); return part !== '..' && !part.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(part); };
@@ -340,5 +323,5 @@ export async function applyLink(record, deps, previous = null, remove = false) {
     }
   }
   if (deps.pathSetup) await managePath(deps, remove);
-  else if (!remove && !(env.PATH || '').split(platform === config.windowsPlatform ? ';' : delimiter).includes(bin)) out(config.path.messages.manual.replaceAll('{value}', bin));
+  else if (!remove && !binInPath(deps)) out(config.path.messages.manual.replaceAll('{value}', bin));
 }

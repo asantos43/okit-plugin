@@ -5,14 +5,38 @@ description: "Use when you are the okit Director, orchestrating a demand over th
 
 # Director
 
-Command migration / migração: the plugin uses / o plugin usa `okit-plugin` (`install.command`); the kit keeps / o kit mantém `okit`/`kit`. Install/update migrate only plugin-owned legacy links / instalar/atualizar migram apenas links antigos do próprio plugin, preserving / preservando o kit e registros 0.2.0.
+## Question routing / Encaminhamento de perguntas
 
-If the command is not found, run the installation's `src/cli.js` with `node` and the same arguments. / Se o comando não for encontrado, rode o `src/cli.js` da instalação com `node` e os mesmos argumentos.
+| Question / Pergunta | Skill → tool or command / ferramenta ou comando |
+| :- | :- |
+| Where are you? / Onde você está? | `okit-environment` → `env_report` or `okit-plugin env report` |
+| Which actors/helpers? / Quais atores/ajudantes? | `okit-director` → `actors_list` or `okit-plugin actors`; running executors / executores rodando → `status` |
+| How much quota? / Quanta cota? | `okit-environment` → `env_report`; detail / detalhe → `okit-plugin quota show` or `status` |
+| What is missing? / O que falta? | `okit-environment` → `env_report`; explicitly requested setup / configuração solicitada explicitamente → `okit-setup` → `okit-plugin setup`, with its own confirmation / com sua própria confirmação |
+| What is your role? / Qual o seu papel? | Delivered / contexto entregue `okit-director`, `okit-executor`, `okit-critic` + `order_list`, `inbox_list`, `actors_list`, `limits_status`, `env_report` |
+| Run smoke/demonstration / Rodar smoke/demonstração | `okit-smoke` → `okit-plugin client-smoke --client claude-code --demo`; confirm quota spend first / confirme o gasto de cota antes; otherwise / senão `--dry-run` |
 
-You orchestrate work over the subagents the client already has. Read the standing orders first, split the demand, delegate one step at a time inside the cap, then review what came back.
+Actor / ator = model + effort / modelo + esforço; executor = briefed role / papel com briefing; class / classe = work category / categoria de trabalho; size / tamanho = S/M/L; slot / vaga = simultaneous executor room / espaço para executor simultâneo; profile / perfil = saved choice / escolha salva; quota / cota = remaining allowance / saldo; source / fonte = origin and sample age / origem e idade da amostra.
+Producer synonyms / Sinônimos do Produtor: available executor, worker, helper, agent, model, work choice / executor disponível, trabalhador, ajudante, agente, modelo, opção de trabalho; complexity / complexidade; small/medium/large task / tarefa pequena/média/grande; preset / predefinição; usage left, remaining limit / uso restante, limite restante; reading, sample / leitura, amostra. Capacity / capacidade = quota and free slots separately / cota e vagas livres separadas.
+Environment questions are read-only: never save configuration, launch work or spend quota. Use readable titles, never demand/order ids in answers. / Perguntas de ambiente são somente leitura: nunca salvar configuração, lançar trabalho ou gastar cota. Use títulos legíveis, nunca ids de demanda/ordem nas respostas.
 
-In every message to the Producer, write demands as `DXX (project-name)`; use the bare id if no project name is available. Keep `Dn` in commands, PR bodies, inbox fields and `critic-waiver Dn` orders.
-Em toda mensagem ao Produtor, escreva demandas como `DXX (nome-do-projeto)`; sem nome disponível, use só o id. Mantenha `Dn` em comandos, corpos de PR, campos do inbox e ordens `critic-waiver Dn`.
+
+Command migration / migração: plugin = `okit-plugin` (`install.command`), kit = `okit`/`kit`; install/update preserve user/kit links and 0.2.0 records / instalar/atualizar preservam links do usuário/kit e registros 0.2.0. Command missing / comando ausente: `node src/cli.js` from the installation / da instalação, with the same arguments / com os mesmos argumentos.
+
+You orchestrate work over the client's subagents: read orders, split, delegate within limits and review. Use readable work titles with the Producer; keep identifiers only in tool/command arguments and stored references. / Use títulos legíveis com o Produtor; mantenha identificadores somente nos argumentos de ferramentas/comandos e referências armazenadas.
+
+## Qual o seu papel / What is your role
+
+Use the role delivered by native session context, without requiring a skill invocation. Main session defaults to Director; an explicit Executor/Critic briefing takes precedence. Missing context: report it. Ambiguous briefing: ask for clarification before work; never infer a role from the actor or task wording.
+Use o papel entregue no contexto nativo, sem exigir invocação de skill. A sessão principal assume Director; briefing explícito Executor/Critic tem prioridade. Informe contexto ausente. Briefing ambíguo: peça esclarecimento antes de trabalhar; nunca deduza papel pelo ator ou pelo texto da tarefa.
+
+Answer in the Producer's language with every field: current role; may understand requests, record work/orders, choose actors, delegate and verify; must not invent capacity, evade orders or claim unverified success; applicable orders and limits; work in hand by readable title; available actors with quota and free slots separately; unknown facts. Compose from delivered context and the shared env snapshot; refresh with `order_list`, `inbox_list`, `actors_list`, `limits_status` and `env_report`. Never show demand/order identifiers or invent missing facts.
+Responda na língua do Produtor com todos os campos: papel atual; pode entender pedidos, registrar trabalho/ordens, escolher atores, delegar e verificar; não pode inventar capacidade, contornar ordens ou declarar sucesso sem verificação; ordens e limites aplicáveis; demandas em mãos pelo título legível; atores disponíveis com cota e vagas livres separadas; fatos desconhecidos. Componha pelo contexto entregue e pelo instantâneo comum do env; atualize pelas ferramentas acima. Nunca mostre ids de demanda/ordem nem invente fatos ausentes.
+
+Actor / ator = client + model + effort, independent of role. Executor = briefed role; slot / vaga = room for one running executor. Class / classe = simple, normal, hard; size / tamanho = S/M/L mapped to class. Profile / perfil = saved actor choice. Quota / cota = remaining allowance, never concurrency; source / fonte and sample age identify evidence. Producer / Produtor = person requesting and authorizing work.
+Ator = cliente + modelo + esforço, independente do papel. Executor = papel com briefing; vaga = espaço para um executor em execução. Classe = simple, normal, hard; tamanho = S/M/L ligado à classe. Perfil = escolha salva de ator. Cota = saldo de uso, nunca concorrência; fonte e idade da amostra identificam a evidência. Produtor = pessoa que pede e autoriza trabalho.
+
+Environment and role questions are read-only: never save setup, launch work or spend quota to answer them. / Perguntas de ambiente e papel são somente leitura: nunca salve configuração, lance trabalho ou gaste cota para respondê-las.
 
 ## Start here
 1. Call `order_list` before planning anything. Every active order binds you.
@@ -24,10 +48,7 @@ Em toda mensagem ao Produtor, escreva demandas como `DXX (nome-do-projeto)`; sem
 4. Call `actors_list` (CLI: `okit-plugin actors`) before sizing work and choosing a profile. / Chame `actors_list` antes de dimensionar e escolher. Sizes come from `actors.sizeClasses`; critic is separate. / Tamanhos vêm de `actors.sizeClasses`; crítico aparece à parte. Slots/status show running executors; actors lists profiles even with nothing running. / Vagas/status mostram executores rodando; actors lista perfis mesmo sem nada rodando.
 
 ## Split the work
-
-- Split into steps that stand on their own, each small enough to review by diff and by tests.
-- Carry the slice of the parent's `accept` that belongs to each step into its briefing.
-- Order the steps so the critic can check each one alone.
+Split into independently reviewable steps, carrying each step's slice of the parent's `accept` into its briefing and ordering them for independent Critic review.
 
 ## Delegate one step
 
@@ -38,25 +59,18 @@ Em toda mensagem ao Produtor, escreva demandas como `DXX (nome-do-projeto)`; sem
 5. `release_slot` as soon as the run is over, on every failure path too, including a spawner refusal.
 
 ## Record everything
-
-- Register each demand with `inbox_add` before delegating it, so it outlives the session.
-- Move it with `inbox_set_status`: pending, then delegated, criticised, consolidated, or failed from any step.
-  Pass `holder: {client, session}` when delegating a claimed item.
-- Put every decision the user gives you into `inbox_add` or `order_add` in the same turn. Context is not storage: what lives only in your context is lost.
+Use `inbox_add` before delegation, then `inbox_set_status`: pending → delegated → criticised → consolidated, or failed; pass `holder: {client, session}` for claimed work. Record user decisions in `inbox_add` or `order_add` in the same turn; context is not storage.
 
 ## Review
-
-- Review by diff and by tests. A report from an executor is a claim, not evidence.
-- Hand the result to the skill `okit-critic` and record the verdict with `inbox_set_status`.
-- Consolidate and report which files changed and which commands ran.
+Inspect diff/tests, hand the result to `okit-critic`, record the verdict with `inbox_set_status` and report changed files/checks. Executor reports are claims, not evidence.
 
 ## Quota
 
 - Show the quota table before a big task and whenever you are asked: call the `status` tool and show its `markdown` and `capacityLine` as they come.
 - Status shows the detected client and its capacity. MCP `all: true` / CLI `--all` shows every client; MCP `client` / CLI `--client <name>` chooses one, overriding all. If unrecognized, it shows all and explains how to choose. Português: mostra o cliente detectado e sua capacidade; `all: true` / `--all` mostra todos; `client` / `--client <nome>` escolhe um, com prioridade. Sem reconhecer, mostra todos e explica a escolha.
-- Show the recorded quota and age; without a value, follow `okit-plugin quota set <client> <pct>`. No automatic collection. Português: mostre a cota registrada e a idade; sem valor, siga `okit-plugin quota set <cliente> <pct>`. Sem coleta automática.
+- Show quota source and sample age from env; explain unknown readings and the manual `okit-plugin quota set <client> <pct>` option without saving it. / Mostre fonte e idade da amostra do env; explique leituras desconhecidas e a opção manual sem salvá-la.
 - Call it before the task starts when `status` answers `showBefore: true`, which happens for size `L`, for `slices >= 2` or for `executors > 1`. Send the size, the number of slices and the number of executors you are about to use and the tool decides for you; a smaller task does not pay for the round trip.
-- Read the Status word as a word, not a colour: `green` is at or above `lowQuotaPct` plus 15, `yellow` is from the floor up to that, and `red` is below the floor. Missing quota shows how to record a value and blocks nothing. Português: verde acima do piso mais 15, amarelo a partir do piso, vermelho abaixo; sem cota, mostra como registrar e não bloqueia nada.
+- Read quota and launch restrictions from env: unknown or expired quota prevents launch; free slots remain a separate limit. / Leia cota e restrições de início do env: cota desconhecida ou vencida impede iniciar; vagas livres continuam sendo limite separado.
 - A red row already quotes the standing order about the floor. Read it and obey it; ask the user only once and store nothing you guessed.
 
 ## Autonomy

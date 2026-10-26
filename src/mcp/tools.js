@@ -8,7 +8,7 @@ import { acquireSlot, limitsStatus, releaseSlot } from '../limits.js';
 import { orderAdd, orderList, orderRemove, SCOPES } from '../orders.js';
 import { configOf as normalizeConfig, DEFAULT_CONFIG, profilePick } from '../profiles.js';
 import { listActors } from '../actors.js';
-import { environmentReadings, environmentReport, formatEnvironmentReport } from '../env/report.js';
+import { environmentReport, formatEnvironmentReport } from '../env/report.js';
 import { adapterQuotaReader, clientsOf, LABELS, shouldShowStatus, statusTable } from '../status.js';
 import { CLIENTS } from '../spawn-process.js';
 import { readJson } from '../state.js';
@@ -221,10 +221,9 @@ const envReportTool = {
       return reply({ unknownClient: true, text: formatEnvironmentReport({ unknownClient: true }, locale) });
     }
     const config = await configOf(ctx);
-    const readings = await environmentReadings({ ...ctx, config, env, client });
-    const report = await environmentReport({ ...ctx, config, env, client, ...readings,
+    const report = await environmentReport({ ...ctx, config, env, client, locale,
       readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env }),
-      cache: ctx.quotaCache, limits: ctx.limits ?? await limitsStatus(ctx.root, config) });
+      cache: ctx.quotaCache, limits: ctx.limits ?? (ctx.snapshot ? undefined : await limitsStatus(ctx.root, config)) });
     return reply({ ...report, text: formatEnvironmentReport(report, locale) });
   },
 };
@@ -242,12 +241,12 @@ const actorsTool = {
     const a = argsOf('actors_list', args, ['locale', 'all', 'client']);
     const config = await configOf(ctx);
     const env = ctx.env ?? process.env;
-    return reply(await listActors({ root: ctx.root, config, env, all: a.all,
+    return reply(await listActors({ ...ctx, root: ctx.root, config, env, all: a.all,
       client: optionalChoice('actors_list', a, 'client', CLIENTS),
       locale: optionalChoice('actors_list', a, 'locale', LOCALES),
       readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env }),
       now: ctx.now, cache: ctx.quotaCache, orders: ctx.orders ?? await orderList(ctx.root),
-      limits: await limitsStatus(ctx.root, config) }));
+      limits: ctx.limits ?? (ctx.snapshot ? undefined : await limitsStatus(ctx.root, config)) }));
   },
 };
 
@@ -278,6 +277,7 @@ const statusTool = {
     const config = await configOf(ctx);
     const env = ctx.env ?? process.env;
     const table = await statusTable(ctx.root, {
+      ...ctx,
       config,
       env,
       all: a.all,
@@ -286,7 +286,7 @@ const statusTool = {
       readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env }),
       now: ctx.now,
       orders: ctx.orders ?? await orderList(ctx.root),
-      limits: await limitsStatus(ctx.root, config),
+      limits: ctx.limits ?? (ctx.snapshot ? undefined : await limitsStatus(ctx.root, config)),
       locale: optionalChoice('status', a, 'locale', LOCALES),
       cache: ctx.quotaCache,
     });

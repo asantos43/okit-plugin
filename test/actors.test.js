@@ -19,7 +19,12 @@ async function fixture(t) {
       hard: { model: `${client}-large`, effort: 'high' }, critic: { model: `${client}-critic`, effort: 'high' } }]));
   const config = { profiles };
   await writeFile(join(root, 'config.json'), JSON.stringify(config));
-  return { root, config, env: {}, readQuota: async () => ({ source: 'user', remainingPct: 80 }), cache: new Map() };
+  return { root, config, env: {}, readQuota: async () => ({ source: 'user', remainingPct: 80 }), cache: new Map(),
+    plugin: {}, versions: Object.fromEntries(Object.keys(profiles).map((client) => [client, { installed: true }])),
+    detectClients: async () => ({ clients: Object.entries(config.profiles).map(([client, entries]) => ({
+      client, source: 'listing', installed: true, hidden: [],
+      models: Object.values(entries).map((entry) => entry?.model).filter(Boolean),
+    })) }) };
 }
 
 for (const client of ['claude-code', 'codex', 'opencode']) test(`injected profiles for ${client}`, async (t) => {
@@ -125,7 +130,7 @@ test('low quota uses the tightest window and supplies reason and remedy', async 
   assert.ok(result.actors.every((actor) => !actor.canLaunch && actor.quota.status === 'red'));
   assert.match(result.actors[0].reasons.join(' '), /below the floor.*Wait for quota reset/);
   const off = await listActors({ ...deps, client: 'codex', cache: new Map(), readQuota: async () => ({ source: 'off' }) });
-  assert.ok(off.actors.every((actor) => actor.canLaunch));
+  assert.ok(off.actors.every((actor) => !actor.canLaunch));
 });
 
 for (const blockedBy of ['quota', 'slots']) test(`blocked L actor is not an alternative (${blockedBy})`, async (t) => {

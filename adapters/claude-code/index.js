@@ -6,6 +6,7 @@
 // root as an argument, so tests run against a temporary folder.
 
 import { randomBytes } from 'node:crypto';
+import { roleContext, rolePrompt } from '../../src/roles.js';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -19,6 +20,38 @@ import { readJson } from '../../src/state.js';
 import { paths, stateRoot } from '../../src/store.js';
 
 export const CLIENT = 'claude-code';
+
+export function deliverRole(opts = {}) {
+  if (opts.nativeSupported === false) return { status: 'unsupported', reason: 'Claude Code SessionStart context unsupported. / Contexto SessionStart não suportado.' };
+  const context = roleContext({ ...opts, client: CLIENT });
+  if (context.status !== 'ready') return context;
+  const prompt = rolePrompt({ ...opts, client: CLIENT });
+  return { status: 'ready', context, native: { hookSpecificOutput: {
+    hookEventName: 'SessionStart', additionalContext: prompt },
+    agentCall: { prompt, model: opts.actor?.model, effort: opts.actor?.effort } } };
+}
+
+export async function installRole(opts = {}) {
+  const delivery = deliverRole(opts);
+  if (delivery.status !== 'ready' && !opts.remove) return delivery;
+  const path = join(configRoot(opts), 'settings.json');
+  const current = await readJson(path, {});
+  if (!isPlainObject(current) || (current.hooks !== undefined && !isPlainObject(current.hooks))
+    || (current.hooks?.SessionStart !== undefined && !Array.isArray(current.hooks.SessionStart))) {
+    return { status: 'unsupported', reason: 'Unsupported Claude settings format; preserved. / Formato dos ajustes não suportado; preservado.' };
+  }
+  const command = opts.command ?? `${DEFAULT_CONFIG.install.command} hook session-start`;
+  const entry = { matcher: 'startup|resume|clear|compact', hooks: [{ type: 'command', command, timeout: 10 }] };
+  const existing = current.hooks?.SessionStart ?? [];
+  const entries = existing.filter((item) => canonical(item) !== canonical(entry));
+  if (!opts.remove) entries.push(entry);
+  if (canonical(entries) === canonical(existing)) return { status: 'ready', path, written: false };
+  const next = { ...current, hooks: { ...current.hooks, SessionStart: entries } };
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`);
+  return { status: 'ready', path, written: true };
+}
+export const removeRole = (opts = {}) => installRole({ ...opts, remove: true });
 
 // Section 4.1: the model and effort values the Agent tool and the frontmatter
 // accept, and every packaging feature this client has.
@@ -216,9 +249,12 @@ const newRunId = () => `${RUN_PREFIX}${randomBytes(4).toString('hex')}`;
  */
 export async function spawn(actor, briefing, opts = {}) {
   const profile = actorOf(actor);
-  const prompt = text(briefing, 'briefing');
+  text(briefing, 'briefing');
   const mode = modeOf(opts);
   const runId = textOrNull(opts.runId) ?? newRunId();
+  const delivery = deliverRole({ ...opts, actor, briefing });
+  if (delivery.status !== 'ready') throw new TypeError(delivery.reason);
+  const prompt = delivery.native.agentCall.prompt;
 
   if (mode === 'NATIVE') {
     return { mode, runId, agentCall: { model: profile.model, effort: profile.effort, prompt } };
@@ -305,10 +341,15 @@ export function postCompactHooks({ config, command = `${DEFAULT_CONFIG.install.c
   }] }] };
 }
 
+/** Packaged native startup/resume/compact context; the old summary stays separate. */
+export function sessionStartHooks({ command = `${DEFAULT_CONFIG.install.command} hook session-start` } = {}) {
+  return { SessionStart: [{ matcher: 'startup|resume|clear|compact', hooks: [{ type: 'command', command, timeout: 10 }] }] };
+}
+
 /** No general installer exists yet; packaging callers install this explicitly. */
 export function installPostCompactHook(opts = {}) {
   return installHooks(postCompactHooks(opts), opts);
 }
 
 export default { CLIENT, spawn, readQuota, capabilities, installSkill, installHooks, configRoot,
-  listModels, postCompactHooks, installPostCompactHook };
+  listModels, postCompactHooks, sessionStartHooks, installPostCompactHook, deliverRole, installRole, removeRole };

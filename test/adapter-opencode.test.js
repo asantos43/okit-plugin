@@ -5,6 +5,56 @@ import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import adapter, { capabilities, configRoot, installHooks, installSkill, readQuota, spawn } from '../adapters/opencode/index.js';
 import { adapterQuotaReader } from '../src/status.js';
+import { rolePrompt } from '../src/roles.js';
+import { configureRoles } from '../adapters/opencode/index.js';
+import plugin from '../src/install/client-plugin.js';
+const brief = (text) => `Role: Executor\n${text}`;
+const roleText = (text) => rolePrompt({ client: 'opencode', briefing: brief(text) });
+
+// | Must pass | Must refuse |
+// | native config primary Director, briefed agents, preserved actor/user bytes | ambiguous role, unsupported mechanism |
+test('native agent/config and command delivery preserve user configuration', async (t) => {
+  const root = await temp(t);
+  await mkdir(join(root, 'commands'));
+  const file = join(root, 'commands', 'okit.md');
+  await writeFile(file, 'User command instructions\n');
+  for (let n = 0; n < 2; n++) await adapter.installRole({ root });
+  assert.equal((await readFile(file, 'utf8')).split('<!-- okit role:begin -->').length, 2);
+  const config = { default_agent: 'custom', agent: { custom: { model: 'p/user', variant: 'custom', prompt: 'User prompt' } } };
+  const bridge = await plugin({ client: {}, directory: root });
+  await bridge.config(config);
+  const once = JSON.stringify(config);
+  await bridge.config(config);
+  assert.equal(JSON.stringify(config), once);
+  assert.equal(config.default_agent, 'custom');
+  assert.equal(config.agent.custom.model, 'p/user');
+  assert.equal(config.agent.custom.variant, 'custom');
+  assert.match(config.agent.custom.prompt, /^User prompt\n.*\nMain session:/);
+  assert.match(config.agent['okit-director'].prompt, /Role: Director/);
+  for (const role of ['Executor', 'Critic']) {
+    const delivery = adapter.deliverRole({ briefing: `Role: ${role}\nInspect changes`, actor: { model: 'p/model', effort: 'high' } });
+    assert.equal(delivery.native.agent.mode, 'subagent');
+    assert.equal(delivery.native.agent.model, 'p/model');
+    assert.equal(delivery.native.agent.variant, 'high');
+    assert.match(delivery.native.agent.prompt, new RegExp(`Role: ${role}`));
+    const calls = [];
+    await spawn({ model: 'p/model', effort: 'high' }, `Role: ${role}\nInspect changes`, { logDir: root,
+      runId: `role-${role}`, spawn: (...args) => { calls.push(args); return { pid: 4242, on() {}, unref() {} }; } });
+    assert.ok(calls[0][1].includes('p/model'));
+    assert.ok(calls[0][1].includes('high'));
+    assert.match(calls[0][1].at(-1), new RegExp(`Role: ${role}`));
+    for (const field of ['Orders:', 'Limits:', 'Work in hand:', 'Available actors:', 'Unknown facts:', 'Ordens:', 'Fatos desconhecidos:']) assert.ok(delivery.native.agent.prompt.includes(field));
+  }
+  for (let n = 0; n < 2; n++) await adapter.removeRole({ root });
+  assert.equal(await readFile(file, 'utf8'), 'User command instructions\n');
+  assert.equal((await adapter.installRole({ root, briefing: 'do the step' })).status, 'clarification');
+  assert.equal((await adapter.installRole({ root, nativeSupported: false })).status, 'unsupported');
+  assert.equal(configureRoles({ agent: { 'okit-director': { prompt: 'User' } } }).status, 'unsupported');
+  const malformed = { agent: { custom: { prompt: ['unsupported'] } } };
+  assert.equal(configureRoles(malformed).status, 'unsupported');
+  assert.deepEqual(malformed, { agent: { custom: { prompt: ['unsupported'] } } });
+  await assert.rejects(spawn({ model: 'p/model' }, 'do the step'), /Clarify/);
+});
 
 async function temp(t) {
   const root = await mkdtemp(join(tmpdir(), 'okit-opencode-'));
@@ -33,19 +83,19 @@ test('spawn delegates the exact command to an injected process', async (t) => {
     return { pid: 4242, on() {}, unref() {} };
   };
   const prompt = 'inspect "quoted" input; $(never-run)';
-  const result = await spawn({ model: 'provider/model', effort: 'custom' }, prompt,
+  const result = await spawn({ model: 'provider/model', effort: 'custom' }, brief(prompt),
     { spawn: fake, cwd: root, logDir: root, runId: 'run-test', env: { TEST_MARKER: 'yes' } });
   assert.deepEqual(result, { mode: 'PROCESS', runId: 'run-test', pid: 4242 });
   assert.equal(calls[0][0], 'opencode');
   assert.deepEqual(calls[0][1], ['run', '--dir', root, '--model', 'provider/model',
-    '--variant', 'custom', '--format', 'json', prompt]);
+    '--variant', 'custom', '--format', 'json', roleText(prompt)]);
   assert.equal(calls[0][2].shell, undefined);
   assert.equal(calls[0][2].env.OKWORK_NO_DAEMON, '1');
   assert.equal(calls[0][2].env.TEST_MARKER, 'yes');
   assert.equal(JSON.parse(await readFile(join(root, 'run-test.json'))).client, 'opencode');
-  await spawn({ model: 'provider/model' }, 'no effort',
+  await spawn({ model: 'provider/model' }, brief('no effort'),
     { spawn: fake, cwd: root, logDir: root, runId: 'run-no-effort', headless: true });
-  assert.deepEqual(calls[1][1], ['run', '--dir', root, '--model', 'provider/model', '--format', 'json', 'no effort']);
+  assert.deepEqual(calls[1][1], ['run', '--dir', root, '--model', 'provider/model', '--format', 'json', roleText('no effort')]);
 });
 
 test('invalid spawns fail before invoking any process', async () => {

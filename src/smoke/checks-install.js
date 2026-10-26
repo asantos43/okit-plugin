@@ -52,6 +52,10 @@ async function cli(deps, argv) {
     },
     readQuota: async () => ({ source: 'off' }),
     quotaCache: new Map(),
+    snapshot: deps.snapshot,
+    plugin: { path: deps.root, onPath: true },
+    versions: {},
+    detectClients: async () => ({ clients: [] }),
   });
   return { code, out, err, wrote };
 }
@@ -165,6 +169,12 @@ async function versionMatches(deps) {
     `${DEFAULT_CONFIG.install.command} status must print the table header, got ${run.out.join(' / ')}`);
   need(run.out.some((line) => line.includes('executors that can launch now')),
     `${DEFAULT_CONFIG.install.command} status must print the capacity line`);
+  if (deps.snapshot) {
+    for (const row of deps.snapshot.clients.filter((entry) => !deps.snapshot.inUse
+      || entry.client === deps.snapshot.inUse)) {
+      need(run.out.some((line) => line.includes(row.client)), 'status must retain snapshot clients');
+    }
+  }
 }
 
 /**

@@ -13,7 +13,7 @@ import { DEFAULT_CONFIG } from '../src/profiles.js';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const read = (file) => readFile(resolve(root, file), 'utf8');
 const pairs = ['README', 'INSTALL', 'docs/ARCHITECTURE', 'docs/DESIGN',
-  'docs/RELEASING', 'docs/SMOKE'];
+  'docs/RELEASING', 'docs/SMOKE', 'docs/INTEGRATION'];
 const files = pairs.flatMap((base) => [`${base}.md`, `${base}.pt-BR.md`]);
 files.push('CONTRIBUTING.md', 'SECURITY.md');
 for (const [folder, leaf] of [['adapters', 'README.md'], ['skills', 'SKILL.md']]) {

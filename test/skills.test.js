@@ -11,7 +11,7 @@ import { installSkill } from '../adapters/claude-code/index.js';
 const SKILLS_DIR = fileURLToPath(new URL('../skills/', import.meta.url));
 const EXPECTED_SKILLS = ['okit-critic', 'okit-director', 'okit-environment', 'okit-executor', 'okit-setup', 'okit-smoke'];
 const MAX_DESCRIPTION = 300;
-const MAX_BODY_LINES = 60;
+const MAX_BODY_LINES = 80;
 const FENCE = '---';
 
 // The tools the MCP server exposes. A skill names them by name, so a name that
@@ -37,6 +37,33 @@ const TOOLS = new Set([
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
 const OLD_CLI = /\bkit\s+(?:daemon|autostart|status|inbox|smoke|client-smoke|hook)\b/;
 
+test('all six skills share bilingual routing, glossary and read-only boundaries', async () => {
+  for (const name of EXPECTED_SKILLS) {
+    const { body } = await readSkill(name);
+    for (const phrase of ['Where are you?', 'Onde você está?', 'Which actors/helpers?',
+      'Quais atores/ajudantes?', 'How much quota?', 'Quanta cota?', 'What is missing?',
+      'O que falta?', 'What is your role?', 'Qual o seu papel?', 'Run smoke/demonstration',
+      'Rodar smoke/demonstração', 'with its own confirmation', 'com sua própria confirmação',
+      'never save configuration, launch work or spend quota', 'somente leitura',
+      'Actor / ator', 'executor', 'class / classe', 'size / tamanho', 'slot / vaga',
+      'profile / perfil', 'quota / cota', 'source / fonte', 'worker', 'ajudante',
+      'remaining limit', 'limite restante', 'sample', 'amostra']) assert.ok(body.includes(phrase), `${name}: ${phrase}`);
+    for (const [question, routes] of [
+      ['Where are you?', ['okit-environment', 'env_report', 'okit-plugin env report']],
+      ['Which actors/helpers?', ['okit-director', 'actors_list', 'okit-plugin actors', 'status']],
+      ['How much quota?', ['okit-environment', 'env_report', 'okit-plugin quota show', 'status']],
+      ['What is missing?', ['env_report', 'okit-setup', 'okit-plugin setup']],
+      ['What is your role?', ['okit-director', 'okit-executor', 'okit-critic', 'order_list', 'inbox_list', 'actors_list', 'limits_status', 'env_report']],
+      ['Run smoke/demonstration', ['okit-smoke', 'okit-plugin client-smoke --client claude-code --demo', '--dry-run']],
+    ]) {
+      const row = body.split('\n').find((line) => line.startsWith(`| ${question}`));
+      assert.ok(row, `${name}: ${question}`);
+      for (const route of routes) assert.ok(row.includes(route), `${name}: ${question} → ${route}`);
+    }
+    assert.doesNotMatch(body.replace(/`[^`]*`/g, ''), /\b(?:D\d+|G\d+|demand[-_]id|order[-_]id)\b/i);
+  }
+});
+
 test('actor routing preserves skill triggers and executor boundaries', async () => {
   const triggers = {
     'okit-director': "Use when you are the okit Director, orchestrating a demand over the client's own subagents through the okit MCP tools, in any session where work is delegated.",
@@ -49,17 +76,20 @@ test('actor routing preserves skill triggers and executor boundaries', async () 
     assert.ok(fields.description.endsWith('An actor is a model + effort available in a client.'));
   }
   const { body } = await readSkill('okit-executor');
-  assert.doesNotMatch(body, /actors_list|before sizing|choosing a profile/);
+  const executionBody = body.split('## Before you start')[1];
+  assert.doesNotMatch(executionBody, /actors_list|before sizing|choosing a profile/);
+  assert.match(body, /actors_list.*limits_status.*env_report/);
+  assert.match(body, /Environment and role questions are read-only/);
   const source = await readFile(join(SKILLS_DIR, 'okit-executor', 'SKILL.md'), 'utf8');
-  assert.ok(source.endsWith('- Stop at the edge of the step. Merging, pushing, opening a pull request or editing an order happens only when the briefing says so.'));
+  assert.ok(source.trimEnd().endsWith('- Stop at the edge of the step. Merging, pushing, opening a pull request or editing an order happens only when the briefing says so.'));
 });
 
-test('Director requires project-qualified Producer messages in both languages', async () => {
+test('Director requires readable work titles and internal-only identifiers in both languages', async () => {
   const { body } = await readSkill('okit-director');
-  assert.match(body, /every message to the Producer.*DXX \(project-name\)/);
-  assert.match(body, /toda mensagem ao Produtor.*DXX \(nome-do-projeto\)/);
-  assert.match(body, /Keep `Dn` in commands, PR bodies, inbox fields/);
-  assert.match(body, /Mantenha `Dn` em comandos, corpos de PR, campos do inbox/);
+  assert.match(body, /readable work titles with the Producer/);
+  assert.match(body, /títulos legíveis com o Produtor/);
+  assert.match(body, /identifiers only in tool\/command arguments/);
+  assert.match(body, /identificadores somente nos argumentos de ferramentas\/comandos/);
 });
 
 function fail(message) {

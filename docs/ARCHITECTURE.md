@@ -55,6 +55,9 @@ Project-side files live beside the project, not in this root: the project's own 
 - One writer per file: inbox, orders and runs are separate files, so two steps of one item do not block each other.
 
 ## 4. Adapter interface
+The [integration design](INTEGRATION.md) ([Português](INTEGRATION.pt-BR.md))
+defines the shared environment, native roles, glossary and whole-flow routing (steps 2–4 complete).
+
 Each adapter provides these five operations, plus its documented helpers. The core imports an adapter, never a client.
 
 | Function | Input | Output |
@@ -64,6 +67,10 @@ Each adapter provides these five operations, plus its documented helpers. The co
 | `capabilities()` | none | `{ models[], efforts[], skills, hooks, mcp, desktop, windows }` |
 | `installSkill(name, files)` | skill folder | `{ path }` |
 | `installHooks(files)` | client hook config or module path | `{ path }` |
+| `deliverRole(context)` | client, explicit briefing or main session, shared snapshot, applicable work/orders/limits, actor | `ready` with native context, `clarification` or `unsupported` |
+| `installRole(opts)`, `removeRole(opts)` | injected client root and native support | idempotent managed artifact; preserve user instructions |
+
+`src/roles.js` composes the same bilingual role contract without client branches or side effects. Claude SessionStart injects context on startup/resume/compact; Codex uses a delimited AGENTS.md block and launch prompt; opencode uses its native config hook for primary agents and commands. Explicit briefings select Executor/Critic, never model+effort. Missing/ambiguous roles and unsupported formats are reported before launch. Role answers use existing core tools and readable work titles; environment questions never save settings, spawn or spend quota. Installer role registration and packaged Claude hook wiring are part of this path. Hermetic whole-flow tests isolate HOME and client roots for all three adapters, through confirmed setup, shared facts, Director and injected offline smoke. All six skills carry the same bilingual routing map; real-client acceptance stays separate.
 
 ### 4.1 The bundled adapters
 
@@ -89,7 +96,7 @@ environment, with configured time/output limits. Contract version, field names
 and window minutes live in `DEFAULT_CONFIG.opencodeQuota`. Invalid, failed or
 old sources yield the manual sample. The lowest remaining percentage among
 valid providers/windows wins. `quotaOrigin` shows source, age and provider in
-`status` and `quota show`. Client smoke reads adapters and preserves its
+`status` and `quota show`. Client smoke consumes the shared env snapshot and preserves its
 warning/expiration checks on `ageMinutes`. The execution scenario stays Claude
 Code. Only that client's own adapter reading authorizes the run; absent or expired
 quota stays unknown. Another client's quota never authorizes it.
