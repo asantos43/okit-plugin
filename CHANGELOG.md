@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Accept only provider and model names joined by the configured separator in OpenCode model listings; use the catalog when no model is recognized. / Aceitar apenas nomes de provedor e modelo unidos pelo separador configurado nas listas do OpenCode; usar o catálogo quando nenhum modelo for reconhecido.
 - Make the test suite independent of the client markers of the machine that runs it, so the client a test injects is the one it sees (D58). / Tornar a suíte de testes independente dos marcadores de cliente da máquina que a executa, para que o cliente injetado no teste seja o que ele vê (D58).
 - Show the detected client's recorded quota and age in CLI/MCP status, with all/client selection and bilingual guidance for missing values (D54). / Mostrar a cota registrada e a idade do cliente detectado no status CLI/MCP, com seleção all/client e orientação bilíngue quando não há valor (D54).
 - Make the in-client smoke always print its start and end lines with the exit code and the artifacts folder, and make the smoke skill capture the code and read the newest artifact instead of masking the failure (D53). / Fazer o smoke no cliente sempre imprimir as linhas de início e de fim com o código de saída e a pasta de artefatos, e fazer a skill de smoke capturar o código e ler o artefato mais novo em vez de mascarar a falha (D53).

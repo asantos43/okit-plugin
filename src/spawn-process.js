@@ -323,8 +323,15 @@ function modelNameOf(item) {
  * them; `null` means the output was not understood.
  */
 const LIST_ITEMS = Object.freeze({
-  lines: (stdout) => String(stdout).split(/\r?\n/).map((line) => line.trim())
-    .filter((line) => line !== '').map((name) => ({ name, value: null })),
+  lines: (stdout, settings = {}) => {
+    const separator = settings.family?.separator;
+    if (typeof separator !== 'string' || separator === '') return null;
+    const items = String(stdout).split(/\r?\n/).map((line) => line.trim())
+      .filter((line) => !/\s/.test(line) && line.includes(separator)
+        && !line.startsWith(separator) && !line.endsWith(separator))
+      .map((name) => ({ name, value: null }));
+    return items.length === 0 ? null : items;
+  },
   'json-array': (stdout) => {
     let parsed;
     try {
@@ -341,7 +348,10 @@ const LIST_ITEMS = Object.freeze({
 
 export const LIST_PARSE = Object.freeze({
   // One model per line, as `opencode models` prints them.
-  lines: (stdout) => LIST_ITEMS.lines(stdout).map((item) => item.name),
+  lines: (stdout, settings) => {
+    const items = LIST_ITEMS.lines(stdout, settings);
+    return items === null ? null : items.map((item) => item.name);
+  },
   // A JSON array of models, or a JSON object with a `models` array, as
   // `codex debug models` prints them.
   'json-array': (stdout) => {
@@ -435,15 +445,16 @@ const isTimeout = (error) => error?.code === 'ETIMEDOUT' || error?.killed === tr
  * caller always gets a result and a reason in plain words.
  *
  * Only an exit code of zero (or no code at all) is a success; any other value
- * is a failure. A command that answered is always a listing, even when it
- * listed no model at all: only the catalog answers for a client that is
+ * is a failure. Recognized output is a listing, including an empty JSON
+ * array. Only the catalog answers for a client that is
  * absent, for a failure, for a deadline and for an output the plugin does not
  * understand.
  *
  * @param {string} client the client the listing is about
  * @param {{settings?: {command?: string|null, args?: string[], timeoutMs?: number,
  *   parse?: string, activeField?: string|null, activeValues?: unknown[]|null,
- *   notFoundMessage?: string}, env?: object, run?: Function, cwd?: string}} [options]
+ *   family?: {separator?: string}, notFoundMessage?: string}, env?: object,
+ *   run?: Function, cwd?: string}} [options]
  * @returns {Promise<{client: string, installed: boolean|null, models: string[],
  *   hidden: string[], source: 'listing'|'catalog', reason: string}>}
  */
@@ -472,7 +483,7 @@ export async function listModelsOf(client, { settings = {}, env = process.env, r
     if (parser === null || itemParser === null) {
       return catalogAnswer(client, true, fill(LIST_MESSAGES.unknownParser, { client, parse: settings.parse }));
     }
-    const items = itemParser(String(outcome?.stdout ?? ''));
+    const items = itemParser(String(outcome?.stdout ?? ''), settings);
     if (items === null) return catalogAnswer(client, true, fill(LIST_MESSAGES.unknownOutput, { client }));
     const named = items.filter((item) => item.name !== null);
     const active = named.filter((item) => isActive(item, settings.activeField, settings.activeValues));
