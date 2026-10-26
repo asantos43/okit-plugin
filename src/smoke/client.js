@@ -3,6 +3,7 @@ import { arch, homedir, release } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
 import { adapterQuotaReader } from '../status.js';
+import { environmentSnapshot } from '../env/snapshot.js';
 import { loadConfig } from '../mcp/tools.js';
 import { DEFAULT_CONFIG } from '../profiles.js';
 import { readJson } from '../state.js';
@@ -15,6 +16,20 @@ const MINUTE_MS = 60 * 1000;
 const OVERRIDES = { '--max-usd': 'maxUsd', '--max-turns': 'maxTurns',
   '--max-minutes': 'maxMinutes', '--quota-floor': 'quotaFloorPct', '--timeout': 'checkTimeoutMs' };
 const INSTALLATION = SCENARIO.slice(0, SCENARIO.findIndex((step) => step.kind === 'call'));
+
+// Consume the shared observation; smoke keeps its own expiry and floor policy.
+export function smokePreflight(snapshot, client, budget, allowUnknown = false) {
+  const row = snapshot.clients.find((entry) => entry.client === client);
+  const observed = row?.quota;
+  const expired = row?.reading?.expired || (row?.reading?.expiresAt
+    && Date.parse(row.reading.expiresAt) <= snapshot.now)
+    || observed?.ageMinutes > budget.quotaExpireMinutes;
+  const quota = expired ? { source: 'user' } : observed;
+  const refusal = !Number.isFinite(quota?.remainingPct)
+    ? (allowUnknown ? null : 'quota-unknown')
+    : quota.remainingPct < budget.quotaFloorPct ? 'quota-below-floor' : null;
+  return { quota, observed, refusal, stale: observed?.ageMinutes > budget.quotaMaxAgeMinutes };
+}
 
 // The two lines the runner always prints: the start says what it is about to
 // do, the end says how it ended and where the artifacts are.
@@ -192,20 +207,19 @@ async function runScenario(argv, io) {
     return { code: 0, records: [], budget };
   }
   const read = io.readQuota ?? adapterQuotaReader({ stateRoot: root, env, now, config: stored });
-  let quota = await read(flags.client);
-  if (quota?.ageMinutes > budget.quotaMaxAgeMinutes) {
+  const snapshot = await environmentSnapshot({ ...io, root, env, now, config: stored,
+    client: flags.client, readQuota: read, cache: io.quotaCache ?? new Map() });
+  const { quota, observed, refusal, stale } = smokePreflight(snapshot, flags.client, budget,
+    flags['allow-unknown-quota']);
+  if (stale) {
     out('quota-stale: refresh quota / cota antiga: atualize a cota (smoke.quotaMaxAgeMinutes)');
   }
-  if (quota?.ageMinutes > budget.quotaExpireMinutes) quota = { source: 'user' };
-  const refusal = typeof quota?.remainingPct !== 'number' || !Number.isFinite(quota.remainingPct)
-    ? (!flags['allow-unknown-quota'] ? 'quota-unknown' : null)
-    : quota.remainingPct < budget.quotaFloorPct ? 'quota-below-floor' : null;
   const deps = { env, stateRoot: root, configRoot: env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'),
     platform: io.platform ?? process.platform, release: release(), arch: arch(),
     pid: io.pid ?? process.pid, nodeVersion: process.version, cwd: io.cwd ?? process.cwd() };
   const header = { runId, startedAt: started, finishedAt: now(), real: true, only: flags.only, interrupted: false,
     kind: 'smoke-in-client', client: flags.client, scenario: 'C1-C23',
-    environment: environmentOf(deps), ...(refusal ? { reason: refusal } : {}) };
+    environment: environmentOf(deps), quota: observed, ...(refusal ? { reason: refusal } : {}) };
   if (refusal) {
     const artifacts = await writeArtifacts(root, runId, header, [], deps);
     out(`${refusal}\n${artifacts.jsonl}\n${artifacts.log}`);
@@ -215,7 +229,7 @@ async function runScenario(argv, io) {
   // profile_pick accepts only these fields; adapter metadata stays local.
   const profileQuota = quota && { source: quota.source,
     ...(Number.isFinite(quota.remainingPct) ? { remainingPct: quota.remainingPct } : {}) };
-  const context = { root, env, config: stored, client: flags.client, quota: profileQuota, run: io.run,
+  const context = { root, env, snapshot, config: stored, client: flags.client, quota: profileQuota, run: io.run,
     owned: { inbox: new Set(), orders: new Set(), fillers: [] }, events: [], fixtures: {
       slot: { runId: `okit-smoke-${runId}` }, refused: { runId: `okit-smoke-${runId}-refused` },
       absent: { runId: `okit-smoke-${runId}-absent` }, inbox: { body: `okit-smoke ${runId}` },

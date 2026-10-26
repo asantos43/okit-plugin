@@ -315,6 +315,11 @@ export async function payloadEntries({ root, config, packageJson, pair, userConf
         command: hookCommand({ clientFiles, packageJson }),
       })
       : {};
+    if (adapter?.sessionStartHooks) {
+      const role = adapter.sessionStartHooks({ command: hookCommand({ clientFiles, packageJson })
+        .replace(/hook post-compact$/, 'hook session-start') });
+      hook.SessionStart = [...(hook.SessionStart ?? []), ...role.SessionStart];
+    }
     entries.push({ path: clientFiles.hooks, data: json({ hooks: hook }), mode: modes.file });
   }
   const instructions = config.instructions?.[client];

@@ -183,7 +183,7 @@ the root configures (`claude-code`, `codex` and `opencode` when it configures no
 and percentages must be numeric, from 0 to 100.
 Use `okit-plugin quota show [client]` to inspect records. The command atomically
 stores `remainingPct`, optional `windowMinutes` and `recordedAt` under `OKWORK_HOME`.
-Smoke uses only the tested client's adapter reading, automatic or manual.
+Smoke preflight consumes the env snapshot: the tested client's quota, automatic/manual source and sample age.
 Another client's remaining quota never authorizes the run; missing readings stay
 unknown, without estimates. The execution scenario remains Claude Code.
 Smoke warns after `smoke.quotaMaxAgeMinutes` and treats the record
@@ -220,6 +220,14 @@ Security reports are not public issues, see [SECURITY.md](SECURITY.md).
 The design notes live in [docs/DESIGN.md](docs/DESIGN.md).
 The release design is in [docs/RELEASING.md](docs/RELEASING.md)
 ([Português](docs/RELEASING.pt-BR.md)).
+
+## Documentation — Documentação
+
+See the [integration design and glossary](docs/INTEGRATION.md)
+([Português](docs/INTEGRATION.pt-BR.md)) for the shared environment, client roles,
+existing gaps and implementation steps.
+
+Native role delivery is implemented: main sessions receive Director through Claude Code SessionStart, a managed Codex AGENTS.md block, or opencode primary-agent configuration. Launch briefings must explicitly say `Role: Executor` or `Role: Critic` (`Papel:` also works); ambiguous briefings ask for clarification. Model+effort stays the actor. “What is your role?” reports permissions, orders, limits, readable work titles, actors, quota/free slots and unknown facts using existing read-only tools. Reinstalling/removing preserves user instructions; unsupported native formats are reported explicitly. Step 4 is complete: all six skills share bilingual question routing, and hermetic whole-flow tests cover all three adapters plus a minimal offline smoke demonstration. Environment questions only read facts; explicitly requested setup uses its own confirmation. Real-client demonstrations remain separate.
 
 ## License — Licença
 

@@ -5,9 +5,47 @@ import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
 
 import adapter, { capabilities, configRoot, installHooks, installSkill, readQuota, spawn } from '../adapters/claude-code/index.js';
+import { rolePrompt } from '../src/roles.js';
+const brief = (text) => `Role: Executor\n${text}`;
+const prompt = (text) => rolePrompt({ client: 'claude-code', briefing: brief(text) });
 
 const roots = [];
 const temps = [];
+
+// | Must pass | Must refuse |
+// | native main Director, briefed roles, preserved user settings | ambiguous role, unsupported schema |
+test('native role hook and Agent briefing preserve user settings and actor', async () => {
+  const root = await temp('roles');
+  const file = join(root, 'settings.json');
+  const user = { model: 'user-model', hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'user-hook' }] }] } };
+  await writeFile(file, JSON.stringify(user));
+  for (let n = 0; n < 2; n++) assert.equal((await adapter.installRole({ root })).status, 'ready');
+  const installed = JSON.parse(await readFile(file));
+  assert.equal(installed.hooks.SessionStart.length, 2);
+  assert.match(installed.hooks.SessionStart[1].hooks[0].command, /hook session-start/);
+  assert.equal(installed.model, 'user-model');
+  const main = adapter.deliverRole();
+  assert.match(main.native.hookSpecificOutput.additionalContext, /Role: Director/);
+  for (const role of ['Executor', 'Critic']) {
+    const delivery = adapter.deliverRole({ briefing: `Role: ${role}\nInspect changes`, actor: { model: 'sonnet', effort: 'high' } });
+    assert.equal(delivery.context.role, role);
+    assert.equal(delivery.native.agentCall.model, 'sonnet');
+    assert.equal(delivery.native.agentCall.effort, 'high');
+    const launched = await spawn({ model: 'sonnet', effort: 'high' }, `Role: ${role}\nInspect changes`);
+    assert.equal(launched.agentCall.model, 'sonnet');
+    assert.match(launched.agentCall.prompt, new RegExp(`Role: ${role}`));
+    for (const field of ['Orders:', 'Limits:', 'Work in hand:', 'Available actors:', 'Unknown facts:', 'Ordens:', 'Fatos desconhecidos:']) assert.ok(delivery.native.agentCall.prompt.includes(field));
+  }
+  for (let n = 0; n < 2; n++) await adapter.removeRole({ root });
+  assert.deepEqual(JSON.parse(await readFile(file)), user);
+  assert.equal((await adapter.installRole({ root, briefing: 'do something' })).status, 'clarification');
+  assert.equal((await adapter.installRole({ root, nativeSupported: false })).status, 'unsupported');
+  await assert.rejects(spawn({ model: 'sonnet' }, 'do something'), /Clarify/);
+  assert.deepEqual(JSON.parse(await readFile(file)), user);
+  await writeFile(file, '{"hooks":{"SessionStart":"unknown-format"}}');
+  assert.equal((await adapter.installRole({ root })).status, 'unsupported');
+  assert.equal(await readFile(file, 'utf8'), '{"hooks":{"SessionStart":"unknown-format"}}');
+});
 
 /** A folder under `os.tmpdir()` nothing outside this file can see. */
 async function temp(prefix) {
@@ -73,17 +111,17 @@ after(() => removeAll(madeDirs()));
 
 test('spawn returns the Agent tool call and starts no process by default', async () => {
   const { calls, spawn: fake } = fakeSpawn();
-  const given = await spawn({ model: 'sonnet', effort: 'high' }, 'write the tests', { spawn: fake });
+  const given = await spawn({ model: 'sonnet', effort: 'high' }, brief('write the tests'), { spawn: fake });
 
   assert.equal(given.mode, 'NATIVE');
   assert.equal(given.pid, undefined);
-  assert.deepEqual(given.agentCall, { model: 'sonnet', effort: 'high', prompt: 'write the tests' });
+  assert.deepEqual(given.agentCall, { model: 'sonnet', effort: 'high', prompt: prompt('write the tests') });
   assert.match(given.runId, /^cc-[0-9a-f]{8}$/);
   assert.deepEqual(calls, [], 'no process is started in NATIVE');
 });
 
 test('spawn keeps a run id the core already made and reports no effort of its own', async () => {
-  const given = await spawn({ model: 'opus' }, 'body', { runId: 'd-1234abcd' });
+  const given = await spawn({ model: 'opus' }, brief('body'), { runId: 'd-1234abcd' });
   assert.equal(given.runId, 'd-1234abcd');
   assert.equal(given.agentCall.effort, null);
 });
@@ -95,7 +133,7 @@ test('spawn in headless goes through makeSpawner with the claude-code command', 
 
   const given = await spawn(
     { model: 'sonnet', effort: 'low' },
-    'fix the bug',
+    brief('fix the bug'),
     { headless: true, spawn: fake, logDir, cwd, appliesTo: cwd, runId: 'd-feedface' },
   );
 
@@ -105,7 +143,7 @@ test('spawn in headless goes through makeSpawner with the claude-code command', 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].command, 'claude');
   assert.deepEqual(calls[0].args, [
-    '-p', 'fix the bug', '--model', 'sonnet', '--effort', 'low',
+    '-p', prompt('fix the bug'), '--model', 'sonnet', '--effort', 'low',
     '--output-format', 'json', '--permission-mode', 'acceptEdits', '--add-dir', cwd,
   ]);
   assert.equal(calls[0].options.env.OKWORK_NO_DAEMON, '1');

@@ -8,7 +8,7 @@ import { CONFIG_SCHEMA, resolveEntry } from '../config.js';
 import { configOf, DEFAULT_CONFIG, PROFILE_EFFORTS } from '../profiles.js';
 import { readJson, withLock, writeJsonAtomic } from '../state.js';
 import { paths } from '../store.js';
-import { detectClients, proposeProfiles } from './detect.js';
+import { environmentSnapshot } from '../env/snapshot.js';
 
 /**
  * Whether the input already ended: a reader opened on it would wait for an
@@ -517,7 +517,7 @@ function configurableClients(detected) {
 }
 
 function activeModels(detected) {
-  return (detected?.models ?? []).filter((model) => typeof model === 'string' && model.trim() !== '');
+  return detected?.models ?? [];
 }
 
 function storedModel(raw, client, className) {
@@ -541,6 +541,7 @@ export async function runSetup({
   ask,
   defaults = false,
   adapters,
+  snapshot,
   write = writeJsonAtomic,
   locale = 'both',
   again = false,
@@ -575,8 +576,9 @@ export async function runSetup({
     : {};
   const resolved = setupConfig({ ...stored, ...config, profiles, setup: { ...storedSetup, ...givenSetup } }, locale, command);
   const attempts = maxAttemptsOf(resolved);
-  const detected = await detectClients({ config: resolved, env, run, adapters });
-  const proposals = proposeProfiles(detected, resolved);
+  const observation = await environmentSnapshot({ config: resolved, env, run, adapters, snapshot,
+    plugin: {}, versions: {} });
+  const { detected, proposals } = observation;
   const clients = detectedByClient(detected);
   // Nothing was detected: no client offers a model to configure, so there is
   // nothing to write and no `setup.done` to leave behind. The setup says so

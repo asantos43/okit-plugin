@@ -1,5 +1,7 @@
 // Codex adapter: docs/ARCHITECTURE.md section 4. No CLI runs at import time.
 import { randomBytes } from 'node:crypto';
+import { formatRoleContext, roleContext, rolePrompt } from '../../src/roles.js';
+import { roleBlock } from '../../src/install/role-block.js';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -13,6 +15,28 @@ import { paths, stateRoot } from '../../src/store.js';
 import { readCodexSessionQuota } from './session-quota.js';
 
 export const CLIENT = 'codex';
+
+export function deliverRole(opts = {}) {
+  if (opts.nativeSupported === false) return { status: 'unsupported', reason: 'Codex native AGENTS.md/prompt delivery unsupported. / Entrega nativa AGENTS.md/prompt não suportada.' };
+  const context = roleContext({ ...opts, client: CLIENT });
+  if (context.status !== 'ready') return context;
+  return { status: 'ready', context, native: { instructions: formatRoleContext(context),
+    prompt: rolePrompt({ ...opts, client: CLIENT }), model: opts.actor?.model, effort: opts.actor?.effort } };
+}
+
+export async function installRole(opts = {}) {
+  const delivery = deliverRole(opts);
+  if (delivery.status !== 'ready') return delivery;
+  const override = await readFile(join(configRoot(opts), 'AGENTS.override.md'), 'utf8').catch((error) => {
+    if (error.code !== 'ENOENT') throw error;
+    return '';
+  });
+  if (override.trim()) return { status: 'unsupported', reason: 'AGENTS.override.md shadows AGENTS.md; user instructions preserved. / AGENTS.override.md oculta AGENTS.md; instruções preservadas.' };
+  return roleBlock(join(configRoot(opts), 'AGENTS.md'), delivery.native.prompt);
+}
+export function removeRole(opts = {}) {
+  return roleBlock(join(configRoot(opts), 'AGENTS.md'), '', { remove: true });
+}
 
 /** Non-empty caller text; never converted into shell syntax. */
 function text(value, label) {
@@ -94,7 +118,7 @@ export async function listModels(opts = {}) {
  */
 export async function spawn(actor, briefing, opts = {}) {
   const model = text(actor?.model, 'actor.model');
-  const prompt = text(briefing, 'briefing');
+  text(briefing, 'briefing');
   const effort = optionalText(actor?.effort);
   if (effort !== null && !capabilities().efforts.includes(effort)) {
     throw new TypeError(`actor.effort must be one of ${capabilities().efforts.join(', ')}`);
@@ -105,6 +129,9 @@ export async function spawn(actor, briefing, opts = {}) {
   const mode = optionalText(opts.mode) ?? (opts.headless === true ? 'PROCESS' : 'NATIVE');
   if (!['NATIVE', 'PROCESS'].includes(mode)) throw new TypeError('mode must be NATIVE or PROCESS');
   const runId = optionalText(opts.runId) ?? `${CLIENT}-${randomBytes(4).toString('hex')}`;
+  const delivery = deliverRole({ ...opts, actor, briefing });
+  if (delivery.status !== 'ready') throw new TypeError(delivery.reason);
+  const prompt = delivery.native.prompt;
   if (mode === 'NATIVE') {
     return { mode, runId, agentCall: { model, effort, prompt } };
   }
@@ -151,4 +178,5 @@ export async function installHooks(files, opts = {}) {
   throw new Error('Codex hook installation unsupported: installed CLI mentions hooks, but no verified configuration schema is available; user configuration was not changed');
 }
 
-export default { CLIENT, spawn, readQuota, capabilities, installSkill, installHooks, configRoot, listModels };
+export default { CLIENT, spawn, readQuota, capabilities, installSkill, installHooks, configRoot, listModels,
+  deliverRole, installRole, removeRole };

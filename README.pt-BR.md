@@ -171,7 +171,7 @@ a raiz configura (`claude-code`, `codex` e `opencode` quando ela não configura 
 e o percentual deve ser numérico, entre 0 e 100.
 Consulte com `okit-plugin quota show [client]`. O comando grava atomicamente
 `remainingPct`, `windowMinutes` opcional e `recordedAt` sob `OKWORK_HOME`.
-O smoke usa somente a leitura do adaptador do cliente testado, automática ou manual.
+A preparação do smoke consome o instantâneo do env: cota do cliente testado, fonte automática/manual e idade da amostra.
 A sobra de outro cliente nunca autoriza a execução; sem leitura própria, a cota
 fica desconhecida, sem estimativas. O cenário executado continua sendo o do Claude Code.
 O smoke avisa após `smoke.quotaMaxAgeMinutes` e considera a cota
@@ -222,6 +222,14 @@ Relatos de segurança não são issues públicas, veja [SECURITY.md](SECURITY.md
 As notas de design estão em [docs/DESIGN.pt-BR.md](docs/DESIGN.pt-BR.md).
 O desenho do release está em [docs/RELEASING.pt-BR.md](docs/RELEASING.pt-BR.md)
 ([English](docs/RELEASING.md)).
+
+## Documentation — Documentação
+
+Veja o [desenho da integração e glossário](docs/INTEGRATION.pt-BR.md)
+([English](docs/INTEGRATION.md)) para o ambiente comum, papéis nos clientes,
+lacunas existentes e passos de implementação.
+
+Entrega nativa de papel implementada: sessões principais recebem Director por SessionStart do Claude Code, bloco gerenciado AGENTS.md do Codex ou configuração de agente principal do opencode. Briefings de lançamento devem dizer explicitamente `Role: Executor` ou `Role: Critic` (`Papel:` também funciona); briefings ambíguos pedem esclarecimento. Modelo+esforço continua sendo o ator. “Qual o seu papel?” informa permissões, ordens, limites, títulos legíveis, atores, cota/vagas livres e fatos desconhecidos pelas ferramentas existentes somente leitura. Reinstalar/remover preserva instruções do usuário; formatos nativos sem suporte são relatados explicitamente. Passo 4 concluído: as seis skills compartilham encaminhamento bilíngue, e testes herméticos cobrem o fluxo dos três adaptadores e uma demonstração mínima offline do smoke. Perguntas de ambiente só leem fatos; setup solicitado explicitamente usa sua própria confirmação. Demonstrações reais continuam separadas.
 
 ## License — Licença
 

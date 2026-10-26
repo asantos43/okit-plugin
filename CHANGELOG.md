@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Complete bilingual question routing in all six skills, consume the shared environment snapshot in smoke preflight and cover installation-to-offline-demonstration flows for all three adapters with hermetic fixtures. / Completar o encaminhamento bilíngue nas seis skills, consumir o instantâneo comum do ambiente na preparação do smoke e cobrir os fluxos de instalação até demonstração offline dos três adaptadores com fixtures herméticas.
+- Deliver native Director context in main Claude Code, Codex and opencode sessions, explicit Executor/Critic briefings and complete bilingual role answers, preserving user instructions and actor model+effort. / Entregar contexto nativo de Director nas sessões principais de Claude Code, Codex e opencode, briefings explícitos Executor/Critic e respostas completas bilíngues de papel, preservando instruções do usuário e modelo+esforço do ator.
+
+- Centralize environment observations and launch policy in one module: status, actors, quota, setup and PATH notices now share confirmed models, quota source and age, and free slots. / Centralizar as observações do ambiente e a política de início em um só módulo: status, atores, cota, configuração e avisos de PATH passam a compartilhar modelos confirmados, fonte e idade da cota e vagas livres.
+- Document the shared environment, native client roles, glossary, question routing and integration gaps in English and Portuguese. / Documentar o ambiente comum, papéis nativos dos clientes, glossário, encaminhamento de perguntas e lacunas da integração em inglês e português.
 - Refresh English and Portuguese documentation and add a compact pixel director chair banner with documentation link checks. / Atualizar a documentação em inglês e português e adicionar um banner compacto com cadeira de diretor em pixels e verificações dos links da documentação.
 
 - Read OpenCode quota from configured provider commands or files, with bounded execution, manual fallback and provider reporting; use adapter quota readings in client smoke. / Ler a cota do OpenCode por comandos ou arquivos configurados por provedor, com execução limitada, alternativa manual e indicação do provedor; usar leituras dos adaptadores no smoke do cliente.

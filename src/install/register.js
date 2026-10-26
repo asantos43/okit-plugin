@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { detect } from './menu.js';
+import { quote } from './link.js';
 
 export function registrationPlan(record, deps, action = 'install') {
   const settings = deps.config.clients[record.client];
@@ -24,6 +25,7 @@ export async function loadAdapter(record) {
 export async function register(record, deps, action = 'install') {
   const settings = deps.config.clients[record.client];
   const commands = registrationPlan(record, deps, action);
+  if (action === 'uninstall') await registerRole(record, deps, true);
   if (settings.strategy === 'module' && action === 'uninstall') {
     await removeOwnedModule(record, deps); return;
   }
@@ -34,9 +36,28 @@ export async function register(record, deps, action = 'install') {
     return;
   }
   for (const command of commands) await deps.run(command);
+  if (action !== 'uninstall') await registerRole(record, deps);
   if (settings.strategy === 'marketplace' && !settings[action] && action !== 'uninstall') deps.out('Open /plugins to install or update the registered plugin.');
   if (settings.strategy !== 'module') return;
   await registerModule(record, deps, settings);
+}
+
+async function registerRole(record, deps, remove = false) {
+  let adapter;
+  try { adapter = await (deps.loadAdapter ?? loadAdapter)(record); }
+  catch (error) {
+    deps.out(`Role delivery unsupported / Entrega de papel não suportada: ${error.message}`);
+    return;
+  }
+  const command = `${quote(process.execPath)} ${quote(join(record.path, 'src/cli.js'))} hook session-start`;
+  const opts = { env: deps.env, root: deps.clientRoot, command,
+    nativeSupported: deps.platform !== 'win32' };
+  if (record.previous && !remove && adapter.removeRole) {
+    await adapter.removeRole({ ...opts, command: `${quote(process.execPath)} ${quote(join(record.previous.path, 'src/cli.js'))} hook session-start` });
+  }
+  const operation = remove ? adapter.removeRole : adapter.installRole;
+  const result = operation ? await operation(opts) : { status: 'unsupported', reason: 'Adapter has no native role delivery / Adaptador sem entrega nativa de papel' };
+  if (result.status !== 'ready') deps.out(`Role delivery / Entrega de papel: ${result.reason}`);
 }
 
 async function registerModule(record, deps, settings) {

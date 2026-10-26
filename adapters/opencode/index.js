@@ -1,6 +1,8 @@
 // The five functions of docs/ARCHITECTURE.md section 4, for opencode.
 // No CLI discovery at import time, no dependencies, Node >= 20 ESM.
 import { randomUUID } from 'node:crypto';
+import { roleContext, rolePrompt } from '../../src/roles.js';
+import { roleBlock } from '../../src/install/role-block.js';
 import { link, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
@@ -13,6 +15,56 @@ import { paths, stateRoot } from '../../src/store.js';
 import { readOpencodeSource } from './quota-source.js';
 
 export const CLIENT = 'opencode';
+
+export function deliverRole(opts = {}) {
+  if (opts.nativeSupported === false) return { status: 'unsupported', reason: 'opencode native agent configuration unsupported. / Configuração nativa de agente não suportada.' };
+  const context = roleContext({ ...opts, client: CLIENT });
+  if (context.status !== 'ready') return context;
+  return { status: 'ready', context, native: { agent: { description: `okit ${context.role}`,
+    mode: context.role === 'Director' ? 'primary' : 'subagent', prompt: rolePrompt({ ...opts, client: CLIENT }),
+    ...(opts.actor ? { model: opts.actor.model, variant: opts.actor.effort } : {}) } } };
+}
+
+export async function installRole(opts = {}) {
+  const delivery = deliverRole(opts);
+  if (delivery.status !== 'ready') return delivery;
+  // Command frontmatter selects the native agent; the installed plugin supplies its definition.
+  return roleBlock(join(configRoot(opts), 'commands', 'okit.md'),
+    `${delivery.native.agent.prompt}\nUse the okit-director agent. / Use o agente okit-director.`);
+}
+export function removeRole(opts = {}) {
+  return roleBlock(join(configRoot(opts), 'commands', 'okit.md'), '', { remove: true });
+}
+
+/** Native plugin config hook: enrich primary agents without changing their actor. */
+export function configureRoles(config, opts = {}) {
+  const delivery = deliverRole(opts);
+  if (delivery.status !== 'ready') return delivery;
+  const object = (value) => value && typeof value === 'object' && !Array.isArray(value);
+  if (!object(config) || (config.agent !== undefined && (!object(config.agent)
+    || Object.values(config.agent).some((agent) => !object(agent)
+      || (agent.prompt !== undefined && typeof agent.prompt !== 'string'))))
+    || (config.command !== undefined && !object(config.command))) {
+    return { status: 'unsupported', reason: 'Unsupported opencode config format; preserved. / Formato de configuração opencode não suportado; preservado.' };
+  }
+  const agent = delivery.native.agent;
+  const marker = '<!-- okit role:begin -->';
+  config.agent ??= {};
+  if (config.agent['okit-director'] && config.agent['okit-director'].prompt !== agent.prompt) {
+    return { status: 'unsupported', reason: 'User agent okit-director conflicts; preserved. / Agente okit-director do usuário em conflito; preservado.' };
+  }
+  for (const name of new Set(['build', 'plan', ...Object.keys(config.agent)])) {
+    if (name === 'okit-director') continue;
+    const existing = config.agent[name] ?? {};
+    if (existing.mode === 'subagent' || existing.prompt?.includes(marker)) continue;
+    config.agent[name] = { ...existing, prompt: `${existing.prompt ?? ''}\n${marker}\n${agent.prompt}\n<!-- okit role:end -->` };
+  }
+  config.agent['okit-director'] ??= agent;
+  config.default_agent ??= 'okit-director';
+  config.command ??= {};
+  config.command.okit ??= { description: 'okit Director', agent: 'okit-director', template: agent.prompt };
+  return delivery;
+}
 const DEFAULT_CONFIG = Object.freeze({
   configParts: ['.config', CLIENT], configEnv: 'OPENCODE_CONFIG_DIR',
   xdgEnv: 'XDG_CONFIG_HOME', skillsDir: 'skills', pluginsDir: 'plugins',
@@ -96,11 +148,14 @@ export async function listModels(opts = {}) {
  */
 export async function spawn(actor, briefing, opts = {}) {
   const model = text(actor?.model, 'actor.model');
-  const prompt = text(briefing, 'briefing');
+  text(briefing, 'briefing');
   if (opts.mode !== undefined && opts.mode !== DEFAULT_CONFIG.mode) throw new TypeError('mode must be PROCESS');
   if (opts.headless !== undefined && opts.headless !== true) throw new TypeError('headless must be true');
   const effort = actor.effort == null ? null : text(actor.effort, 'actor.effort');
   const runId = segment(opts.runId ?? `${DEFAULT_CONFIG.runPrefix}${randomUUID()}`);
+  const delivery = deliverRole({ ...opts, actor, briefing });
+  if (delivery.status !== 'ready') throw new TypeError(delivery.reason);
+  const prompt = delivery.native.agent.prompt;
   const spawner = makeSpawner({ spawn: opts.spawn, logDir: opts.logDir, env: opts.env, cwd: opts.cwd });
   return spawner({ title: prompt, appliesTo: opts.appliesTo }, {
     runId, client: CLIENT, profile: { model, effort }, maxMinutes: opts.maxMinutes,
@@ -153,4 +208,5 @@ export async function installHooks(files, opts = {}) {
   }
 }
 
-export default { CLIENT, spawn, readQuota, capabilities, installSkill, installHooks, configRoot, listModels };
+export default { CLIENT, spawn, readQuota, capabilities, installSkill, installHooks, configRoot, listModels,
+  deliverRole, installRole, removeRole, configureRoles };

@@ -23,11 +23,14 @@ const { limitsStatus } = collectorEntry ? {} : await import('./limits.js');
 const { inboxClaim, inboxRelease, inboxProducerTakeover, inboxList, holdText, holdIsStale } = collectorEntry
   ? {} : await import('./inbox.js');
 const { runPostCompact } = collectorEntry ? {} : await import('./hook-post-compact.js');
+const { runSessionStart } = collectorEntry ? {} : await import('./hook-session-start.js');
 const { orderList } = collectorEntry ? {} : await import('./orders.js');
 import { configOf, DEFAULT_CONFIG } from './profiles.js';
 const { listActors, formatActors } = collectorEntry ? {} : await import('./actors.js');
-const { environmentReadings, environmentReport, formatEnvironmentReport } = collectorEntry
+const { environmentReport, formatEnvironmentReport } = collectorEntry
   ? {} : await import('./env/report.js');
+const { environmentSnapshot, refreshEnvironmentSnapshot } = collectorEntry
+  ? {} : await import('./env/snapshot.js');
 const { CLIENTS, makeSpawner } = collectorEntry ? {} : await import('./spawn-process.js');
 const { adapterQuotaReader, clientsOf, LABELS, quotaOrigin, setupPendingLine, statusTable } = collectorEntry
   ? {} : await import('./status.js');
@@ -297,10 +300,11 @@ async function quotaCommand(ctx, action, args) {
   };
   if (action === 'show') {
     if (args.length > 1 || (args.length && !known.includes(args[0]))) return invalid();
-    for (const client of args.length ? args : known) {
-      const reading = await readers(client);
+    const snapshot = await environmentSnapshot({ ...ctx, config, view: 'selected', all: true,
+      clients: args.length ? args : known, readQuota: readers, cache: ctx.quotaCache ?? new Map() });
+    for (const { client, reading } of snapshot.clients) {
       const origin = ['automatic', 'manual', 'user'].includes(reading.source)
-        ? ` — ${quotaOrigin(reading, ctx.now(), LABELS.en)} / ${quotaOrigin(reading, ctx.now(), LABELS['pt-BR'])}` : '';
+        ? ` — ${quotaOrigin(reading, snapshot.now, LABELS.en)} / ${quotaOrigin(reading, snapshot.now, LABELS['pt-BR'])}` : '';
       ctx.out(`Quota / Cota ${client}: ${JSON.stringify(reading)}${origin}`);
     }
     return 0;
@@ -316,6 +320,8 @@ async function quotaCommand(ctx, action, args) {
     value.windowMinutes = window;
   }
   await writeJsonAtomic(join(paths(ctx.root).quota, `${args[0]}.json`), value);
+  ctx.snapshot = await refreshEnvironmentSnapshot({ ...ctx, config, view: 'selected', all: true,
+    clients: known, readQuota: readers, cache: ctx.quotaCache });
   ctx.out(`Quota recorded / Cota registrada: ${args[0]} ${pct}%`);
   return 0;
 }
@@ -327,15 +333,17 @@ async function quotaCommand(ctx, action, args) {
  * table under the daemon lines is the same table of `okit-plugin status`.
  */
 async function tableDeps(ctx, locale) {
-  const config = await readConfig(ctx.root);
+  const config = ctx.snapshot?.config ?? await readConfig(ctx.root);
   return {
     config,
+    detectClients: ctx.detectClients, snapshot: ctx.snapshot, run: ctx.run,
+    plugin: ctx.plugin, versions: ctx.versions, home: ctx.home,
     env: ctx.env,
     clients: clientsOf(config, ctx.clients),
     readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env, now: ctx.now, config }),
     now: ctx.now,
     orders: ctx.orders ?? await orderList(ctx.root),
-    limits: await limitsStatus(ctx.root, config),
+    limits: ctx.snapshot ? undefined : await limitsStatus(ctx.root, config),
     locale,
     cache: ctx.quotaCache,
   };
@@ -371,10 +379,9 @@ async function environmentCommand(ctx, args, io) {
   }
   if (selection.invalid || args.at(-1) === '--locale') return ctx.unknown();
   const deps = await tableDeps(ctx, locale);
-  const readings = await environmentReadings({ ...ctx, config: deps.config,
-    client: selection.client, plugin: io.plugin, versions: io.versions });
-  const report = await environmentReport({ ...deps, root: ctx.root, client: selection.client,
-    command: ctx.command, adapters: io.adapters, detectClients: io.detectClients, ...readings });
+  const report = await environmentReport({ ...ctx, ...deps, root: ctx.root, client: selection.client,
+    command: ctx.command, adapters: io.adapters, detectClients: io.detectClients,
+    plugin: io.plugin, versions: io.versions });
   ctx.out(formatEnvironmentReport(report, locale));
   return 0;
 }
@@ -579,6 +586,8 @@ export async function main(argv = [], io = {}) {
   const err = io.stderr ?? ((text) => process.stderr.write(`${text}\n`));
   const now = io.now ?? Date.now;
   const ctx = {
+    detectClients: io.detectClients, snapshot: io.snapshot,
+    plugin: io.plugin, versions: io.versions,
     out,
     err,
     command: io.command ?? DEFAULT_CONFIG.install.command,
@@ -638,6 +647,9 @@ export async function main(argv = [], io = {}) {
     }
     if (group === 'hook' && action === 'post-compact') {
       return await runPostCompact({ root: ctx.root, stdin: io.stdin, stdout: out });
+    }
+    if (group === 'hook' && action === 'session-start') {
+      return await runSessionStart({ root: ctx.root, env: ctx.env, stdin: io.stdin, stdout: out, snapshot: io.snapshot });
     }
     if (group === 'daemon') return await daemonCommand(ctx, action, args);
     if (group === 'autostart') return await autostartCommand(ctx, action, args);
