@@ -1,7 +1,20 @@
 # Design
 
+Original goals, boundaries and design choices behind the shared plugin core.
+
+<a id="contents"></a>
+## Contents
+
+- [Goals](#section-1)
+- [Non-goals](#section-2)
+- [The three pieces](#section-3)
+- [Per-client adapters](#section-4)
+- [Windows rules](#section-5)
+- [Open questions](#section-6)
+
 Implementation: see [ARCHITECTURE.md](ARCHITECTURE.md) for the current modules.
 
+<a id="section-1"></a>
 ## Goals
 
 - Spread work over the subagents the AI client already has.
@@ -12,12 +25,14 @@ Implementation: see [ARCHITECTURE.md](ARCHITECTURE.md) for the current modules.
 - Run on Linux, macOS and Windows with the same core.
 - Zero dependencies, state in plain JSON files.
 
+<a id="section-2"></a>
 ## Non-goals
 
 - No panel.
 - No work across clients.
 - No database dependency; records use JSON and event logs use JSONL.
 
+<a id="section-3"></a>
 ## The three pieces
 
 ### 1. Effort classification
@@ -46,6 +61,7 @@ requiring `--producer-takeover` plus TTY confirmation or `--yes`; MCP cannot for
 The Director delegates the work, critiques the subagent output and consolidates
 the results.
 
+<a id="section-4"></a>
 ## Per-client adapters
 
 One Node core, three thin adapters:
@@ -57,6 +73,7 @@ One Node core, three thin adapters:
 Each adapter maps the core's model, reasoning and subagent concepts onto what
 its client exposes. Core logic never imports a client directly.
 
+<a id="section-5"></a>
 ## Windows rules
 
 - Build every path with `node:path`; never concatenate separators by hand.
@@ -65,6 +82,7 @@ its client exposes. Core logic never imports a client directly.
 - Locks: create a directory with `mkdir` and remove it when done; exclusive on
   every supported platform.
 
+<a id="section-6"></a>
 ## Open questions
 
 - Automatic quota uses Claude Code's status bar, Codex's local sessions and configured

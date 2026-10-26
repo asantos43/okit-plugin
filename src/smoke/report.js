@@ -73,7 +73,7 @@ function commandOf(value) {
 
 /**
  * One result record: the check, what happened to it and the environment it
- * ran in. The fields are the ones `docs/SMOKE.md` lists, in that order.
+ * ran in. The fields are the ones `docs/maintainers/SMOKE.md` lists, in that order.
  */
 export function recordOf(check, outcome = {}, deps = {}) {
   return {

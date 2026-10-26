@@ -1,4 +1,4 @@
-// Group B of `docs/SMOKE.md`: every feature, end to end. Each check drives the
+// Group B of `docs/maintainers/SMOKE.md`: every feature, end to end. Each check drives the
 // real module of `src/` with the roots of the scratch home, so a pass here is a
 // fact about this checkout and not about the machine it ran on. Nothing is
 // started: the spawner, the command runner, the clock and the sleep all come in
@@ -618,7 +618,7 @@ async function commandsEvery(deps) {
 }
 
 /**
- * The feature group, in the order of the table in `docs/SMOKE.md`. Every check
+ * The feature group, in the order of the table in `docs/maintainers/SMOKE.md`. Every check
  * drives a real module of `src/` and writes only inside the scratch root.
  */
 export const FEATURE_CHECKS = [

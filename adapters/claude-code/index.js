@@ -1,4 +1,4 @@
-// The Claude Code adapter: the five functions of `docs/ARCHITECTURE.md`
+// The Claude Code adapter: the five functions of `docs/maintainers/ARCHITECTURE.md`
 // section 4 for one client. The core imports this module and never the CLI, so
 // every fact about the client lives here and nowhere else.
 //

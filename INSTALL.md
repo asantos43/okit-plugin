@@ -77,7 +77,7 @@ configuration directory; those cannot be inferred reliably from a version probe.
 Run `okit-plugin kit [--require]`. The English `kit: …` line reports `installed`, `absent`
 or `broken`; only `--require` (or configured `require: true`) makes an unsuccessful
 check exit 1. Install/update, including `--dry-run`, and status also print the line.
-When installed, see the [D1 overlap rules](docs/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
+When installed, see the [D1 overlap rules](docs/maintainers/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
 
 In `OKWORK_HOME/config.json`, configure `install.kit`:
 `executables: ["okit", "kit"]`, `path: null` (PATH only),
@@ -134,4 +134,4 @@ SHA-256 detects changed bytes. It does **not** authenticate their source: an
 attacker replacing both the archive and manifest can produce matching hashes.
 Use the intended repository and review the script and release provenance.
 
-[Português](INSTALL.pt-BR.md) · [Release and proof details](docs/RELEASING.md)
+[Português](INSTALL.pt-BR.md) · [Release and proof details](docs/maintainers/RELEASING.md)

@@ -1,4 +1,4 @@
-// Group C of `docs/SMOKE.md`: uninstall and idempotence. The checks here ask for
+// Group C of `docs/maintainers/SMOKE.md`: uninstall and idempotence. The checks here ask for
 // roots nothing has written to, so they build a scratch of their own under the
 // run's `tmp` folder and take it away again. The last two run whole groups twice
 // through `deps.runChecks`, the helper the runner of step 3 supplies.
@@ -190,7 +190,7 @@ async function idempotenceRun(deps) {
 }
 
 /**
- * The uninstall group, in the order of the table in `docs/SMOKE.md`.
+ * The uninstall group, in the order of the table in `docs/maintainers/SMOKE.md`.
  */
 export const UNINSTALL_CHECKS = [
   { id: 'U1', name: 'uninstall.skills', group: 'U', timeoutMs: 10000, run: uninstallSkills },

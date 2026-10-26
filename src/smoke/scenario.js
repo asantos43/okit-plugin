@@ -1,4 +1,4 @@
-// The ordered C table of docs/SMOKE.md. No I/O or client invocation here.
+// The ordered C table of docs/maintainers/SMOKE.md. No I/O or client invocation here.
 import { CLASSIFIER_RULES } from '../classify.js';
 import { TOOL_NAMES } from '../mcp/tools.js';
 

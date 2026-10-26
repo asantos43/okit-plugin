@@ -1,11 +1,28 @@
 # Smoke test
 
-Practice demonstration: [scenario and reports](DEMO.md) ([Português](DEMO.pt-BR.md)). Run `okit-plugin smoke-demo --dry-run --locale en` or call `smoke_demo` with `dryRun: true`. The preview shows work titles, helpers, current allowance and cost/time/call ceilings without spending. Ask explicit approval, then send the returned `planHash` as `--confirm <planHash>` or tool argument `confirm`. Changes require a fresh preview and approval. Paid execution currently refuses without proven usage measurement and cost enforcement; no model is started. Tests with supplied helpers prove parallel work, rejection, correction and cleanup only in isolation. The existing `client-smoke --demo` checks below keep their meaning.
+Verification contracts and evidence for isolated checks and real-client smoke runs.
+
+<a id="contents"></a>
+## Contents
+
+- [Commands](#section-1)
+- [Scratch home rule](#section-2)
+- [What the runner reuses](#section-3)
+- [Checks](#section-4)
+- [Checkout against installed plugin](#section-5)
+- [Result record](#section-6)
+- [Output](#section-7)
+- [Safety](#section-8)
+- [In-client smoke (real)](#section-9)
+- [In-process implementation](#section-10)
+
+For preview instructions, see the [guide](../guide/smoke-demo.md); engine and report contracts are in [DEMO](DEMO.md).
 
 Migration: invoke the plugin as `okit-plugin`; install/update remove only its owned legacy `okit` links. Keep the kit's `okit`/`kit` separate; kit detection ignores plugin executables.
 
 Implemented: `okit-plugin smoke` runs 31 isolated checks; `okit-plugin client-smoke` runs the C1–C23 scenario with a real Claude Code driver. This does not prove other clients or systems.
 
+<a id="section-1"></a>
 ## Commands
 
 `npm run smoke` runs the runner of this checkout and `okit-plugin smoke` the same runner through the installed bin; both use a scratch home and answer `0` when every selected check passed, `1` when one failed or timed out and `2` when the run was refused.
@@ -19,14 +36,17 @@ Implemented: `okit-plugin smoke` runs 31 isolated checks; `okit-plugin client-sm
 
 Exit code, the three `src/cli.js` already uses: `0` every selected check passed, `1` one failed or timed out, `2` unknown flag, unknown `--only` id, or an `OKWORK_HOME` in the environment without `--real`.
 
+<a id="section-2"></a>
 ## Scratch home rule
 
 Each run builds `<scratch>/home`, `<scratch>/project` and `<scratch>/tmp` under `os.tmpdir()` and runs every child with `HOME`/`USERPROFILE`, `OKWORK_HOME=<scratch>/home/.okwork`, `CLAUDE_CONFIG_DIR=<scratch>/home/.claude`, `XDG_CONFIG_HOME` and `TMPDIR`/`TEMP`/`TMP` inside it. The real home is read only under `--real`. The runner takes the scratch root, the environment and the clock as parameters, so `test/smoke-runner.test.js` drives it with `mkdtemp(join(tmpdir(), 'smoke-'))` exactly as `test/cli.test.js` does today.
 
+<a id="section-3"></a>
 ## What the runner reuses
 
 The runner reuses the core, adapters and MCP server. `src/smoke.js` accepts injected dependencies to exercise installation, features and removal without starting real clients.
 
+<a id="section-4"></a>
 ## Checks
 
 Every check has an id, a name, a timeout and a body. `status` is `pass`, `fail`, `timeout`
@@ -46,6 +66,8 @@ or `skip`, and only `pass` counts as a success.
 
 **B. Every feature, end to end (`E`)**
 
+**Daemon**
+
 | id | name | what it does | timeout |
 | :- | :- | :- | :- |
 | `E1` | `daemon.run-once` | one `tick` appends one decision line to `logs/<date>.jsonl` with `opened`, `spawned`, `skipped` | 20 s |
@@ -53,18 +75,43 @@ or `skip`, and only `pass` counts as a success.
 | `E3` | `daemon.killswitch` | `daemon stop` writes `daemon.stop`; `daemon start` clears it before the loop | 15 s |
 | `E4` | `daemon.lifecycle` | `daemonRun` with an injected `sleep` and an `AbortSignal` writes `daemon.pid.json` and removes it on exit; a second run is refused by the `daemon` lock | 25 s |
 | `E5` | `daemon.status` | `daemonStatus` reads `running: false` from a dead pid and `running: true` while the injected loop lives | 15 s |
+
+**State / Estado**
+
+| id | name | what it does | timeout |
+| :- | :- | :- | :- |
 | `E6` | `state.atomic` | `inboxAdd` writes `inbox.json` through `writeJsonAtomic`, leaves no `.tmp` behind and reads back | 10 s |
 | `E7` | `state.locks` | `withLock` refuses a second holder, releases, and takes over a stale lock whose pid is dead | 20 s |
+
+**Execution / Execução**
+
+| id | name | what it does | timeout |
+| :- | :- | :- | :- |
 | `E8` | `spawn.command` | `buildCommand` returns the documented argument array for `claude-code`, `codex` and `opencode`, briefing last, no shell | 10 s |
 | `E9` | `spawn.process` | `makeSpawner` with an injected `spawn` writes `runs/<runId>.json` as `live` and `runs/<runId>.out`, and `maxMinutes` kills the child | 15 s |
 | `E10` | `limits.slots` | `acquireSlot` takes `limits.clients.<client>` or `limits.global` slots, then answers `ok: false` with the cap; `releaseSlot` frees one | 15 s |
+
+**Installation / Instalação**
+
+| id | name | what it does | timeout |
+| :- | :- | :- | :- |
 | `E11` | `autostart.plan` | `detectAutostart` per platform and `autostartPlan` for `systemd`, `cron`, `launchd`, `schtasks`; `win32` paths keep forward slashes | 10 s |
 | `E12` | `autostart.apply` | `applyAutostart` with an injected `run`/`write` installs, uninstalls and reports what it wrote; a second install writes nothing new | 15 s |
 | `E13` | `skills.packaged` | each `skills/*/SKILL.md` has `name` and `description` frontmatter, and `installSkillFiles` never overwrites a file that differs | 10 s |
 | `E14` | `mcp.tools` | all tools answer `tools/call`; an unknown tool is `-32602` and a bad line is `-32700`, and the loop keeps reading | 30 s |
+
+**Workflow / Fluxo**
+
+| id | name | what it does | timeout |
+| :- | :- | :- | :- |
 | `E15` | `inbox.flow` | add, list, `inboxSetStatus` along the sequence, all persisted | 15 s |
 | `E16` | `orders.flow` | add, list, revoke; the row survives with `revokedReason` and a second revoke is refused | 15 s |
 | `E17` | `templates.flow` | add, list, pause and resume, remove; `openDue` twice in one period opens one child | 20 s |
+
+**Views / Visões**
+
+| id | name | what it does | timeout |
+| :- | :- | :- | :- |
 | `E18` | `status.table` | `statusTable` has its six columns, a capacity line, no ANSI, and another word per locale | 15 s |
 | `E19` | `commands.every` | each CLI action (`daemon start|stop|status|pause|resume|run-once`, `autostart show|install|uninstall`, `status`, `actors`) exits `0` with an injected `run`/`spawn` | 30 s |
 
@@ -80,6 +127,7 @@ or `skip`, and only `pass` counts as a success.
 
 31 checks. `--only` takes ids (`--only I,E7`) and a group letter. `--timeout <ms>` raises the per-check ceiling for a slow Windows host and never lowers a check that has a smaller one; the run itself is capped at 10 minutes.
 
+<a id="section-5"></a>
 ## Checkout against installed plugin
 
 | | default | `--real` |
@@ -90,16 +138,19 @@ or `skip`, and only `pass` counts as a success.
 
 `--real` is the only mode that touches the user's own files, and it still writes its artifacts to `<state root>/logs/smoke/`, never to the repo.
 
+<a id="section-6"></a>
 ## Result record
 
 One object per check, and the same fields in the human log: `id`, `name`, `group` (`E7`, `state.locks`, `E`); `status`, one of `pass`, `fail`, `timeout`, `skip`, where only `pass` counts; `durationMs` and the `timeoutMs` it ran under; `error`, the message plus the first stack frame when the body threw; `command`, the argv that ran as a child or `''` when the check stayed in process; `environment`, with `os` (platform, release, arch), `node`, `cwd`, `pluginRoot`, `stateRoot`, `configRoot`, `okitHome` and `pid`; and `logTail`, the last 20 lines of the file that decided the check (`logs/<date>.jsonl`, `runs/<runId>.out`, or the child's stderr).
 
+<a id="section-7"></a>
 ## Output
 
 Stdout is one fact per line, the shape `report()` of `src/cli.js` already prints: `okit-plugin smoke`, `run: <runid>`, one `pass E7 state.locks 120ms` per check, then `passed: 31 failed: 0 skipped: 0`, the artifact paths and, under `--keep`, the scratch path.
 
 Two files land in `<state root>/logs/smoke/`: `smoke-<runid>.jsonl`, one JSON object per line (the run header, then one record per check in execution order), and `smoke-<runid>.log`, the human text with the whole environment block at the top and each tail inline. Both are UTF-8 with `\n` only, so the Windows file pastes into an issue unchanged. The run id is the UTC instant and the pid (`20261023T091530Z-4242`), which keeps two runs apart and orders them.
 
+<a id="section-8"></a>
 ## Safety
 
 - **Bounded time**: every check has a timeout and the run a 10 minute cap, so a check that hangs is a `timeout` record and the run still ends.
@@ -108,6 +159,7 @@ Two files land in `<state root>/logs/smoke/`: `smoke-<runid>.jsonl`, one JSON ob
 - **Contained**: the runner writes only under its own state root and the `--keep` folder, takes the `smoke` lock of that root, and never touches the repo working tree.
 - **Safe to interrupt**: `Ctrl-C` writes what it has, removes the lock and exits `1`.
 
+<a id="section-9"></a>
 ## In-client smoke (real)
 
 The runner above is the cheap layer: it starts no client, spends no quota and proves the code. This section is the other layer, and it runs **inside a real client session** — Claude Code first, Codex and opencode after. It spends the user's quota on purpose, and it buys the thing the in-process runner cannot buy: proof that the plugin is *installed and used* — the client loaded the plugin, its MCP server answers over a real stdio pipe, the skills are there, the hooks fire, the daemon ticks, and the inbox, the standing orders and the templates keep what the client wrote.
@@ -140,11 +192,13 @@ A step names a resource, the call that touches it and the **behaviour** it asser
 | :- | :- | :- | :- |
 | `C1` | plugin | the client loaded the installed plugin | the `init` event's `plugins[]`: our plugin's name and the path it was loaded from |
 | `C2` | skills | the installed skills are visible to the session | the `init` event's `skills[]`: `okit-director`, `okit-executor`, `okit-critic`, `okit-smoke` and `okit-setup` under the plugin's namespace |
-| `C3` | MCP | the server answered over the real stdio pipe | the `init` event's `mcp_servers[]` holds our server with `status: "connected"`, and the server answered `initialize` and `tools/list` with the 12 names |
+| `C3` | MCP | the server answered over the real stdio pipe | the `init` event's `mcp_servers[]` holds our server with `status: "connected"`, and the server answered `initialize` and `tools/list` with the current `TOOL_NAMES` inventory |
 | `C4` | hooks | a hook of the plugin fired | the client's hook events; while the plugin ships no `hooks/hooks.json`, it is a `skip` with the reason `hook-evidence-unavailable` |
 | `C5` | daemon | the daemon of the installation ticked | the runner runs the installed `okit-plugin` bin with `daemon run-once`, and the decision line lands in `logs/<date>.jsonl` |
 
 **B. The logic, in real use (`C6`–`C21`)**
+
+**Slots / Vagas**
 
 | id | resource | the behaviour it asserts | judged from |
 | :- | :- | :- | :- |
@@ -153,14 +207,29 @@ A step names a resource, the call that touches it and the **behaviour** it asser
 | `C8` | slot | `acquire_slot` **at** the cap answers `ok: false` and names the cap that refused | the answer's `reason`, and no run file was written for that id |
 | `C9` | slot | `release_slot` gives the slot back | the answer is `ok: true` and `runs/<runId>.json` reads `done` |
 | `C10` | slot | `release_slot` of a run that never existed refuses | the answer is `ok: false` with `unknown run`, and nothing was written |
+
+**Classification and profiles / Classificação e perfis**
+
+| id | resource | the behaviour it asserts | judged from |
+| :- | :- | :- | :- |
 | `C11` | effort | `classify` gives `simple` for a known short demand | the answer's `effort` is `simple`, with the `short-body` reason |
 | `C12` | effort | `classify` gives `normal` for a known mid demand | the answer's `effort` is `normal`, with the `mid-body` reason |
 | `C13` | effort | `classify` gives `hard` for a known long demand | the answer's `effort` is `hard`, with the `long-body` reason |
 | `C14` | profile | `profile_pick` resolves the profile the config declares for the class asked | the answer's `model` against the profile of the class, the default catalog included — and the lowered class when the quota is below the floor; with no `config.json` the installation is unconfigured, so it is a `skip` with the reason `config-missing` and the report says the installation is incomplete |
+
+**Inbox**
+
+| id | resource | the behaviour it asserts | judged from |
+| :- | :- | :- | :- |
 | `C15` | inbox | `inbox_add` stores the demand it answered | the answer, and `inbox.json` holds the item with the title we sent |
 | `C16` | inbox | `inbox_list` lists it | the answer's list holds that item |
 | `C17` | inbox | `inbox_set_status` moves it and the move persists | the answer, and `inbox.json` reads `delegated` |
 | `C18` | inbox | the invalid move is refused | `pending` → `consolidated` is refused, and `inbox.json` still reads `pending` |
+
+**Orders and recurrence / Ordens e recorrência**
+
+| id | resource | the behaviour it asserts | judged from |
+| :- | :- | :- | :- |
 | `C19` | order | `order_add` stores the order it answered | the answer, and `orders.json` holds the row as active |
 | `C20` | order | `order_remove` revokes it and the revoked order stops being listed | `orders.json` keeps the row with `revokedReason`, and `order_list` no longer lists it |
 | `C21` | template | a due template is opened by the daemon as a demand | `inbox.json` holds the child the template opened, and the daemon's decision line lists that id under `opened` |
@@ -205,7 +274,7 @@ Every flag above was read from `claude --help` on Claude Code 2.1.304 (2026-10-2
 | `--include-hook-events` | "only works with `--output-format=stream-json`" | the runner pairs it with `stream-json`, never with `json` |
 | `--max-budget-usd <amount>` | "only works with `--print`" | the runner passes it in headless mode and reads the money it spent back |
 
-`--max-turns` does **not** exist in the client: `claude --help` has no such flag, and `docs/ARCHITECTURE.md` section 12.1 already says so for 2.1.303. The `--max-turns` of the runner below is the *runner's own* ceiling over the scenario's steps — it never reaches the command line.
+`--max-turns` does **not** exist in the client: `claude --help` has no such flag, and `docs/maintainers/ARCHITECTURE.md` section 12.1 already says so for 2.1.303. The `--max-turns` of the runner below is the *runner's own* ceiling over the scenario's steps — it never reaches the command line.
 
 The runner reads the client's **event stream**, not the model's prose: the `init` event carries `plugins[]`, `skills[]`, `tools[]` and `mcp_servers[]` (each with a `status`), which is the evidence for `C1`, `C2`, `C3` and for the twelve tools; the `hook_started` and `hook_response` events are the evidence for `C4`; the final `result` event carries `is_error`, `num_turns`, `total_cost_usd`, `permission_denials[]` and `terminal_reason`. The single-result `--output-format json` carries only the `result` event, so it cannot prove `C1`–`C4` and is not what the runner uses.
 
@@ -282,6 +351,7 @@ Six, taken by the Producer on 2026-10-23. They are decisions, not questions: the
 
 `src/smoke/scenario.js` exports the scenario as data; `src/smoke/client.js` resolves references and executes drivers, with verdicts in `client-checks.js`. The `skills/okit-smoke/SKILL.md` skill calls the existing runner.
 
+<a id="section-10"></a>
 ## In-process implementation
 
 `src/smoke/report.js` generates records and artifacts. Tables live in `checks-install.js`, `checks-features.js` and `checks-uninstall.js` under `src/smoke/`. `src/smoke.js` runs the loop with timeout, locking and cleanup. Tests use injected processes; they do not prove real-client operation.

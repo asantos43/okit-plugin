@@ -1,0 +1,15 @@
+# Ask the Director
+
+Describe the result you want so the Director can plan, assign and review the work.
+
+<a id="ask"></a>
+## Ask for work
+
+1. Open your installed AI client in the project you want to change. Ask: “Where are you, and which helpers are available?” Expect the current client, confirmed models, remaining allowance, free helper places and missing information. The `okit-environment` skill uses `env_report`; its terminal equivalent is `okit-plugin env report --locale en`.
+2. Ask: “Act as Director. Add a short getting-started section to this project's README. Keep the existing instructions and show how you checked the result.” Expect a plan, a choice of helpers based on available capacity and a clear description of what will change. The installed `okit-director` skill guides the work; follow your client's activation instructions if it is unavailable.
+3. Ask: “What is running, and what remains?” Expect readable work titles and progress. In a terminal, `okit-plugin status --locale en` shows running helpers, allowance and limits; `okit-plugin inbox list --locale en` lists saved work and its current holder, or prints nothing for an empty list.
+4. Read the final changes and checks. Expect observed results and any limitation stated explicitly. Ask for clarification if a model, allowance reading or result could not be confirmed.
+
+The Director coordinates; Executors do assigned work and the Critic checks it. Model and effort choices do not change these roles. Use [models and allowance](models-and-quota.md) to adjust your choices, or [preview a demonstration](smoke-demo.md) first.
+
+[Guide](README.md) · [Português](ask-the-director.pt-BR.md)

@@ -12,8 +12,16 @@ import { DEFAULT_CONFIG } from '../src/profiles.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const read = (file) => readFile(resolve(root, file), 'utf8');
-const pairs = ['README', 'INSTALL', 'docs/ARCHITECTURE', 'docs/DESIGN',
-  'docs/RELEASING', 'docs/SMOKE', 'docs/INTEGRATION', 'docs/DEMO'];
+const pairs = ['README', 'INSTALL', 'docs/maintainers/ARCHITECTURE', 'docs/maintainers/DESIGN',
+  'docs/maintainers/RELEASING', 'docs/maintainers/SMOKE', 'docs/maintainers/INTEGRATION', 'docs/maintainers/DEMO', 'docs/maintainers/README'];
+const guidePairs = (await readdir(resolve(root, 'docs/guide')))
+  .filter(name => name.endsWith('.md') && !name.endsWith('.pt-BR.md'))
+  .map(name => `docs/guide/${name.slice(0, -3)}`);
+pairs.push(...guidePairs);
+const componentPairs = (await readdir(resolve(root, 'docs/components')))
+  .filter(name => name.endsWith('.md') && !name.endsWith('.pt-BR.md'))
+  .map(name => `docs/components/${name.slice(0, -3)}`);
+pairs.push(...componentPairs);
 const files = pairs.flatMap((base) => [`${base}.md`, `${base}.pt-BR.md`]);
 files.push('CONTRIBUTING.md', 'SECURITY.md');
 for (const [folder, leaf] of [['adapters', 'README.md'], ['skills', 'SKILL.md']]) {
@@ -27,25 +35,31 @@ const slug = (text) => text.toLowerCase().replace(/<[^>]*>/g, '')
   .replace(/[^\p{L}\p{N}_\-\s]/gu, '').replace(/\s/g, '-');
 
 test('documented tool, check and pair counts match the source', async () => {
-  const readme = await read('README.md');
-  const said = (pattern) => Number(readme.match(pattern)?.[1]);
-  assert.equal(said(/exposes (\d+) tools/), TOOL_NAMES.length);
-  assert.equal(Number((await read('README.pt-BR.md')).match(/expõe (\d+) ferramentas/)[1]), TOOL_NAMES.length);
-  assert.equal(said(/`smoke` runs (\d+) isolated checks/),
-    INSTALL_CHECKS.length + FEATURE_CHECKS.length + UNINSTALL_CHECKS.length);
-  assert.equal(said(/`client-smoke` has (\d+) scenario checks/), SCENARIO.length);
-  assert.match(readme, /nine client × system pairs/);
+  for (const suffix of ['', '.pt-BR']) {
+    const index = `docs/components/README${suffix}.md`;
+    assert.ok((await read(`README${suffix}.md`)).includes(`](${index})`), 'home links to component index');
+    assert.ok((await read(`docs/guide/README${suffix}.md`))
+      .includes(`](../components/README${suffix}.md)`), 'guide links to component index');
+    const tools = await read(`docs/components/mcp-tools${suffix}.md`);
+    assert.equal(Number(tools.match(/(?:exposes|expõe) (\d+) (?:tools|ferramentas)/)?.[1]), TOOL_NAMES.length);
+    for (const name of TOOL_NAMES) assert.ok(tools.includes(`\`${name}\``), name);
+    const guide = await read(`docs/guide/smoke-demo${suffix}.md`);
+    assert.equal(Number(guide.match(/passed: (\d+) failed: 0 skipped: 0/)?.[1]),
+      INSTALL_CHECKS.length + FEATURE_CHECKS.length + UNINSTALL_CHECKS.length);
+    assert.equal(Number(guide.match(/(?:has|tem) (\d+) (?:scenario checks|verificações de cenário)/)?.[1]), SCENARIO.length);
+  }
+  assert.match(await read('docs/maintainers/RELEASING.md'), /nine separately identified client × system artifacts/);
   assert.equal(DEFAULT_CONFIG.release.clients.length * DEFAULT_CONFIG.release.systems.length, 9);
 });
 
 test('environment command, tool, skill and shared module are documented in both languages', async () => {
-  for (const file of ['README.md', 'README.pt-BR.md']) {
+  for (const file of ['docs/guide/troubleshooting.md', 'docs/guide/troubleshooting.pt-BR.md']) {
     const text = await read(file);
     for (const term of ['okit-plugin env report', 'env_report', 'okit-environment']) {
       assert.ok(text.includes(term), `${file}: ${term}`);
     }
   }
-  for (const file of ['docs/ARCHITECTURE.md', 'docs/ARCHITECTURE.pt-BR.md']) {
+  for (const file of ['docs/maintainers/ARCHITECTURE.md', 'docs/maintainers/ARCHITECTURE.pt-BR.md']) {
     assert.ok((await read(file)).includes('src/env/report.js'), file);
   }
 });
@@ -87,22 +101,31 @@ test('scoped Markdown relative links and anchors resolve', async () => {
 
 test('English and Brazilian Portuguese keep the same ordered level-two headings', async () => {
   for (const base of pairs) {
+    if (base === 'docs/maintainers/README' || base === 'README' || guidePairs.includes(base) || componentPairs.includes(base)) {
+      const ids = (text) => [...text.matchAll(/<a id="([^"]+)"><\/a>/g)].map(m => m[1]);
+      assert.deepEqual(ids(await read(`${base}.md`)), ids(await read(`${base}.pt-BR.md`)), base);
+      assert.equal(headings(await read(`${base}.md`)).length, headings(await read(`${base}.pt-BR.md`)).length, base);
+      continue;
+    }
     // D34/D36 owns the publisher section, including its existing translated title.
-    const canonical = (title) => title === 'Publishing — Publicação' ? 'Publishing' : title;
+    const canonical = (title) => title === 'Publishing — Publicação' ? 'Publishing'
+      : title === 'Índice' ? 'Contents' : title;
     assert.deepEqual(headings(await read(`${base}.md`)).map(canonical),
       headings(await read(`${base}.pt-BR.md`)).map(canonical), base);
   }
 });
 
-test('both READMEs document every command and action from CLI USAGE', async () => {
+test('both language paths document every command and action from CLI USAGE', async () => {
   const cli = await read('src/cli.js');
   const usage = cli.match(/const USAGE = \[([\s\S]*?)\]\.join/)[1].replaceAll('{command}', DEFAULT_CONFIG.install.command);
   const commands = [...usage.matchAll(/okit-plugin ([a-z-]+)(?: ([a-z-]+(?:\|[a-z-]+)*))?/g)]
     .flatMap(([, group, actions]) => actions
       ? actions.split('|').map((action) => `okit-plugin ${group} ${action}`) : [`okit-plugin ${group}`]);
   assert.ok(commands.length > 0);
-  for (const file of ['README.md', 'README.pt-BR.md']) {
-    const text = (await read(file)).replace(/okit-plugin (daemon|autostart) ([a-z-]+(?:\|[a-z-]+)+)/g,
+  for (const suffix of ['', '.pt-BR']) {
+    const file = `docs/components/cli${suffix}.md`;
+    const content = [await read(file), ...await Promise.all(guidePairs.map(base => read(`${base}${suffix}.md`)))].join('\n');
+    const text = content.replace(/okit-plugin (daemon|autostart) ([a-z-]+(?:\|[a-z-]+)+)/g,
       (_, group, actions) => actions.split('|').map((action) => `okit-plugin ${group} ${action}`).join('\n'));
     for (const command of commands) assert.ok(text.includes(command), `${file}: ${command}`);
   }

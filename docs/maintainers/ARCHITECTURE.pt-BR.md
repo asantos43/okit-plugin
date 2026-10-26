@@ -1,22 +1,46 @@
 # Arquitetura
 
+Contratos e invariantes do núcleo para persistência, agendamento, adaptadores e execução.
+
+<a id="contents"></a>
+## Índice
+
+- [1. Core contract](#section-1)
+- [2. MCP tools](#section-2)
+- [3. State on disk](#section-3)
+- [4. Adapter interface](#section-4)
+- [5. Quota](#section-5)
+- [6. Windows rules](#section-6)
+- [7. Concurrency limit](#section-7)
+- [8. Schedules and recurrence](#section-8)
+- [9. Recurring templates](#section-9)
+- [10. Standing orders](#section-10)
+- [11. The daemon](#section-11)
+- [12. Spawn modes](#section-12)
+- [13. Autonomy](#section-13)
+- [14. Global state and `appliesTo`](#section-14)
+- [15. Implementation and limits](#section-15)
+- [Operational reference](#section-16)
+
 `src/install/statusline.js` planeja, aplica e desfaz o registro da barra do Claude com sistema de arquivos injetável. O registro por cliente guarda caminho dos ajustes, hash dos bytes escritos e caminho da cópia no estado do plugin. O comando anterior vira palavras ou usa `statuslineRegistration.shell[platform]`; os demais campos da barra são preservados. Atualizações autorizadas reparam coletor ausente ou comando do plugin alterado; coletor existente sem registro de posse fica intacto. A desinstalação restaura os bytes originais quando o hash confere; caso contrário, altera só a barra que pertence ao plugin. Modos de checagem não escrevem.
 
 A CLI usa `install.command` (padrão `okit-plugin`) e o `bin` do pacote. Links antigos do plugin migram ao instalar/atualizar; links do kit são preservados. O detector rejeita executáveis do plugin, inclusive links antigos `okit`. A identidade MCP e `~/.okwork` permanecem iguais.
 
 Estende [DESIGN.md](DESIGN.md); responde às perguntas em aberto. Um núcleo em Node (>=20, sem dependências), três adaptadores finos, um servidor MCP sobre o núcleo.
 
+<a id="section-1"></a>
 ## 1. Core contract
 
-`src/smoke/demo/index.js` compõe classificador, seleção de atores do instantâneo, perfis, inbox e funções de vagas existentes em uma árvore temporária isolada. Módulos pequenos de cenário, tentativa, agendador, orçamento e relatório implementam a [demonstração injetada](DEMO.pt-BR.md); cada tentativa de executor/crítico reserva vaga e orçamento. Somente atores de teste são lançados no passo 2. Entrada CLI/MCP/skill, consentimento e controladores pagos continuam no passo 3; C1–C23 preservam seu significado atual.
+`src/smoke/demo/index.js` compõe classificador, seleção de atores do instantâneo, perfis, inbox e funções de vagas existentes em uma árvore temporária isolada. Módulos pequenos de cenário, tentativa, agendador, orçamento e relatório implementam a [demonstração injetada](DEMO.pt-BR.md); cada tentativa de executor/crítico reserva vaga e orçamento. CLI/MCP/skill e consentimento estão implementados; lançamentos pagos recusam sem medição e teto comprovados; C1–C23 preservam seu significado atual.
 
 O inbox guarda demandas com `id`, `title`, `body`, `kind`, `accept`, `effort`, `client`, `appliesTo`, `status`, `stepIds`, `ext`, `createdAt`. `kind` é texto livre. Ordens ficam em um único arquivo, filtradas por `appliesTo`. Briefing, crítica e consolidação são instruções das skills e não APIs adicionais do núcleo.
 
+<a id="section-2"></a>
 ## 2. MCP tools
 
-O núcleo expõe 17 ferramentas MCP em `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `actors_list`, `env_report`, `smoke_demo`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_claim`, `inbox_release`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planejamento, briefing, crítica e consolidação são orientações das skills; não são ferramentas MCP.
+Consulte a referência: [mcp-tools](../components/mcp-tools.pt-BR.md).
 
-`src/env/report.js` fornece as leituras compartilhadas de ambiente somente leitura (`environmentReadings`), o objeto do relatório (`environmentReport`) e o texto bilíngue (`formatEnvironmentReport`). CLI `okit-plugin env report [--client <nome>] [--locale en|pt-BR]` e MCP `env_report` reutilizam essas funções. O MCP aceita `client` e `locale` opcionais e devolve o objeto com `text` formatado; clientes desconhecidos recebem uma frase curta traduzida. Sem filtro de cliente, todos os conhecidos aparecem com o cliente em uso primeiro, mesmo sem configuração. Modelos exigem confirmação por listagem ativa; leituras ausentes ficam desconhecidas. Setup, comando ou modelos ausentes incluem um comando de correção vindo da configuração. A skill instalada `okit-environment` explica esse relatório sem alterar configurações.
+`src/env/report.js` centraliza as leituras de ambiente.
 
 Itens podem ter `hold: {client, session, worktree, takenAt, via}`;
 `via` vale `claim` ou `producer`. `heldBefore` guarda donos anteriores com
@@ -31,59 +55,38 @@ com `--producer-takeover` força transferência, após mostrar a situação (inc
 com `inbox.gitTimeoutMs`) e confirmação TTY ou `--yes`.
 O dono confirmado é comparado novamente sob a trava para recusar mudanças intervenientes.
 
+<a id="section-3"></a>
 ## 3. State on disk
 
-Raiz: `node:path.join(os.homedir(), '.okwork')`, sobrescrevível com `OKWORK_HOME`. Nunca dentro do diretório de um plugin de cliente: a raiz do plugin se move a cada atualização.
-
-```
-config.json               limites por cliente, regras de texto curto, caminhos dos adaptadores
-inbox.json                itens da caixa
-orders.json               ordens permanentes
-templates.json            modelos recorrentes
-quota/<client>.json       uma leitura de cota por cliente
-runs/<runId>.json         um arquivo por execução delegada
-locks/<name>.lock/        diretórios de trava criados com mkdir
-logs/<date>.jsonl         eventos append-only, um registro de decisão por passagem do daemon
-daemon.pid.json           pid e hora de início do daemon em execução
-daemon.paused             arquivo de pausa, escrito por daemonPause
-daemon.stop               chave de parada, lida pelo daemon
-```
-
-Arquivos do lado do projeto ficam ao lado do projeto, não nesta raiz: o `CLAUDE.md` do próprio projeto (Claude Code) ou `AGENTS.md` (Codex, opencode). As ordens permanentes não são um deles — todas moram em `orders.json` aqui, ligadas a um projeto pelo `appliesTo`.
+Consulte a referência: [state](../components/state.pt-BR.md).
 
 - Escrita: serializar para `<file>.<pid>.<random>.tmp`, depois `fs.rename` sobre o destino, para que nenhum leitor veja arquivo pela metade. Em `EPERM` ou `EBUSY` (Windows), tentar o rename de novo algumas vezes antes de falhar.
 - Trava: `fs.mkdir` na pasta `<name>.lock`, que guarda `owner.json` `{pid, startedAt}`; `EEXIST` significa ocupado; liberar com `rmdir`, que espera `EPERM`/`EBUSY` como toda outra chamada: o arquivo removido foi escrito e fechado há um instante, e uma trava deixada para trás por essa recusa guarda o dono de um processo que já saiu e é mais nova que `staleMs`, ou seja, que nenhum concorrente consegue tomar. Uma liberação respondida por `ENOTEMPTY` (esvaziada, mas um concorrente escreveu uma entrada de volta antes do `rmdir`) ou por `ENOENT` (outro concorrente já removeu) conta como liberada: a entrada que respondeu é a única evidência que todo concorrente lê, de modo que tentar de novo tiraria a trava de um dono vivo.
 - Trava velha: uma trava é velha quando passa de `staleMs` **e** seu pid está morto; sem `owner.json` legível, usa-se o `mtime` da pasta e não há checagem de pid. A tomada reivindica a pasta do dono morto no lugar: renomeia o `owner.json` do dono morto para fora da pasta (só um rename pode vencer) e depois cria o seu próprio `owner.json` de forma exclusiva (`wx`), para que dois concorrentes não vençam os dois. A pasta nunca é movida para o lado. Uma recusa do Windows que dure mais que as tentativas de qualquer passo dessa reivindicação abandona a tentativa e deixa a pasta como foi encontrada, para que o laço de espera a julgue de novo em vez de a aquisição terminar num código cru.
 - Um escritor por arquivo: caixa, ordens e execuções são arquivos separados, para que dois passos do mesmo item não se bloqueiem.
 
+<a id="section-4"></a>
 ## 4. Adapter interface
 O [desenho da integração](INTEGRATION.pt-BR.md) ([English](INTEGRATION.md))
 define ambiente comum, papéis nativos, glossário e encaminhamento do fluxo inteiro (passos 2–4 concluídos).
 
 Cada adaptador fornece estas cinco operações, além dos auxiliares documentados. O núcleo importa um adaptador, nunca um cliente.
 
-| Função | Entrada | Saída |
-| :- | :- | :- |
-| `spawn(actor, briefing, opts)` | perfil do ator, resumo | `{ runId, pid }`, ou `{ runId }` para execução no processo |
-| `readQuota()` | nenhuma | `{ source, remainingPct?, windowMinutes? }` |
-| `capabilities()` | nenhuma | `{ models[], efforts[], skills, hooks, mcp, desktop, windows }` |
-| `installSkill(name, files)` | pasta da skill | `{ path }` |
-| `installHooks(files)` | configuração do cliente ou caminho do módulo | `{ path }` |
-| `deliverRole(context)` | cliente, briefing explícito ou sessão principal, instantâneo comum, demandas/ordens/limites aplicáveis, ator | `ready` com contexto nativo, `clarification` ou `unsupported` |
-| `installRole(opts)`, `removeRole(opts)` | raiz do cliente injetada e suporte nativo | artefato gerenciado idempotente; preserva instruções do usuário |
+- `spawn(actor, briefing, opts)` — perfil do ator, resumo — `{ runId, pid }`, ou `{ runId }` para execução no processo
+- `readQuota()` — nenhuma — `{ source, remainingPct?, windowMinutes? }`
+- `capabilities()` — nenhuma — `{ models[], efforts[], skills, hooks, mcp, desktop, windows }`
+- `installSkill(name, files)` — pasta da skill — `{ path }`
+- `installHooks(files)` — configuração do cliente ou caminho do módulo — `{ path }`
+- `deliverRole(context)` — cliente, briefing explícito ou sessão principal, instantâneo comum, demandas/ordens/limites aplicáveis, ator — `ready` com contexto nativo, `clarification` ou `unsupported`
+- `installRole(opts)`, `removeRole(opts)` — raiz do cliente injetada e suporte nativo — artefato gerenciado idempotente; preserva instruções do usuário
 
 `src/roles.js` compõe o mesmo contrato bilíngue sem ramos por cliente nem efeitos colaterais. Claude SessionStart injeta contexto em startup/resume/compact; Codex usa bloco delimitado AGENTS.md e prompt de lançamento; opencode usa hook config nativo para agentes principais e comandos. Briefings explícitos escolhem Executor/Critic, nunca modelo+esforço. Papéis ausentes/ambíguos e formatos sem suporte são relatados antes de iniciar. Respostas usam ferramentas existentes do núcleo e títulos legíveis; perguntas de ambiente nunca salvam configuração, iniciam trabalho ou gastam cota. Registro do instalador e ligação do hook Claude empacotado fazem parte desse caminho. Testes herméticos do fluxo inteiro isolam HOME e raízes dos três clientes, passando por setup confirmado, fatos comuns, Director e smoke offline injetado. As seis skills têm o mesmo mapa bilíngue; aceite real continua separado.
 
 ### 4.1 Os adaptadores incluídos
 
-| Adaptador | Modos | Instalação de hooks |
-| :- | :- | :- |
-| Claude Code | Descritor NATIVE; PROCESS | Mescla entradas JSON |
-| Codex | Descritor NATIVE; PROCESS | Recusa explícita, sem I/O |
-| opencode | PROCESS | Copia um módulo JS global |
+Consulte a referência: [adapters](../components/adapters.pt-BR.md).
 
-`adapters/claude-code/index.js` implementa o contrato do cliente. `spawn` devolve um descritor NATIVE ou usa `makeSpawner` em PROCESS. `readQuota` lê a amostra automática da barra de status ou a manual em `quota/claude-code.json`, com origem e idade. `installSkill` preserva arquivos diferentes e `installHooks` combina entradas sem descartar as do usuário. A raiz vem de `opts.root`, `CLAUDE_CONFIG_DIR` ou da pasta pessoal. Codex oferece NATIVE e PROCESS, mas recusa instalação de hooks. opencode oferece PROCESS e instala módulo JS global.
-
+<a id="section-5"></a>
 ## 5. Quota
 - Claude Code: `statusline-collector` salva a entrada da barra após registro consentido com `install --statusline` ou `update --statusline`.
 - Codex: `codexQuota` controla a leitura das sessões locais; a automática vence quando mais nova que a manual.
@@ -107,7 +110,7 @@ expirada permanece desconhecida. A cota de outro cliente nunca a autoriza.
 
 A coluna Cota dos atores mostra o estado traduzido, o menor percentual restante e a idade da leitura, sem texto de ordens em Markdown ou JSON. Um cliente sem atores configurados recebe apenas a nota de configuração. Um `--client` inválido na CLI imprime o uso e sai com código 2, como em `status`. Locales extras em `actors.messages` se limitam aos aceitos pela CLI e pelo MCP (`LABELS`/`LOCALES`).
 
-`actors_list` / `okit-plugin actors [--client <nome>|--all] [--json] [--locale en|pt-BR]` é somente leitura. Ator é um par modelo + esforço disponível em um cliente, com tamanhos derivados do mapa configurado `actors.sizeClasses` (padrão S→simple, M→normal, L→hard); `actors.criticClass` aparece à parte. `src/actors.js` compartilha seleção de cliente/cota do status e lê `limitsStatus` sem adquirir/liberar vagas. Status descreve executores rodando; actors lista perfis mesmo sem nada rodando. Pares iguais combinam tamanhos. Tamanhos ausentes indicam o vizinho disponível mais próximo; empates favorecem o anterior no mapa. Cota baixa e vagas ocupadas incluem motivos e soluções; cota desconhecida não bloqueia. Um cliente sem perfil recebe a nota de configuração que aponta para os perfis na configuração do plugin.
+`actors_list` / `okit-plugin actors [--client <nome>|--all] [--json] [--locale en|pt-BR]` é somente leitura. Ator é um par modelo + esforço disponível em um cliente, com tamanhos derivados do mapa configurado `actors.sizeClasses` (padrão S→simple, M→normal, L→hard); `actors.criticClass` aparece à parte. `src/actors.js` compartilha seleção de cliente/cota do status e lê `limitsStatus` sem adquirir/liberar vagas. Status descreve executores rodando; actors lista perfis mesmo sem nada rodando. Pares iguais combinam tamanhos. Tamanhos ausentes indicam o vizinho disponível mais próximo; empates favorecem o anterior no mapa. Cota baixa e vagas ocupadas incluem motivos e soluções; cota desconhecida bloqueia lançamento. Um cliente sem perfil recebe a nota de configuração que aponta para os perfis na configuração do plugin.
 
 `src/status.js` é a visão dessas leituras, não uma segunda fonte delas: `statusTable(root, deps)` formata as leituras, o relógio, as contagens do limite e as ordens permanentes fornecidos em `deps`, usando os `LABELS` fixos do idioma, e devolve `{markdown, capacityLine, rows}`. A tabela termina com uma frase fixa, traduzida, dizendo que vagas são executores em execução e `actors` lista os perfis modelo + esforço disponíveis. Essa frase é um rótulo, não uma leitura de entrada em `deps`. As colunas são `Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age)`; um array `windows` preenche as duas colunas e, sem ele, o `remainingPct` único vai para a coluna de 5h quando `windowMinutes <= 360` e para a da semana caso contrário, inclusive quando `windowMinutes` está ausente.
 
@@ -189,6 +192,7 @@ O setup deixa `setup.done` em `config.json`; enquanto esse registro não existe,
 
 Um único leitor atende todas as perguntas do setup. Ele guarda as linhas recebidas em ordem, trata o fim da entrada como cancelamento e fecha no fim da execução. Uma entrada que já havia terminado não abre leitor nenhum: cada pergunta é respondida com nada, então o setup cancela em vez de esperar por uma linha que nunca chega. Antes de normalizar os perfis brutos, o setup confere os próprios nomes de cliente e classe com o esquema da configuração; um nome fora do esquema é recusado nas duas línguas e nenhum arquivo muda. Um arquivo de configuração que não pode ser lido, ou cuja raiz não é um objeto simples, é recusado antes de qualquer gravação e também na releitura sob a trava, com a mesma frase simples nas duas línguas; nada é gravado e o arquivo fica como está. Um `profiles` que não é um objeto simples, ou um cliente dentro dele que não é um objeto simples, é recusado do mesmo jeito, e nenhum erro técnico da linguagem chega ao usuário. A skill `okit-setup` nunca grava uma escolha isolada: o setup pergunta cada modelo e grava o conjunto completo uma única vez, depois da confirmação final.
 
+<a id="section-6"></a>
 ## 6. Windows rules
 - Construir todo caminho com `node:path`, nunca concatenando separadores; guardar com barra direta, a forma que o Claude Code substitui, para que o que escrevemos corresponda ao que o cliente lê.
 - Sem shell: `child_process.spawn` com array de argumentos. Comandos de hook na forma shell são preocupação do cliente, não nossa.
@@ -198,6 +202,7 @@ Um único leitor atende todas as perguntas do setup. Ele guarda as linhas recebi
 
 O modo `PROCESS` inicia os clientes sem shell; no Windows os shims `.cmd` exigem resolver antes o executável de verdade (item em aberto da passagem do Windows).
 
+<a id="section-7"></a>
 ## 7. Concurrency limit
 | Escopo | Padrão | Lido de |
 | :- | :- | :- |
@@ -212,6 +217,7 @@ O antigo `perClient` é apelido obsoleto que suplanta `global`, com aviso no sta
 
 O núcleo conta execuções vivas em `runs/<runId>.json` (`status: live`) em vez de confiar que o cliente respeita o teto. `acquireSlot` usa `waitMs: 0` por padrão e retorna `ok: false` sem vaga; o chamador pode pedir espera. `releaseSlot` encerra a reserva; a contagem ignora execuções mais velhas que `staleMinutes` . O Codex se limita sozinho com `agents.max_concurrent_threads_per_session`; deixar no mesmo número para os dois concordarem.
 
+<a id="section-8"></a>
 ## 8. Schedules and recurrence
 `src/schedule.js` é puro: um instante injetado, nada de I/O. `src/templates.js` guarda uma demanda que o próprio agendamento abre, um item da caixa por período.
 
@@ -235,33 +241,42 @@ Regras: um campo cron aceita `*`, listas (`1,2`), intervalos (`1-5`), passos (`*
 
 `evaluateDue` devolve `{ due, action, reason, period }`, com `action` entre `run`, `skip` (uma decisão que não muda) e `defer` (esperar a próxima passagem). `period` é o instante ISO da vaga, ou `event:<name>:<id>`. As guardas são lidas nesta ordem: `paused`, a vaga deste período, `window`, `minQuotaPct`, `onlyWhenIdle`, `skipIfOpen`, `maxRunsPerPeriod`. Sem histórico, um modelo espera pela primeira vaga do dia corrente em vez de disparar por uma que já passou; com histórico, `catchup: run` (o padrão) serve a vaga perdida mais antiga e `catchup: skip` serve só a atual. Um evento precisa de um id, ou passaria a vida inteira com a mesma chave de período: sem `eventId` a execução é recusada. A vaga é lida no relógio de parede de `timeZone` (padrão `UTC`), então uma hora repetida roda na primeira passagem e uma hora pulada vai para o próximo minuto válido.
 
+<a id="section-9"></a>
 ## 9. Recurring templates
-| Função | Efeito |
-| :- | :- |
-| `templateAdd(root, input, { now })` | Guarda um modelo e a ordem permanente que deixa ele rodar sem ninguém assistindo; o nome precisa estar livre. |
-| `templateList(root, { name })` | Ordem de criação; um nome desconhecido lança erro. |
-| `templateSet(root, name, patch)` | Edita um campo, pausa, retoma ou renomeia; uma renomeação retagueia os filhos abertos e revoga a ordem antiga. |
-| `templateRemove(root, name)` | Remove o registro e revoga sua ordem permanente com um motivo. |
-| `due(root, nowMs, ctx)` | Decide todos os modelos neste instante e não escreve nada. |
-| `plan(root, nowMs, ctx)` | O ensaio geral: as decisões mais as demandas que seriam criadas. |
-| `openDue(root, nowMs, ctx)` | Abre um filho por modelo vencido, uma vez por período; a checagem e a escrita dividem uma trava, então uma segunda chamada no mesmo período e dois chamadores em corrida não criam nada a mais. |
+
+**Template writes / Escritas de modelos**
+
+- `templateAdd(root, input, { now })` — Guarda um modelo e a ordem permanente que deixa ele rodar sem ninguém assistindo; o nome precisa estar livre.
+- `templateList(root, { name })` — Ordem de criação; um nome desconhecido lança erro.
+- `templateSet(root, name, patch)` — Edita um campo, pausa, retoma ou renomeia; uma renomeação retagueia os filhos abertos e revoga a ordem antiga.
+- `templateRemove(root, name)` — Remove o registro e revoga sua ordem permanente com um motivo.
+
+**Template evaluation / Avaliação de modelos**
+
+- `due(root, nowMs, ctx)` — Decide todos os modelos neste instante e não escreve nada.
+- `plan(root, nowMs, ctx)` — O ensaio geral: as decisões mais as demandas que seriam criadas.
+- `openDue(root, nowMs, ctx)` — Abre um filho por modelo vencido, uma vez por período; a checagem e a escrita dividem uma trava, então uma segunda chamada no mesmo período e dois chamadores em corrida não criam nada a mais.
 
 Campos obrigatórios: `name`, `schedule` e `demand` (`title`, mais `kind`, `body`, `accept`, `ext` opcionais). Guardas opcionais: `window`, `timeZone`, `minQuotaPct`, `onlyWhenIdle` (padrão falso), `skipIfOpen` (padrão verdadeiro), `catchup` (`run` ou `skip`), `maxRunsPerPeriod`, `paused` e `appliesTo`. Cada filho carrega `ext.template` e `ext.period` e herda o `appliesTo` do modelo, para que um armazenamento global de modelos ainda saiba a qual caixa cada execução pertence.
 
+<a id="section-10"></a>
 ## 10. Standing orders
 Uma ordem é uma linha que o mantenedor escreve uma vez e o Diretor lê a cada demanda. O JSON continua sendo a fonte; `orderRender` é só uma visão.
 
-| Função | Efeito |
-| :- | :- |
-| `orderAdd(root, { text, scope, until, origin, appliesTo }, { projectRoot })` | Adiciona uma ordem ativa no armazenamento único; `until` precisa ser uma data no futuro. Um `layer` é recusado com `layer is gone: use appliesTo`. |
-| `orderRemove(root, id, { reason })` | Revoga: `active: false` com `revokedAt` e `revokedReason`. Nada é apagado, então o histórico sobrevive. Uma segunda revogação é recusada. |
-| `orderStatus(order, now)` | O status derivado de uma ordem: `revoked`, `expired` ou `active`. |
-| `orderList(root, { activeOnly, appliesTo, now }, { projectRoot })` | Lista o armazenamento único. `activeOnly` descarta revogadas e vencidas. Cada ordem volta com o `status` derivado e, quando inativa, a data `purgeAfter`. |
-| `orderMigrateProjects(root, projectRoots)` | Migração única do arquivo antigo do lado do projeto para o armazenamento; devolve `{ moved, skipped }`. |
-| `orderLint(root, { now })` | O que quem lê o arquivo tropeçaria: texto vazio, escopo desconhecido, data ilegível, id repetido, ordem ativa com `until` passado, duas ordens vivas com o mesmo texto. |
-| `purgeAfter(order, retentionDays, now)` | O instante em que uma ordem inativa pode ser expurgada, ou `undefined` para uma ativa. |
-| `orderPurge(root, { now, retentionDays })` | Remove para sempre toda ordem inativa cuja retenção acabou, e anexa `{ at, purged: [ids] }` a `logs/<date>.jsonl`. |
-| `orderRender(orders)` | Markdown para leitura humana. |
+**Order writes / Escritas de ordens**
+
+- `orderAdd(root, { text, scope, until, origin, appliesTo }, { projectRoot })` — Adiciona uma ordem ativa no armazenamento único; `until` precisa ser uma data no futuro. Um `layer` é recusado com `layer is gone: use appliesTo`.
+- `orderRemove(root, id, { reason })` — Revoga: `active: false` com `revokedAt` e `revokedReason`. Nada é apagado, então o histórico sobrevive. Uma segunda revogação é recusada.
+- `orderStatus(order, now)` — O status derivado de uma ordem: `revoked`, `expired` ou `active`.
+- `orderList(root, { activeOnly, appliesTo, now }, { projectRoot })` — Lista o armazenamento único. `activeOnly` descarta revogadas e vencidas. Cada ordem volta com o `status` derivado e, quando inativa, a data `purgeAfter`.
+
+**Migration and retention / Migração e retenção**
+
+- `orderMigrateProjects(root, projectRoots)` — Migração única do arquivo antigo do lado do projeto para o armazenamento; devolve `{ moved, skipped }`.
+- `orderLint(root, { now })` — O que quem lê o arquivo tropeçaria: texto vazio, escopo desconhecido, data ilegível, id repetido, ordem ativa com `until` passado, duas ordens vivas com o mesmo texto.
+- `purgeAfter(order, retentionDays, now)` — O instante em que uma ordem inativa pode ser expurgada, ou `undefined` para uma ativa.
+- `orderPurge(root, { now, retentionDays })` — Remove para sempre toda ordem inativa cuja retenção acabou, e anexa `{ at, purged: [ids] }` a `logs/<date>.jsonl`.
+- `orderRender(orders)` — Markdown para leitura humana.
 
 O status é computado a partir da linha e nunca é gravado no arquivo, então quem lê o JSON vê só o que foi escrito:
 
@@ -275,21 +290,25 @@ Revogar marca, não apaga: a linha continua com `active: false`, `revokedAt` e `
 
 Um armazenamento: toda ordem vive em `orders.json` na raiz do estado e o id é `G000001`. Não existe mais a camada de projeto — o projeto é escolhido pelo `appliesTo`, que nomeia os ids ou caminhos aos quais a ordem se liga, e uma ordem sem ele vale para todos. `orderAdd` com `layer` é recusado com `layer is gone: use appliesTo`. A migração única `orderMigrateProjects(root, projectRoots)` copia cada `<projectRoot>/.okwork/orders.json` do layout antigo para o armazenamento com `appliesTo` apontando para aquele projeto, `origin` `migrated:project` e um id `G` novo, preservando texto, escopo, `until`, `active` e os campos de revogação; uma linha já copiada é pulada (mesmo texto mais `appliesTo`), a cópia acontece antes de o arquivo antigo ser renomeado para `orders.json.migrated` e ele nunca é apagado. Ela roda de forma preguiçosa em `orderList`/`orderAdd` quando um `projectRoot` é passado, que é o único uso que resta de `projectRoot`. `scope` é `all` ou `effort:simple`, `effort:normal`, `effort:hard`; `origin` é texto livre, com padrão `maintainer`, e um modelo escreve `template:<name>`. A ordem de um modelo é criada junto com o registro, movida em uma renomeação e revogada com motivo na remoção, então a ordem que permitia a execução deixa de permitir.
 
+<a id="section-11"></a>
 ## 11. The daemon
 O daemon é a metade sem tela: ninguém assiste, então todo limite que ele respeita é técnico. O núcleo não inicia nada por conta própria — `spawn` é injetado, então um teste o conduz e um adaptador o conduz de verdade.
 
 A ordem de uma passagem, `tick`:
 
-| # | Passo | Regra |
-| :- | :- | :- |
-| 1 | Pausa | `daemon.paused` existe: o registro diz `paused`, nada é aberto e nada é iniciado. O laço continua rodando. |
-| 2 | Chave de parada | `daemon.stop` existe: o registro diz `stopped: kill switch`, e `daemonRun` sai do laço. |
-| 3 | Piso de cota | Todos os clientes das demandas pendentes abaixo de `daemon.minQuotaPct` param a passagem. Um cliente sem leitura não está abaixo do piso, então um cliente não medido nunca paralisa o daemon. |
-| 4 | Retenção | `orderPurge` tira do armazenamento único toda ordem inativa cujo `orders.retentionDays` já acabou e anexa `{ at, purged: [ids] }` a `logs/<date>.jsonl`. Um daemon pausado ou parado não expurga nada. |
-| 5 | Modelos vencidos | `openDue` com a pior leitura da passagem: a cota mais baixa e a menor ociosidade dos clientes que ele conhece. |
-| 6 | Demandas pendentes, mais antiga primeiro | A caixa lista das mais novas para as mais antigas, então a fila é invertida e uma demanda que espera atrás de outras nunca passa fome. Um período atende uma execução por vez: enquanto um irmão do mesmo `ext.template` e `ext.period` está `delegated` ou `criticised`, os outros esperam. |
-| 7 | Teto | Por demanda: `classify` quando o item não tem `effort`, `profilePick`, depois `acquireSlot` antes de o iniciador rodar e `releaseSlot` se ele recusar, então uma recusa não custa nada. |
-| 8 | Uma linha de decisão | `{ at, opened, spawned, skipped, purged, stopped?, paused? }` anexada como uma única linha JSON em `logs/<date>.jsonl`, para quem lê o fim do arquivo ver sempre uma passagem inteira. |
+**Decision sequence / Sequência de decisão**
+
+- 1 — Pausa — `daemon.paused` existe: o registro diz `paused`, nada é aberto e nada é iniciado. O laço continua rodando.
+- 2 — Chave de parada — `daemon.stop` existe: o registro diz `stopped: kill switch`, e `daemonRun` sai do laço.
+- 3 — Piso de cota — Todos os clientes das demandas pendentes abaixo de `daemon.minQuotaPct` param a passagem. Um cliente sem leitura não está abaixo do piso, então um cliente não medido nunca paralisa o daemon.
+- 4 — Retenção — `orderPurge` tira do armazenamento único toda ordem inativa cujo `orders.retentionDays` já acabou e anexa `{ at, purged: [ids] }` a `logs/<date>.jsonl`. Um daemon pausado ou parado não expurga nada.
+
+**Queue and execution / Fila e execução**
+
+- 5 — Modelos vencidos — `openDue` com a pior leitura da passagem: a cota mais baixa e a menor ociosidade dos clientes que ele conhece.
+- 6 — Demandas pendentes, mais antiga primeiro — A caixa lista das mais novas para as mais antigas, então a fila é invertida e uma demanda que espera atrás de outras nunca passa fome. Um período atende uma execução por vez: enquanto um irmão do mesmo `ext.template` e `ext.period` está `delegated` ou `criticised`, os outros esperam.
+- 7 — Teto — Por demanda: `classify` quando o item não tem `effort`, `profilePick`, depois `acquireSlot` antes de o iniciador rodar e `releaseSlot` se ele recusar, então uma recusa não custa nada.
+- 8 — Uma linha de decisão — `{ at, opened, spawned, skipped, purged, stopped?, paused? }` anexada como uma única linha JSON em `logs/<date>.jsonl`, para quem lê o fim do arquivo ver sempre uma passagem inteira.
 
 O daemon nunca recusa uma demanda por conta própria: uma demanda é pulada apenas por um limite técnico (pausa, chave de parada, piso de cota, teto de concorrência) ou por falha do iniciador, e cada pulo diz qual foi.
 
@@ -305,6 +324,7 @@ O iniciador é injetado: `deps` traz `now()`, `quota(client)`, `idle(client)` e 
 
 Ritmo: um relógio monotônico mantém o intervalo mesmo quando o relógio de parede muda. Um daemon por raiz segura a trava `daemon`. `daemonStatus` exige pid vivo e registro recente. `daemon.intervalSeconds`, `daemon.minQuotaPct` e `daemon.logKeepDays` controlam ritmo, piso e retenção de logs; `orders.retentionDays` controla a retenção das ordens inativas. Valores inválidos usam os padrões configurados.
 
+<a id="section-12"></a>
 ## 12. Spawn modes
 Claude Code e Codex suportam descritores NATIVE e processos PROCESS. opencode suporta apenas PROCESS; NATIVE é recusado.
 
@@ -336,32 +356,18 @@ O diretório de trabalho é o `appliesTo` da demanda quando ele é uma única pa
 ### 12.3 Ferramentas MCP
 `src/mcp/server.js` é o servidor MCP: JSON-RPC 2.0 sobre JSON delimitado por quebras de linha no stdio, escrito à mão e sem dependências. `src/mcp/tools.js` guarda a tabela, uma ferramenta por função do núcleo, e cada manipulador valida os próprios argumentos de novo porque o `inputSchema` é documentação e nunca a única porta de entrada. Só quadros de protocolo vão para a saída padrão; o diagnóstico vai para a saída de erro.
 
-| Ferramenta | Entrada | Embrulha | Uma linha |
-| :- | :- | :- | :- |
-| `actors_list` | `locale?`, `all?`, `client?` | `listActors` | Atores configurados, tamanhos, cota, vagas, motivos e alternativas; somente leitura. |
-| `acquire_slot` | `runId`, `client`, `waitMs?` | `acquireSlot` | Reserva uma vaga, ou responde `ok: false` com o teto que recusou. |
-| `release_slot` | `runId` | `releaseSlot` | Libera a vaga de uma execução. |
-| `limits_status` | nenhum | `limitsStatus` | Os tetos e as execuções vivas por cliente. |
-| `status` | `locale?`, `all?`, `client?`, `size?`, `slices?`, `executors?` | `statusTable` / `shouldShowStatus` | Cota e capacidade do cliente detectado/escolhido; `all` mostra todos; com os fatos da tarefa, também `showBefore`. |
-| `classify` | `title`, `body?`, `kind?` | `classify` | `simple`, `normal` ou `hard`, mais o porquê. |
-| `profile_pick` | `client`, `effort`, `quota?` | `profilePick` | Modelo, esforço de raciocínio e `maxTurns` vindos do catálogo, com a classe do usuário por cima. |
-| `inbox_add` | `title`, `body?`, `kind?`, `accept?`, `effort?`, `client?`, `appliesTo?` | `inboxAdd` | Adiciona uma demanda e devolve o item guardado. |
-| `inbox_list` | `status?`, `client?`, `appliesTo?`, `limit?`, `locale?` | `inboxList` | Lista as demandas e seus donos, das mais novas às mais antigas. |
-| `inbox_claim` | `id`, `client`, `session?`, `worktree?` | `inboxClaim` | Assume demanda sem dono ou obsoleta. |
-| `inbox_release` | `id`, `client`, `session?` | `inboxRelease` | Libera posse própria ou obsoleta. |
-| `inbox_set_status` | `id`, `status`, `holder?` | `inboxSetStatus` | Move uma demanda ao longo da sequência. |
-| `order_add` | `text`, `scope?`, `until?`, `appliesTo?` | `orderAdd` | Adiciona uma ordem permanente. |
-| `order_list` | `appliesTo?` | `orderList` | Lista as ordens ativas agora. |
-| `order_remove` | `id`, `reason?` | `orderRemove` | Revoga uma ordem; o motivo tem um padrão da própria ferramenta. |
+Consulte a referência: [mcp-tools](../components/mcp-tools.pt-BR.md).
 
 Métodos: `initialize`, `notifications/initialized`, `ping`, `tools/list` e `tools/call`. Toda ferramenta responde `{content: [{type: 'text', text}], isError}`, onde `text` é o JSON do que o núcleo devolveu, então uma recusa (`ok: false`, um teto cheio) e um resultado se leem do mesmo jeito. Um método desconhecido é `-32601`, uma ferramenta desconhecida `-32602`, uma linha que não é JSON `-32700` com id nulo; em todos os casos o laço continua lendo.
 
+<a id="section-13"></a>
 ## 13. Autonomy
 Autonomia máxima é o padrão. O plugin não traz nenhuma lista fixa de ações proibidas: uma recusa vem de algo que o usuário escreveu ou de um limite técnico, nunca de uma regra que os mantenedores adivinharam.
 - As restrições são ordens permanentes. O usuário adiciona uma ("nunca dar push para `main`") e `orderRemove` a retira; nada mais pode adicionar restrição.
 - Os limites técnicos continuam configuráveis: o teto de concorrência (`limits.global`, `limits.clients`, `staleMinutes`), o piso de cota (`daemon.minQuotaPct`, `lowQuotaPct`), a chave de parada (`daemon.stop`) e o arquivo de pausa.
 - O núcleo nunca inventa um modelo, um valor de esforço ou um número de cota que o cliente não informou, e nunca aumenta um teto por conta própria.
 
+<a id="section-14"></a>
 ## 14. Global state and `appliesTo`
 Uma caixa, um conjunto de ordens permanentes, um armazenamento de modelos, em uma pasta (`OKWORK_HOME`, padrão `~/.okwork`), compartilhada por todos os projetos. O que pertence a um projeto fica nos arquivos do próprio projeto e o registro apenas o referencia, então um armazenamento compartilhado nunca precisa ser dividido.
 
@@ -374,6 +380,7 @@ Uma caixa, um conjunto de ordens permanentes, um armazenamento de modelos, em um
 
 Então: ausente significa todos os projetos, um nome significa aquele projeto, uma lista significa cada um deles, e `global` junto com outro projeto é recusado porque não diz nada preciso. `inboxList`, `orderList` e `templateList` filtram por projeto e sempre incluem os registros compartilhados; `templateSet` com `appliesTo: 'global'` apaga o campo, então o modelo volta a ser compartilhado.
 
+<a id="section-15"></a>
 ## 15. Implementation and limits
 
 Os três adaptadores, estado JSON, daemon, agendamento, instalador, release e servidor MCP estão implementados. O runner real de `client-smoke` atende Claude Code; os demais drivers e as provas Windows/macOS continuam pendentes. Veja [RELEASING.pt-BR.md](RELEASING.pt-BR.md#proof-per-pair).
@@ -392,3 +399,30 @@ Evite dois orquestradores na mesma demanda: filas e limites são independentes.
 somente leitura, com dependências injetadas. Só o comando de versão configurado
 executa, com prazo limitado. O detector informa caminho e versão; não adivinha
 pastas pessoais/configuração do kit nem detecta o plugin de dentro do kit.
+
+<a id="section-16"></a>
+## Operational reference
+
+Consulte a referência: [cli](../components/cli.pt-BR.md).
+
+Consulte a referência: [configuration](../components/configuration.pt-BR.md).
+
+Consulte a referência: [hooks](../components/hooks.pt-BR.md).
+
+### Development — Desenvolvimento
+
+Rode `node --test test/docs-consistency.test.js` para verificar a documentação e
+`node --test` para a suíte completa. Os testes de cota injetam HOME/USERPROFILE
+temporários e `CODEX_SESSIONS_DIR` (ou um leitor de cota); nunca devem descobrir
+sessões na pasta pessoal real da máquina. Os comandos de release estão no guia
+referenciado abaixo.
+
+Os testes interativos do instalador contam o consentimento da barra de status
+separadamente e recusam a oferta de setup inicial ao testar `--no-statusline`.
+
+Pull requests são bem-vindos. Leia [CONTRIBUTING.md](../../CONTRIBUTING.md) antes.
+
+Relatos de segurança não são issues públicas, veja [SECURITY.md](../../SECURITY.md).
+As notas de design estão em [docs/maintainers/DESIGN.pt-BR.md](DESIGN.pt-BR.md).
+O desenho do release está em [docs/maintainers/RELEASING.pt-BR.md](RELEASING.pt-BR.md)
+([English](RELEASING.md)).

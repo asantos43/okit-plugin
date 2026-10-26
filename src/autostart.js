@@ -35,7 +35,7 @@ function settings(options = {}) {
 }
 
 // Windows paths are stored with forward slashes, the form the clients
-// substitute (`docs/ARCHITECTURE.md` section 6).
+// substitute (`docs/maintainers/ARCHITECTURE.md` section 6).
 const winPath = (value) => value.replaceAll('\\', '/');
 const quoted = (value) => `"${value}"`;
 

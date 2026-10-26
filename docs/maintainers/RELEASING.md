@@ -1,30 +1,63 @@
 # Release design
 
+Release artifact, bootstrap, publication and native proof requirements for maintainers.
+
+<a id="contents"></a>
+## Contents
+
+- [What a release is](#section-1)
+- [Per system](#section-2)
+- [Artifacts](#section-3)
+- [Installer and updater](#section-4)
+- [The local build](#section-5)
+- [Release notes](#section-6)
+- [Release checklist](#section-7)
+- [Publishing](#section-8)
+- [Proof per pair](#section-9)
+- [Decisions](#section-10)
+- [Open questions](#section-11)
+- [Implementation status](#section-12)
+
 Command migration: package `bin` and `install.command` now name `okit-plugin`; install/update migrate owned legacy `okit` links without touching the kit. Existing 0.2.0 records remain supported; MCP and state identities stay unchanged.
 
 Status: published (see the releases page for the current version). Build, checksums, notes, checklist, publisher and installer are implemented; publication does not establish real-client proof.
 Extends [ARCHITECTURE.md](ARCHITECTURE.md) and [SMOKE.md](SMOKE.md), including the in-client smoke real-client scenario. Portuguese: [RELEASING.pt-BR.md](RELEASING.pt-BR.md).
 
+<a id="section-1"></a>
 ## What a release is
 
 One release candidate has nine separately identified client × system artifacts from the same source revision and package version. These are Node source bundles, not standalone executables: Node must satisfy `package.json.engines.node`. The package is ESM, dependency-free and private; npm registry publication is not the installation strategy.
 
 The payload contains `src/`, `skills/`, the selected adapter and shared adapters from `release.sharedAdapters` (or `release.adapters` when absent). `release.clientFiles` defines generated manifests, MCP wiring and hooks per client. Codex receives marketplace registration and activation instructions for `/plugins`; opencode receives a global module and skills. Generated files are not tracked at the checkout root.
 
+<a id="section-2"></a>
 ## Per system
 
 The table is a packaging/proof requirement, not a claim that all adapters work. Destinations resolve from the chosen client scope, its configuration and the actual home; state resolves through `OKWORK_HOME`/`stateRoot`. Never bake the builder's home into an artifact.
 
-| Client | Linux | Windows | macOS |
-| :- | :- | :- | :- |
-| Claude Code | Configured plugin root; adapter root from explicit option, `CLAUDE_CONFIG_DIR`, then home. User systemd or explicit cron; LF, readable files and executable CLI; configured bin link on PATH. | Same root precedence using native home; schtasks at logon; retain LF and forward-slash substituted paths, readable files and configured command shim on PATH. Native proof by Producer. | Same root precedence using native home; launchd agent; LF, readable files and executable CLI; configured bin link on PATH. Proof by Producer. |
-| Codex | Chosen marketplace source resolves plugin root ([decisions](#decisions)); user systemd or explicit cron; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; pair proof pending. | Chosen marketplace source and native home ([decisions](#decisions)); schtasks; LF, path quoting, readable files and configured command shim on PATH. Adapter implemented; Producer proves native pair. | Chosen marketplace source and native home ([decisions](#decisions)); launchd; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; Producer proves pair. |
-| opencode | Configured global plugin and skill destinations ([decisions](#decisions)); user systemd or explicit cron; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; pair proof pending. | Resolve global destinations on native Windows ([decisions](#decisions)); schtasks; LF, path quoting, readable files and configured command shim on PATH. Adapter implemented; Producer proves native pair. | Resolve global destinations on native macOS ([decisions](#decisions)); launchd; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; Producer proves pair. |
+**Claude Code**
+
+- Linux: Configured plugin root; adapter root from explicit option, `CLAUDE_CONFIG_DIR`, then home. User systemd or explicit cron; LF, readable files and executable CLI; configured bin link on PATH.
+- Windows: Same root precedence using native home; schtasks at logon; retain LF and forward-slash substituted paths, readable files and configured command shim on PATH. Native proof by Producer.
+- macOS: Same root precedence using native home; launchd agent; LF, readable files and executable CLI; configured bin link on PATH. Proof by Producer.
+
+**Codex**
+
+- Linux: Chosen marketplace source resolves plugin root ([decisions](#decisions)); user systemd or explicit cron; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; pair proof pending.
+- Windows: Chosen marketplace source and native home ([decisions](#decisions)); schtasks; LF, path quoting, readable files and configured command shim on PATH. Adapter implemented; Producer proves native pair.
+- macOS: Chosen marketplace source and native home ([decisions](#decisions)); launchd; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; Producer proves pair.
+
+**opencode**
+
+- Linux: Configured global plugin and skill destinations ([decisions](#decisions)); user systemd or explicit cron; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; pair proof pending.
+- Windows: Resolve global destinations on native Windows ([decisions](#decisions)); schtasks; LF, path quoting, readable files and configured command shim on PATH. Adapter implemented; Producer proves native pair.
+- macOS: Resolve global destinations on native macOS ([decisions](#decisions)); launchd; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; Producer proves pair.
 
 `src/autostart.js` currently selects systemd on Linux, schtasks on Windows and launchd on macOS. Cron is an explicit alternative, not an automatic systemd fallback; the current cron plan replaces the user's crontab and its uninstall removes it. Preserving existing cron lines is required before this path is offered ([decisions](#decisions)).
 
 Preserve UTF-8/LF payloads and smoke logs on every system. Check POSIX execute bits after extraction; on Windows check ACL readability and the chosen shim in the intended shell. Derive the command name and target from `package.json.bin` (currently `okit-plugin`), and configure the link/shim destination ([decisions](#decisions)). Client plugin discovery does not establish PATH. Autostart must resolve the installed Node and CLI paths explicitly; a login shell's PATH is insufficient. Re-plan it after an update moves the installation.
 
+<a id="section-3"></a>
 ## Artifacts
 
 The implemented build uses the following filename templates. Let `P` be a filesystem-safe encoding of `package.json.name`, `V` its `version`, `C`/`S` the client/system identifiers from release configuration and `A` the architecture. The output directory, archive format/extension `E`, name encoding and supported architectures come from configuration under [decisions](#decisions); never silently label one architecture as all architectures.
@@ -42,15 +75,10 @@ Notes come from the manually maintained root change history in `CHANGELOG.md` un
 
 The digest manifest is written and checked by `src/release/checksums.js`, driven by `scripts/checksums.js` (`npm run release:checksums -- write|verify`). One line per file carries the lowercase SHA-256 digest, two spaces and the exact name, ordered by name, LF and UTF-8, computed over the final bytes of the file without holding it in memory; the manifest never carries its own hash. A verification refuses an altered, absent or unlisted file, a malformed line and an unsafe path.
 
-User flow: obtain the chosen pair and digest manifest from the GitHub releases page ([decisions](#decisions)), verify SHA-256 before extraction, check Node against package engines, extract to the configured destination and follow that pair's instructions. Configure the package bin link/shim, MCP, skills and autostart as applicable, then prove the installation. SHA-256 detects changed bytes; it does not authenticate the download source ([decisions](#decisions)).
+Operational path: [installation](../guide/install.md), [update/removal](../guide/update-and-remove.md) and [adapters](../components/adapters.md).
 
-For Claude Code, the installer registers the marketplace and calls the client install/update commands. For Codex, it registers the source and requests activation through `/plugins`. For opencode, it installs the global module and copies skills, preserving differing files; it does not configure MCP separately. Native-event proof remains pending ([decisions](#decisions)).
-
-Before updating, stop the old daemon, retain a backup of configured state and user-edited skills/hooks, verify the new payload, change client references and PATH registration, regenerate moved autostart paths, restart and repeat proof. Existing installers refuse differing skill files and preserve user hook entries: do not promise overwrite-on-update. Back up state and user-edited skills and support rollback to the previous version ([decisions](#decisions)).
-
+<a id="section-4"></a>
 ## Installer and updater
-
-`okit-plugin install --client <client> [--prerelease] [--repo owner/repo] [--dest dir] [--no-link] [--autostart] [--dry-run] [--yes]` selects the newest release and exact client/system/architecture asset. If no stable release exists, it reports the pre-release fallback. Without `--client`, a TTY offers a numbered menu; unattended installation selects only a single detected client or refuses.
 
 The package is verified before extraction and placed in a stable version directory under the configured user data root (XDG on Linux, Application Support on macOS, LOCALAPPDATA on Windows). Each `install.<client>.json` records that client's active and previous versions; its name comes from `install.recordName`. Legacy `install.json` is read as its client's record and migrated on the first write, retaining the whole previous chain. Marketplace registration and command links point there, so downloaded/extracted source folders can be deleted. `DEFAULT_CONFIG.install` and user `config.json` control network limits, clients, executables, roots and identities; archive naming reuses `release.name`.
 
@@ -62,10 +90,11 @@ The link, autostart and state are shared, with shared settings in each record. U
 
 SHA-256 detects altered bytes; it does **not** authenticate the release source. The dependency-free Node extractor accepts regular tar.gz/zip entries, preserves executable modes, bounds decompressed size and refuses traversal, absolute paths, links and special entries.
 
-The root [INSTALL.md](../INSTALL.md) and [Portuguese guide](../INSTALL.pt-BR.md) describe the standalone `install.sh` (Linux/macOS) and `install.ps1` (Windows). Both embed the same bootstrap, generated from `src/install/bootstrap.js`; their marked configuration blocks derive from install/release defaults and Node engines at build time. Every key supports an `OKIT_` environment override. Run the script renderer to refresh checked-in scripts after changing defaults; drift tests reject stale copies.
+The root [INSTALL.md](../../INSTALL.md) and [Portuguese guide](../../INSTALL.pt-BR.md) describe the standalone `install.sh` (Linux/macOS) and `install.ps1` (Windows). Both embed the same bootstrap, generated from `src/install/bootstrap.js`; their marked configuration blocks derive from install/release defaults and Node engines at build time. Every key supports an `OKIT_` environment override. Run the script renderer to refresh checked-in scripts after changing defaults; drift tests reject stale copies.
 
 The build emits `release.publish.bootstrapAttachments` alongside archives: both scripts and both INSTALL guides. These files join the existing `payloads` attachment group in `release.publish.attachments`, so publication hashes, verifies and attaches them without changes to the publisher. They never enter pair archives. `okit-plugin install --from <folder>` validates package identity and CLI, copies a verified extracted source into the fixed destination and keeps the source. The bootstrap verifies SHA-256 with system tools before system extraction; that hash does not authenticate archive contents. Explicit script `update|uninstall` delegates to the recorded CLI without bootstrap downloads. Linux proof belongs to the Director; Windows/macOS remain for the Producer.
 
+<a id="section-5"></a>
 ## The local build
 
 PR 1 is the script `scripts/build-release.js`, also `npm run release:build`. It builds the pair payloads on the machine that runs it, writes them under the output folder and publishes nothing: no tag, no upload, no network. The values it uses — the clients, the systems, the architectures, the archive format of each system, the output folder, the files that enter a payload, the client-required file names and the name model — live in the `release` block of `DEFAULT_CONFIG` and the user configuration may replace them.
@@ -87,6 +116,7 @@ The archives are deterministic: the entries are sorted, the modification time is
 
 A pair that cannot be built is refused with its reason and no empty package is written in its place: a client whose adapter is missing, an unknown client or system, a system without an archive format. A client that has an adapter is built, as any other; the three client adapters of this repository (`claude-code`, `codex` and `opencode`) all build their pairs. The command then lists the refused pairs and answers with a code that is not zero.
 
+<a id="section-6"></a>
 ## Release notes
 
 PR 3 is `scripts/release-notes.js`, also `npm run release:notes -- [flags]`:
@@ -105,6 +135,7 @@ The configured `release.notes` texts, filename template and history path combine
 
 Missing history, absent or empty `[Unreleased]` (headings/comments alone do not count), mismatched version or invalid proof refuses with a reason and writes no output. Source lines retain their text and whitespace. This command neither publishes nor hashes notes; hash notes/checklist only after their records are final, using the checksum command.
 
+<a id="section-7"></a>
 ## Release checklist
 
 PR 4 is `scripts/release-checklist.js`, also `npm run release:checklist -- [flags]`:
@@ -124,6 +155,7 @@ node scripts/release-checklist.js [--out <dir>] [--version <version>] [--revisio
 
 Payload SHA-256 values come from the checksum manifest in the output directory when present; otherwise they remain blank. No hashes are calculated here: hash notes/checklist only after final completion. A mismatched version, invalid pair/proof/manifest or existing checklist with different contents refuses with a reason and writes nothing. Identical reruns are allowed; there is no `--force`, so filled evidence is preserved. Keep completed proof records under `docs/` as required by D-Q7.
 
+<a id="section-8"></a>
 ## Publishing
 
 ```sh
@@ -146,26 +178,34 @@ Whenever that proof/count condition holds, in every mode, `unprovenNotice` appea
 The configurable `safeName` pattern validates `remote`, `branch`, `executable` and `gitExecutable` before any command: defaults reject leading hyphens, spaces and control characters. Git positional arguments follow `--`; `rev-parse` uses `--verify --end-of-options` because bare `--` switches it to path output. In both dry-run and publication, output inside the repository must be ignored by git; otherwise add the output directory to `.gitignore` or choose `--out` outside the repository. This refusal happens before building.
 Immediately before invoking GitHub, git checks run again: a dirty tree (including generated changes in tracked output paths), changed SHA or existing tag refuses publication. `SAFE_TAG` restricts the assembled tag to a single Git ref component beginning with a letter, digit or underscore, followed by letters, digits, dots, underscores, pluses or hyphens; consecutive dots, trailing dots and a `.lock` suffix are forbidden. `GIT_TAG_NAMESPACE` names the Git protocol prefix `refs/tags/`. Failures after GitHub starts return nonzero with `publish failed (the release may be partly created): tag <tag>: <error>`; inspect the remote release before retrying. Validation refusals retain `refused: …`.
 
+<a id="section-9"></a>
 ## Proof per pair
 
 Every checkbox means **both** layers against that pair's installed candidate: `okit-plugin smoke` (in-process, scratch home) and the in-client smoke scenario inside the actual named client, loading the real installation with its real login/state. `--dry-run`, rehearsal and mocked spawns are not real-client proof. `okit-plugin client-smoke` is implemented for Claude Code; see [SMOKE.md](SMOKE.md#in-client-smoke-real). Other real-client drivers are pending. Keep each pair unchecked until both layers are recorded and accepted.
 
-| Pair checklist | Who performs and signs both layers |
-| :- | :- |
-| [ ] Claude Code × Linux | Director’s Linux machine ([decisions](#decisions)) |
-| [ ] Claude Code × Windows | Producer on the native Windows machine |
-| [ ] Claude Code × macOS | Producer on the macOS machine |
-| [ ] Codex × Linux | Director’s Linux machine ([decisions](#decisions)) |
-| [ ] Codex × Windows | Producer on the native Windows machine |
-| [ ] Codex × macOS | Producer on the macOS machine |
-| [ ] opencode × Linux | Director’s Linux machine ([decisions](#decisions)) |
-| [ ] opencode × Windows | Producer on the native Windows machine |
-| [ ] opencode × macOS | Producer on the macOS machine |
+**Claude Code**
+
+- [ ] Claude Code × Linux — Director’s Linux machine ([decisions](#decisions))
+- [ ] Claude Code × Windows — Producer on the native Windows machine
+- [ ] Claude Code × macOS — Producer on the macOS machine
+
+**Codex**
+
+- [ ] Codex × Linux — Director’s Linux machine ([decisions](#decisions))
+- [ ] Codex × Windows — Producer on the native Windows machine
+- [ ] Codex × macOS — Producer on the macOS machine
+
+**opencode**
+
+- [ ] opencode × Linux — Director’s Linux machine ([decisions](#decisions))
+- [ ] opencode × Windows — Producer on the native Windows machine
+- [ ] opencode × macOS — Producer on the macOS machine
 
 For each row record: tester/date; source revision; package version; artifact filename and SHA-256; OS/version/architecture; Node/client versions; install scope; resolved plugin/config/state/bin paths; installation and update-from-prior-candidate steps; PATH and permission checks; autostart show/install/restart outcome; both smoke commands, exits, totals and reasons; JSONL/log locations and in-client smoke scenario revision. Attach files or durable links, not just “worked”. Never publish credentials. Fresh install and update must preserve user configuration and state, including after client restart.
 
 In-process evidence requires exit 0 and every selected check passing; use the full check set for release. in-client smoke requires C1–C5 to pass, no failures, and explicit accounting for every later check. Its exit 0 can still mean `PARCIAL`; a missing hook proof prevents the installation gate passing. Missing config means incomplete installation. Keep any unresolved skip/partial row unchecked until the Producer gives written acceptance ([decisions](#decisions)); no synthetic or missing result fills another pair.
 
+<a id="section-10"></a>
 ## Decisions
 
 1. Release separately for Claude Code, Codex and opencode, on Linux, Windows and macOS: all nine pairs remain in scope.
@@ -181,10 +221,12 @@ In-process evidence requires exit 0 and every selected check passing; use the fu
 10. **Lifecycle:** keep the package private (no npm); before updating, back up state and user-edited skills, with rollback to the previous version.
 11. **Proof:** the Producer verifies Windows and macOS; Linux uses the Director's machine. Keep proof records in this repository's `docs/`; a partial smoke skip requires the Producer's written acceptance.
 
+<a id="section-11"></a>
 ## Open questions
 
 No open questions remain: Q1 to Q7 were answered by the Producer on 2026-10-23.
 
+<a id="section-12"></a>
 ## Implementation status
 
 Local build, checksums, notes, checklist and explicit publication are implemented in `src/release/`, with scripts in `package.json`. Installation, updates, backups and rollback live in `src/install/`. New candidates need their own proof: changing a version or payload invalidates its previous digest.

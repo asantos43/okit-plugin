@@ -521,7 +521,7 @@ async function daemonCommand(ctx, action, args) {
 }
 
 /**
- * `okit-plugin smoke`: the runner of `docs/SMOKE.md` on a scratch home, which prints
+ * `okit-plugin smoke`: the runner of `docs/maintainers/SMOKE.md` on a scratch home, which prints
  * its own facts and answers 0, 1 or 2. The process defaults of `main` do not
  * reach it: a smoke run must never start a client or run a `systemctl` on the
  * machine it verifies, so `run` and `spawn` arrive only when a caller injected

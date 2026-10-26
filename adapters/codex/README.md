@@ -1,6 +1,6 @@
 # Codex adapter
 
-Implements the five functions in `docs/ARCHITECTURE.md` section 4, plus
+Implements the five functions in `docs/maintainers/ARCHITECTURE.md` section 4, plus
 `configRoot`, with zero dependencies and Node >= 20 ESM.
 
 - `spawn`: `NATIVE` (default) returns `{mode, runId, agentCall: {model, effort, prompt}}`.
@@ -53,9 +53,9 @@ Facts checked locally on 2026-10-24, `codex-cli 0.163.0`:
 | Marketplace source may be local or Git | `codex plugin marketplace --help`, `codex plugin marketplace add --help` | No registration or refresh performed |
 | CLI has hook trust and MCP concepts | `codex --help` (`--dangerously-bypass-hook-trust`, `mcp`) | Hook JSON/TOML schema unverified; installer refuses; `hooks: false` describes adapter support |
 | Local session quota | Supplied verified `event_msg` / `token_count` / `rate_limits` format | Reads session tails only; no RPC or quota command |
-| Portable root `plugin.json`; shared marketplace/version | `docs/RELEASING.md`, D-Q2 | Default release configuration generates Claude Code metadata only. The installer registers the Codex marketplace and asks the user to activate it in `/plugins`; actual loading remains unproven. |
-| Skills payload copied beneath a chosen root | `docs/RELEASING.md`, Codex artifact and D-Q2 | Actual skills/plugins directories not inspected; user must select the plugin root |
-| Native Windows/macOS and desktop proof pending | `docs/RELEASING.md`, per-system table | `windows`/`desktop` conservatively false until verified; no claim that the client lacks them |
+| Portable root `plugin.json`; shared marketplace/version | `docs/maintainers/RELEASING.md`, D-Q2 | Default release configuration generates Claude Code metadata only. The installer registers the Codex marketplace and asks the user to activate it in `/plugins`; actual loading remains unproven. |
+| Skills payload copied beneath a chosen root | `docs/maintainers/RELEASING.md`, Codex artifact and D-Q2 | Actual skills/plugins directories not inspected; user must select the plugin root |
+| Native Windows/macOS and desktop proof pending | `docs/maintainers/RELEASING.md`, per-system table | `windows`/`desktop` conservatively false until verified; no claim that the client lacks them |
 
 D-Q3 concerns opencode's global JS module and does not authorize using Claude's
 hook format for Codex. No marketplace identity, model default or machine path is

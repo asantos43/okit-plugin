@@ -1,240 +1,28 @@
-# okit-plugin
+# Orchestration Kit plugin (okit plugin)
 
 ![okit plugin: terminal neon com cadeira de diretor e os principais recursos do plugin](docs/art/banner.svg)
 
-Migração: use `okit-plugin` para o plugin; `okit`/`kit` pertencem ao kit de orquestração. Instalar/atualizar substituem apenas links antigos do plugin; comandos alheios do kit e registros da 0.2.0 são preservados. Veja [instalação](INSTALL.pt-BR.md).
+O plugin okit ajuda seu assistente de IA a planejar o trabalho, dividi-lo com ajudantes e conferir o resultado.
+Funciona com Claude Code, Codex e opencode, usando os próprios assistentes do cliente.
 
-Um plugin para clientes de IA (Claude Code, Codex, opencode) que ajuda o Diretor
-a distribuir demandas pelos próprios subagentes do cliente. Núcleo Node.js >=20,
-sem dependências, com estado em JSON.
+<a id="install"></a>
+## Instalar
 
-## Install — Instalar
+1. Tenha Node.js 20 ou mais recente e um cliente de IA instalado. Siga [instalação](docs/guide/install.pt-BR.md) para baixar e ler o instalador da versão para seu sistema.
+2. Execute `sh install.sh --client codex` no Linux/macOS ou `./install.ps1 --client codex` no PowerShell do Windows, na pasta do download. Troque `codex` por `claude-code` ou `opencode` conforme necessário. Espere um resumo da versão, destino e registro do cliente; siga a mensagem de ativação e reinicie o cliente.
+3. Execute `okit-plugin setup`. Espere as escolhas de modelos detectadas; confirme-as para salvar a configuração.
 
-No Claude Code, `install --statusline` (também `update --statusline`) registra a cota mantendo o comando da barra atual e seus outros ajustes. Sem flag, o terminal pede consentimento; instalações sem terminal pulam esse registro. `--no-statusline` recusa. O instalador mostra o arquivo e o comando anterior antes de alterar; `--dry-run` e `update --check` não escrevem. Ajustes inválidos ou ilegíveis são preservados.
+<a id="first-try"></a>
+## Primeira coisa para tentar
 
-A pasta usa `install.clients.claude-code.configEnv` (`CLAUDE_CONFIG_DIR`) ou os `rootParts` configurados relativos à pasta pessoal. `statuslineRegistration` configura `settingsFile`, `backupFile`, `subcommand` e listas de argumentos de shell por plataforma. A cópia fica no estado do plugin. `uninstall` restaura os bytes originais (ou remove o arquivo criado); após edições posteriores, restaura apenas a barra anterior e mantém os demais ajustes.
+Execute `okit-plugin env report --locale pt-BR`. Espere clientes instalados, modelos confirmados, cota restante e espaço para ajudantes; informações ausentes vêm com instruções de correção.
+Depois, [peça trabalho ao Diretor](docs/guide/ask-the-director.pt-BR.md).
 
-Use o [install.sh](install.sh) da release no Linux/macOS ou
-[install.ps1](install.ps1) no PowerShell do Windows. Leia os scripts e siga
-[INSTALL.pt-BR.md](INSTALL.pt-BR.md) para requisitos, flags, downloads verificados e atualizações.
-Depois, use `okit-plugin update --check`, `okit-plugin update` ou `okit-plugin update --rollback`.
+<a id="documentation"></a>
+## Encontre o que precisa
 
-Install/update disponibilizam o comando nas novas shells por um candidato gravável já no PATH ou pelos perfis gerenciados (Windows: PATH do usuário). Reinicie o cliente de IA após atualizar o PATH. `--no-path` recusa edições do PATH; uninstall remove só a adição do instalador. Configuração e instrução alternativa: [INSTALL](INSTALL.pt-BR.md).
+- [Guia do usuário](docs/guide/README.pt-BR.md): instalar, escolher modelos, experimentar uma demonstração e resolver problemas.
+- [Referência de componentes](docs/components/README.pt-BR.md): skills, ferramentas, hooks, adaptadores, CLI, configuração e estado.
+- [Documentação de manutenção](docs/maintainers/README.pt-BR.md): arquitetura, integração, verificações e versões; [contribuições](CONTRIBUTING.md).
 
-Se o PATH do terminal atual não contém o diretório bin, install/update e `okit-plugin status` mostram uma dica bilíngue com um comando manual de `install.path.activate`: `. '<perfil>'` para bash/zsh, `source '<perfil>'` para fish ou `$env:Path = '<bin>' + ';' + $env:Path` para PowerShell/Windows. Rode o comando informado ou abra um terminal novo; shells desconhecidas ou perfis gerenciados ausentes recebem a dica do terminal novo. A dica desaparece quando bin está no PATH.
-A matriz tem nove pares cliente × sistema; existir um pacote não comprova
-uso real. Veja as [provas por par](docs/RELEASING.pt-BR.md#proof-per-pair).
-Cada pacote inclui todos os adaptadores de execução por padrão (`release.sharedAdapters: null`
-herda `release.adapters`), além dos metadados de instalação do cliente selecionado.
-
-## Usage — Uso
-
-```text
-okit-plugin install [--from <dir>] [--client <c>|all] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--no-path] [--autostart] [--dry-run] [--yes] [--statusline|--no-statusline]
-okit-plugin update [--client <c>] [--check] [--rollback] [--dry-run] [--no-path] [--statusline|--no-statusline]
-okit-plugin uninstall [--client <c>] [--purge] [--yes] [--dry-run]
-okit-plugin setup [--defaults] [--again]
-okit-plugin daemon start|stop|status|pause|resume|run-once
-okit-plugin daemon status [--table [--locale en|pt-BR]]
-okit-plugin autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
-okit-plugin status [--all] [--client <name>] [--locale en|pt-BR]
-okit-plugin env report [--client <nome>] [--locale en|pt-BR]
-okit-plugin actors [--client <nome>|--all] [--json] [--locale en|pt-BR]
-okit-plugin config show
-okit-plugin config get <key>
-okit-plugin config set <key> <value>
-okit-plugin config unset <key>
-okit-plugin kit [--require]
-okit-plugin hook post-compact
-okit-plugin smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]
-okit-plugin client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]
-  [--only <C ids>] [--keep] [--allow-unknown-quota]
-  [--max-usd [n]] [--max-turns [n]] [--max-minutes [n]] [--quota-floor [pct]] [--timeout [ms]]
-```
-
-`okit-plugin kit` imprime uma linha em inglês: instalado (caminho e versão), ausente
-(dica de instalação) ou quebrado. Executa somente o comando de versão configurado.
-`--require` retorna 1 se não estiver instalado; sem ele, a consulta é informativa.
-Os resumos de install/update (inclusive dry-run) e `okit-plugin status` incluem `kit: …`.
-Quando ambos estão presentes, a linha aponta para as
-[regras de sobreposição](docs/ARCHITECTURE.pt-BR.md#kit-and-plugin-overlap).
-Veja a [configuração do kit](INSTALL.pt-BR.md#kit-de-orquestração).
-
-O servidor MCP por stdio expõe 17 ferramentas: `acquire_slot`, `release_slot`,
-`limits_status`, `status`, `actors_list`, `env_report`, `smoke_demo`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
-`inbox_set_status`, `inbox_claim`, `inbox_release`, `order_add`, `order_list`, `order_remove`.
-
-Um **ator** é um par modelo + esforço configurado, disponível em um cliente. Consulte “quais atores/executores podem rodar?” com `actors` ou MCP `actors_list` antes de dimensionar e escolher. Lista perfis mesmo sem executores rodando; status/vagas é a visão de executores em execução. A seleção segue status: cliente detectado por padrão, `--all` para os configurados (os três quando vazio), `--client` tem prioridade. JSON inclui atores, cota, vagas livres, motivos/soluções e alternativas para tamanhos sem ator.
-
-`actors.sizeClasses` em `DEFAULT_CONFIG` mapeia S→simple, M→normal, L→hard; configure esse mapa nomeado para mudar tamanhos. `actors.criticClass` identifica o crítico à parte. Pares modelo + esforço iguais combinam tamanhos. Um tamanho ausente indica o vizinho disponível mais próximo; cota abaixo do piso ou vagas ocupadas explicam a solução. Cota desconhecida não bloqueia. A tabela mostra o estado da cota, o menor percentual restante e a idade da leitura; `status` mostra o comando para registrar uma cota. Use `okit-plugin config set profiles.<cliente>.<classe>.model <valor>` para mudar o modelo de um cliente e uma classe de trabalho.
-
-A detecção de modelos considera apenas modelos ativos como candidatos: estar listado não basta para propor um perfil. A substituição vem da mesma família: o mesmo provedor, com `setup.detect.<cliente>.family.separator` separando o provedor do nome e `family.minimumPrefix` o tamanho que o prefixo comum precisa alcançar. Um nome que não contém o separador configurado não tem provedor e é comparado inteiro; portanto o separador deve ser o que o cliente usa nos nomes (ex.: `/` para `provedor/modelo`), e um separador que não aparece em nenhum nome deixa todos os nomes sem provedor. Um separador vazio, ou que não é texto, desliga a troca automática: um modelo configurado que está ativo permanece (`source: 'listing'`), e uma classe cujo modelo configurado não está ativo é omitida com `okit-plugin config set profiles.<cliente>.<classe>.model <valor>`. Um cliente que responde sem nenhum modelo ativo não propõe nada e pede uma escolha manual com `okit-plugin config set profiles.<cliente>.<classe>.model <valor>`.
-
-### Setup
-
-`okit-plugin setup` detecta os clientes instalados, mostra o modelo que será usado em cada classe de trabalho e explica o motivo. Ele pergunta apenas quando nenhum modelo ativo serve; Enter aceita o modelo recomendado, e uma resposta inválida é perguntada novamente até `setup.maxAttempts` vezes. Todas as perguntas usam a mesma sessão de entrada, então nenhuma resposta se perde; o fim da entrada cancela sem gravar, e uma entrada que já havia terminado cancela do mesmo jeito. Um nome de cliente ou classe fora do esquema da configuração é recusado antes de o arquivo mudar. Um arquivo de configuração que não pode ser lido, ou cuja raiz não é um objeto, é recusado com uma frase simples nas duas línguas: nada é gravado e o arquivo fica como está. Um `profiles` que não é um objeto, ou um cliente dentro dele que não é um objeto, é recusado do mesmo jeito. Quando nenhum cliente com modelo ativo é encontrado, o setup diz isso com uma frase simples nas duas línguas, não grava nada, e a configuração continua pendente. `--defaults` não pergunta nada, aceita as escolhas detectadas e mantém sem alteração as classes sem correspondência, para você escolher depois com `okit-plugin config set profiles.<cliente>.<classe>.model <valor>`. O resultado fica registrado em `config.json`; executar o setup novamente mantém as configurações ativas, enquanto `--again` repete o setup.
-
-Enquanto o setup não foi feito, `okit-plugin status` mostra uma linha que nomeia o passo que falta, o fim de uma instalação ou de uma atualização oferece o setup, e a skill `okit-setup` conduz o mesmo setup em uma conversa. A skill deixa o setup pedir cada escolha de modelo e grava o conjunto completo uma única vez, somente depois da confirmação final.
-
-`okit-plugin inbox list [--locale en|pt-BR]` e MCP `inbox_list` mostram o dono de cada demanda.
-`okit-plugin inbox take <id> --client codex --session <s> --worktree <path>` toma posse atomicamente;
-outro cliente/sessão ativo é recusado. `okit-plugin inbox release <id> --client codex --session <s>` libera a posse.
-Só a CLI humana permite `okit-plugin inbox take <id> --producer-takeover [--client <c>] [--yes]`:
-mostra dono, sessão, worktree, data, obsolescência e mudanças Git não commitadas antes
-da confirmação TTY (ou `--yes`). A transferência guarda `heldBefore` com motivo `producer takeover`.
-`inbox.holdStaleMinutes` controla a idade da posse; posses obsoletas guardam motivo `stale`.
-`inbox.gitTimeoutMs` limita a consulta ao Git. Estados finais limpam a posse.
-As skills Director, Executor, Critic, Smoke, Setup e Environment orientam delegação, verificação e configuração.
-
-Pergunte “onde você está?”, “o que você tem aqui?” ou “qual ambiente?” para usar a skill instalada `okit-environment`. Ela roda `okit-plugin env report` (ou MCP `env_report`) e explica o cliente em uso, clientes instalados, modelos ativos confirmados, cota, vagas livres e pastas. Cada item que falta inclui o comando para corrigir; leituras não confirmadas ficam desconhecidas. Escolha um cliente com `--client` e o idioma com `--locale en|pt-BR`. O MCP aceita `client` e `locale` opcionais e devolve o mesmo objeto do relatório junto com seu `text` formatado.
-`smoke` roda 31 checks isolados; `client-smoke` tem 23 checks de cenário e seu
-driver real suporta Claude Code. Dry-run e rehearsal são percursos offline.
-Veja [SMOKE.pt-BR.md](docs/SMOKE.pt-BR.md) para orçamento e provas exigidas.
-
-## Configuration — Configuração
-
-O estado fica em `~/.okwork`; `OKWORK_HOME` substitui essa raiz. Gerencie as
-configurações editáveis com `okit-plugin config`; não é preciso editar o
-`config.json` à mão. [src/profiles.js](src/profiles.js) define `lowQuotaPct`,
-`limits.global`, `limits.clients`, `staleMinutes` e o catálogo de perfis.
-
-`okit-plugin config show` lista toda chave editável com o valor efetivo, a
-origem (`default` ou `user`) e uma explicação simples do efeito.
-`okit-plugin config get <chave>` mostra um valor efetivo e sua origem.
-`okit-plugin config set <chave> <valor>` valida tipo, faixa e cliente ou
-classe conhecidos e então muda só a chave pedida, de forma atômica, preservando
-o resto do arquivo. O comando imprime o valor anterior e o novo. Um valor
-inválido ou chave desconhecida é recusado sem gravação. Nomes de cliente e
-classe em caminhos pontilhados só podem conter letras, dígitos, `-` ou `_`;
-`__proto__`, `constructor` e `prototype` são reservados e recusados.
-`okit-plugin config unset <chave>` volta a chave ao padrão, e os grupos que a
-remoção deixa vazios somem também, de modo que o arquivo se lê como se lia
-antes de o valor ser posto.
-O catálogo padrão dá a cada cliente (`claude-code`, `codex`, `opencode`) um
-perfil por classe (`simple`, `normal`, `hard`), cada um com `model`, `effort`
-(`low`, `medium`, `high`) e `maxTurns`, então uma instalação
-limpa responde `profile_pick` e `actors_list` para cada cliente e classe sem
-nenhuma entrada `profiles`. Mude um campo do perfil com
-`okit-plugin config set profiles.<cliente>.<classe>.model|effort|maxTurns <valor>`;
-o seu valor substitui a classe que ele nomeia, classe por classe, e as outras
-classes mantêm o padrão. Um cliente fora do catálogo não tem perfil:
-`profile_pick` responde com um erro curto bilíngue que nomeia os clientes
-conhecidos. Para atualizar o catálogo em si, edite
-`DEFAULT_CONFIG.profiles` em [src/profiles.js](src/profiles.js).
-Uma classe com `null` está desligada: `okit-plugin config set profiles.<cliente>.<classe> null`
-desliga, `okit-plugin config unset profiles.<cliente>.<classe>` religa e um `set`
-de um campo sob uma classe desligada é recusado sem gravação; um grupo de
-cliente vazio (`{}`) é a ausência de um cliente, não uma inscrição de um.
-`okit-plugin statusline-collector [--previous <comando> <argumentos...>]` lê a
-entrada da barra do Claude Code e salva a cota atomicamente em
-`<stateRoot>/quota/claude-code.json`. Repassa a entrada original ao comando anterior
-e imprime a saída dele exatamente. Configure `statuslineCollector` no `config.json`
-da pasta de estado: `previous` é uma lista como `["node", "minha-barra.js"]`;
-a opção substitui essa lista somente nesta execução. Comandos rodam sem shell;
-scripts que precisam dela devem indicar o interpretador explicitamente.
-`statuslineCollector.timeoutMs`, `maxInputBytes` e `maxOutputBytes` limitam a execução;
-`fields` mapeia os campos recebidos e `windows` define a duração dos períodos.
-Cota ausente ou inválida preserva a leitura antiga. Comando anterior ausente,
-com falha ou lento produz saída vazia e termina com sucesso. Entrada grande
-demais é consumida e ignorada; saída grande demais é descartada. `quota show`
-mostra origem e idade. Este comando não registra nem altera ajustes do Claude Code.
-
-Todos os adaptadores aceitam cota manual em `quota/<client>.json`. O Codex também
-lê automaticamente a sessão local mais recente, sem alterar os arquivos.
-A leitura automática vence apenas quando é mais nova que a amostra manual;
-caso contrário, usa a manual. `quota show` e `status` mostram origem e idade.
-Configure `codexQuota` em `config.json`: `sessionsDirectory` e `sessionsEnv`
-escolhem a pasta (`CODEX_SESSIONS_DIR` pode substituí-la); `recentFiles`,
-`tailBytes`, `maxTailBytes` e `maxAgeMinutes` limitam a leitura;
-`filePrefix`/`fileSuffix` e `fields.*` definem nomes de arquivos e eventos. Os arquivos são ordenados pela data de
-modificação. O leitor começa pelo fim, aumenta a janela até o limite e pula
-linhas malformadas ou desconhecidas.
-O OpenCode pode ler fontes por provedor sem ler credenciais. Em
-`opencodeQuota.sources`, associe cada provedor a `{"command":["programa","argumento"]}`
-ou `{"file":"caminho/cota.json"}`; o padrão é `{}`. Comandos executam sem shell,
-com o ambiente recebido intacto. `opencodeQuota.timeoutMs`, `maxOutputBytes`
-e `maxAgeMinutes` limitam execução e validade; `fields` define os nomes dos
-campos e `windows` define a duração dos períodos.
-A fonte retorna um único JSON:
-`{"version":1,"company":"exemplo","source":"cota","read_at":1793016000,"five_hour":{"remaining_percent":80,"reset_at":null},"weekly":null}`.
-Ao menos um período deve existir; percentuais são inteiros de 0 a 100.
-Versões desconhecidas, erros e leituras inválidas, grandes demais ou antigas
-levam ao valor manual. Entre provedores e períodos, vale o menor restante.
-`quota show` e `status` mostram origem automática/manual, idade e provedor.
-Comandos devem terminar com sucesso dentro de `timeoutMs`, mesmo após imprimir JSON válido.
-Fontes configuradas sem leitura válida acrescentam `reason` bilíngue, com ou sem
-valor manual salvo; sem fontes configuradas, não há `reason`.
-
-Registre o percentual restante mostrado em `/usage` do cliente com
-`okit-plugin quota set claude-code 80 [--window-minutes n]`; os clientes são os que
-a raiz configura (`claude-code`, `codex` e `opencode` quando ela não configura nenhum),
-e o percentual deve ser numérico, entre 0 e 100.
-Consulte com `okit-plugin quota show [client]`. O comando grava atomicamente
-`remainingPct`, `windowMinutes` opcional e `recordedAt` sob `OKWORK_HOME`.
-A preparação do smoke consome o instantâneo do env: cota do cliente testado, fonte automática/manual e idade da amostra.
-A sobra de outro cliente nunca autoriza a execução; sem leitura própria, a cota
-fica desconhecida, sem estimativas. O cenário executado continua sendo o do Claude Code.
-O smoke avisa após `smoke.quotaMaxAgeMinutes` e considera a cota
-desconhecida após `smoke.quotaExpireMinutes`, configuráveis em
-`config.json`. Registros sem `recordedAt` continuam válidos. Em `quota-unknown`,
-informe uma leitura atual e repita; use `--allow-unknown-quota` só por pedido explícito.
-`postCompact.enabled`, `timeoutSec`, `maxLines` e `sections` controlam o resumo após compactação.
-`smoke.quotaFloorPct`, `maxUsd`, `maxTurns`, `maxMinutes` e `checkTimeoutMs`
-controlam o orçamento do smoke real; veja o [guia de smoke](docs/SMOKE.pt-BR.md).
-
-Defina `limits.global` e `limits.clients.<client>` com o comando; por exemplo,
-`okit-plugin config set limits.global <inteiro-positivo>` e
-`okit-plugin config set limits.clients.claude-code <inteiro-positivo>`. O teto próprio
-suplanta o padrão; cada cliente sem entrada usa `global`. Não há teto somado
-entre clientes.
-Os valores devem ser inteiros positivos; valores inválidos recusam a leitura,
-e nomes de clientes desconhecidos geram aviso no status. O antigo `perClient`
-suplanta `global` como apelido obsoleto, com aviso no status. O comando remove
-esse apelido legado da configuração do usuário ao gravar ou apagar
-`limits.global`. O significado anterior de `global` como total foi removido.
-As verificações releem a configuração sem reiniciar; o status mostra
-vivas/teto, vagas e origem própria/padrão.
-A tabela de status termina com uma frase fixa, traduzida: vagas são executores
-em execução, e `actors` lista os perfis modelo + esforço disponíveis.
-
-## Uninstall — Desinstalar
-
-Revise com `okit-plugin uninstall --dry-run` e execute `okit-plugin uninstall` para parar o
-daemon, remover o registro do cliente, as versões registradas e o link de comando.
-Estado/configuração ficam; `okit-plugin uninstall --purge --yes` apaga a raiz de estado.
-Use o destino e a raiz de estado do registro da instalação.
-Atualização e remoção usam a CLI instalada; não exigem ferramenta extra.
-
-## Development — Desenvolvimento
-
-Rode `node --test test/docs-consistency.test.js` para verificar a documentação e
-`node --test` para a suíte completa. Os testes de cota injetam HOME/USERPROFILE
-temporários e `CODEX_SESSIONS_DIR` (ou um leitor de cota); nunca devem descobrir
-sessões na pasta pessoal real da máquina. Os comandos de release estão no guia
-referenciado abaixo.
-
-Os testes interativos do instalador contam o consentimento da barra de status
-separadamente e recusam a oferta de setup inicial ao testar `--no-statusline`.
-
-Pull requests são bem-vindos. Leia [CONTRIBUTING.md](CONTRIBUTING.md) antes.
-
-Relatos de segurança não são issues públicas, veja [SECURITY.md](SECURITY.md).
-As notas de design estão em [docs/DESIGN.pt-BR.md](docs/DESIGN.pt-BR.md).
-O desenho do release está em [docs/RELEASING.pt-BR.md](docs/RELEASING.pt-BR.md)
-([English](docs/RELEASING.md)).
-
-## Documentation — Documentação
-
-Veja a [demonstração de exemplo](docs/DEMO.pt-BR.md) ([English](docs/DEMO.md)) com `okit-plugin smoke-demo --dry-run --locale pt-BR`. A ferramenta `smoke_demo` oferece a mesma prévia. Após aprovação explícita, envie seu `planHash` com `--confirm <planHash>` (ferramenta: `confirm`); mudanças no trabalho, ajudantes ou cota exigem nova aprovação. A execução paga atualmente recusa porque faltam medição de uso e teto de custo comprovados. A prévia não gasta cota nem comprova execução.
-
-Veja o [desenho da integração e glossário](docs/INTEGRATION.pt-BR.md)
-([English](docs/INTEGRATION.md)) para o ambiente comum, papéis nos clientes,
-lacunas existentes e passos de implementação.
-
-Entrega nativa de papel implementada: sessões principais recebem Director por SessionStart do Claude Code, bloco gerenciado AGENTS.md do Codex ou configuração de agente principal do opencode. Briefings de lançamento devem dizer explicitamente `Role: Executor` ou `Role: Critic` (`Papel:` também funciona); briefings ambíguos pedem esclarecimento. Modelo+esforço continua sendo o ator. “Qual o seu papel?” informa permissões, ordens, limites, títulos legíveis, atores, cota/vagas livres e fatos desconhecidos pelas ferramentas existentes somente leitura. Reinstalar/remover preserva instruções do usuário; formatos nativos sem suporte são relatados explicitamente. Passo 4 concluído: as seis skills compartilham encaminhamento bilíngue, e testes herméticos cobrem o fluxo dos três adaptadores e uma demonstração mínima offline do smoke. Perguntas de ambiente só leem fatos; setup solicitado explicitamente usa sua própria confirmação. Demonstrações reais continuam separadas.
-
-## License — Licença
-
-MIT. Veja [LICENSE](LICENSE).
-
-Versão em inglês deste arquivo: [README.md](README.md).
+[English](README.md) · [Segurança](SECURITY.md) · [Licença MIT](LICENSE)

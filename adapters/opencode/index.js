@@ -1,4 +1,4 @@
-// The five functions of docs/ARCHITECTURE.md section 4, for opencode.
+// The five functions of docs/maintainers/ARCHITECTURE.md section 4, for opencode.
 // No CLI discovery at import time, no dependencies, Node >= 20 ESM.
 import { randomUUID } from 'node:crypto';
 import { roleContext, rolePrompt } from '../../src/roles.js';
