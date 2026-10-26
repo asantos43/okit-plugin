@@ -10,6 +10,7 @@ import { configOf } from '../../src/profiles.js';
 import { listModelsOf, makeSpawner } from '../../src/spawn-process.js';
 import { readJson } from '../../src/state.js';
 import { paths, stateRoot } from '../../src/store.js';
+import { readOpencodeSource } from './quota-source.js';
 
 export const CLIENT = 'opencode';
 const DEFAULT_CONFIG = Object.freeze({
@@ -50,16 +51,20 @@ export function capabilities() {
   return { ...FEATURES, models: [...FEATURES.models], efforts: [...FEATURES.efforts] };
 }
 
-/** No verified local plan quota: read only the core's user-supplied sample.
- * @param {{stateRoot?: string, env?: object}} [opts]
- * @returns {Promise<{source: 'user', remainingPct?: number, windowMinutes?: number, recordedAt?: string, ageMinutes?: number}>}
+/** Prefer a configured provider reading, falling back to the manual sample.
+ * @param {{stateRoot?: string, env?: object, config?: object, now?: Function}} [opts]
+ * @returns {Promise<object>}
  */
-export async function readQuota({ stateRoot: root, env, now = Date.now } = {}) {
+export async function readQuota({ stateRoot: root, env, now = Date.now, config } = {}) {
+  const automatic = await readOpencodeSource({ config, env, now });
+  if (automatic) return automatic;
+  const fallback = Object.keys(config?.opencodeQuota?.sources ?? {}).length
+    ? { reason: 'The sources provided no recent valid reading; using the manual value when available. / As fontes não forneceram leitura válida recente; usando o valor manual quando disponível.' } : {};
   const stored = await readJson(join(paths(root ?? stateRoot(env)).quota, `${CLIENT}.json`), null);
   const finite = (value) => typeof value === 'number' && Number.isFinite(value);
-  if (!finite(stored?.remainingPct)) return { source: 'user' };
+  if (!finite(stored?.remainingPct)) return { source: 'user', ...fallback };
   const recorded = Date.parse(stored.recordedAt);
-  return { source: 'user', remainingPct: stored.remainingPct,
+  return { source: 'user', ...fallback, remainingPct: stored.remainingPct,
     ...(Number.isFinite(recorded) ? { recordedAt: stored.recordedAt,
       ageMinutes: Math.max(0, now() - recorded) / 60_000 } : {}),
     ...(finite(stored.windowMinutes) ? { windowMinutes: stored.windowMinutes } : {}) };

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -10,6 +10,7 @@ import { loadConfig, TOOLS, TOOL_NAMES } from '../src/mcp/tools.js';
 import { readJson, writeJsonAtomic } from '../src/state.js';
 import { invokeClient, runClientSmoke } from '../src/smoke/client.js';
 import { clientEnv } from './helpers/env.js';
+import { collectStatusline } from '../src/quota/statusline-collector.js';
 
 const HELP = '--output-format --include-hook-events --verbose --max-budget-usd --permission-mode --no-session-persistence';
 
@@ -118,6 +119,62 @@ test('unknown quota needs explicit opt-in', async (t) => {
   const allowed = await runClientSmoke(['--allow-unknown-quota'], f.io);
   assert.equal(allowed.code, 0);
   assert.ok(f.lines.some((line) => line.includes('explicitly allowed')));
+});
+
+// | Must pass | Must refuse |
+// | own automatic/manual reading above floor | only another client's reading, own below floor or expired |
+test('smoke accepts its own automatic collector but never OpenCode or Codex quota', async (t) => {
+  for (const client of ['claude-code', 'opencode', 'codex']) {
+    const f = await fixture(t);
+    await rm(join(f.root, 'quota/claude-code.json'));
+    const now = Date.now();
+    if (client === 'claude-code') {
+      await collectStatusline({ stateRoot: f.root, now: () => now,
+        input: JSON.stringify({ rate_limits: { five_hour: { used_percentage: 20, resets_at: now / 1000 + 3600 } } }) });
+    } else if (client === 'opencode') {
+      const file = join(f.root, 'provider.json');
+      await writeJsonAtomic(file, { version: 1, company: 'example', source: 'test', read_at: now / 1000,
+        five_hour: { remaining_percent: 80, reset_at: null }, weekly: null });
+      const config = await readJson(join(f.root, 'config.json'));
+      await writeJsonAtomic(join(f.root, 'config.json'), { ...config, configuredClients: ['claude-code', 'opencode'],
+        opencodeQuota: { sources: { example: { file } } } });
+    } else {
+      const directory = join(f.root, 'sessions');
+      await mkdir(directory);
+      f.io.env.CODEX_SESSIONS_DIR = directory;
+      const config = await readJson(join(f.root, 'config.json'));
+      await writeJsonAtomic(join(f.root, 'config.json'), { ...config, configuredClients: ['claude-code', 'codex'] });
+      await writeFile(join(directory, 'rollout-test.jsonl'), JSON.stringify({ timestamp: new Date(now).toISOString(),
+        type: 'event_msg', payload: { type: 'token_count', rate_limits: {
+          primary: { used_percent: 20, window_minutes: 300, resets_at: now / 1000 + 3600 } } } }));
+    }
+    const result = await runClientSmoke([], { ...f.io, now: () => now });
+    if (client === 'claude-code') {
+      assert.equal(result.code, 0, JSON.stringify(result.records));
+      assert.notEqual(result.reason, 'quota-unknown');
+    } else {
+      assert.equal(result.code, 2, client);
+      assert.equal(result.reason, 'quota-unknown', client);
+      assert.equal(f.calls.length, 0, client);
+    }
+  }
+});
+
+test('smoke reads only its own quota, including unknown, low and expired readings', async (t) => {
+  for (const [own, reason] of [[{ source: 'user' }, 'quota-unknown'],
+    [{ source: 'automatic', remainingPct: 5 }, 'quota-below-floor'],
+    [{ source: 'automatic', remainingPct: 80, ageMinutes: 5 }, 'quota-unknown']]) {
+    const f = await fixture(t, { smoke: { quotaExpireMinutes: 4 } });
+    const readClients = [];
+    const result = await runClientSmoke([], { ...f.io, readQuota: async (client) => {
+      readClients.push(client);
+      return client === 'claude-code' ? own : { source: 'user', remainingPct: 99 };
+    } });
+    assert.equal(result.code, 2);
+    assert.equal(result.reason, reason);
+    assert.equal(f.calls.length, 0);
+    assert.deepEqual(readClients, ['claude-code']);
+  }
 });
 
 test('quota set unblocks smoke and the recorded floor still refuses', async (t) => {

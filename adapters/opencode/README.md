@@ -6,8 +6,14 @@ Node >= 20, ESM, zero dependencies. Implements section 4 of
 - `spawn(actor, briefing, opts)` uses `makeSpawner` in `PROCESS` mode by default:
   `opencode run --dir <cwd> --model <provider/model> [--variant <effort>] --format json <briefing>`.
   Arguments are passed without a shell. `opts.spawn` injects a fake process.
-- `readQuota({stateRoot, env})` reads only core `quota/opencode.json` and returns
-  `{source: 'user'}` with finite stored numbers when available. It never writes quota.
+- `readQuota({stateRoot, env, config, now})` first reads `opencodeQuota.sources`:
+  provider names map to `{command: ['program', 'argument']}` or `{file: 'path'}`.
+  Commands reuse the listing executor, without a shell or added environment.
+  No credentials are read. Output and execution time are bounded by configuration.
+  The tightest valid provider/window returns `source: 'automatic'`, `provider`,
+  `remainingPct`, `windowMinutes`, `windows`, `recordedAt`, and `ageMinutes`.
+  Missing, invalid or old sources fall back to `quota/opencode.json` (`source: 'user'`).
+  The adapter never writes quota.
 - `capabilities()` returns fresh arrays. Models are empty until caller discovery;
   efforts list only examples verified in installed help, not an exhaustive enum.
   Provider variants are accepted as supplied by the actor.
@@ -22,6 +28,20 @@ Node >= 20, ESM, zero dependencies. Implements section 4 of
 `XDG_CONFIG_HOME/opencode`, then `os.homedir()/.config/opencode`.
 `opts.env` replaces environment lookup. No builder home is embedded.
 The default export includes `CLIENT` and all six functions.
+
+`opencodeQuota` defaults: `sources: {}`, `timeoutMs: 3000`,
+`maxOutputBytes: 1048576`, `maxAgeMinutes: 120`, `version: 1`,
+`windows: {five_hour: 300, weekly: 10080}`. `fields` configures contract names.
+Sources print one JSON with `version`, `company`, `source`, epoch-second `read_at`,
+and `five_hour`/`weekly` windows (absent windows may be null). Each window has
+integer `remaining_percent` (0–100) and epoch-second or null `reset_at`.
+At least one window is required. An `error` object provides no reading.
+
+Português: configure fontes por provedor em `opencodeQuota.sources`, com
+`command` (lista de palavras) ou `file` (caminho). O menor restante válido
+prevalece; erro, prazo excedido, saída grande demais ou leitura antiga usam o
+valor manual. O plugin não lê credenciais nem altera o ambiente do comando.
+Origem, idade e provedor aparecem em `quota show` e `status`.
 
 Evidence collected on 2026-10-24, installed client 1.19.4. Only help/debug
 commands ran; no model, network request or real-client proof was requested.

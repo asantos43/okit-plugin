@@ -17,6 +17,12 @@ const PROFILE_MAX_TURNS = Object.freeze({
 });
 
 export const DEFAULT_CONFIG = {
+  opencodeQuota: {
+    sources: {}, timeoutMs: 3000, maxOutputBytes: 1048576, maxAgeMinutes: 120,
+    version: 1, fields: { version: 'version', company: 'company', source: 'source',
+      readAt: 'read_at', remainingPercent: 'remaining_percent', resetAt: 'reset_at', error: 'error' },
+    windows: { five_hour: 300, weekly: 10080 },
+  },
   statuslineRegistration: {
     client: 'claude-code',
     settingsFile: 'settings.json', backupFile: 'claude-statusline.original',
@@ -601,6 +607,26 @@ export function configOf(config) {
       || !Number.isSafeInteger(minutes) || minutes < 1)) {
     throw new TypeError('Quota fields and windows are invalid / Campos e períodos de cota inválidos');
   }
+  const opencodeQuota = { ...DEFAULT_CONFIG.opencodeQuota, ...config?.opencodeQuota,
+    fields: { ...DEFAULT_CONFIG.opencodeQuota.fields, ...config?.opencodeQuota?.fields } };
+  const object = (value) => value && typeof value === 'object' && !Array.isArray(value);
+  const word = (value) => typeof value === 'string' && value.trim() && !value.includes('\0');
+  if (['timeoutMs', 'maxOutputBytes', 'maxAgeMinutes', 'version'].some((key) =>
+    !Number.isSafeInteger(opencodeQuota[key]) || opencodeQuota[key] < 1)
+    || !object(opencodeQuota.sources) || !object(opencodeQuota.windows)
+    || !Object.keys(opencodeQuota.windows).length
+    || Object.entries(opencodeQuota.windows).some(([key, value]) => !word(key)
+      || !Number.isSafeInteger(value) || value < 1)
+    || Object.values(opencodeQuota.fields).some((value) => !word(value))) {
+    throw new TypeError('Invalid quota reading settings / Ajustes de leitura de cota inválidos');
+  }
+  for (const [provider, source] of Object.entries(opencodeQuota.sources)) {
+    if (!word(provider) || !object(source) || Object.keys(source).length !== 1
+      || !(word(source.file) || (Array.isArray(source.command) && source.command.length
+        && source.command.every(word)))) {
+      throw new TypeError('Quota source: use a file or command words / Fonte de cota: use arquivo ou palavras do comando');
+    }
+  }
   const codexQuota = { ...DEFAULT_CONFIG.codexQuota, ...config?.codexQuota,
     fields: { ...DEFAULT_CONFIG.codexQuota.fields, ...config?.codexQuota?.fields } };
   for (const key of ['recentFiles', 'tailBytes', 'maxTailBytes', 'maxAgeMinutes']) {
@@ -628,6 +654,7 @@ export function configOf(config) {
     smoke,
     statuslineCollector,
     codexQuota,
+    opencodeQuota,
     setup: mergeSetup(config?.setup),
     actors: {
       ...DEFAULT_CONFIG.actors, ...config?.actors,

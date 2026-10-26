@@ -62,6 +62,7 @@ export const LABELS = {
     quotaSource: { automatic: 'automatic', manual: 'manual' },
     quotaAge: (minutes) => `${minutes} minute${minutes === 1 ? '' : 's'} ago`,
     unknownAge: 'age unknown',
+    provider: 'provider',
     setupPending: (command) => `Setup is not done yet. Run ${command} setup to choose the models.`,
   },
   'pt-BR': {
@@ -85,6 +86,7 @@ export const LABELS = {
     quotaSource: { automatic: 'automática', manual: 'manual' },
     quotaAge: (minutes) => `há ${minutes} minuto${minutes === 1 ? '' : 's'}`,
     unknownAge: 'idade desconhecida',
+    provider: 'provedor',
     setupPending: (command) => `O setup ainda não foi feito. Rode ${command} setup para escolher os modelos.`,
   },
 };
@@ -189,7 +191,7 @@ export function quotaOrigin(reading, now, labels = LABELS.en) {
   const recorded = Date.parse(reading?.recordedAt);
   const age = Number.isFinite(recorded) ? Math.max(0, now - recorded) / 60_000 : reading?.ageMinutes;
   return `${labels.quotaSource[reading?.source === 'user' ? 'manual' : reading?.source] ?? reading?.source ?? labels.missing} (${typeof age === 'number'
-    ? labels.quotaAge(Math.floor(age)) : labels.unknownAge})`;
+    ? labels.quotaAge(Math.floor(age)) : labels.unknownAge})${reading?.provider ? ` — ${labels.provider}: ${reading.provider}` : ''}`;
 }
 
 /**
