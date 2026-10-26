@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Refresh English and Portuguese documentation and add a compact pixel director chair banner with documentation link checks. / Atualizar a documentação em inglês e português e adicionar um banner compacto com cadeira de diretor em pixels e verificações dos links da documentação.
+
 - Read OpenCode quota from configured provider commands or files, with bounded execution, manual fallback and provider reporting; use adapter quota readings in client smoke. / Ler a cota do OpenCode por comandos ou arquivos configurados por provedor, com execução limitada, alternativa manual e indicação do provedor; usar leituras dos adaptadores no smoke do cliente.
 
 - Register Claude Code quota collection with consent, command chaining, atomic settings writes and exact uninstall restoration. / Registrar a coleta de cota do Claude Code com consentimento, encadeamento de comandos, escrita atômica dos ajustes e restauração exata ao desinstalar.

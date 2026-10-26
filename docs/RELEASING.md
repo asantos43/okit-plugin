@@ -3,13 +3,13 @@
 Command migration: package `bin` and `install.command` now name `okit-plugin`; install/update migrate owned legacy `okit` links without touching the kit. Existing 0.2.0 records remain supported; MCP and state identities stay unchanged.
 
 Status: published (see the releases page for the current version). Build, checksums, notes, checklist, publisher and installer are implemented; publication does not establish real-client proof.
-Extends [ARCHITECTURE.md](ARCHITECTURE.md) and [SMOKE.md](SMOKE.md), including the D25 real-client scenario. Portuguese: [RELEASING.pt-BR.md](RELEASING.pt-BR.md).
+Extends [ARCHITECTURE.md](ARCHITECTURE.md) and [SMOKE.md](SMOKE.md), including the in-client smoke real-client scenario. Portuguese: [RELEASING.pt-BR.md](RELEASING.pt-BR.md).
 
 ## What a release is
 
 One release candidate has nine separately identified client × system artifacts from the same source revision and package version. These are Node source bundles, not standalone executables: Node must satisfy `package.json.engines.node`. The package is ESM, dependency-free and private; npm registry publication is not the installation strategy.
 
-The shared payload contains `src/`, `skills/` and the selected adapter. All three adapters exist. By default, only Claude Code generates plugin/marketplace manifests, MCP wiring and a compact hook. Codex receives instructions and an adapter; the installer registers the marketplace and requests activation in `/plugins`. opencode receives a global module and skills. Generated client files are not tracked at the checkout root.
+The payload contains `src/`, `skills/`, the selected adapter and shared adapters from `release.sharedAdapters` (or `release.adapters` when absent). `release.clientFiles` defines generated manifests, MCP wiring and hooks per client. Codex receives marketplace registration and activation instructions for `/plugins`; opencode receives a global module and skills. Generated files are not tracked at the checkout root.
 
 ## Per system
 
@@ -18,16 +18,16 @@ The table is a packaging/proof requirement, not a claim that all adapters work. 
 | Client | Linux | Windows | macOS |
 | :- | :- | :- | :- |
 | Claude Code | Configured plugin root; adapter root from explicit option, `CLAUDE_CONFIG_DIR`, then home. User systemd or explicit cron; LF, readable files and executable CLI; configured bin link on PATH. | Same root precedence using native home; schtasks at logon; retain LF and forward-slash substituted paths, readable files and configured command shim on PATH. Native proof by Producer. | Same root precedence using native home; launchd agent; LF, readable files and executable CLI; configured bin link on PATH. Proof by Producer. |
-| Codex | Chosen marketplace source resolves plugin root ([D-Q2](#decisions)); user systemd or explicit cron; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; pair proof pending. | Chosen marketplace source and native home ([D-Q2](#decisions)); schtasks; LF, path quoting, readable files and configured command shim on PATH. Adapter implemented; Producer proves native pair. | Chosen marketplace source and native home ([D-Q2](#decisions)); launchd; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; Producer proves pair. |
-| opencode | Configured global plugin and skill destinations ([D-Q3](#decisions)); user systemd or explicit cron; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; pair proof pending. | Resolve global destinations on native Windows ([D-Q3](#decisions)); schtasks; LF, path quoting, readable files and configured command shim on PATH. Adapter implemented; Producer proves native pair. | Resolve global destinations on native macOS ([D-Q3](#decisions)); launchd; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; Producer proves pair. |
+| Codex | Chosen marketplace source resolves plugin root ([decisions](#decisions)); user systemd or explicit cron; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; pair proof pending. | Chosen marketplace source and native home ([decisions](#decisions)); schtasks; LF, path quoting, readable files and configured command shim on PATH. Adapter implemented; Producer proves native pair. | Chosen marketplace source and native home ([decisions](#decisions)); launchd; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; Producer proves pair. |
+| opencode | Configured global plugin and skill destinations ([decisions](#decisions)); user systemd or explicit cron; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; pair proof pending. | Resolve global destinations on native Windows ([decisions](#decisions)); schtasks; LF, path quoting, readable files and configured command shim on PATH. Adapter implemented; Producer proves native pair. | Resolve global destinations on native macOS ([decisions](#decisions)); launchd; LF, readable files and executable CLI; configured bin link on PATH. Adapter implemented; Producer proves pair. |
 
-`src/autostart.js` currently selects systemd on Linux, schtasks on Windows and launchd on macOS. Cron is an explicit alternative, not an automatic systemd fallback; the current cron plan replaces the user's crontab and its uninstall removes it. Preserving existing cron lines is required before this path is offered ([D-Q4](#decisions)).
+`src/autostart.js` currently selects systemd on Linux, schtasks on Windows and launchd on macOS. Cron is an explicit alternative, not an automatic systemd fallback; the current cron plan replaces the user's crontab and its uninstall removes it. Preserving existing cron lines is required before this path is offered ([decisions](#decisions)).
 
-Preserve UTF-8/LF payloads and smoke logs on every system. Check POSIX execute bits after extraction; on Windows check ACL readability and the chosen shim in the intended shell. Derive the command name and target from `package.json.bin` (currently `okit-plugin`), and configure the link/shim destination ([D-Q4](#decisions)). Client plugin discovery does not establish PATH. Autostart must resolve the installed Node and CLI paths explicitly; a login shell's PATH is insufficient. Re-plan it after an update moves the installation.
+Preserve UTF-8/LF payloads and smoke logs on every system. Check POSIX execute bits after extraction; on Windows check ACL readability and the chosen shim in the intended shell. Derive the command name and target from `package.json.bin` (currently `okit-plugin`), and configure the link/shim destination ([decisions](#decisions)). Client plugin discovery does not establish PATH. Autostart must resolve the installed Node and CLI paths explicitly; a login shell's PATH is insufficient. Re-plan it after an update moves the installation.
 
 ## Artifacts
 
-The implemented build uses the following filename templates. Let `P` be a filesystem-safe encoding of `package.json.name`, `V` its `version`, `C`/`S` the client/system identifiers from release configuration and `A` the architecture. The output directory, archive format/extension `E`, name encoding and supported architectures come from configuration under [D-Q5](#decisions); never silently label one architecture as all architectures.
+The implemented build uses the following filename templates. Let `P` be a filesystem-safe encoding of `package.json.name`, `V` its `version`, `C`/`S` the client/system identifiers from release configuration and `A` the architecture. The output directory, archive format/extension `E`, name encoding and supported architectures come from configuration under [decisions](#decisions); never silently label one architecture as all architectures.
 
 | Output | Derived filename | Contents |
 | :- | :- | :- |
@@ -42,11 +42,11 @@ Notes come from the manually maintained root change history in `CHANGELOG.md` un
 
 The digest manifest is written and checked by `src/release/checksums.js`, driven by `scripts/checksums.js` (`npm run release:checksums -- write|verify`). One line per file carries the lowercase SHA-256 digest, two spaces and the exact name, ordered by name, LF and UTF-8, computed over the final bytes of the file without holding it in memory; the manifest never carries its own hash. A verification refuses an altered, absent or unlisted file, a malformed line and an unsafe path.
 
-User flow: obtain the chosen pair and digest manifest from the GitHub releases page ([D-Q5](#decisions)), verify SHA-256 before extraction, check Node against package engines, extract to the configured destination and follow that pair's instructions. Configure the package bin link/shim, MCP, skills and autostart as applicable, then prove the installation. SHA-256 detects changed bytes; it does not authenticate the download source ([D-Q5](#decisions)).
+User flow: obtain the chosen pair and digest manifest from the GitHub releases page ([decisions](#decisions)), verify SHA-256 before extraction, check Node against package engines, extract to the configured destination and follow that pair's instructions. Configure the package bin link/shim, MCP, skills and autostart as applicable, then prove the installation. SHA-256 detects changed bytes; it does not authenticate the download source ([decisions](#decisions)).
 
-For Claude Code, the installer registers the marketplace and calls the client install/update commands. For Codex, it registers the source and requests activation through `/plugins`. For opencode, it installs the global module and copies skills, preserving differing files; it does not configure MCP separately. Native-event proof remains pending ([D-Q3](#decisions)).
+For Claude Code, the installer registers the marketplace and calls the client install/update commands. For Codex, it registers the source and requests activation through `/plugins`. For opencode, it installs the global module and copies skills, preserving differing files; it does not configure MCP separately. Native-event proof remains pending ([decisions](#decisions)).
 
-Before updating, stop the old daemon, retain a backup of configured state and user-edited skills/hooks, verify the new payload, change client references and PATH registration, regenerate moved autostart paths, restart and repeat proof. Existing installers refuse differing skill files and preserve user hook entries: do not promise overwrite-on-update. Back up state and user-edited skills and support rollback to the previous version ([D-Q6](#decisions)).
+Before updating, stop the old daemon, retain a backup of configured state and user-edited skills/hooks, verify the new payload, change client references and PATH registration, regenerate moved autostart paths, restart and repeat proof. Existing installers refuse differing skill files and preserve user hook entries: do not promise overwrite-on-update. Back up state and user-edited skills and support rollback to the previous version ([decisions](#decisions)).
 
 ## Installer and updater
 
@@ -148,23 +148,23 @@ Immediately before invoking GitHub, git checks run again: a dirty tree (includin
 
 ## Proof per pair
 
-Every checkbox means **both** layers against that pair's installed candidate: `okit-plugin smoke` (in-process, scratch home) and the D25 scenario inside the actual named client, loading the real installation with its real login/state. `--dry-run`, rehearsal and mocked spawns are not real-client proof. `okit-plugin client-smoke` is implemented for Claude Code; see [SMOKE.md](SMOKE.md#in-client-smoke-real). Other real-client drivers are pending. Keep each pair unchecked until both layers are recorded and accepted.
+Every checkbox means **both** layers against that pair's installed candidate: `okit-plugin smoke` (in-process, scratch home) and the in-client smoke scenario inside the actual named client, loading the real installation with its real login/state. `--dry-run`, rehearsal and mocked spawns are not real-client proof. `okit-plugin client-smoke` is implemented for Claude Code; see [SMOKE.md](SMOKE.md#in-client-smoke-real). Other real-client drivers are pending. Keep each pair unchecked until both layers are recorded and accepted.
 
 | Pair checklist | Who performs and signs both layers |
 | :- | :- |
-| [ ] Claude Code × Linux | Director’s Linux machine ([D-Q7](#decisions)) |
+| [ ] Claude Code × Linux | Director’s Linux machine ([decisions](#decisions)) |
 | [ ] Claude Code × Windows | Producer on the native Windows machine |
 | [ ] Claude Code × macOS | Producer on the macOS machine |
-| [ ] Codex × Linux | Director’s Linux machine ([D-Q7](#decisions)) |
+| [ ] Codex × Linux | Director’s Linux machine ([decisions](#decisions)) |
 | [ ] Codex × Windows | Producer on the native Windows machine |
 | [ ] Codex × macOS | Producer on the macOS machine |
-| [ ] opencode × Linux | Director’s Linux machine ([D-Q7](#decisions)) |
+| [ ] opencode × Linux | Director’s Linux machine ([decisions](#decisions)) |
 | [ ] opencode × Windows | Producer on the native Windows machine |
 | [ ] opencode × macOS | Producer on the macOS machine |
 
-For each row record: tester/date; source revision; package version; artifact filename and SHA-256; OS/version/architecture; Node/client versions; install scope; resolved plugin/config/state/bin paths; installation and update-from-prior-candidate steps; PATH and permission checks; autostart show/install/restart outcome; both smoke commands, exits, totals and reasons; JSONL/log locations and D25 scenario revision. Attach files or durable links, not just “worked”. Never publish credentials. Fresh install and update must preserve user configuration and state, including after client restart.
+For each row record: tester/date; source revision; package version; artifact filename and SHA-256; OS/version/architecture; Node/client versions; install scope; resolved plugin/config/state/bin paths; installation and update-from-prior-candidate steps; PATH and permission checks; autostart show/install/restart outcome; both smoke commands, exits, totals and reasons; JSONL/log locations and in-client smoke scenario revision. Attach files or durable links, not just “worked”. Never publish credentials. Fresh install and update must preserve user configuration and state, including after client restart.
 
-In-process evidence requires exit 0 and every selected check passing; use the full check set for release. D25 requires C1–C5 to pass, no failures, and explicit accounting for every later check. Its exit 0 can still mean `PARCIAL`; a missing hook proof prevents the installation gate passing. Missing config means incomplete installation. Keep any unresolved skip/partial row unchecked until the Producer gives written acceptance ([D-Q7](#decisions)); no synthetic or missing result fills another pair.
+In-process evidence requires exit 0 and every selected check passing; use the full check set for release. in-client smoke requires C1–C5 to pass, no failures, and explicit accounting for every later check. Its exit 0 can still mean `PARCIAL`; a missing hook proof prevents the installation gate passing. Missing config means incomplete installation. Keep any unresolved skip/partial row unchecked until the Producer gives written acceptance ([decisions](#decisions)); no synthetic or missing result fills another pair.
 
 ## Decisions
 
@@ -172,14 +172,14 @@ In-process evidence requires exit 0 and every selected check passing; use the fu
 2. Build locally. GitHub Actions does not run the release on its own.
 3. Only cut a tag or publish when the Producer explicitly requests it; preparing candidates is separate from cutting a release.
 4. Derive versions, names and paths from `package.json` and configuration; no fixed project constants in the release design or future implementation.
-5. D26 is documentation only: no code, script, dependency, tag, publication or change to `SMOKE.md`.
-6. **D-Q1 — Claude Code:** use the project's GitHub marketplace (`asantos43/okit-plugin`), user scope and one entry per system.
-7. **D-Q2 — Codex:** use the portable manifest (`plugin.json` at the root), in the same marketplace and at the same version as Claude Code; validate against the actual installed Codex client.
-8. **D-Q3 — opencode:** install a global JS module in `~/.config/opencode/plugins/`; prove the D25 hook through opencode's own events, without assuming Claude's hook format.
-9. **D-Q4 — Machine integration:** derive bin/shim destinations and autostart identities from configuration, with no code constants; cron preserves existing lines.
-10. **D-Q5 — Output:** use `.tar.gz` on Linux and macOS, `.zip` on Windows, one payload per architecture, named `<P>-<V>-<C>-<S>.<E>`, with a SHA-256 manifest; download from the GitHub releases page.
-11. **D-Q6 — Lifecycle:** start at `0.1.0`, keep the package private (no npm); before updating, back up state and user-edited skills, with rollback to the previous version.
-12. **D-Q7 — Proof:** the Producer verifies Windows and macOS; Linux uses the Director's machine. Keep proof records in this repository's `docs/`; a partial smoke skip requires the Producer's written acceptance.
+
+5. **Claude Code:** use the project's GitHub marketplace (`asantos43/okit-plugin`), user scope and one entry per system.
+6. **Codex:** use the portable manifest (`plugin.json` at the root), in the same marketplace and at the same version as Claude Code; validate against the actual installed Codex client.
+7. **opencode:** install a global JS module in `~/.config/opencode/plugins/`; prove the in-client smoke hook through opencode's own events, without assuming Claude's hook format.
+8. **Machine integration:** derive bin/shim destinations and autostart identities from configuration, with no code constants; crontab preservation remains pending.
+9. **Output:** use `.tar.gz` on Linux and macOS, `.zip` on Windows, one payload per architecture, named `<P>-<V>-<C>-<S>-<A>.<E>`, with a SHA-256 manifest; download from the GitHub releases page.
+10. **Lifecycle:** keep the package private (no npm); before updating, back up state and user-edited skills, with rollback to the previous version.
+11. **Proof:** the Producer verifies Windows and macOS; Linux uses the Director's machine. Keep proof records in this repository's `docs/`; a partial smoke skip requires the Producer's written acceptance.
 
 ## Open questions
 

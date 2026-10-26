@@ -21,12 +21,12 @@ Inbox items optionally carry `hold: {client, session, worktree, takenAt, via}`;
 `releasedAt` and `reason` (including `stale` and `producer takeover`). Old items without
 holds remain valid. All mutations use the inbox lock and atomic write.
 Identity is client plus session. Same-owner claims repeat idempotently; another active
-owner is refused. Staleness uses `inbox.holdStaleMinutes` (default 120, integer >= 1).
+owner is refused. Staleness uses `inbox.holdStaleMinutes` (integer >= 1).
 Owner or stale release and `consolidated`/`failed` clear the hold. Delegation accepts
 an optional `holder`; when present it must match an existing owner. Legacy calls omit it.
 MCP lists and status show ownership in English or Portuguese. Only `okit-plugin inbox take`
 with `--producer-takeover` can force transfer, after situation display (including Git
-changes with `inbox.gitTimeoutMs`, default 5000) and TTY confirmation or `--yes`.
+changes with `inbox.gitTimeoutMs`) and TTY confirmation or `--yes`.
 The confirmed holder is compared again inside the lock to reject intervening changes.
 
 ## 3. State on disk
@@ -51,7 +51,7 @@ Project-side files live beside the project, not in this root: the project's own 
 
 - Write: serialise to `<file>.<pid>.<random>.tmp`, then `fs.rename` over the target, so a reader never sees half a file. On `EPERM` or `EBUSY` (Windows) retry the rename a few times before failing.
 - Lock: `fs.mkdir` the `<name>.lock` folder, which holds `owner.json` `{pid, startedAt}`; `EEXIST` means busy; release with `rmdir`, which waits out `EPERM`/`EBUSY` like every other call: the file it removes was written and closed a moment ago, and a lock left behind by that refusal holds the owner of a process that is gone and is younger than `staleMs`, which no contender can take. A release answered by `ENOTEMPTY` (emptied, but a contender wrote an entry back before the `rmdir`) or `ENOENT` (another contender removed it first) counts as released: the entry that answered is the only evidence every waiter reads, so retrying would take a lock from a live owner.
-- Stale: a lock is stale when it is older than `staleMs` (default 30 s) **and** its pid is dead; with no readable `owner.json` the folder `mtime` is used and there is no pid check. Takeover claims the dead owner's folder in place: it renames the dead owner's `owner.json` out of the folder (only one rename can win) and then creates its own `owner.json` exclusively (`wx`), so two takers cannot both win. The folder is never moved aside. A Windows refusal that outlives the retries of any one step of that claim gives the attempt up and leaves the folder as it was found, so the poll loop judges it again instead of the acquire ending on a raw code.
+- Stale: a lock is stale when it is older than `staleMs` **and** its pid is dead; with no readable `owner.json` the folder `mtime` is used and there is no pid check. Takeover claims the dead owner's folder in place: it renames the dead owner's `owner.json` out of the folder (only one rename can win) and then creates its own `owner.json` exclusively (`wx`), so two takers cannot both win. The folder is never moved aside. A Windows refusal that outlives the retries of any one step of that claim gives the attempt up and leaves the folder as it was found, so the poll loop judges it again instead of the acquire ending on a raw code.
 - One writer per file: inbox, orders and runs are separate files, so two steps of one item do not block each other.
 
 ## 4. Adapter interface
@@ -73,12 +73,13 @@ Each adapter provides these five operations, plus its documented helpers. The co
 | Codex | NATIVE descriptor; PROCESS | Explicit refusal, no I/O |
 | opencode | PROCESS | Copy a global JS plugin module |
 
-`adapters/claude-code/index.js` is the five functions of this section for one client, and it is the adapter the core imports instead of the CLI. `spawn` returns `{mode: 'NATIVE', runId, agentCall: {model, effort, prompt}}` with no process started, and reuses `makeSpawner` of `src/spawn-process.js` in `PROCESS`. `readQuota` answers `{source: 'user'}` and adds `remainingPct`/`windowMinutes` only from `quota/claude-code.json`. `installSkill` copies into `<root>/skills/<name>/` through `installSkillFiles`, `installHooks` merges `<root>/hooks/hooks.json` without dropping a user's entry, and `root` is `opts.root`, then `CLAUDE_CONFIG_DIR`, then `~/.claude`. Codex also implements native descriptors and process spawning; opencode supports PROCESS only. Codex hook installation refuses; opencode installs a JS module.
+`adapters/claude-code/index.js` implements the client contract. `spawn` returns a NATIVE descriptor or uses `makeSpawner` in PROCESS. `readQuota` reads the automatic status bar sample or the manual sample in `quota/claude-code.json`, with source and age. `installSkill` preserves differing files and `installHooks` merges entries without dropping user entries. The root comes from `opts.root`, `CLAUDE_CONFIG_DIR` or the home folder. Codex offers NATIVE and PROCESS but refuses hook installation. opencode offers PROCESS and installs a global JS module.
 
 ## 5. Quota
-- `source: api` — an injected API reading; none of the bundled adapters queries a quota API.
-- `source: user` — no number; ask once, store it in `quota/<client>.json`, stale after `windowMinutes`.
-- `source: off` — the user declined, or the client has no channel; class choice then ignores quota.
+- Claude Code: `statusline-collector` saves status bar input after consented registration with `install --statusline` or `update --statusline`.
+- Codex: `codexQuota` controls local session reading; the automatic sample wins when newer than the manual one.
+- opencode: `opencodeQuota.sources` supplies provider commands or files; a valid source wins over the manual sample.
+- All accept manual readings through `okit-plugin quota set <client> <pct>`; without a valid reading, quota stays unknown.
 
 Never estimate quota. `profilePick` lowers one class when `remainingPct < lowQuotaPct`; `source: off` and absent readings do not downgrade. Adapters return automatic readings when available, with manual fallback.
 
@@ -90,8 +91,8 @@ old sources yield the manual sample. The lowest remaining percentage among
 valid providers/windows wins. `quotaOrigin` shows source, age and provider in
 `status` and `quota show`. Client smoke reads adapters and preserves its
 warning/expiration checks on `ageMinutes`. The execution scenario stays Claude
-Code; if its quota is absent or expired, the lowest unexpired reading from
-another configured client can supply the quota check.
+Code. Only that client's own adapter reading authorizes the run; absent or expired
+quota stays unknown. Another client's quota never authorizes it.
 
 ### 5.1 The quota table
 
@@ -105,9 +106,9 @@ The actors Quota column shows the localized state, tightest remaining percentage
 
 `detectClient(deps.env)` uses the named `CLIENT_ENV_MARKERS` table: `CLAUDECODE` for Claude Code, `CODEX_THREAD_ID` or `CODEX_CI` for Codex, `OPENCODE` or `OPENCODE_PID` for opencode. Empty or `0` values do not identify a session; configured home folders do not identify a running client. CLI and MCP pass `ctx.env` (the real process environment when not injected); the table itself reads only its injected environment.
 
-The Status column is a word, never ANSI: `green` at or more than 15 points above `lowQuotaPct`, `yellow` from the floor up to that, and `red` below it. The row follows the tightest window, and a red row quotes the standing order about the quota floor, falling back to `lowQuotaPct`. Without a reading, it says “No quota value recorded” and gives the recording command: `okit-plugin quota set <client> <pct>`. No percentage is guessed and no automatic collection runs. A recorded value shows its age from `recordedAt`, including after a cache refresh; older readings without a date use the first read time. Below the table, each shown client has live/cap, the cap source (client/default), and available slots clamped at zero, plus the quota floor. Every word lives in `LABELS` with `en` and `pt-BR`, chosen by `deps.locale`.
+The Status column is a word, never ANSI: `green` at or more than 15 points above `lowQuotaPct`, `yellow` from the floor up to that, and `red` below it. The row follows the tightest window, and a red row quotes the standing order about the quota floor, falling back to `lowQuotaPct`. Without a reading, it says “No quota value recorded” and gives the recording command: `okit-plugin quota set <client> <pct>`. No percentage is guessed; adapters read automatic or manual samples. A recorded value shows its age from `recordedAt`, including after a cache refresh; older readings without a date use the first read time. Below the table, each shown client has live/cap, the cap source (client/default), and available slots clamped at zero, plus the quota floor. Every word lives in `LABELS` with `en` and `pt-BR`, chosen by `deps.locale`.
 
-Readings are cached per client for `ttlMs` (60 s by default) against `deps.now`, so two calls in a row cost one read. `shouldShowStatus({size, slices, executors})` is true for size `L`, `slices >= 2` or `executors > 1`, and the Director shows the table when it is. `okit-plugin daemon status --table [--locale en|pt-BR]` prints the same table under its daemon lines, and a daemon pass never reads a quota for it: `daemonStatus(root, { table })` builds it only when those deps are handed in.
+Readings are cached per client for `ttlMs` against `deps.now`, so two calls in a row cost one read. `shouldShowStatus({size, slices, executors})` is true for size `L`, `slices >= 2` or `executors > 1`, and the Director shows the table when it is. `okit-plugin daemon status --table [--locale en|pt-BR]` prints the same table under its daemon lines, and a daemon pass never reads a quota for it: `daemonStatus(root, { table })` builds it only when those deps are handed in.
 
 ### 5.2 The profile catalog
 
@@ -190,7 +191,7 @@ One input reader serves every setup question. It keeps the received lines in ord
 ## 7. Concurrency limit
 | Scope | Default | Read from |
 | :- | :- | :- |
-| Default for each client | 3 actors at once | `limits.global` in `config.json` |
+| Default for each client | Set in configuration | `limits.global` in `config.json` |
 | Client override | Replaces the default | `limits.clients.<client>`; quota does not change the cap |
 
 There is no combined cap across clients. For example, `clients: {"claude-code": 100}`
@@ -199,7 +200,7 @@ validated on read; unknown client names produce warnings. Legacy `perClient`
 is a deprecated alias that overrides `global` with a status warning; `global`
 no longer means a shared pool. Configuration is read for each check without restart.
 
-The core counts live runs in `runs/<runId>.json` (`status: live`) rather than trusting the client to hold the cap. `acquireSlot` defaults to `waitMs: 0` and returns `ok: false` when full; callers may request a wait. `releaseSlot` ends a reservation; live counting ignores runs older than `staleMinutes` (30 by default). Codex caps itself with `agents.max_concurrent_threads_per_session`; set it to the same number so the two agree.
+The core counts live runs in `runs/<runId>.json` (`status: live`) rather than trusting the client to hold the cap. `acquireSlot` defaults to `waitMs: 0` and returns `ok: false` when full; callers may request a wait. `releaseSlot` ends a reservation; live counting ignores runs older than `staleMinutes` . Codex caps itself with `agents.max_concurrent_threads_per_session`; set it to the same number so the two agree.
 
 ## 8. Schedules and recurrence
 `src/schedule.js` is pure: an injected instant, no I/O. `src/templates.js` stores a demand that its own schedule opens, one inbox child per period.
@@ -260,7 +261,7 @@ Status is computed from the row and is never written to the file, so a reader of
 | `expired` | `until` is a date that is not in the future. At the exact instant of `until` the order is already expired. |
 | `active` | Anything else: never revoked and still inside its `until`. |
 
-Revoking marks, it does not delete: the row stays with `active: false`, `revokedAt` and `revokedReason`. Re-adding the same text later makes a new order with a new id, and a second revoke of the same id is refused so the first reason survives. An inactive order is then purged for good once its retention is over, and the purge is logged: `purgeAfter` is `revokedAt` for a revoked order and `until` for an expired one, plus `orders.retentionDays` (default 90) in `config.json`; `orderPurge` removes the row from the one store only once that date has arrived, and writes `{ at, purged: [ids] }` to `logs/<date>.jsonl` so the trail of what went survives the removal. A broken `orders.retentionDays` falls back to the default instead of stopping a reader.
+Revoking marks, it does not delete: the row stays with `active: false`, `revokedAt` and `revokedReason`. Re-adding the same text later makes a new order with a new id, and a second revoke of the same id is refused so the first reason survives. An inactive order is then purged for good once its retention is over, and the purge is logged: `purgeAfter` is `revokedAt` for a revoked order and `until` for an expired one, plus `orders.retentionDays`  in `config.json`; `orderPurge` removes the row from the one store only once that date has arrived, and writes `{ at, purged: [ids] }` to `logs/<date>.jsonl` so the trail of what went survives the removal. A broken `orders.retentionDays` falls back to the default instead of stopping a reader.
 
 One store: every order lives in `orders.json` under the state root and an id is `G000001`. There is no project layer any more — a project is chosen by `appliesTo`, which names the project ids or paths the order binds, and an order without it binds every project. `orderAdd` with a `layer` is refused with `layer is gone: use appliesTo`. The one-time `orderMigrateProjects(root, projectRoots)` copies each `<projectRoot>/.okwork/orders.json` of the old layout into the store with `appliesTo` set to that project path, `origin` `migrated:project` and a fresh `G` id, keeping text, scope, `until`, `active` and the revoke fields; a row already copied is skipped (same text plus `appliesTo`), the copy happens before the old file is renamed to `orders.json.migrated` and it is never deleted. It runs lazily from `orderList`/`orderAdd` when a `projectRoot` is passed, which is the only remaining use of `projectRoot`. `scope` is `all` or `effort:simple`, `effort:normal`, `effort:hard`; `origin` is free text, defaulting to `maintainer`, and a template writes `template:<name>`. A template's order is created with its record, moved on a rename and revoked with a reason on removal, so the order that allowed a run stops allowing it.
 
@@ -292,7 +293,7 @@ The daemon never refuses a demand on its own: a demand is skipped only for a tec
 
 The spawner is injected: `deps` carries `now()`, `quota(client)`, `idle(client)` and `spawn(demand, { client, profile, limits, maxTurns, maxMinutes, runId })`. The `runId` it is given is the slot already reserved for the run, so returning the same id is the cheap path; returning another one moves the slot to that id, and when that id cannot be taken the original is taken again.
 
-Pacing: the interval is paced on a monotonic clock, so a wall-clock jump forwards or backwards moves neither the number of passes nor the per-period idempotency. One daemon per root: `daemonRun` holds the `daemon` lock and throws when another already holds it. `daemonStatus` needs a live pid and a pid file that is not stale, so a daemon that crashed reads as stopped even while its pid file is still on disk. Defaults live under `daemon` in `config.json`: `intervalSeconds` 60, `minQuotaPct` 10, `logKeepDays` 14; a broken value never stops the loop. The retention of the standing orders lives beside it under `orders`: `retentionDays` 90, the whole days an inactive order is kept before it is purged, where a broken value falls back to the default.
+Pacing: a monotonic clock keeps the interval steady when the wall clock changes. One daemon per root holds the `daemon` lock. `daemonStatus` requires a live pid and a recent record. `daemon.intervalSeconds`, `daemon.minQuotaPct` and `daemon.logKeepDays` control pacing, quota floor and log retention; `orders.retentionDays` controls inactive-order retention. Invalid values use configured defaults.
 
 ## 12. Spawn modes
 Claude Code and Codex support NATIVE descriptors and PROCESS spawning. opencode supports PROCESS only; requesting NATIVE is refused.
@@ -367,7 +368,9 @@ So: absent means every project, one name means that project, a list means each o
 
 The three adapters, JSON state, daemon, schedules, installer, release tooling and MCP server are implemented. The real `client-smoke` driver supports Claude Code; other drivers and Windows/macOS proof remain pending. See [RELEASING.md](RELEASING.md#proof-per-pair).
 
-### Kit and plugin overlap (D1)
+<a id="kit-and-plugin-overlap-d1"></a>
+
+### Kit and plugin overlap
 
 The orchestration kit and this client plugin can coexist. The plugin owns its
 client adapters, MCP tools and state under `OKWORK_HOME`; installing or updating

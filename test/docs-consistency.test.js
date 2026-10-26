@@ -52,20 +52,21 @@ test('environment command, tool, skill and shared module are documented in both 
 
 function anchors(text) {
   const seen = new Map();
-  return new Set([...prose(text).matchAll(/^#{1,6} (.+?)(?: +#+)?$/gm)].map((m) => {
+  const content = prose(text);
+  return new Set([...content.matchAll(/^#{1,6} (.+?)(?: +#+)?$/gm)].map((m) => {
     const base = slug(m[1]);
     const count = seen.get(base) ?? 0;
     seen.set(base, count + 1);
     return count ? `${base}-${count}` : base;
-  }));
+  }).concat([...content.matchAll(/<a\s+id=["']([^"']+)["']\s*>/gi)].map((m) => m[1])));
 }
 
 test('heading parser accepts real anchors and refuses missing or fenced headings', () => {
-  const text = '## Configuração\n## Configuração\n```md\n## Hidden\n```\n';
+  const text = '## Configuração\n## Configuração\n<a id="legacy-anchor"></a>\n```md\n## Hidden\n<a id="hidden-anchor"></a>\n```\n';
   assert.deepEqual(headings(text), ['Configuração', 'Configuração']);
   const ids = anchors(text);
-  for (const id of ['configuração', 'configuração-1']) assert.ok(ids.has(id));
-  for (const id of ['missing', 'hidden', 'configuração-2']) assert.ok(!ids.has(id));
+  for (const id of ['configuração', 'configuração-1', 'legacy-anchor']) assert.ok(ids.has(id));
+  for (const id of ['missing', 'hidden', 'configuração-2', 'hidden-anchor']) assert.ok(!ids.has(id));
 });
 
 test('scoped Markdown relative links and anchors resolve', async () => {

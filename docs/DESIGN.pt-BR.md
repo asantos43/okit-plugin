@@ -40,7 +40,7 @@ guardam instruções que valem para toda demanda até serem removidas. Ambos viv
 em arquivos JSON.
 
 A posse atômica identifica cliente/sessão, worktree e data. Outro dono ativo é
-recusado; a idade vem de `inbox.holdStaleMinutes` (padrão 120).
+recusado; a idade vem de `inbox.holdStaleMinutes`.
 Claim/release e estados finais preservam donos anteriores em `heldBefore`.
 Só a CLI humana permite tomada pelo Produtor, mostrando a situação e exigindo
 `--producer-takeover` mais confirmação TTY ou `--yes`; o MCP não força a tomada.
@@ -71,7 +71,8 @@ diretamente.
 
 ## Open questions
 
-- Os adaptadores leem a cota informada pelo usuário no estado; não consultam API de cota.
+- A cota automática usa a barra do Claude Code, sessões locais do Codex e fontes
+  `opencodeQuota.sources` configuradas. A leitura manual continua disponível; sem leitura, a cota é desconhecida.
 - Os aplicativos de terminal e de desktop de cada cliente suportam plugins,
   hooks e servidores MCP? Ainda é preciso verificar.
 
