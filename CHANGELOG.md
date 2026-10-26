@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Make smoke checks deterministic with a virtual test clock, wait for the daemon's first completed pass before asserting its status, and inject the MCP command runner (D68). / Tornar os checks de smoke determinísticos com relógio virtual no teste, aguardar a primeira passagem concluída do daemon antes de verificar seu estado e injetar o executor de comandos MCP (D68).
 - Accept only provider and model names joined by the configured separator in OpenCode model listings; use the catalog when no model is recognized. / Aceitar apenas nomes de provedor e modelo unidos pelo separador configurado nas listas do OpenCode; usar o catálogo quando nenhum modelo for reconhecido.
 - Make the test suite independent of the client markers of the machine that runs it, so the client a test injects is the one it sees (D58). / Tornar a suíte de testes independente dos marcadores de cliente da máquina que a executa, para que o cliente injetado no teste seja o que ele vê (D58).
 - Show the detected client's recorded quota and age in CLI/MCP status, with all/client selection and bilingual guidance for missing values (D54). / Mostrar a cota registrada e a idade do cliente detectado no status CLI/MCP, com seleção all/client e orientação bilíngue quando não há valor (D54).
