@@ -38,6 +38,18 @@ test('documented tool, check and pair counts match the source', async () => {
   assert.equal(DEFAULT_CONFIG.release.clients.length * DEFAULT_CONFIG.release.systems.length, 9);
 });
 
+test('environment command, tool, skill and shared module are documented in both languages', async () => {
+  for (const file of ['README.md', 'README.pt-BR.md']) {
+    const text = await read(file);
+    for (const term of ['okit-plugin env report', 'env_report', 'okit-environment']) {
+      assert.ok(text.includes(term), `${file}: ${term}`);
+    }
+  }
+  for (const file of ['docs/ARCHITECTURE.md', 'docs/ARCHITECTURE.pt-BR.md']) {
+    assert.ok((await read(file)).includes('src/env/report.js'), file);
+  }
+});
+
 function anchors(text) {
   const seen = new Map();
   return new Set([...prose(text).matchAll(/^#{1,6} (.+?)(?: +#+)?$/gm)].map((m) => {

@@ -10,7 +10,9 @@ The inbox stores demands with `id`, `title`, `body`, `kind`, `accept`, `effort`,
 
 ## 2. MCP tools
 
-The core exposes 15 MCP tools in `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `actors_list`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_claim`, `inbox_release`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planning, briefing, critique and consolidation are skill guidance, not MCP tools.
+The core exposes 16 MCP tools in `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `actors_list`, `env_report`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_claim`, `inbox_release`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planning, briefing, critique and consolidation are skill guidance, not MCP tools.
+
+`src/env/report.js` provides shared read-only environment readings (`environmentReadings`), the report object (`environmentReport`) and bilingual text (`formatEnvironmentReport`). CLI `okit-plugin env report [--client <name>] [--locale en|pt-BR]` and MCP `env_report` reuse these functions. MCP accepts optional `client` and `locale` and returns the object with formatted `text`; unknown clients receive a short localized sentence. Without a client filter, every known client appears with the client in use first, even when unconfigured. Models must be confirmed by an active listing; missing readings remain unknown. Missing setup, command or models include a repair command from configuration. The installed `okit-environment` skill explains this report without changing settings.
 
 Inbox items optionally carry `hold: {client, session, worktree, takenAt, via}`;
 `via` is `claim` or `producer`. `heldBefore` records previous holders with

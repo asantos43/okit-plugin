@@ -32,6 +32,7 @@ okit-plugin daemon start|stop|status|pause|resume|run-once
 okit-plugin daemon status [--table [--locale en|pt-BR]]
 okit-plugin autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
 okit-plugin status [--locale en|pt-BR]
+okit-plugin env report [--client <nome>] [--locale en|pt-BR]
 okit-plugin actors [--client <nome>|--all] [--json] [--locale en|pt-BR]
 okit-plugin config show
 okit-plugin config get <key>
@@ -53,8 +54,8 @@ Quando ambos estão presentes, a linha aponta para as
 [regras de sobreposição D1](docs/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
 Veja a [configuração do kit](INSTALL.pt-BR.md#kit-de-orquestração).
 
-O servidor MCP por stdio expõe 15 ferramentas: `acquire_slot`, `release_slot`,
-`limits_status`, `status`, `actors_list`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
+O servidor MCP por stdio expõe 16 ferramentas: `acquire_slot`, `release_slot`,
+`limits_status`, `status`, `actors_list`, `env_report`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
 `inbox_set_status`, `inbox_claim`, `inbox_release`, `order_add`, `order_list`, `order_remove`.
 
 Um **ator** é um par modelo + esforço configurado, disponível em um cliente. Consulte “quais atores/executores podem rodar?” com `actors` ou MCP `actors_list` antes de dimensionar e escolher. Lista perfis mesmo sem executores rodando; status/vagas é a visão de executores em execução. A seleção segue status: cliente detectado por padrão, `--all` para os configurados (os três quando vazio), `--client` tem prioridade. JSON inclui atores, cota, vagas livres, motivos/soluções e alternativas para tamanhos sem ator.
@@ -77,7 +78,9 @@ mostra dono, sessão, worktree, data, obsolescência e mudanças Git não commit
 da confirmação TTY (ou `--yes`). A transferência guarda `heldBefore` com motivo `producer takeover`.
 `inbox.holdStaleMinutes` tem padrão 120 (inteiro >= 1); posses obsoletas guardam motivo `stale`.
 `inbox.gitTimeoutMs` tem padrão 5000 (inteiro >= 1). Estados finais limpam a posse.
-As skills Director, Executor, Critic, Smoke e Setup orientam delegação, verificação e configuração.
+As skills Director, Executor, Critic, Smoke, Setup e Environment orientam delegação, verificação e configuração.
+
+Pergunte “onde você está?”, “o que você tem aqui?” ou “qual ambiente?” para usar a skill instalada `okit-environment`. Ela roda `okit-plugin env report` (ou MCP `env_report`) e explica o cliente em uso, clientes instalados, modelos ativos confirmados, cota, vagas livres e pastas. Cada item que falta inclui o comando para corrigir; leituras não confirmadas ficam desconhecidas. Escolha um cliente com `--client` e o idioma com `--locale en|pt-BR`. O MCP aceita `client` e `locale` opcionais e devolve o mesmo objeto do relatório junto com seu `text` formatado.
 `smoke` roda 31 checks isolados; `client-smoke` tem 23 checks de cenário e seu
 driver real suporta Claude Code. Dry-run e rehearsal são percursos offline.
 Veja [SMOKE.pt-BR.md](docs/SMOKE.pt-BR.md) para orçamento e provas exigidas.

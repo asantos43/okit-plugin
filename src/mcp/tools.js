@@ -8,6 +8,7 @@ import { acquireSlot, limitsStatus, releaseSlot } from '../limits.js';
 import { orderAdd, orderList, orderRemove, SCOPES } from '../orders.js';
 import { configOf as normalizeConfig, DEFAULT_CONFIG, profilePick } from '../profiles.js';
 import { listActors } from '../actors.js';
+import { environmentReadings, environmentReport, formatEnvironmentReport } from '../env/report.js';
 import { adapterQuotaReader, clientsOf, LABELS, shouldShowStatus, statusTable } from '../status.js';
 import { CLIENTS } from '../spawn-process.js';
 import { readJson } from '../state.js';
@@ -202,6 +203,32 @@ const limitsStatusTool = {
 };
 
 // Actors lists configured model + effort pairs and their availability without changing state.
+const envReportTool = {
+  name: 'env_report',
+  description: 'Shows which environment is in use, installed clients, active models, quota, folders and what is missing with commands to fix it. / Mostra o ambiente em uso e o que falta com comandos para corrigir.',
+  inputSchema: {
+    type: 'object', properties: {
+      client: { type: 'string' }, locale: { type: 'string', enum: LOCALES },
+    }, required: [], additionalProperties: false,
+  },
+  async handler(args, ctx) {
+    const a = argsOf('env_report', args, ['client', 'locale']);
+    const client = optionalText('env_report', a, 'client');
+    const env = ctx.env ?? process.env;
+    const locale = optionalChoice('env_report', a, 'locale', LOCALES)
+      ?? (/^pt(?:[_-]|$)/i.test(env.LC_ALL || env.LC_MESSAGES || env.LANG || '') ? 'pt-BR' : 'en');
+    if (client !== undefined && !Object.hasOwn(DEFAULT_CONFIG.install.clients, client)) {
+      return reply({ unknownClient: true, text: formatEnvironmentReport({ unknownClient: true }, locale) });
+    }
+    const config = await configOf(ctx);
+    const readings = await environmentReadings({ ...ctx, config, env, client });
+    const report = await environmentReport({ ...ctx, config, env, client, ...readings,
+      readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env }),
+      cache: ctx.quotaCache, limits: ctx.limits ?? await limitsStatus(ctx.root, config) });
+    return reply({ ...report, text: formatEnvironmentReport(report, locale) });
+  },
+};
+
 const actorsTool = {
   name: 'actors_list',
   description: DEFAULT_CONFIG.actors.messages.en.description,
@@ -513,6 +540,7 @@ export const TOOLS = [
   limitsStatusTool,
   statusTool,
   actorsTool,
+  envReportTool,
   classifyTool,
   profilePickTool,
   inboxAddTool,

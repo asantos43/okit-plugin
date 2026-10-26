@@ -473,6 +473,7 @@ const TOOL_ARGS = {
   release_slot: () => ({ runId: 'smoke-e14' }),
   limits_status: () => ({}),
   status: () => ({}),
+  env_report: () => ({}),
   actors_list: () => ({}),
   classify: () => ({ title: 'the smoke demand' }),
   profile_pick: () => ({ client: 'claude-code', effort: 'simple' }),
