@@ -22,7 +22,173 @@ import * as moduleAdapter from '../adapters/opencode/index.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const execute = promisify(execFile);
+import { commandWords } from '../src/install/statusline.js';
 import { detectKit } from '../src/install/kit.js';
+
+// Input                         | Must pass                 | Must refuse
+// literal/quoted/shell command   | preserve previous output  | drop chaining
+// no consent/check/invalid JSON | identical settings bytes  | settings write
+// uninstall after user edit     | preserve unrelated fields | whole-file restore
+for (const previous of [undefined, { type: 'command', command: 'bar "two words"', padding: 3 },
+  { type: 'command', command: 'a | b', refreshInterval: 10 }]) {
+  test(`Claude status bar round trip: ${previous?.command ?? 'absent'}`, async (t) => {
+    const f = await fixture(t);
+    const folder = join(f.home, 'claude');
+    f.io.env.CLAUDE_CONFIG_DIR = folder;
+    await fs.mkdir(folder);
+    const file = join(folder, 'settings.json');
+    const original = Buffer.from(` { "other": true${previous ? `, "statusLine": ${JSON.stringify(previous)}` : ''} }\r\n`);
+    await fs.writeFile(file, original);
+    assert.equal(await main(['install', '--client', 'claude-code', '--statusline'], f.io), 0, f.output.join('\n'));
+    const bytes = await fs.readFile(file);
+    const bar = JSON.parse(bytes).statusLine;
+    const words = commandWords(bar.command);
+    assert.deepEqual(words.slice(0, 2), ['okit-plugin', 'statusline-collector']);
+    const prior = previous?.command === 'a | b' ? ['/bin/sh', '-c', 'a | b'] : ['bar', 'two words'];
+    assert.deepEqual(words.slice(2), previous ? ['--previous', ...prior] : []);
+    if (previous) assert.equal(bar.padding ?? bar.refreshInterval, previous.padding ?? previous.refreshInterval);
+    assert.equal(await main(['install', '--client', 'claude-code', '--statusline'], f.io), 0);
+    assert.ok(bytes.equals(await fs.readFile(file)));
+    assert.equal(await main(['uninstall'], f.io), 0);
+    assert.ok(original.equals(await fs.readFile(file)));
+  });
+}
+
+test('Claude status bar removes created file and preserves later edits', async (t) => {
+  const f = await fixture(t);
+  f.io.env.HOME = '';
+  f.io.env.CLAUDE_CONFIG_DIR = join(f.home, 'claude');
+  const file = join(f.io.env.CLAUDE_CONFIG_DIR, 'settings.json');
+  assert.equal(await main(['install', '--client', 'claude-code', '--statusline'], f.io), 0);
+  assert.equal(await main(['uninstall'], f.io), 0);
+  assert.equal(await fs.stat(file).catch(() => null), null);
+  assert.equal(await main(['install', '--client', 'claude-code', '--statusline'], f.io), 0);
+  const value = JSON.parse(await fs.readFile(file));
+  value.userEdit = 'keep';
+  await fs.writeFile(file, JSON.stringify(value));
+  assert.equal(await main(['uninstall'], f.io), 0);
+  assert.deepEqual(JSON.parse(await fs.readFile(file)), { userEdit: 'keep' });
+});
+
+test('Claude status bar restores previous bar exactly after later settings edit', async (t) => {
+  const f = await fixture(t);
+  f.io.env.CLAUDE_CONFIG_DIR = join(f.home, 'claude');
+  await fs.mkdir(f.io.env.CLAUDE_CONFIG_DIR);
+  const file = join(f.io.env.CLAUDE_CONFIG_DIR, 'settings.json');
+  const previous = { type: 'command', command: 'bar "two words"', padding: 3, refreshInterval: 10 };
+  await fs.writeFile(file, JSON.stringify({ statusLine: previous, other: true }));
+  assert.equal(await main(['install', '--client', 'claude-code', '--statusline'], f.io), 0);
+  const record = await readRecord(f.destination, 'claude-code', fs);
+  assert.deepEqual(record.statusline.previous, previous);
+  const value = JSON.parse(await fs.readFile(file));
+  assert.deepEqual(commandWords(value.statusLine.command),
+    ['okit-plugin', 'statusline-collector', '--previous', 'bar', 'two words']);
+  value.userEdit = 'keep';
+  await fs.writeFile(file, JSON.stringify(value));
+  assert.equal(await main(['uninstall'], f.io), 0);
+  const restored = JSON.parse(await fs.readFile(file));
+  assert.deepEqual(restored.statusLine, previous);
+  assert.deepEqual(restored, { statusLine: previous, other: true, userEdit: 'keep' });
+});
+
+test('Claude status bar consent, preview, invalid settings and permission refusal', async (t) => {
+  const f = await fixture(t);
+  const folder = join(f.home, 'claude');
+  f.io.env.CLAUDE_CONFIG_DIR = folder;
+  await fs.mkdir(folder);
+  const file = join(folder, 'settings.json');
+  const args = ['install', '--client', 'claude-code'];
+  await fs.writeFile(file, '{}');
+  for (const extra of [[], ['--no-statusline'], ['--statusline', '--dry-run']]) {
+    assert.equal(await main([...args, ...extra], f.io), 0);
+    assert.equal(await fs.readFile(file, 'utf8'), '{}');
+  }
+  assert.equal(await main(['update', '--check', '--statusline'], f.io), 0);
+  assert.equal(await fs.readFile(file, 'utf8'), '{}');
+  await fs.writeFile(file, '{broken');
+  assert.equal(await main([...args, '--statusline'], f.io), 1);
+  assert.equal(await fs.readFile(file, 'utf8'), '{broken');
+  await fs.writeFile(file, '{}');
+  await fs.chmod(file, 0o400);
+  assert.equal(await main([...args, '--statusline'], f.io), 1);
+  assert.equal(await fs.readFile(file, 'utf8'), '{}');
+  assert.equal(await fs.stat(join(f.root, 'claude-statusline.original')).catch(() => null), null);
+  assert.deepEqual(await fs.readdir(folder), ['settings.json']);
+  assert.ok(f.output.some((line) => line.includes('confira o arquivo e suas permissões')));
+});
+
+test('Claude status bar approved update repairs missing command and retains backup', async (t) => {
+  const f = await fixture(t);
+  f.io.env.CLAUDE_CONFIG_DIR = join(f.home, 'claude');
+  const file = join(f.io.env.CLAUDE_CONFIG_DIR, 'settings.json');
+  await fs.mkdir(f.io.env.CLAUDE_CONFIG_DIR);
+  const original = Buffer.from(' {"statusLine":{"type":"command","command":"bar"}}\n');
+  await fs.writeFile(file, original);
+  assert.equal(await main(['install', '--client', 'claude-code', '--statusline'], f.io), 0);
+  const initial = await readRecord(f.destination, 'claude-code', fs);
+  await fs.writeFile(file, '{}');
+  f.setVersion('2.0.0');
+  assert.equal(await main(['update'], f.io), 0, f.output.join('\n'));
+  const active = await readRecord(f.destination, 'claude-code', fs);
+  assert.equal(active.statusline.backup, initial.statusline.backup);
+  assert.ok(original.equals(await fs.readFile(active.statusline.backup)));
+  assert.equal(commandWords(JSON.parse(await fs.readFile(file)).statusLine.command)[1], 'statusline-collector');
+  await fs.writeFile(join(f.root, 'config.json'), JSON.stringify({ install: { ...f.config, command: 'plugin-renamed' } }));
+  assert.equal(await main(['update'], f.io), 0, f.output.join('\n'));
+  assert.equal(commandWords(JSON.parse(await fs.readFile(file)).statusLine.command)[0], 'plugin-renamed');
+  assert.equal(await main(['uninstall'], f.io), 0);
+  assert.ok(original.equals(await fs.readFile(file)));
+  assert.equal(await fs.stat(active.statusline.backup).catch(() => null), null);
+});
+
+test('Claude status bar no-statusline skips writes and prompts in an interactive terminal', async (t) => {
+  const f = await fixture(t);
+  const folder = join(f.home, 'claude');
+  f.io.env.CLAUDE_CONFIG_DIR = folder;
+  f.io.tty = true;
+  let prompts = 0;
+  f.io.ask = f.io.read = async (question) => {
+    if (!/status bar|barra de status/i.test(question)) return 'n';
+    prompts += 1;
+    return 'sim';
+  };
+  const args = ['install', '--client', 'claude-code', '--no-statusline'];
+  assert.equal(await readRecord(f.destination, 'claude-code', fs), null);
+  assert.equal(await main(args, f.io), 0);
+  assert.equal(prompts, 0);
+  assert.equal(await fs.stat(folder).catch(() => null), null);
+  assert.equal(await fs.stat(join(f.root, 'claude-statusline.original')).catch(() => null), null);
+  assert.equal((await readRecord(f.destination, 'claude-code', fs)).statusline, undefined);
+  const before = await tree(f.home);
+  assert.equal(await main([...args, '--statusline'], f.io), 2);
+  assert.ok(f.output.some((line) => line.includes('--statusline and --no-statusline cannot be combined')));
+  assert.equal(prompts, 0);
+  assert.deepEqual(await tree(f.home), before);
+});
+
+test('Claude status bar consent and collector recognition across paths', async (t) => {
+  const f = await fixture(t);
+  f.io.env.CLAUDE_CONFIG_DIR = join(f.home, 'claude');
+  const file = join(f.io.env.CLAUDE_CONFIG_DIR, 'settings.json');
+  f.io.tty = true;
+  f.io.ask = async () => 'n';
+  f.io.read = async () => 'n';
+  const args = ['install', '--client', 'claude-code'];
+  assert.equal(await main(args, f.io), 0);
+  assert.equal(await fs.stat(file).catch(() => null), null);
+  f.io.read = async () => 'sim';
+  assert.equal(await main(args, f.io), 0);
+  const record = await readRecord(f.destination, 'claude-code', fs);
+  const source = JSON.parse(await fs.readFile(file));
+  source.statusLine.command = 'node /old/plugin.js statusline-collector';
+  await fs.writeFile(file, JSON.stringify(source));
+  delete record.statusline;
+  await saveRecord(f.destination, record, f.deps);
+  const before = await fs.readFile(file);
+  assert.equal(await main([...args, '--statusline'], f.io), 0);
+  assert.ok(before.equals(await fs.readFile(file)));
+  assert.equal(await main([...args, '--statusline', '--no-statusline'], f.io), 2);
+});
 
 test('currentShell lowercases Unix shell basenames and Windows-style names', () => {
   const config = installConfig();

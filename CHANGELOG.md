@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Register Claude Code quota collection with consent, command chaining, atomic settings writes and exact uninstall restoration. / Registrar a coleta de cota do Claude Code com consentimento, encadeamento de comandos, escrita atômica dos ajustes e restauração exata ao desinstalar.
+
 - Add a configurable Claude Code status bar quota collector with atomic samples, previous-command chaining, and source and age reporting. / Adicionar coletor configurável de cota da barra do Claude Code com gravação atômica, encadeamento do comando anterior e indicação de origem e idade.
 - Read Codex quota automatically from recent session tails, with configurable reading limits, manual fallback, source and age. / Ler a cota do Codex automaticamente pelo fim das sessões recentes, com limites configuráveis, alternativa manual, origem e idade.
 - Add the environment report command, MCP `env_report` and `okit-environment` skill with bilingual explanations and repair commands. / Adicionar o comando de relatório de ambiente, MCP `env_report` e skill `okit-environment` com explicações bilíngues e comandos de correção.

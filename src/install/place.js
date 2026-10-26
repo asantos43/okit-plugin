@@ -73,7 +73,7 @@ export async function place(selected, downloaded, details, deps) {
       while (retained && retained.path !== path) retained = retained.previous;
       if (!retained || retained.sha256 !== downloaded.sha256) throw new Error(`Version destination already exists: ${path}`);
     } else await fs.rename(staging, path);
-    const record = { ...details, version: selected.version, path, destination,
+    const record = { ...details, ...(previous?.statusline ? { statusline: previous.statusline } : {}), version: selected.version, path, destination,
       at: new Date(now()).toISOString(), sha256: downloaded.sha256, previous };
     await saveRecord(destination, record, deps);
     return { record, unchanged: false };

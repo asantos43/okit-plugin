@@ -17,6 +17,12 @@ const PROFILE_MAX_TURNS = Object.freeze({
 });
 
 export const DEFAULT_CONFIG = {
+  statuslineRegistration: {
+    client: 'claude-code',
+    settingsFile: 'settings.json', backupFile: 'claude-statusline.original',
+    subcommand: 'statusline-collector',
+    shell: { linux: ['/bin/sh', '-c'], darwin: ['/bin/sh', '-c'], win32: ['cmd.exe', '/d', '/s', '/c'] },
+  },
   statuslineCollector: {
     previous: [], timeoutMs: 500, maxInputBytes: 1048576, maxOutputBytes: 1048576,
     fields: { rateLimits: 'rate_limits', usedPercentage: 'used_percentage', resetsAt: 'resets_at' },
@@ -553,6 +559,25 @@ export function normalizeLimits(limits = {}) {
 
 export function configOf(config) {
   const merged = { ...DEFAULT_CONFIG, ...(config ?? {}) };
+  const statuslineRegistration = { ...DEFAULT_CONFIG.statuslineRegistration, ...config?.statuslineRegistration,
+    shell: { ...DEFAULT_CONFIG.statuslineRegistration.shell, ...config?.statuslineRegistration?.shell } };
+  for (const key of ['client', 'settingsFile', 'backupFile', 'subcommand']) {
+    if (typeof statuslineRegistration[key] !== 'string' || !statuslineRegistration[key].trim()
+      || /[\\/\r\n\0]/.test(statuslineRegistration[key]) || ['.', '..'].includes(statuslineRegistration[key])) {
+      throw new TypeError('Invalid status bar setting / Ajuste da barra de status inválido');
+    }
+  }
+  const statuslineClient = { ...DEFAULT_CONFIG.install.clients[statuslineRegistration.client], ...config?.install?.clients?.[statuslineRegistration.client] };
+  if (typeof statuslineClient.configEnv !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(statuslineClient.configEnv)
+    || !Array.isArray(statuslineClient.rootParts) || !statuslineClient.rootParts.length
+    || statuslineClient.rootParts.some((part) => typeof part !== 'string' || !part.trim() || /[\\/\r\n\0]/.test(part) || part === '..')) {
+    throw new TypeError('Invalid Claude folder setting / Ajuste da pasta do Claude inválido');
+  }
+  for (const words of Object.values(statuslineRegistration.shell)) {
+    if (!Array.isArray(words) || !words.length || words.some((word) => typeof word !== 'string' || !word.trim() || /[\r\n\0]/.test(word))) {
+      throw new TypeError('Invalid status bar shell / Shell da barra de status inválida');
+    }
+  }
   const inbox = { ...DEFAULT_CONFIG.inbox, ...config?.inbox };
   const daemon = { ...DEFAULT_CONFIG.daemon, ...config?.daemon };
   const smoke = { ...DEFAULT_CONFIG.smoke, ...config?.smoke };
@@ -597,6 +622,7 @@ export function configOf(config) {
   }
   return {
     ...merged,
+    statuslineRegistration,
     inbox,
     daemon,
     smoke,

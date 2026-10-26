@@ -1,5 +1,9 @@
 # Claude Code adapter
 
+`okit-plugin install --client claude-code --statusline` registers quota collection with consent, preserving the previous command and other status bar fields. `--no-statusline` declines; without flags, terminals ask and unattended installs skip. `update` maintains an approved registration; `--dry-run` and `update --check` preview without writes. Settings use `CLAUDE_CONFIG_DIR` or the configured home-relative Claude folder. Shell commands use the configurable platform wrapper. `uninstall` restores the exact original bytes, or only the prior bar if you edited the file afterward; backups live in plugin state and are removed.
+
+`okit-plugin install --client claude-code --statusline` registra a coleta com consentimento, mantendo o comando anterior e os demais campos da barra. `--no-statusline` recusa; sem flags, terminais perguntam e instalações sem terminal pulam. `update` mantém o registro aprovado; `--dry-run` e `update --check` só mostram o plano. A pasta vem de `CLAUDE_CONFIG_DIR` ou da pasta do Claude configurada relativa à pasta pessoal. Comandos de shell usam o envoltório configurável da plataforma. `uninstall` restaura os bytes originais, ou só a barra anterior se houve edições posteriores; a cópia fica no estado do plugin e é removida.
+
 The five functions of `docs/ARCHITECTURE.md` section 4, for Claude Code.
 Zero dependencies, Node >= 20 ESM; the core imports this module, never the CLI.
 

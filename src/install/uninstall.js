@@ -1,6 +1,7 @@
 import { readRecords, removeRecord } from './place.js';
 import { register, registrationPlan } from './register.js';
 import { applyLink } from './link.js';
+import { undoStatusline } from './statusline.js';
 
 export async function uninstall(record, flags, deps) {
   if (flags.purge && !flags.yes) throw new TypeError('--purge requires --yes');
@@ -10,6 +11,7 @@ export async function uninstall(record, flags, deps) {
   if (flags.purge && remaining.length && !deps.dryRun) throw new TypeError('--purge requires no remaining clients');
   deps.out(`Uninstall: ${record.path}; ${flags.purge ? 'purge user state/configuration' : 'keep user state/configuration'}`);
   registrationPlan(record, deps, 'uninstall').forEach((item) => deps.out(`command: ${[item.command, ...item.args].join(' ')}`));
+  await undoStatusline(record, deps);
   if (deps.dryRun) return 0;
   const wasRunning = await deps.stopDaemon(record);
   await register(record, deps, 'uninstall');

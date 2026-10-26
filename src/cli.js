@@ -106,8 +106,8 @@ const AUTOSTART_ACTIONS = ['install', 'uninstall', 'show'];
 
 const USAGE = [
   'usage: {command} daemon start|stop|status|pause|resume|run-once',
-  '       {command} install [--from <dir>] [--client <c>|all] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--autostart] [--dry-run] [--yes]',
-  '       {command} update [--client <c>] [--check] [--rollback] [--dry-run]',
+  '       {command} install [--from <dir>] [--client <c>|all] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--autostart] [--dry-run] [--yes] [--statusline|--no-statusline]',
+  '       {command} update [--client <c>] [--check] [--rollback] [--dry-run] [--statusline|--no-statusline]',
   '       {command} uninstall [--client <c>] [--purge] [--yes] [--dry-run]',
   '       {command} setup [--defaults] [--again]',
   '       {command} daemon status [--table [--locale en|pt-BR]]',
