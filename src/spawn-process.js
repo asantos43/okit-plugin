@@ -365,8 +365,9 @@ function isActive(item, activeField, activeValues) {
 }
 
 /** The answer of a listing that found no models: the catalog answers. */
-function catalogAnswer(client, installed, reason) {
-  return { client, installed, models: [], hidden: [], source: 'catalog', reason };
+function catalogAnswer(client, installed, reason, detail) {
+  return { client, installed, models: [], hidden: [], source: 'catalog', reason,
+    ...(detail === undefined ? {} : { error: String(detail) }) };
 }
 
 const execFileAsync = promisify(child_process.execFile);
@@ -465,7 +466,7 @@ export async function listModelsOf(client, { settings = {}, env = process.env, r
     // listing the plugin may read.
     const code = outcome?.code;
     if (code !== undefined && code !== 0) {
-      return catalogAnswer(client, true, fill(LIST_MESSAGES.failed, { client, code: String(code) }));
+      return catalogAnswer(client, true, fill(LIST_MESSAGES.failed, { client }), code);
     }
     if (parser === null || itemParser === null) {
       return catalogAnswer(client, true, fill(LIST_MESSAGES.unknownParser, { client, parse: settings.parse }));
@@ -499,8 +500,8 @@ export async function listModelsOf(client, { settings = {}, env = process.env, r
       return catalogAnswer(client, false, settings.notFoundMessage ?? fill(LIST_MESSAGES.notFound, { client }));
     }
     if (isTimeout(error)) {
-      return catalogAnswer(client, true, fill(LIST_MESSAGES.timeout, { client, timeoutMs }));
+      return catalogAnswer(client, true, fill(LIST_MESSAGES.timeout, { client }), timeoutMs);
     }
-    return catalogAnswer(client, true, fill(LIST_MESSAGES.error, { client, code: error?.code ?? 'unknown' }));
+    return catalogAnswer(client, true, fill(LIST_MESSAGES.error, { client }), error?.code ?? 'unknown');
   }
 }

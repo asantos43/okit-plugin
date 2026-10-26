@@ -9,7 +9,7 @@ import { installSkillFiles } from '../src/skills.js';
 import { installSkill } from '../adapters/claude-code/index.js';
 
 const SKILLS_DIR = fileURLToPath(new URL('../skills/', import.meta.url));
-const EXPECTED_SKILLS = ['okit-critic', 'okit-director', 'okit-executor', 'okit-smoke'];
+const EXPECTED_SKILLS = ['okit-critic', 'okit-director', 'okit-executor', 'okit-setup', 'okit-smoke'];
 const MAX_DESCRIPTION = 300;
 const MAX_BODY_LINES = 60;
 const FENCE = '---';
@@ -161,7 +161,7 @@ test('parseFrontMatter refuses a file it cannot trust', () => {
   assert.throws(() => parseFrontMatter(null), /must be text/);
 });
 
-test('the plugin ships director, executor, critic and smoke skills', async () => {
+test('the plugin ships director, executor, critic, smoke and setup skills', async () => {
   assert.deepEqual(await skillFolders(), EXPECTED_SKILLS);
 });
 
@@ -234,6 +234,23 @@ test('the smoke skill captures the exit code and never masks it', async () => {
   assert.match(body, /newest artifact/, 'the skill must read the newest artifact when the output is empty');
   assert.match(body, /artifact paths/, 'the skill must report the artifact paths');
   assert.match(body, /actual process exit code/, 'the skill must report the real exit code');
+});
+
+// Must pass / must refuse table, the setup skill:
+// | case                                  | must pass                                      | must refuse                    |
+// | a skill that shows the plan first     | the questions before the save                  | -                              |
+// | a skill that saves the user's choice  | the answer to the setup's own model question   | a configuration write command  |
+test('the setup skill shows what will be written before it saves anything', async () => {
+  const { fields, body } = await readSkill('okit-setup');
+  assert.equal(fields.name, 'okit-setup');
+  assert.match(body, /okit-plugin setup/);
+  assert.match(body, /answer to the setup's own model question/);
+  assert.doesNotMatch(body, /okit-plugin config set/);
+  assert.doesNotMatch(body, /okit-plugin setup --defaults/);
+  assert.doesNotMatch(body, /config\.json`?\s*(=|:)/, 'the skill must not write the configuration file');
+  const ask = body.indexOf('Ask only what was not detected');
+  const save = body.indexOf("Save only through the setup's final confirmation");
+  assert.ok(ask !== -1 && save > ask, 'the questions come before the save');
 });
 
 // Must pass / must refuse table, installSkillFiles:

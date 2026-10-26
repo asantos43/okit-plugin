@@ -9,7 +9,7 @@ const DEFAULT_ADAPTERS = [claudeCode, codex, opencode]
   .filter((adapter) => Object.hasOwn(DEFAULT_CONFIG.profiles, adapter.CLIENT));
 
 export const DETECT_MESSAGES = Object.freeze({
-  error: 'The model list for {client} could not be read ({code}), so the catalog is used. / A lista de modelos de {client} não pôde ser lida ({code}), então o catálogo é usado.',
+  error: 'The model list for {client} could not be read, so the catalog is used. / A lista de modelos de {client} não pôde ser lida, então o catálogo é usado.',
   listed: 'The configured model "{model}" is active in the detected list. / O modelo configurado "{model}" está ativo na lista detectada.',
   replaced: 'The configured model "{model}" is unavailable; the active candidate "{replacement}" belongs to the same family. / O modelo configurado "{model}" não está disponível; o candidato ativo "{replacement}" pertence à mesma família.',
   omitted: 'The configured model "{model}" is unavailable and no active candidate belongs to its family; choose one by hand with `okit-plugin config set profiles.{client}.{class}.model <model>`. / O modelo configurado "{model}" não está disponível e nenhum candidato ativo pertence à sua família; escolha um manualmente com `okit-plugin config set profiles.{client}.{class}.model <model>`.',
@@ -31,6 +31,8 @@ function adapterRecords(adapters) {
   return [];
 }
 
+// The reason a user reads never names a technical code: the code of the
+// failure stays in the `error` field of the record, for diagnosis only.
 function fallback(client, error) {
   return {
     client,
@@ -38,10 +40,8 @@ function fallback(client, error) {
     models: [],
     hidden: [],
     source: 'catalog',
-    reason: fill(DETECT_MESSAGES.error, {
-      client,
-      code: error?.code ?? error?.message ?? 'unknown',
-    }),
+    reason: fill(DETECT_MESSAGES.error, { client }),
+    error: String(error?.code ?? error?.message ?? 'unknown'),
   };
 }
 
@@ -55,6 +55,8 @@ function normalized(result, client) {
       ? result.hidden.filter((model) => typeof model === 'string') : [],
     source: result?.source === 'listing' ? 'listing' : 'catalog',
     reason: result?.reason ?? fill(DETECT_MESSAGES.catalog, { client }),
+    error: result?.error === undefined || result?.error === null
+      ? null : String(result.error),
   };
 }
 

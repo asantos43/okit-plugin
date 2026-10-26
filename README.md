@@ -27,6 +27,7 @@ inherits `release.adapters`), plus the selected client's installation metadata.
 okit-plugin install [--from <dir>] [--client <c>] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--no-path] [--autostart] [--dry-run] [--yes]
 okit-plugin update [--check] [--rollback] [--dry-run] [--no-path]
 okit-plugin uninstall [--purge] [--yes] [--dry-run]
+okit-plugin setup [--defaults] [--again]
 okit-plugin daemon start|stop|status|pause|resume|run-once
 okit-plugin daemon status [--table [--locale en|pt-BR]]
 okit-plugin autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]
@@ -61,6 +62,12 @@ An **actor** is a configured model + effort pair available in a client. Ask “w
 
 Model detection considers only active models as candidates: being listed is not enough to propose a profile. A replacement comes from the same family: the same provider, with `setup.detect.<client>.family.separator` dividing the provider from the name and `family.minimumPrefix` the length the common prefix must reach. A name that does not contain the separator has no provider and is compared whole, so the separator must be the one the client uses in its names (`/` for `provider/model`); a separator that appears in no name leaves every name without a provider. A separator that is empty, or that is not text, turns the automatic replacement off: a configured model that is active still stays (`source: 'listing'`), and a class whose configured model is not active is omitted with `okit-plugin config set profiles.<client>.<class>.model <value>`. A client that answers with no active model proposes nothing and asks for a manual choice with `okit-plugin config set profiles.<client>.<class>.model <value>`.
 
+### Setup
+
+`okit-plugin setup` detects installed clients, shows the model it will use for each work class, and explains why. It asks only when no active model fits; Enter accepts the recommended model, and an invalid answer is asked again up to `setup.maxAttempts` times. All questions share one input session, so no answer is lost; end of input cancels without writing, and an input that had already ended cancels the same way. A client or class name outside the configuration schema is refused before the file changes. A configuration file that cannot be read, or whose root is not an object, is refused with one plain sentence in both languages: nothing is written and the file stays as it is. A `profiles` that is not an object, or a client inside it that is not an object, is refused the same way. When no client with an active model is found, the setup says so with one plain sentence in both languages, writes nothing, and the configuration stays pending. `--defaults` asks nothing, accepts detected choices, and leaves unmatched classes unchanged so you can select them later with `okit-plugin config set profiles.<client>.<class>.model <value>`. The result is recorded in `config.json`; running setup again keeps active settings, while `--again` repeats the setup.
+
+While the setup was not done, `okit-plugin status` shows one line naming the missing step, the end of an install or an update offers the setup, and the `okit-setup` skill conducts the same setup in a conversation. The skill lets the setup ask for every model choice and saves the complete set once, only after its final confirmation.
+
 `okit-plugin inbox list [--locale en|pt-BR]` and MCP `inbox_list` show each holder.
 `okit-plugin inbox take <id> --client codex --session <s> --worktree <path>` claims atomically;
 another active client/session is refused. `okit-plugin inbox release <id> --client codex --session <s>` releases it.
@@ -69,7 +76,7 @@ it shows the owner, session, worktree, timestamp, staleness and uncommitted Git 
 TTY confirmation (or `--yes`). Transfer preserves `heldBefore` with reason `producer takeover`.
 `inbox.holdStaleMinutes` defaults to 120 (integer >= 1); stale claims/releases record `stale`.
 `inbox.gitTimeoutMs` defaults to 5000 (integer >= 1). Terminal statuses clear ownership.
-The Director, Executor, Critic and Smoke skills guide delegation and verification.
+The Director, Executor, Critic, Smoke and Setup skills guide delegation, verification and configuration.
 `smoke` runs 31 isolated checks; `client-smoke` has 23 scenario checks and its
 real driver supports Claude Code. Dry-run and rehearsal are offline walks.
 See [SMOKE.md](docs/SMOKE.md) for budgets and evidence requirements.

@@ -136,7 +136,7 @@ Um passo nomeia um recurso, a chamada que o toca e o **comportamento** que ele a
 | id | recurso | o que prova | julgado a partir de |
 | :- | :- | :- | :- |
 | `C1` | plugin | o cliente carregou o plugin instalado | o `plugins[]` do evento `init`: o nome do nosso plugin e o caminho de onde ele foi carregado |
-| `C2` | skills | as skills instaladas estão visíveis na sessão | o `skills[]` do evento `init`: `okit-director`, `okit-executor`, `okit-critic` e `okit-smoke` sob o namespace do plugin |
+| `C2` | skills | as skills instaladas estão visíveis na sessão | o `skills[]` do evento `init`: `okit-director`, `okit-executor`, `okit-critic`, `okit-smoke` e `okit-setup` sob o namespace do plugin |
 | `C3` | MCP | o servidor respondeu pelo pipe stdio de verdade | o `mcp_servers[]` do evento `init` traz o nosso servidor com `status: "connected"`, e o servidor respondeu `initialize` e `tools/list` com os 12 nomes |
 | `C4` | hooks | um hook do plugin disparou | os eventos de hook do cliente; enquanto o plugin não trouxer `hooks/hooks.json`, é um `skip` com o motivo `hook-evidence-unavailable` |
 | `C5` | daemon | o daemon da instalação deu um tick | o runner roda o bin `okit-plugin` instalado com `daemon run-once`, e a linha de decisão cai em `logs/<date>.jsonl` |

@@ -76,7 +76,7 @@ async function treeOf(dir, base = dir, lines = []) {
 // U1: the folder an install wrote is gone, and a second uninstall of a folder
 // that is not there is absent, not an error.
 async function uninstallSkills(deps) {
-  for (const name of ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke']) {
+  for (const name of ['okit-director', 'okit-executor', 'okit-critic', 'okit-smoke', 'okit-setup']) {
     await uninstallSkill(deps, name);
   }
 }
