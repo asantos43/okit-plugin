@@ -464,6 +464,7 @@ const TOOL_ARGS = {
   limits_status: () => ({}),
   status: () => ({}),
   env_report: () => ({}),
+  smoke_demo: () => ({ dryRun: true }),
   actors_list: () => ({}),
   classify: () => ({ title: 'the smoke demand' }),
   profile_pick: () => ({ client: 'claude-code', effort: 'simple' }),

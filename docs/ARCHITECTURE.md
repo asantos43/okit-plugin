@@ -8,11 +8,13 @@ Extends [DESIGN.md](DESIGN.md); answers its open questions. One Node core (>=20,
 
 ## 1. Core contract
 
+`src/smoke/demo/index.js` composes the existing classifier, snapshot actor selection, profiles, inbox and slot functions in an isolated temporary tree. Small scenario, attempt, scheduler, budget and report modules implement the [injected demonstration](DEMO.md); every executor/critic attempt reserves a slot and budget. Only test actors launch in step 2. CLI/MCP/skill entry, consent and paid drivers remain step 3; C1–C23 keep their existing meaning.
+
 The inbox stores demands with `id`, `title`, `body`, `kind`, `accept`, `effort`, `client`, `appliesTo`, `status`, `stepIds`, `ext`, `createdAt`. `kind` is free text. Orders share one file, filtered by `appliesTo`. Briefing, critique and consolidation are skill instructions rather than additional core APIs.
 
 ## 2. MCP tools
 
-The core exposes 16 MCP tools in `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `actors_list`, `env_report`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_claim`, `inbox_release`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planning, briefing, critique and consolidation are skill guidance, not MCP tools.
+The core exposes 17 MCP tools in `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `actors_list`, `env_report`, `smoke_demo`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_claim`, `inbox_release`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planning, briefing, critique and consolidation are skill guidance, not MCP tools.
 
 `src/env/report.js` provides shared read-only environment readings (`environmentReadings`), the report object (`environmentReport`) and bilingual text (`formatEnvironmentReport`). CLI `okit-plugin env report [--client <name>] [--locale en|pt-BR]` and MCP `env_report` reuse these functions. MCP accepts optional `client` and `locale` and returns the object with formatted `text`; unknown clients receive a short localized sentence. Without a client filter, every known client appears with the client in use first, even when unconfigured. Models must be confirmed by an active listing; missing readings remain unknown. Missing setup, command or models include a repair command from configuration. The installed `okit-environment` skill explains this report without changing settings.
 

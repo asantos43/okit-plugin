@@ -1,5 +1,7 @@
 # Smoke test
 
+Practice demonstration: [scenario and reports](DEMO.md) ([Português](DEMO.pt-BR.md)). Run `okit-plugin smoke-demo --dry-run --locale en` or call `smoke_demo` with `dryRun: true`. The preview shows work titles, helpers, current allowance and cost/time/call ceilings without spending. Ask explicit approval, then send the returned `planHash` as `--confirm <planHash>` or tool argument `confirm`. Changes require a fresh preview and approval. Paid execution currently refuses without proven usage measurement and cost enforcement; no model is started. Tests with supplied helpers prove parallel work, rejection, correction and cleanup only in isolation. The existing `client-smoke --demo` checks below keep their meaning.
+
 Migration: invoke the plugin as `okit-plugin`; install/update remove only its owned legacy `okit` links. Keep the kit's `okit`/`kit` separate; kit detection ignores plugin executables.
 
 Implemented: `okit-plugin smoke` runs 31 isolated checks; `okit-plugin client-smoke` runs the C1–C23 scenario with a real Claude Code driver. This does not prove other clients or systems.

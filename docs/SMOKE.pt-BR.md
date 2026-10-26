@@ -1,5 +1,7 @@
 # Teste de fumaça
 
+Demonstração de exemplo: [cenário e relatórios](DEMO.pt-BR.md) ([English](DEMO.md)). Execute `okit-plugin smoke-demo --dry-run --locale pt-BR` ou chame `smoke_demo` com `dryRun: true`. A prévia mostra trabalhos, ajudantes, cota atual e tetos de custo/tempo/chamadas sem gastar. Peça aprovação explícita e envie o `planHash` retornado como `--confirm <planHash>` ou argumento `confirm` da ferramenta. Mudanças exigem nova prévia e aprovação. A execução paga atualmente recusa sem medição de uso e teto de custo comprovados; nenhum modelo é iniciado. Testes com ajudantes fornecidos comprovam paralelismo, rejeição, correção e limpeza somente em isolamento. O `client-smoke --demo` abaixo mantém suas verificações existentes.
+
 Migração: execute o plugin como `okit-plugin`; instalar/atualizar removem apenas seus links antigos `okit`. Mantenha `okit`/`kit` do kit separados; o detector ignora executáveis do plugin.
 
 Implementado: `okit-plugin smoke` executa 31 checks isolados; `okit-plugin client-smoke` executa o cenário C1–C23 com driver real de Claude Code. Não comprova outros clientes ou sistemas.

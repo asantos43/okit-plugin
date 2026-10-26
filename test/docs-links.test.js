@@ -8,7 +8,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const readmes = ['README.md', 'README.pt-BR.md'];
 const documents = [
   ...readmes,
-  ...['ARCHITECTURE', 'DESIGN', 'RELEASING', 'SMOKE', 'INTEGRATION'].flatMap(name =>
+  ...['ARCHITECTURE', 'DESIGN', 'RELEASING', 'SMOKE', 'INTEGRATION', 'DEMO'].flatMap(name =>
     [`docs/${name}.md`, `docs/${name}.pt-BR.md`]),
 ];
 

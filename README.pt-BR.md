@@ -60,8 +60,8 @@ Quando ambos estão presentes, a linha aponta para as
 [regras de sobreposição](docs/ARCHITECTURE.pt-BR.md#kit-and-plugin-overlap).
 Veja a [configuração do kit](INSTALL.pt-BR.md#kit-de-orquestração).
 
-O servidor MCP por stdio expõe 16 ferramentas: `acquire_slot`, `release_slot`,
-`limits_status`, `status`, `actors_list`, `env_report`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
+O servidor MCP por stdio expõe 17 ferramentas: `acquire_slot`, `release_slot`,
+`limits_status`, `status`, `actors_list`, `env_report`, `smoke_demo`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
 `inbox_set_status`, `inbox_claim`, `inbox_release`, `order_add`, `order_list`, `order_remove`.
 
 Um **ator** é um par modelo + esforço configurado, disponível em um cliente. Consulte “quais atores/executores podem rodar?” com `actors` ou MCP `actors_list` antes de dimensionar e escolher. Lista perfis mesmo sem executores rodando; status/vagas é a visão de executores em execução. A seleção segue status: cliente detectado por padrão, `--all` para os configurados (os três quando vazio), `--client` tem prioridade. JSON inclui atores, cota, vagas livres, motivos/soluções e alternativas para tamanhos sem ator.
@@ -224,6 +224,8 @@ O desenho do release está em [docs/RELEASING.pt-BR.md](docs/RELEASING.pt-BR.md)
 ([English](docs/RELEASING.md)).
 
 ## Documentation — Documentação
+
+Veja a [demonstração de exemplo](docs/DEMO.pt-BR.md) ([English](docs/DEMO.md)) com `okit-plugin smoke-demo --dry-run --locale pt-BR`. A ferramenta `smoke_demo` oferece a mesma prévia. Após aprovação explícita, envie seu `planHash` com `--confirm <planHash>` (ferramenta: `confirm`); mudanças no trabalho, ajudantes ou cota exigem nova aprovação. A execução paga atualmente recusa porque faltam medição de uso e teto de custo comprovados. A prévia não gasta cota nem comprova execução.
 
 Veja o [desenho da integração e glossário](docs/INTEGRATION.pt-BR.md)
 ([English](docs/INTEGRATION.md)) para o ambiente comum, papéis nos clientes,

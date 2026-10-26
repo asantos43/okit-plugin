@@ -59,8 +59,8 @@ unless installed; otherwise the check is informational. Install/update summaries
 present, it links to the [overlap rules](docs/ARCHITECTURE.md#kit-and-plugin-overlap).
 See [kit configuration](INSTALL.md#orchestration-kit).
 
-The stdio MCP server exposes 16 tools: `acquire_slot`, `release_slot`,
-`limits_status`, `status`, `actors_list`, `env_report`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
+The stdio MCP server exposes 17 tools: `acquire_slot`, `release_slot`,
+`limits_status`, `status`, `actors_list`, `env_report`, `smoke_demo`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`,
 `inbox_set_status`, `inbox_claim`, `inbox_release`, `order_add`, `order_list`, `order_remove`.
 
 An **actor** is a configured model + effort pair available in a client. Ask “which actors/executors can run?” with `actors` or MCP `actors_list` before sizing and choosing. It lists profiles even when no executors are running; status/slots is the view of running executors. Selection follows status: detected client by default, `--all` for configured clients (all three if empty), `--client` overrides both. JSON includes actors, quota, free slots, launch reasons/remedies and missing-size alternatives.
@@ -222,6 +222,8 @@ The release design is in [docs/RELEASING.md](docs/RELEASING.md)
 ([Português](docs/RELEASING.pt-BR.md)).
 
 ## Documentation — Documentação
+
+Preview the [practice demonstration](docs/DEMO.md) ([Português](docs/DEMO.pt-BR.md)) with `okit-plugin smoke-demo --dry-run --locale en`. The `smoke_demo` tool offers the same preview. After explicit approval, send its `planHash` with `--confirm <planHash>` (tool: `confirm`); changed work, helpers or allowance require fresh approval. Paid execution currently refuses because measured usage and an enforceable cost ceiling are unavailable. The preview spends no allowance and proves no execution.
 
 See the [integration design and glossary](docs/INTEGRATION.md)
 ([Português](docs/INTEGRATION.pt-BR.md)) for the shared environment, client roles,

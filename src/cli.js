@@ -132,6 +132,7 @@ const USAGE = [
   '       {command} hook post-compact',
   '       {command} smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]',
   '       {command} client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]',
+  '       {command} smoke-demo [--dry-run] [--client <client>] [--locale en|pt-BR] [--confirm <preview>] [--json]',
   '         [--only <C ids>] [--keep] [--allow-unknown-quota]',
   '         [--max-usd [n]] [--max-turns [n]] [--max-minutes [n]] [--quota-floor [pct]] [--timeout [ms]]',
   `OKWORK_HOME names the state root; --kind defaults to ${AUTOSTART_KINDS?.join(', ') ?? ''} by platform.`,
@@ -662,6 +663,11 @@ export async function main(argv = [], io = {}) {
     }
     // `okit-plugin smoke` takes no action either, so its first flag lands where one would be.
     if (group === 'smoke') return await smokeCommand(ctx, action === undefined ? args : [action, ...args], io);
+    if (group === 'smoke-demo') {
+      const { smokeDemoCommand } = await import('./smoke/demo/entry.js');
+      const config = ctx.snapshot?.config ?? await readConfig(ctx.root);
+      return smokeDemoCommand(action === undefined ? args : [action, ...args], { ...ctx, ...io, config, out, err });
+    }
     if (group === 'client-smoke') {
       const { runClientSmoke } = await import('./smoke/client.js');
       const flags = action === undefined ? args : [action, ...args];
