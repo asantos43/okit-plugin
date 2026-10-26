@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
@@ -8,8 +8,12 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const readmes = ['README.md', 'README.pt-BR.md'];
 const documents = [
   ...readmes,
-  ...['ARCHITECTURE', 'DESIGN', 'RELEASING', 'SMOKE', 'INTEGRATION', 'DEMO'].flatMap(name =>
-    [`docs/${name}.md`, `docs/${name}.pt-BR.md`]),
+  ...readdirSync(resolve(root, 'docs/guide')).filter(name => name.endsWith('.md'))
+    .map(name => `docs/guide/${name}`),
+  ...readdirSync(resolve(root, 'docs/components')).filter(name => name.endsWith('.md'))
+    .map(name => `docs/components/${name}`),
+  ...readdirSync(resolve(root, 'docs/maintainers')).filter(name => name.endsWith('.md'))
+    .map(name => `docs/maintainers/${name}`),
 ];
 
 for (const document of documents) {

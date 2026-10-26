@@ -1,7 +1,20 @@
 # Design
 
+Objetivos, limites e decisões originais de desenho do núcleo compartilhado do plugin.
+
+<a id="contents"></a>
+## Índice
+
+- [Goals](#section-1)
+- [Non-goals](#section-2)
+- [The three pieces](#section-3)
+- [Per-client adapters](#section-4)
+- [Windows rules](#section-5)
+- [Open questions](#section-6)
+
 Implementação: veja os módulos atuais em [ARCHITECTURE.pt-BR.md](ARCHITECTURE.pt-BR.md).
 
+<a id="section-1"></a>
 ## Goals
 
 - Distribuir o trabalho pelos subagentes que o cliente de IA já tem.
@@ -13,12 +26,14 @@ Implementação: veja os módulos atuais em [ARCHITECTURE.pt-BR.md](ARCHITECTURE
 - Rodar em Linux, macOS e Windows com o mesmo núcleo.
 - Sem dependências, estado em arquivos JSON simples.
 
+<a id="section-2"></a>
 ## Non-goals
 
 - Sem painel.
 - Sem trabalho entre clientes.
 - Sem banco de dados; registros em JSON e logs de eventos em JSONL.
 
+<a id="section-3"></a>
 ## The three pieces
 
 ### 1. Classificação de esforço
@@ -48,6 +63,7 @@ Só a CLI humana permite tomada pelo Produtor, mostrando a situação e exigindo
 O Diretor delega o trabalho, critica a saída do subagente e consolida os
 resultados.
 
+<a id="section-4"></a>
 ## Per-client adapters
 
 Um núcleo em Node, três adaptadores finos:
@@ -60,6 +76,7 @@ Cada adaptador mapeia os conceitos de modelo, raciocínio e subagente do núcleo
 para o que o cliente expõe. A lógica do núcleo nunca importa um cliente
 diretamente.
 
+<a id="section-5"></a>
 ## Windows rules
 
 - Construir todo caminho com `node:path`; nunca concatenar separadores à mão.
@@ -69,6 +86,7 @@ diretamente.
 - Travas: criar um diretório com `mkdir` e removê-lo ao final; exclusivo em
   todas as plataformas suportadas.
 
+<a id="section-6"></a>
 ## Open questions
 
 - A cota automática usa a barra do Claude Code, sessões locais do Codex e fontes

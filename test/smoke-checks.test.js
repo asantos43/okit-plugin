@@ -1,4 +1,4 @@
-// The three check tables of `docs/SMOKE.md`: their ids, names, groups and
+// The three check tables of `docs/maintainers/SMOKE.md`: their ids, names, groups and
 // timeouts, and every check passing on a scratch home with an injected spawner,
 // command runner, clock and sleep. The last test mutates one seam and proves the
 // runner still reports a failure, so a table that stopped asserting anything
@@ -25,7 +25,7 @@ const SLOT = Date.UTC(2026, 8, 23, 9, 15, 0);
 
 const ALL = [...INSTALL_CHECKS, ...FEATURE_CHECKS, ...UNINSTALL_CHECKS];
 
-// The three tables of `docs/SMOKE.md`, transcribed: id, name, group, timeout.
+// The three tables of `docs/maintainers/SMOKE.md`, transcribed: id, name, group, timeout.
 const DOC = [
   ['I1', 'files.placed', 'I', 5000],
   ['I2', 'commands.registered', 'I', 15000],
@@ -80,7 +80,7 @@ function child(pid, calls, clock) {
 
 /**
  * One scratch home per check: the `home`, `stateRoot`, `configRoot`, `project`
- * and `tmp` of `docs/SMOKE.md`, an environment that names them and an injected
+ * and `tmp` of `docs/maintainers/SMOKE.md`, an environment that names them and an injected
  * spawn, run, clock, sleep and `runChecks`. Removed with the test that owns it.
  */
 async function depsOf(t, overrides = {}) {
@@ -168,7 +168,7 @@ async function runChecks(checks, deps) {
 // | a timeout that differs from the table       | -                               | refused                      |
 // | a scratch home left behind after a test     | -                               | removed with the test        |
 
-test('the three tables carry the 31 ids of docs/SMOKE.md, once each', () => {
+test('the three tables carry the 31 ids of docs/maintainers/SMOKE.md, once each', () => {
   assert.equal(ALL.length, 31, 'the tables hold 31 checks');
   assert.deepEqual(INSTALL_CHECKS.length, 7);
   assert.deepEqual(FEATURE_CHECKS.length, 19);

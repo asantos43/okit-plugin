@@ -1,0 +1,41 @@
+# State on disk
+
+The plugin stores configuration, work and observations in the person's state directory.
+
+<a id="root"></a>
+## Root and files
+
+The default root is ~/.okwork; OKWORK_HOME replaces the entire directory (it does not append .okwork). Relative paths below start at this root unless stated otherwise. Installation payloads use a separate directory.
+
+| Path | Contents |
+| :- | :- |
+| `config.json` | Overrides of defaults, profiles and completed-setup record |
+| `project.json` | Project name/path used in references |
+| `inbox.json` | Version, sequence and work items, status, ownership/history and metadata |
+| `orders.json` | Global/project instructions, expiry, revocation and history until retention |
+| `templates.json` | Recurring demands, schedules, rules and last run |
+| `quota/<client>.json` | Remaining percentage, source, timestamp and known windows; readers choose between automatic and manual |
+| `runs/<runId>.json` | Slot status, client and start/end times; process launches also record PID and outcome |
+| `runs/<runId>.out` | Process launcher stdout/stderr when no other log directory is supplied |
+| `locks/config.lock/owner.json`, `inbox.json.lock/owner.json`, `orders.json.lock/owner.json`, `templates.json.lock/owner.json`, `runs.lock/owner.json` | Writer lock owner, PID and timestamp; temporary claim files coordinate recovery |
+| `daemon.lock/owner.json` | Exclusive daemon loop lock |
+| `daemon.pid.json`, `daemon.paused`, `daemon.stop` | Loop owner and persisted pause/stop controls |
+| `logs/<date>.jsonl` | Daemon decisions and retention purges |
+| `logs/smoke/smoke-<runId>.jsonl`, `logs/smoke/smoke-<runId>.log` | Client scenario events and readable report |
+| `claude-statusline.original` | Status bar backup before consented registration |
+| `autostart/okit-daemon.cron`, `logs/daemon.out` | Cron plan and daemon output for that plan |
+
+<a id="installation"></a>
+## Outside the state root
+
+Default payload destination: XDG_DATA_HOME/okit-plugin or ~/.local/share/okit-plugin on Linux; ~/Library/Application Support/okit-plugin on macOS; LOCALAPPDATA/okit-plugin or ~/AppData/Local/okit-plugin on Windows. install.destination overrides it.
+There, install.<client>.json records current payload, checksum, previous version, link, autostart and status bar; install.json is the legacy record. <version>-<client>/ holds code; managed-path.json tracks only managed PATH changes. The default link directory is ~/.local/bin or ~/AppData/Local/bin on Windows; configuration can override it. Hooks, skills and role blocks live in [client roots](adapters.md).
+Autostart also registers ~/.config/systemd/user/okit-daemon.service, ~/Library/LaunchAgents/com.okit.daemon.plist or a Windows task, according to platform and plan.
+
+<a id="integrity"></a>
+## Integrity and removal
+
+JSON writes use a temporary file, sync and rename; locks use directories with owners and dead-process recovery. Missing files allow a fallback; invalid JSON does not silently become empty configuration. Do not remove active-process locks. Use `okit-plugin env report` to locate effective state and `okit-plugin config show` to inspect settings.
+Update preserves state. Uninstall preserves it by default; --purge --yes requires no remaining clients and deletes the root. Back up history before removal.
+
+[Overview](README.md) · [Configuration](configuration.md) · [Português](state.pt-BR.md)

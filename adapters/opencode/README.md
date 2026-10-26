@@ -1,7 +1,7 @@
 # opencode adapter
 
 Node >= 20, ESM, zero dependencies. Implements section 4 of
-`docs/ARCHITECTURE.md`; installation follows D-Q3 in `docs/RELEASING.md`.
+`docs/maintainers/ARCHITECTURE.md`; installation follows D-Q3 in `docs/maintainers/RELEASING.md`.
 
 - `spawn(actor, briefing, opts)` uses `makeSpawner` in `PROCESS` mode by default:
   `opencode run --dir <cwd> --model <provider/model> [--variant <effort>] --format json <briefing>`.
@@ -53,7 +53,7 @@ commands ran; no model, network request or real-client proof was requested.
 | Config/data roots under home | `opencode debug paths` | Real config/data files and existing global plugins not inspected: task rules prohibit reads outside repository. |
 | XDG config root override | `XDG_CONFIG_HOME=<temporary>/xdg-config opencode debug paths` | Windows/macOS native proof pending. |
 | OPENCODE_CONFIG_DIR loads config | Temporary `opencode.json` with username marker; isolated XDG roots; `OPENCODE_CONFIG_DIR=<temporary> opencode --pure debug config` returned the marker | `debug paths` still displays the XDG root; the override adds a config location. Real-home plugin discovery untested. |
-| Global JS plugin installation and skills | `docs/RELEASING.md`, D-Q3 and per-system table | Installation exposed; D25 native-event bridge and activation proof deferred. `hooks: true` means plugin installation, not a hooks JSON schema. |
+| Global JS plugin installation and skills | `docs/maintainers/RELEASING.md`, D-Q3 and per-system table | Installation exposed; D25 native-event bridge and activation proof deferred. `hooks: true` means plugin installation, not a hooks JSON schema. |
 | MCP support | `opencode --help` lists `mcp`; release design separates MCP wiring | MCP installation is outside this adapter contract. |
 | No verified plan quota source | `opencode stats --help` describes token usage/cost statistics | Local quota file/API not established; sample is core user data, never inferred from costs. |
 | Desktop/Windows not proven here | Release per-system proof requirements | Capability flags remain false until verified; this does not assert the client lacks support. |

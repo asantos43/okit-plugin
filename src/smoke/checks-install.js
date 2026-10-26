@@ -1,4 +1,4 @@
-// Group A of `docs/SMOKE.md`: the plugin is installed and a client can talk to
+// Group A of `docs/maintainers/SMOKE.md`: the plugin is installed and a client can talk to
 // it. Every check here reads the plugin root it is given and writes only under
 // `deps.stateRoot` and `deps.configRoot`, so a run of this table never touches
 // the machine it runs on.
@@ -178,7 +178,7 @@ async function versionMatches(deps) {
 }
 
 /**
- * The install group, in the order of the table in `docs/SMOKE.md`. `run` resolves
+ * The install group, in the order of the table in `docs/maintainers/SMOKE.md`. `run` resolves
  * when the check passes and throws a plain-words `Error` when it fails; the
  * runner of step 3 is what turns that into a record.
  */

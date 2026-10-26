@@ -78,7 +78,7 @@ Execute `okit-plugin kit [--require]`. A linha `kit: …`, em inglês, informa `
 `absent` ou `broken`. Apenas `--require` (ou `require: true` configurado) retorna 1
 quando a consulta não confirma instalação. Install/update, inclusive `--dry-run`,
 e status também imprimem a linha. Quando instalado, consulte as
-[regras D1](docs/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
+[regras D1](docs/maintainers/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
 
 Em `OKWORK_HOME/config.json`, configure `install.kit`:
 `executables: ["okit", "kit"]`, `path: null` (somente PATH),
@@ -134,4 +134,4 @@ SHA-256 detecta bytes alterados, mas **não autentica a origem**. Quem substitui
 pacote e manifesto pode gerar hashes correspondentes. Confira o repositório,
 leia o script e examine a procedência da release.
 
-[English](INSTALL.md) · [Releases e provas](docs/RELEASING.pt-BR.md)
+[English](INSTALL.md) · [Releases e provas](docs/maintainers/RELEASING.pt-BR.md)

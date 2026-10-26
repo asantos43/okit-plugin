@@ -4,7 +4,7 @@
 
 `okit-plugin install --client claude-code --statusline` registra a coleta com consentimento, mantendo o comando anterior e os demais campos da barra. `--no-statusline` recusa; sem flags, terminais perguntam e instalações sem terminal pulam. `update` mantém o registro aprovado; `--dry-run` e `update --check` só mostram o plano. A pasta vem de `CLAUDE_CONFIG_DIR` ou da pasta do Claude configurada relativa à pasta pessoal. Comandos de shell usam o envoltório configurável da plataforma. `uninstall` restaura os bytes originais, ou só a barra anterior se houve edições posteriores; a cópia fica no estado do plugin e é removida.
 
-The five functions of `docs/ARCHITECTURE.md` section 4, for Claude Code.
+The five functions of `docs/maintainers/ARCHITECTURE.md` section 4, for Claude Code.
 Zero dependencies, Node >= 20 ESM; the core imports this module, never the CLI.
 
 - `spawn(actor, briefing, opts)` — `NATIVE` (default) returns the Agent tool call `{model, effort, prompt}` and starts no process; `PROCESS` (`opts.headless`) goes through `makeSpawner` of `src/spawn-process.js`.

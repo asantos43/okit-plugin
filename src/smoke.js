@@ -1,10 +1,10 @@
-// The smoke runner of `docs/SMOKE.md`: the scratch home rule, the loop with a
+// The smoke runner of `docs/maintainers/SMOKE.md`: the scratch home rule, the loop with a
 // timeout per check and a cap for the run, `--only`, `--keep`, the `smoke` lock
 // of the state root and the two artifacts of the result. Every side effect is a
 // parameter of `io`, so `test/smoke-runner.test.js` runs all of it on any host
 // without a client, a daemon or a `systemctl`.
 //
-// The order of the tables of `docs/SMOKE.md` is the order of the run: the
+// The order of the tables of `docs/maintainers/SMOKE.md` is the order of the run: the
 // install group, every feature end to end, then uninstall and idempotence. It is
 // fixed, so two runs differ only in the run id.
 
@@ -22,7 +22,7 @@ import { withLock } from './state.js';
 import { paths, stateRoot } from './store.js';
 import { DEFAULT_CONFIG } from './profiles.js';
 
-// The order of the tables of `docs/SMOKE.md`: the install group, every feature
+// The order of the tables of `docs/maintainers/SMOKE.md`: the install group, every feature
 // end to end, then uninstall and idempotence. It is fixed, so two runs differ
 // only in the run id. The three tables are read when a run starts and not at the
 // top of this file: a check table calls `main()` of `src/cli.js`, which imports
@@ -47,7 +47,7 @@ const RUN_CAP_MS = 600_000;
 const LOCK_NAME = 'smoke';
 const SCRATCH_PREFIX = 'okit-smoke-';
 
-// The scratch home of `docs/SMOKE.md`: `<scratch>/home`, `<scratch>/project` and
+// The scratch home of `docs/maintainers/SMOKE.md`: `<scratch>/home`, `<scratch>/project` and
 // `<scratch>/tmp`, and an environment that names them and points HOME inside.
 async function scratchScope(base, env) {
   const root = await mkdtemp(join(base, SCRATCH_PREFIX));

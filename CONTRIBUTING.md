@@ -14,8 +14,8 @@ The package version is 0.2.3. Use Node.js >=20; no dependency installation is re
 
 - Code, identifiers, commit messages and code comments in English.
 - User documentation in English and pt-BR: when you change behaviour, update
-  `README.md` and `README.pt-BR.md`, plus `docs/DESIGN.md` and
-  `docs/DESIGN.pt-BR.md` when the design changes.
+  `README.md` and `README.pt-BR.md`, plus `docs/maintainers/DESIGN.md` and
+  `docs/maintainers/DESIGN.pt-BR.md` when the design changes.
 
 ## Changelog
 

@@ -15,7 +15,7 @@ import { paths, stateRoot } from './store.js';
 export const CLIENTS = ['claude-code', 'codex', 'opencode'];
 
 // The flags below were read from each client's own help on 2026-10-22; see
-// `docs/ARCHITECTURE.md` section 12.
+// `docs/maintainers/ARCHITECTURE.md` section 12.
 const CLAUDE_COMMAND = 'claude';
 const CODEX_COMMAND = 'codex';
 const OPENCODE_COMMAND = 'opencode';

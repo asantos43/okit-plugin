@@ -1,4 +1,4 @@
-// Codex adapter: docs/ARCHITECTURE.md section 4. No CLI runs at import time.
+// Codex adapter: docs/maintainers/ARCHITECTURE.md section 4. No CLI runs at import time.
 import { randomBytes } from 'node:crypto';
 import { formatRoleContext, roleContext, rolePrompt } from '../../src/roles.js';
 import { roleBlock } from '../../src/install/role-block.js';

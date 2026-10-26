@@ -49,7 +49,7 @@ export const DEFAULT_CONFIG = {
       executables: ['okit', 'kit'], path: null, versionArgs: ['--version'],
       timeoutMs: 3000, require: false,
       hint: 'See INSTALL.md#orchestration-kit for kit installation instructions.',
-      overlap: 'See docs/ARCHITECTURE.md#kit-and-plugin-overlap-d1 for overlap rules.',
+      overlap: 'See docs/maintainers/ARCHITECTURE.md#kit-and-plugin-overlap-d1 for overlap rules.',
     },
     repository: 'asantos43/okit-plugin', api: 'https://api.github.com',
     headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'okit-installer' },
@@ -237,7 +237,7 @@ export const DEFAULT_CONFIG = {
     maxMinutes: 15,
     checkTimeoutMs: 60_000,
   },
-  // The release build of `docs/RELEASING.md` PR 1: the pairs, the archive
+  // The release build of `docs/maintainers/RELEASING.md` PR 1: the pairs, the archive
   // format per system, the output folder, the files that enter a payload, the
   // client-required file names and the name model. Every value here is a
   // default the user configuration and the build flags may replace.
@@ -335,7 +335,7 @@ export const DEFAULT_CONFIG = {
       fileName: '{package}-{version}-release-checklist.md',
       title: 'Release checklist — {package} {version}',
       instructions: [
-        'Collect both layers for each installed candidate; see docs/RELEASING.md, Proof per pair and D-Q7. This command only prepares records; it runs no smoke and publishes nothing.',
+        'Collect both layers for each installed candidate; see docs/maintainers/RELEASING.md, Proof per pair and D-Q7. This command only prepares records; it runs no smoke and publishes nothing.',
         'Run `{bin} smoke` with the full check set (in-process, scratch home): exit 0 and every check passing are required.',
         'Run `{bin} client-smoke` for the D25 scenario inside the actual named client with its real installation, login and state. Record the exact command/driver; rehearsal, dry-run and mocked spawns are not proof.',
         'D25 requires C1–C5 passing, no failures and accounting for every later check. Exit 0 can still mean {partial}; missing hook proof blocks installation acceptance. Missing configuration means incomplete installation.',

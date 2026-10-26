@@ -1,22 +1,46 @@
 # Architecture
 
+Core contracts and invariants for persistence, scheduling, adapters and execution.
+
+<a id="contents"></a>
+## Contents
+
+- [1. Core contract](#section-1)
+- [2. MCP tools](#section-2)
+- [3. State on disk](#section-3)
+- [4. Adapter interface](#section-4)
+- [5. Quota](#section-5)
+- [6. Windows rules](#section-6)
+- [7. Concurrency limit](#section-7)
+- [8. Schedules and recurrence](#section-8)
+- [9. Recurring templates](#section-9)
+- [10. Standing orders](#section-10)
+- [11. The daemon](#section-11)
+- [12. Spawn modes](#section-12)
+- [13. Autonomy](#section-13)
+- [14. Global state and `appliesTo`](#section-14)
+- [15. Implementation and limits](#section-15)
+- [Operational reference](#section-16)
+
 `src/install/statusline.js` plans, applies and undoes Claude status bar registration with injected filesystem dependencies. The per-client installation record stores the settings path, hash of written bytes and backup path in plugin state. A prior command is tokenized or wrapped with `statuslineRegistration.shell[platform]`; other status bar fields survive. Approved updates repair a missing collector or a changed plugin command; an existing collector without ownership is left alone. Uninstall restores original bytes when the hash matches, otherwise changes only an owned status bar. Preview/check paths never write.
 
 The plugin CLI uses `install.command` (default `okit-plugin`) and its package `bin`. Legacy plugin links migrate on install/update; kit links remain untouched. The kit detector rejects plugin executables, including old `okit` links. MCP identity and `~/.okwork` are unchanged.
 
 Extends [DESIGN.md](DESIGN.md); answers its open questions. One Node core (>=20, zero dependencies), three thin adapters, one MCP server over the core.
 
+<a id="section-1"></a>
 ## 1. Core contract
 
-`src/smoke/demo/index.js` composes the existing classifier, snapshot actor selection, profiles, inbox and slot functions in an isolated temporary tree. Small scenario, attempt, scheduler, budget and report modules implement the [injected demonstration](DEMO.md); every executor/critic attempt reserves a slot and budget. Only test actors launch in step 2. CLI/MCP/skill entry, consent and paid drivers remain step 3; C1–C23 keep their existing meaning.
+`src/smoke/demo/index.js` composes the existing classifier, snapshot actor selection, profiles, inbox and slot functions in an isolated temporary tree. Small scenario, attempt, scheduler, budget and report modules implement the [injected demonstration](DEMO.md); every executor/critic attempt reserves a slot and budget. CLI/MCP/skill entry and consent are implemented; paid launches refuse without proven usage measurement and cost limits; C1–C23 keep their existing meaning.
 
 The inbox stores demands with `id`, `title`, `body`, `kind`, `accept`, `effort`, `client`, `appliesTo`, `status`, `stepIds`, `ext`, `createdAt`. `kind` is free text. Orders share one file, filtered by `appliesTo`. Briefing, critique and consolidation are skill instructions rather than additional core APIs.
 
+<a id="section-2"></a>
 ## 2. MCP tools
 
-The core exposes 17 MCP tools in `src/mcp/tools.js`: `acquire_slot`, `release_slot`, `limits_status`, `status`, `actors_list`, `env_report`, `smoke_demo`, `classify`, `profile_pick`, `inbox_add`, `inbox_list`, `inbox_claim`, `inbox_release`, `inbox_set_status`, `order_add`, `order_list`, `order_remove`. Planning, briefing, critique and consolidation are skill guidance, not MCP tools.
+See the reference: [mcp-tools](../components/mcp-tools.md).
 
-`src/env/report.js` provides shared read-only environment readings (`environmentReadings`), the report object (`environmentReport`) and bilingual text (`formatEnvironmentReport`). CLI `okit-plugin env report [--client <name>] [--locale en|pt-BR]` and MCP `env_report` reuse these functions. MCP accepts optional `client` and `locale` and returns the object with formatted `text`; unknown clients receive a short localized sentence. Without a client filter, every known client appears with the client in use first, even when unconfigured. Models must be confirmed by an active listing; missing readings remain unknown. Missing setup, command or models include a repair command from configuration. The installed `okit-environment` skill explains this report without changing settings.
+`src/env/report.js` centralizes environment readings.
 
 Inbox items optionally carry `hold: {client, session, worktree, takenAt, via}`;
 `via` is `claim` or `producer`. `heldBefore` records previous holders with
@@ -31,64 +55,40 @@ with `--producer-takeover` can force transfer, after situation display (includin
 changes with `inbox.gitTimeoutMs`) and TTY confirmation or `--yes`.
 The confirmed holder is compared again inside the lock to reject intervening changes.
 
+<a id="section-3"></a>
 ## 3. State on disk
 
-Root: `node:path.join(os.homedir(), '.okwork')`, overridable with `OKWORK_HOME`. Never inside a client plugin directory: a plugin root moves on update.
-
-```
-config.json               per-client limits, terse rules, adapter paths
-inbox.json                inbox items
-orders.json               standing orders
-templates.json            recurring templates
-quota/<client>.json       one quota reading per client
-runs/<runId>.json         one file per delegated run
-locks/<name>.lock/        mkdir lock directories
-logs/<date>.jsonl         append-only events, one decision record per daemon pass
-daemon.pid.json           pid and start time of the running daemon
-daemon.paused             pause file, written by daemonPause
-daemon.stop               kill switch, read by the daemon
-```
-
-Project-side files live beside the project, not in this root: the project's own `CLAUDE.md` (Claude Code) or `AGENTS.md` (Codex, opencode). Standing orders are not one of them — they all live in `orders.json` here, bound to a project by `appliesTo`.
+See the reference: [state](../components/state.md).
 
 - Write: serialise to `<file>.<pid>.<random>.tmp`, then `fs.rename` over the target, so a reader never sees half a file. On `EPERM` or `EBUSY` (Windows) retry the rename a few times before failing.
 - Lock: `fs.mkdir` the `<name>.lock` folder, which holds `owner.json` `{pid, startedAt}`; `EEXIST` means busy; release with `rmdir`, which waits out `EPERM`/`EBUSY` like every other call: the file it removes was written and closed a moment ago, and a lock left behind by that refusal holds the owner of a process that is gone and is younger than `staleMs`, which no contender can take. A release answered by `ENOTEMPTY` (emptied, but a contender wrote an entry back before the `rmdir`) or `ENOENT` (another contender removed it first) counts as released: the entry that answered is the only evidence every waiter reads, so retrying would take a lock from a live owner.
 - Stale: a lock is stale when it is older than `staleMs` **and** its pid is dead; with no readable `owner.json` the folder `mtime` is used and there is no pid check. Takeover claims the dead owner's folder in place: it renames the dead owner's `owner.json` out of the folder (only one rename can win) and then creates its own `owner.json` exclusively (`wx`), so two takers cannot both win. The folder is never moved aside. A Windows refusal that outlives the retries of any one step of that claim gives the attempt up and leaves the folder as it was found, so the poll loop judges it again instead of the acquire ending on a raw code.
 - One writer per file: inbox, orders and runs are separate files, so two steps of one item do not block each other.
 
+<a id="section-4"></a>
 ## 4. Adapter interface
 The [integration design](INTEGRATION.md) ([Português](INTEGRATION.pt-BR.md))
 defines the shared environment, native roles, glossary and whole-flow routing (steps 2–4 complete).
 
 Each adapter provides these five operations, plus its documented helpers. The core imports an adapter, never a client.
 
-| Function | Input | Output |
-| :- | :- | :- |
-| `spawn(actor, briefing, opts)` | actor profile, briefing | `{ runId, pid }`, or `{ runId }` for an in-process run |
-| `readQuota()` | none | `{ source, remainingPct?, windowMinutes? }` |
-| `capabilities()` | none | `{ models[], efforts[], skills, hooks, mcp, desktop, windows }` |
-| `installSkill(name, files)` | skill folder | `{ path }` |
-| `installHooks(files)` | client hook config or module path | `{ path }` |
-| `deliverRole(context)` | client, explicit briefing or main session, shared snapshot, applicable work/orders/limits, actor | `ready` with native context, `clarification` or `unsupported` |
-| `installRole(opts)`, `removeRole(opts)` | injected client root and native support | idempotent managed artifact; preserve user instructions |
+- `spawn(actor, briefing, opts)` — actor profile, briefing — `{ runId, pid }`, or `{ runId }` for an in-process run
+- `readQuota()` — none — `{ source, remainingPct?, windowMinutes? }`
+- `capabilities()` — none — `{ models[], efforts[], skills, hooks, mcp, desktop, windows }`
+- `installSkill(name, files)` — skill folder — `{ path }`
+- `installHooks(files)` — client hook config or module path — `{ path }`
+- `deliverRole(context)` — client, explicit briefing or main session, shared snapshot, applicable work/orders/limits, actor — `ready` with native context, `clarification` or `unsupported`
+- `installRole(opts)`, `removeRole(opts)` — injected client root and native support — idempotent managed artifact; preserve user instructions
 
 `src/roles.js` composes the same bilingual role contract without client branches or side effects. Claude SessionStart injects context on startup/resume/compact; Codex uses a delimited AGENTS.md block and launch prompt; opencode uses its native config hook for primary agents and commands. Explicit briefings select Executor/Critic, never model+effort. Missing/ambiguous roles and unsupported formats are reported before launch. Role answers use existing core tools and readable work titles; environment questions never save settings, spawn or spend quota. Installer role registration and packaged Claude hook wiring are part of this path. Hermetic whole-flow tests isolate HOME and client roots for all three adapters, through confirmed setup, shared facts, Director and injected offline smoke. All six skills carry the same bilingual routing map; real-client acceptance stays separate.
 
 ### 4.1 The bundled adapters
 
-| Adapter | Modes | Hook installation |
-| :- | :- | :- |
-| Claude Code | NATIVE descriptor; PROCESS | Merge JSON hook entries |
-| Codex | NATIVE descriptor; PROCESS | Explicit refusal, no I/O |
-| opencode | PROCESS | Copy a global JS plugin module |
+See the reference: [adapters](../components/adapters.md).
 
-`adapters/claude-code/index.js` implements the client contract. `spawn` returns a NATIVE descriptor or uses `makeSpawner` in PROCESS. `readQuota` reads the automatic status bar sample or the manual sample in `quota/claude-code.json`, with source and age. `installSkill` preserves differing files and `installHooks` merges entries without dropping user entries. The root comes from `opts.root`, `CLAUDE_CONFIG_DIR` or the home folder. Codex offers NATIVE and PROCESS but refuses hook installation. opencode offers PROCESS and installs a global JS module.
-
+<a id="section-5"></a>
 ## 5. Quota
-- Claude Code: `statusline-collector` saves status bar input after consented registration with `install --statusline` or `update --statusline`.
-- Codex: `codexQuota` controls local session reading; the automatic sample wins when newer than the manual one.
-- opencode: `opencodeQuota.sources` supplies provider commands or files; a valid source wins over the manual sample.
-- All accept manual readings through `okit-plugin quota set <client> <pct>`; without a valid reading, quota stays unknown.
+See the reference: [configuration](../components/configuration.md).
 
 Never estimate quota. `profilePick` lowers one class when `remainingPct < lowQuotaPct`; `source: off` and absent readings do not downgrade. Adapters return automatic readings when available, with manual fallback.
 
@@ -107,7 +107,7 @@ quota stays unknown. Another client's quota never authorizes it.
 
 The actors Quota column shows the localized state, tightest remaining percentage and reading age, without standing-order text in either Markdown or JSON. A client with no configured actors gets only the setup note. Invalid CLI `--client` values print usage and exit 2, as for `status`. Extra locales in `actors.messages` are limited to those accepted by the CLI and MCP (`LABELS`/`LOCALES`).
 
-`actors_list` / `okit-plugin actors [--client <name>|--all] [--json] [--locale en|pt-BR]` is read-only. An actor is a model + effort pair available in a client, with sizes derived from the configured `actors.sizeClasses` map (default S→simple, M→normal, L→hard); `actors.criticClass` is shown separately. `src/actors.js` shares status client selection/quota and reads `limitsStatus` without acquiring/releasing slots. Status describes running executors; actors lists configured profiles even with none running. Duplicate pairs merge sizes. Missing sizes name the nearest runnable size, ties favor the earlier size in the map. Low quota and full capacity include reasons and remedies; unknown quota does not block. A client with no profile gets the setup note that points to the profiles in the plugin configuration.
+`actors_list` / `okit-plugin actors [--client <name>|--all] [--json] [--locale en|pt-BR]` is read-only. An actor is a model + effort pair available in a client, with sizes derived from the configured `actors.sizeClasses` map (default S→simple, M→normal, L→hard); `actors.criticClass` is shown separately. `src/actors.js` shares status client selection/quota and reads `limitsStatus` without acquiring/releasing slots. Status describes running executors; actors lists configured profiles even with none running. Duplicate pairs merge sizes. Missing sizes name the nearest runnable size, ties favor the earlier size in the map. Low quota and full capacity include reasons and remedies; unknown quota blocks launch. A client with no profile gets the setup note that points to the profiles in the plugin configuration.
 
 `src/status.js` is the view of those readings, not a second source of them: `statusTable(root, deps)` formats the readings, clock, cap counts and standing orders supplied in `deps`, using the locale's fixed `LABELS`, and returns `{markdown, capacityLine, rows}`. The table ends with one fixed, localized sentence saying slots are running executors and `actors` lists the available model + effort profiles. This sentence is a label, not an input reading in `deps`. Columns are `Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age)`; a `windows` array fills both columns, and without it the single `remainingPct` goes to the 5h column when `windowMinutes <= 360` and to the week otherwise, including when `windowMinutes` is absent.
 
@@ -188,6 +188,7 @@ The setup leaves `setup.done` in `config.json`; while that record is absent, `ok
 
 One input reader serves every setup question. It keeps the received lines in order, treats end of input as cancellation, and closes after the setup ends. An input that had already ended opens no reader at all: every question is answered with nothing, so the setup cancels instead of waiting for a line that will never come. Before normalizing the raw profiles, the setup checks their own client and class names against the configuration schema; a name outside the schema is refused in both languages and no file is changed. A configuration file that cannot be read, or whose root is not a plain object, is refused before any write and again on the read under the lock, with the same plain sentence in both languages; nothing is written and the file stays as it is. A `profiles` that is not a plain object, or a client inside it that is not a plain object, is refused the same way, and no technical error of the language reaches the user. The `okit-setup` skill never writes an individual setting: the setup asks for each model and writes the complete set once, after the final confirmation.
 
+<a id="section-6"></a>
 ## 6. Windows rules
 - Build every path with `node:path`, never by concatenating separators; store them with forward slashes, the form Claude Code substitutes, so what we write matches what the client reads.
 - No shell: `child_process.spawn` with an argument array. Shell-form hook commands are the client's concern, not ours.
@@ -197,6 +198,7 @@ One input reader serves every setup question. It keeps the received lines in ord
 
 `PROCESS` mode starts the clients without a shell; on Windows the `.cmd` shims need the real executable resolved first (open item of the Windows pass).
 
+<a id="section-7"></a>
 ## 7. Concurrency limit
 | Scope | Default | Read from |
 | :- | :- | :- |
@@ -211,6 +213,7 @@ no longer means a shared pool. Configuration is read for each check without rest
 
 The core counts live runs in `runs/<runId>.json` (`status: live`) rather than trusting the client to hold the cap. `acquireSlot` defaults to `waitMs: 0` and returns `ok: false` when full; callers may request a wait. `releaseSlot` ends a reservation; live counting ignores runs older than `staleMinutes` . Codex caps itself with `agents.max_concurrent_threads_per_session`; set it to the same number so the two agree.
 
+<a id="section-8"></a>
 ## 8. Schedules and recurrence
 `src/schedule.js` is pure: an injected instant, no I/O. `src/templates.js` stores a demand that its own schedule opens, one inbox child per period.
 
@@ -234,33 +237,42 @@ Rules: a cron field takes `*`, lists (`1,2`), ranges (`1-5`), steps (`*/15`) and
 
 `evaluateDue` returns `{ due, action, reason, period }`, with `action` one of `run`, `skip` (a decision that will not change) or `defer` (wait for the next pass). `period` is the ISO instant of the slot, or `event:<name>:<id>`. The guards are read in this order: `paused`, the slot for this period, `window`, `minQuotaPct`, `onlyWhenIdle`, `skipIfOpen`, `maxRunsPerPeriod`. Without history a template waits for the first slot of the current day instead of firing for one already gone; with history, `catchup: run` (the default) serves the oldest missed slot and `catchup: skip` serves only the current one. An event needs an id, or it would key one period for its whole life: without `eventId` the run is refused. The slot is read on the wall clock of `timeZone` (default `UTC`), so a repeated hour runs on its first pass and a skipped hour moves to the next valid minute.
 
+<a id="section-9"></a>
 ## 9. Recurring templates
-| Function | Effect |
-| :- | :- |
-| `templateAdd(root, input, { now })` | Stores a template and the standing order that lets it run unattended; the name must be free. |
-| `templateList(root, { name })` | Creation order; one name throws when unknown. |
-| `templateSet(root, name, patch)` | Edits a field, pauses, resumes or renames; a rename retags the open children and revokes the old order. |
-| `templateRemove(root, name)` | Removes the record and revokes its standing order with a reason. |
-| `due(root, nowMs, ctx)` | Decides every template at this instant and writes nothing. |
-| `plan(root, nowMs, ctx)` | The dry run: the decisions plus the demands that would be created. |
-| `openDue(root, nowMs, ctx)` | Opens one child per due template, once per period; the check and the write share one lock, so a second call in the same period and two racing callers create nothing more. |
+
+**Template writes / Escritas de modelos**
+
+- `templateAdd(root, input, { now })` — Stores a template and the standing order that lets it run unattended; the name must be free.
+- `templateList(root, { name })` — Creation order; one name throws when unknown.
+- `templateSet(root, name, patch)` — Edits a field, pauses, resumes or renames; a rename retags the open children and revokes the old order.
+- `templateRemove(root, name)` — Removes the record and revokes its standing order with a reason.
+
+**Template evaluation / Avaliação de modelos**
+
+- `due(root, nowMs, ctx)` — Decides every template at this instant and writes nothing.
+- `plan(root, nowMs, ctx)` — The dry run: the decisions plus the demands that would be created.
+- `openDue(root, nowMs, ctx)` — Opens one child per due template, once per period; the check and the write share one lock, so a second call in the same period and two racing callers create nothing more.
 
 Required fields are `name`, `schedule` and `demand` (`title`, plus optional `kind`, `body`, `accept`, `ext`). Optional guards: `window`, `timeZone`, `minQuotaPct`, `onlyWhenIdle` (default false), `skipIfOpen` (default true), `catchup` (`run` or `skip`), `maxRunsPerPeriod`, `paused` and `appliesTo`. Every child carries `ext.template` and `ext.period` and inherits the template's `appliesTo`, so one shared template store still knows which inbox each run belongs to.
 
+<a id="section-10"></a>
 ## 10. Standing orders
 An order is a line the maintainer writes once and the Director reads with every demand. The JSON stays the source; `orderRender` is only a view.
 
-| Function | Effect |
-| :- | :- |
-| `orderAdd(root, { text, scope, until, origin, appliesTo }, { projectRoot })` | Adds an active order to the one store; `until` must be a date in the future. A `layer` is refused with `layer is gone: use appliesTo`. |
-| `orderRemove(root, id, { reason })` | Revokes it: `active: false` with `revokedAt` and `revokedReason`. Nothing is deleted, so the history survives. A second revoke is refused. |
-| `orderStatus(order, now)` | The derived status of one order: `revoked`, `expired` or `active`. |
-| `orderList(root, { activeOnly, appliesTo, now }, { projectRoot })` | Lists the one store. `activeOnly` drops revoked and expired orders. Every order comes back with its derived `status` and, when inactive, the `purgeAfter` date. |
-| `orderMigrateProjects(root, projectRoots)` | One-time migration of the old project-side file into the store; returns `{ moved, skipped }`. |
-| `orderLint(root, { now })` | What a reader of the file would trip on: empty text, unknown scope, unreadable dates, a repeated id, an active order past its `until`, two live orders with the same text. |
-| `purgeAfter(order, retentionDays, now)` | The instant an inactive order may be purged, or `undefined` for an active one. |
-| `orderPurge(root, { now, retentionDays })` | Removes for good every inactive order whose retention is over, and appends `{ at, purged: [ids] }` to `logs/<date>.jsonl`. |
-| `orderRender(orders)` | Markdown for a human to read. |
+**Order writes / Escritas de ordens**
+
+- `orderAdd(root, { text, scope, until, origin, appliesTo }, { projectRoot })` — Adds an active order to the one store; `until` must be a date in the future. A `layer` is refused with `layer is gone: use appliesTo`.
+- `orderRemove(root, id, { reason })` — Revokes it: `active: false` with `revokedAt` and `revokedReason`. Nothing is deleted, so the history survives. A second revoke is refused.
+- `orderStatus(order, now)` — The derived status of one order: `revoked`, `expired` or `active`.
+- `orderList(root, { activeOnly, appliesTo, now }, { projectRoot })` — Lists the one store. `activeOnly` drops revoked and expired orders. Every order comes back with its derived `status` and, when inactive, the `purgeAfter` date.
+
+**Migration and retention / Migração e retenção**
+
+- `orderMigrateProjects(root, projectRoots)` — One-time migration of the old project-side file into the store; returns `{ moved, skipped }`.
+- `orderLint(root, { now })` — What a reader of the file would trip on: empty text, unknown scope, unreadable dates, a repeated id, an active order past its `until`, two live orders with the same text.
+- `purgeAfter(order, retentionDays, now)` — The instant an inactive order may be purged, or `undefined` for an active one.
+- `orderPurge(root, { now, retentionDays })` — Removes for good every inactive order whose retention is over, and appends `{ at, purged: [ids] }` to `logs/<date>.jsonl`.
+- `orderRender(orders)` — Markdown for a human to read.
 
 Status is computed from the row and is never written to the file, so a reader of the JSON sees only what was written:
 
@@ -274,21 +286,25 @@ Revoking marks, it does not delete: the row stays with `active: false`, `revoked
 
 One store: every order lives in `orders.json` under the state root and an id is `G000001`. There is no project layer any more — a project is chosen by `appliesTo`, which names the project ids or paths the order binds, and an order without it binds every project. `orderAdd` with a `layer` is refused with `layer is gone: use appliesTo`. The one-time `orderMigrateProjects(root, projectRoots)` copies each `<projectRoot>/.okwork/orders.json` of the old layout into the store with `appliesTo` set to that project path, `origin` `migrated:project` and a fresh `G` id, keeping text, scope, `until`, `active` and the revoke fields; a row already copied is skipped (same text plus `appliesTo`), the copy happens before the old file is renamed to `orders.json.migrated` and it is never deleted. It runs lazily from `orderList`/`orderAdd` when a `projectRoot` is passed, which is the only remaining use of `projectRoot`. `scope` is `all` or `effort:simple`, `effort:normal`, `effort:hard`; `origin` is free text, defaulting to `maintainer`, and a template writes `template:<name>`. A template's order is created with its record, moved on a rename and revoked with a reason on removal, so the order that allowed a run stops allowing it.
 
+<a id="section-11"></a>
 ## 11. The daemon
 The daemon is the headless half: nobody watches, so every bound it respects is a technical one. The core spawns nothing itself — `spawn` is injected, so a test drives it and an adapter drives it for real.
 
 The order of one pass, `tick`:
 
-| # | Step | Rule |
-| :- | :- | :- |
-| 1 | Pause | `daemon.paused` exists: the record says `paused`, nothing is opened and nothing is spawned. The loop keeps running. |
-| 2 | Kill switch | `daemon.stop` exists: the record says `stopped: kill switch`, and `daemonRun` leaves the loop. |
-| 3 | Quota floor | Every client of the pending demands below `daemon.minQuotaPct` stops the pass. A client with no reading is not below the floor, so an unmeasured client never paralyzes the daemon. |
-| 4 | Retention | `orderPurge` drops from the one store every inactive order whose `orders.retentionDays` is over and appends `{ at, purged: [ids] }` to `logs/<date>.jsonl`. A paused or stopped daemon purges nothing. |
-| 5 | Due templates | `openDue` with the worst reading of the pass: the lowest quota and the least idle of the clients it knows. |
-| 6 | Pending demands, oldest first | The inbox lists newest first, so the queue is reversed and a demand waiting behind newer ones never starves. A period serves one run at a time: while a sibling of the same `ext.template` and `ext.period` is still `delegated` or `criticised`, the others wait. |
-| 7 | Cap | Per demand: `classify` when the item has no `effort`, `profilePick`, then `acquireSlot` before the spawner runs and `releaseSlot` if it refuses, so a refusal costs nothing. |
-| 8 | One decision line | `{ at, opened, spawned, skipped, purged, stopped?, paused? }` appended as a single JSON line to `logs/<date>.jsonl`, so a reader tailing the file always sees a whole pass. |
+**Decision sequence / Sequência de decisão**
+
+- 1 — Pause — `daemon.paused` exists: the record says `paused`, nothing is opened and nothing is spawned. The loop keeps running.
+- 2 — Kill switch — `daemon.stop` exists: the record says `stopped: kill switch`, and `daemonRun` leaves the loop.
+- 3 — Quota floor — Every client of the pending demands below `daemon.minQuotaPct` stops the pass. A client with no reading is not below the floor, so an unmeasured client never paralyzes the daemon.
+- 4 — Retention — `orderPurge` drops from the one store every inactive order whose `orders.retentionDays` is over and appends `{ at, purged: [ids] }` to `logs/<date>.jsonl`. A paused or stopped daemon purges nothing.
+
+**Queue and execution / Fila e execução**
+
+- 5 — Due templates — `openDue` with the worst reading of the pass: the lowest quota and the least idle of the clients it knows.
+- 6 — Pending demands, oldest first — The inbox lists newest first, so the queue is reversed and a demand waiting behind newer ones never starves. A period serves one run at a time: while a sibling of the same `ext.template` and `ext.period` is still `delegated` or `criticised`, the others wait.
+- 7 — Cap — Per demand: `classify` when the item has no `effort`, `profilePick`, then `acquireSlot` before the spawner runs and `releaseSlot` if it refuses, so a refusal costs nothing.
+- 8 — One decision line — `{ at, opened, spawned, skipped, purged, stopped?, paused? }` appended as a single JSON line to `logs/<date>.jsonl`, so a reader tailing the file always sees a whole pass.
 
 The daemon never refuses a demand on its own: a demand is skipped only for a technical bound (paused, kill switch, quota floor, the concurrency cap) or a spawner failure, and every skip says which.
 
@@ -304,6 +320,7 @@ The spawner is injected: `deps` carries `now()`, `quota(client)`, `idle(client)`
 
 Pacing: a monotonic clock keeps the interval steady when the wall clock changes. One daemon per root holds the `daemon` lock. `daemonStatus` requires a live pid and a recent record. `daemon.intervalSeconds`, `daemon.minQuotaPct` and `daemon.logKeepDays` control pacing, quota floor and log retention; `orders.retentionDays` controls inactive-order retention. Invalid values use configured defaults.
 
+<a id="section-12"></a>
 ## 12. Spawn modes
 Claude Code and Codex support NATIVE descriptors and PROCESS spawning. opencode supports PROCESS only; requesting NATIVE is refused.
 
@@ -335,32 +352,18 @@ The working directory is the demand's `appliesTo` when it is one existing absolu
 ### 12.3 MCP tools
 `src/mcp/server.js` is the MCP server: JSON-RPC 2.0 over newline-delimited JSON on stdio, hand-written and with zero dependencies. `src/mcp/tools.js` holds the table, one tool per core function, and each handler validates its own arguments again because the `inputSchema` is documentation and never the only gate. Only protocol frames go to stdout; diagnostics go to stderr.
 
-| Tool | Input | Wraps | One line |
-| :- | :- | :- | :- |
-| `actors_list` | `locale?`, `all?`, `client?` | `listActors` | Configured actors, sizes, quota, free slots, launch reasons and alternatives; read-only. |
-| `acquire_slot` | `runId`, `client`, `waitMs?` | `acquireSlot` | Reserves a slot, or answers `ok: false` with the cap that refused it. |
-| `release_slot` | `runId` | `releaseSlot` | Frees the slot of a run. |
-| `limits_status` | none | `limitsStatus` | The caps and the live runs per client. |
-| `status` | `locale?`, `all?`, `client?`, `size?`, `slices?`, `executors?` | `statusTable` / `shouldShowStatus` | The detected/selected client's quota and capacity; `all` shows every client; with the task facts, also `showBefore`. |
-| `classify` | `title`, `body?`, `kind?` | `classify` | `simple`, `normal` or `hard`, plus why. |
-| `profile_pick` | `client`, `effort`, `quota?` | `profilePick` | Model, reasoning effort and `maxTurns` from the catalog, with the user's class over it. |
-| `inbox_add` | `title`, `body?`, `kind?`, `accept?`, `effort?`, `client?`, `appliesTo?` | `inboxAdd` | Adds a demand and returns the stored item. |
-| `inbox_list` | `status?`, `client?`, `appliesTo?`, `limit?`, `locale?` | `inboxList` | Lists demands newest first, including the holder. |
-| `inbox_claim` | `id`, `client`, `session?`, `worktree?` | `inboxClaim` | Claims an unowned or stale demand. |
-| `inbox_release` | `id`, `client`, `session?` | `inboxRelease` | Releases an owned or stale hold. |
-| `inbox_set_status` | `id`, `status`, `holder?` | `inboxSetStatus` | Moves one demand along the sequence. |
-| `order_add` | `text`, `scope?`, `until?`, `appliesTo?` | `orderAdd` | Adds a standing order. |
-| `order_list` | `appliesTo?` | `orderList` | Lists the orders active now. |
-| `order_remove` | `id`, `reason?` | `orderRemove` | Revokes one order; the reason defaults to the tool's own. |
+See the reference: [mcp-tools](../components/mcp-tools.md).
 
 Methods: `initialize`, `notifications/initialized`, `ping`, `tools/list` and `tools/call`. Every tool answers `{content: [{type: 'text', text}], isError}` where `text` is the JSON of what the core returned, so a refusal (`ok: false`, a full cap) and a result read the same way. An unknown method is `-32601`, an unknown tool `-32602`, a line that is not JSON `-32700` with a null id; in every case the loop keeps reading.
 
+<a id="section-13"></a>
 ## 13. Autonomy
 Maximum autonomy is the default. The plugin ships no hard-coded list of forbidden actions: a refusal comes from something the user wrote or from a technical bound, never from a rule the maintainers guessed.
 - Restrictions are standing orders. The user adds one ("never push to `main`") and `orderRemove` takes it back; nothing else can add a restriction.
 - The technical bounds stay configurable: the concurrency cap (`limits.global`, `limits.clients`, `staleMinutes`), the quota floor (`daemon.minQuotaPct`, `lowQuotaPct`), the kill switch (`daemon.stop`) and the pause file.
 - The core never invents a model, an effort value or a quota number the client did not report, and it never widens a cap on its own.
 
+<a id="section-14"></a>
 ## 14. Global state and `appliesTo`
 One inbox, one set of standing orders, one template store, in one folder (`OKWORK_HOME`, default `~/.okwork`), shared by every project. What belongs to a project lives in that project's own files and the record only references it, so a shared store never has to be split.
 
@@ -373,6 +376,7 @@ One inbox, one set of standing orders, one template store, in one folder (`OKWOR
 
 So: absent means every project, one name means that project, a list means each of them, and `global` combined with another project is refused because it says nothing precise. `inboxList`, `orderList` and `templateList` filter by project and always include the shared records; `templateSet` with `appliesTo: 'global'` drops the field, so a template goes back to shared.
 
+<a id="section-15"></a>
 ## 15. Implementation and limits
 
 The three adapters, JSON state, daemon, schedules, installer, release tooling and MCP server are implemented. The real `client-smoke` driver supports Claude Code; other drivers and Windows/macOS proof remain pending. See [RELEASING.md](RELEASING.md#proof-per-pair).
@@ -393,3 +397,31 @@ queues and concurrency limits are independent.
 detector. Only the configured version command runs, with a bounded deadline.
 The detector reports executable path and reported version; it does not guess
 kit home/configuration folders or detect this plugin from inside the kit.
+
+<a id="section-16"></a>
+## Operational reference
+
+See the reference: [cli](../components/cli.md).
+
+See the reference: [configuration](../components/configuration.md).
+
+See the reference: [hooks](../components/hooks.md).
+
+### Development — Desenvolvimento
+
+Run `node --test test/docs-consistency.test.js` for documentation checks and
+`node --test` for the complete suite. Release commands are documented in the
+release guide below.
+
+Interactive installer tests count status bar consent separately from other
+questions and decline the initial setup offer when testing `--no-statusline`.
+
+Quota tests inject a temporary HOME/USERPROFILE and `CODEX_SESSIONS_DIR` (or a
+quota reader); they must never discover sessions in the machine's real home.
+
+Pull requests are welcome. Please read [CONTRIBUTING.md](../../CONTRIBUTING.md) first.
+
+Security reports are not public issues, see [SECURITY.md](../../SECURITY.md).
+The design notes live in [docs/maintainers/DESIGN.md](DESIGN.md).
+The release design is in [docs/maintainers/RELEASING.md](RELEASING.md)
+([Português](RELEASING.pt-BR.md)).

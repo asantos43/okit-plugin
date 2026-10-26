@@ -113,7 +113,7 @@ async function writeRun(t, { now = 1_769_000_000_000, pid = 4242 } = {}) {
   };
 }
 
-test('a record carries exactly the fields docs/SMOKE.md lists', () => {
+test('a record carries exactly the fields docs/maintainers/SMOKE.md lists', () => {
   const record = recordOf(E7, { status: 'pass', durationMs: 120 }, DEPS);
   assert.deepEqual(Object.keys(record), [
     'id', 'name', 'group', 'status', 'durationMs', 'timeoutMs', 'error', 'command', 'environment', 'logTail',
@@ -226,7 +226,7 @@ test('a passing smoke on a scratch root exits 0 and writes both artifacts', asyn
     'I1', 'I2', 'I3', 'I4', 'I5', 'I6', 'I7',
     'E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'E10', 'E11', 'E12', 'E13', 'E14', 'E15', 'E16', 'E17', 'E18', 'E19',
     'U1', 'U2', 'U3', 'U4', 'U5',
-  ], 'the order is the table order of docs/SMOKE.md');
+  ], 'the order is the table order of docs/maintainers/SMOKE.md');
 
   // The jsonl is the header plus one line per check, under the scratch state root.
   const scratch = join(tmpdir, (await readdir(tmpdir))[0]);
