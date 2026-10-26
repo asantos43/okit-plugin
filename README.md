@@ -133,7 +133,16 @@ A class set to `null` is disabled: `okit-plugin config set profiles.<client>.<cl
 turns it off, `okit-plugin config unset profiles.<client>.<class>` turns it back
 on and a `set` of a field under a disabled class is refused without a write; an
 empty client group (`{}`) is the absence of a client, not a subscription of one.
-All adapters read user quota from `quota/<client>.json`.
+All adapters support manual quota from `quota/<client>.json`. Codex also reads
+the latest local session automatically, without changing any session files.
+The automatic reading wins only when newer than the manual sample; otherwise
+the manual sample is used. `quota show` and `status` show its source and age.
+Configure `codexQuota` with `config set`: `sessionsDirectory` (default
+`~/.codex/sessions`), `sessionsEnv` (`CODEX_SESSIONS_DIR`, an injected environment
+override), `recentFiles` (3), `tailBytes` (16384), `maxTailBytes` (1048576),
+`maxAgeMinutes` (120), `filePrefix`/`fileSuffix` and `fields.*` for event field names.
+Files are ordered by modification time. The reader starts at the end, expands
+the read window only to its limit, and skips malformed or unknown lines.
 Record the remaining percentage shown in the client's `/usage` with
 `okit-plugin quota set claude-code 80 [--window-minutes n]`; the clients are the ones
 the root configures (`claude-code`, `codex` and `opencode` when it configures none),
@@ -161,6 +170,9 @@ These are documentation steps; there is no separate uninstall script.
 Run `node --test test/docs-consistency.test.js` for documentation checks and
 `node --test` for the complete suite. Release commands are documented in the
 release guide below.
+
+Quota tests inject a temporary HOME/USERPROFILE and `CODEX_SESSIONS_DIR` (or a
+quota reader); they must never discover sessions in the machine's real home.
 
 Pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 

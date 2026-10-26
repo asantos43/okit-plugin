@@ -10,6 +10,7 @@ import { configOf } from '../../src/profiles.js';
 import { listModelsOf, makeSpawner } from '../../src/spawn-process.js';
 import { readJson } from '../../src/state.js';
 import { paths, stateRoot } from '../../src/store.js';
+import { readCodexSessionQuota } from './session-quota.js';
 
 export const CLIENT = 'codex';
 
@@ -46,16 +47,19 @@ export function capabilities() {
 }
 
 /**
- * Reads only the core's user-supplied quota sample, never client credentials.
- * No verified local quota file or offline quota command was found.
- * @param {{stateRoot?: string, env?: object}} [opts]
- * @returns {Promise<{source: 'user', remainingPct?: number, windowMinutes?: number, recordedAt?: string, ageMinutes?: number}>}
+ * Uses a fresh session reading when newer than the manual sample. Read-only.
+ * @param {{stateRoot?: string, env?: object, config?: object, now?: Function}} [opts]
  */
-export async function readQuota({ stateRoot: root, env, now = Date.now } = {}) {
-  const stored = await readJson(join(paths(root ?? stateRoot(env)).quota, `${CLIENT}.json`), null);
-  if (!finite(stored?.remainingPct)) return { source: 'user' };
-  const recorded = Date.parse(stored.recordedAt);
-  return { source: 'user', remainingPct: stored.remainingPct,
+export async function readQuota({ stateRoot: root, env, now = Date.now, config } = {}) {
+  const base = root ?? stateRoot(env);
+  const settings = config ?? await readJson(join(base, 'config.json'), {});
+  const automatic = await readCodexSessionQuota({ config: settings, env, now });
+  const stored = await readJson(join(paths(base).quota, `${CLIENT}.json`), null);
+  const recorded = Date.parse(stored?.recordedAt);
+  if (automatic && (!finite(stored?.remainingPct) || !Number.isFinite(recorded)
+    || Date.parse(automatic.recordedAt) > recorded)) return automatic;
+  if (!finite(stored?.remainingPct)) return { source: 'manual' };
+  return { source: 'manual', remainingPct: stored.remainingPct,
     ...(Number.isFinite(recorded) ? { recordedAt: stored.recordedAt,
       ageMinutes: Math.max(0, now() - recorded) / 60_000 } : {}),
     ...(finite(stored.windowMinutes) ? { windowMinutes: stored.windowMinutes } : {}) };

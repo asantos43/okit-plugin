@@ -26,7 +26,7 @@ import { environmentReadings, environmentReport, formatEnvironmentReport } from 
 import { runSmoke } from './smoke.js';
 import { runClientSmoke } from './smoke/client.js';
 import { CLIENTS, makeSpawner } from './spawn-process.js';
-import { adapterQuotaReader, clientsOf, LABELS, setupPendingLine, statusTable } from './status.js';
+import { adapterQuotaReader, clientsOf, LABELS, quotaOrigin, setupPendingLine, statusTable } from './status.js';
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
 import { installerCommand } from './install/index.js';
@@ -279,7 +279,7 @@ async function setupCommand(ctx, flags, io) {
 }
 
 async function quotaCommand(ctx, action, args) {
-  const readers = adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env });
+  const readers = adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env, now: ctx.now });
   // The clients of this root, the same list the quota table shows: the ones
   // the configuration names, or the known clients when it names none. A
   // client outside that list has no reading and no record.
@@ -291,7 +291,10 @@ async function quotaCommand(ctx, action, args) {
   if (action === 'show') {
     if (args.length > 1 || (args.length && !known.includes(args[0]))) return invalid();
     for (const client of args.length ? args : known) {
-      ctx.out(`Quota / Cota ${client}: ${JSON.stringify(await readers(client))}`);
+      const reading = await readers(client);
+      const origin = ['automatic', 'manual'].includes(reading.source)
+        ? ` — ${quotaOrigin(reading, ctx.now(), LABELS.en)} / ${quotaOrigin(reading, ctx.now(), LABELS['pt-BR'])}` : '';
+      ctx.out(`Quota / Cota ${client}: ${JSON.stringify(reading)}${origin}`);
     }
     return 0;
   }
@@ -322,7 +325,7 @@ async function tableDeps(ctx, locale) {
     config,
     env: ctx.env,
     clients: clientsOf(config, ctx.clients),
-    readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env }),
+    readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env, now: ctx.now, config }),
     now: ctx.now,
     orders: ctx.orders ?? await orderList(ctx.root),
     limits: await limitsStatus(ctx.root, config),

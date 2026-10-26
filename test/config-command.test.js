@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { main } from '../src/cli.js';
 import { configuredClientsOf } from '../src/profiles.js';
 import { writeJsonAtomic } from '../src/state.js';
+import { quotaEnv } from './helpers/env.js';
 
 const TMP = fileURLToPath(new URL('../.delegate/tmp/', import.meta.url));
 
@@ -14,6 +15,7 @@ async function tempRoot(t, config) {
   await mkdir(TMP, { recursive: true });
   const root = await mkdtemp(join(TMP, 'config-command-'));
   t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'sessions'));
   if (config !== undefined) {
     await writeFile(join(root, 'config.json'), `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   }
@@ -25,8 +27,8 @@ async function cli(argv, io = {}) {
   const err = [];
   const code = await main(argv, {
     root: io.root,
-    env: {},
     ...io,
+    env: quotaEnv(io.root, io.env),
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
@@ -43,7 +45,8 @@ test('config show and get list defaults with their origin and effect', async (t)
   const root = await tempRoot(t);
   const shown = await cli(['config', 'show'], { root });
   assert.equal(shown.code, 0, shown.err.join('\n'));
-  assert.equal(shown.out.length, 43);
+  assert.equal(shown.out.filter((line) => !line.startsWith('codexQuota.')).length, 43);
+  assert.ok(shown.out.some((line) => line.startsWith('codexQuota.tailBytes = 16384 [default]')));
   assert.ok(shown.out.every((line) => line.includes('[default]')));
   assert.match(shown.out[0], /^limits\.global = 3 \[default\] — .* \/ .*$/);
   assert.match(shown.out.join('\n'), /profiles\.claude-code\.hard\.maxTurns = 80 \[default\]/);

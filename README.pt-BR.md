@@ -120,7 +120,17 @@ Uma classe com `null` está desligada: `okit-plugin config set profiles.<cliente
 desliga, `okit-plugin config unset profiles.<cliente>.<classe>` religa e um `set`
 de um campo sob uma classe desligada é recusado sem gravação; um grupo de
 cliente vazio (`{}`) é a ausência de um cliente, não uma inscrição de um.
-Todos os adaptadores leem a cota do usuário em `quota/<client>.json`.
+Todos os adaptadores aceitam cota manual em `quota/<client>.json`. O Codex também
+lê automaticamente a sessão local mais recente, sem alterar os arquivos.
+A leitura automática vence apenas quando é mais nova que a amostra manual;
+caso contrário, usa a manual. `quota show` e `status` mostram origem e idade.
+Configure `codexQuota` com `config set`: `sessionsDirectory` (padrão
+`~/.codex/sessions`), `sessionsEnv` (`CODEX_SESSIONS_DIR`, variável de ambiente
+injetada que substitui a pasta), `recentFiles` (3), `tailBytes` (16384),
+`maxTailBytes` (1048576), `maxAgeMinutes` (120), `filePrefix`/`fileSuffix`
+e `fields.*` para os nomes dos campos. Os arquivos são ordenados pela data de
+modificação. O leitor começa pelo fim, aumenta a janela até o limite e pula
+linhas malformadas ou desconhecidas.
 Registre o percentual restante mostrado em `/usage` do cliente com
 `okit-plugin quota set claude-code 80 [--window-minutes n]`; os clientes são os que
 a raiz configura (`claude-code`, `codex` e `opencode` quando ela não configura nenhum),
@@ -162,7 +172,9 @@ Estes são passos documentados; não existe script separado de desinstalação.
 ## Development — Desenvolvimento
 
 Rode `node --test test/docs-consistency.test.js` para verificar a documentação e
-`node --test` para a suíte completa. Os comandos de release estão no guia
+`node --test` para a suíte completa. Os testes de cota injetam HOME/USERPROFILE
+temporários e `CODEX_SESSIONS_DIR` (ou um leitor de cota); nunca devem descobrir
+sessões na pasta pessoal real da máquina. Os comandos de release estão no guia
 referenciado abaixo.
 
 Pull requests são bem-vindos. Leia [CONTRIBUTING.md](CONTRIBUTING.md) antes.

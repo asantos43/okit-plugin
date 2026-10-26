@@ -9,7 +9,15 @@
 // | claude-code | CLAUDECODE |
 // | codex | CODEX_CI |
 // | opencode | OPENCODE_PID |
+import { join } from 'node:path';
+
 const MARKER_OF = { 'claude-code': 'CLAUDECODE', codex: 'CODEX_CI', opencode: 'OPENCODE_PID' };
+
+/** Keep quota discovery inside a test's scratch root, preserving client markers. */
+export function quotaEnv(root, extra = {}) {
+  return { ...extra, HOME: root, USERPROFILE: root,
+    CODEX_SESSIONS_DIR: root === undefined ? undefined : join(root, 'sessions') };
+}
 
 /**
  * The environment of a command under test: it names the given client and

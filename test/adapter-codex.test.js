@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, open, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import adapter, { capabilities, configRoot, installHooks, installSkill, readQuota, spawn }
   from '../adapters/codex/index.js';
 import { adapterQuotaReader } from '../src/status.js';
+import { readCodexSessionQuota } from '../adapters/codex/session-quota.js';
+import { configOf } from '../src/profiles.js';
+import { runCli } from '../src/cli.js';
+import { statusTable } from '../src/status.js';
 
 const temps = [];
 async function temp() {
@@ -15,6 +21,196 @@ async function temp() {
 }
 after(async () => {
   for (const dir of temps) await rm(dir, { recursive: true, force: true, maxRetries: 5 });
+});
+
+const QUOTA_TIME = Date.parse('2026-10-26T06:00:00Z');
+// | must pass | must refuse |
+// | HOME/USERPROFILE resolve inside scratch home | any ambient session directory |
+test('default session discovery only visits the injected HOME or USERPROFILE', async (t) => {
+  await mkdir('.delegate/tmp', { recursive: true });
+  const home = resolve(await mkdtemp('.delegate/tmp/quota-home-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const sessions = join(home, '.codex', 'sessions');
+  await mkdir(sessions, { recursive: true });
+  const visited = [];
+  const readdir = fsPromises.readdir;
+  t.mock.method(fsPromises, 'readdir', async (path, options) => {
+    visited.push(path);
+    return path === sessions ? readdir(path, options) : [];
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  for (const env of [{ HOME: home }, { USERPROFILE: home }]) {
+    assert.equal(await readCodexSessionQuota({ env }), null);
+  }
+  assert.deepEqual(visited, [sessions, sessions]);
+});
+
+const quotaEvent = (used, at = QUOTA_TIME) => JSON.stringify({
+  timestamp: new Date(at).toISOString(), type: 'event_msg',
+  payload: { type: 'token_count', info: null, rate_limits: {
+    primary: { used_percent: used, window_minutes: 300, resets_at: 1793003358 },
+    secondary: { used_percent: 39, window_minutes: 10080, resets_at: 1793513484 },
+  } },
+});
+async function quotaFixture() {
+  const root = await temp();
+  const directory = join(root, 'sessions', '2026', '10', '26');
+  await mkdir(directory, { recursive: true });
+  return { root, directory, opts: { stateRoot: root,
+    env: { CODEX_SESSIONS_DIR: join(root, 'sessions') }, now: () => QUOTA_TIME + 60_000 } };
+}
+
+// | must pass | must refuse |
+// | valid sibling window; no reading if none remain | invalid percent, duration or missing reset |
+const invalidQuotaWindows = [
+  ['used_percent above 100', { used_percent: 140 }],
+  ['negative used_percent', { used_percent: -1 }],
+  ['string used_percent', { used_percent: '42' }],
+  ['null used_percent', { used_percent: null }],
+  ['zero window_minutes', { window_minutes: 0 }],
+  ['negative window_minutes', { window_minutes: -300 }],
+  ['missing resets_at', { resets_at: undefined }],
+];
+for (const [label, invalid] of invalidQuotaWindows) {
+  test(`session quota discards windows with ${label}`, async () => {
+    const { directory, opts } = await quotaFixture();
+    const file = join(directory, 'rollout-invalid.jsonl');
+    for (const key of ['primary', 'secondary']) {
+      const event = JSON.parse(quotaEvent(42));
+      const limits = event.payload.rate_limits;
+      Object.assign(limits[key], invalid);
+      const sibling = limits[key === 'primary' ? 'secondary' : 'primary'];
+      await writeFile(file, JSON.stringify(event));
+      const reading = await readCodexSessionQuota(opts);
+      const expected = { windowMinutes: sibling.window_minutes,
+        remainingPct: 100 - sibling.used_percent,
+        resetsAt: new Date(sibling.resets_at * 1000).toISOString() };
+      assert.ok(reading, `${key}: valid sibling supplies a reading`);
+      assert.deepEqual(reading.windows, [expected], `${key}: invalid window is discarded`);
+      assert.equal(reading.remainingPct, expected.remainingPct);
+      for (const percent of [reading.remainingPct, ...reading.windows.map((w) => w.remainingPct)]) {
+        assert.ok(Number.isFinite(percent) && percent >= 0 && percent <= 100);
+      }
+      delete limits[key === 'primary' ? 'secondary' : 'primary'];
+      await writeFile(file, JSON.stringify(event));
+      assert.equal(await readCodexSessionQuota(opts), null, `${key}: invalid sole window gives no reading`);
+    }
+  });
+}
+
+// | must pass | must refuse / ignore |
+// | newest file and last valid event; bounded read; unchanged bytes/mtime | old event, malformed/unknown lines, stale data |
+test('status displays automatic source, real windows and age in both languages', async () => {
+  const { root, directory, opts } = await quotaFixture();
+  await writeFile(join(directory, 'rollout-status.jsonl'), quotaEvent(42));
+  const read = adapterQuotaReader(opts);
+  for (const [locale, words] of [['en', 'automatic (1 minute ago)'], ['pt-BR', 'automática (há 1 minuto)']]) {
+    const table = await statusTable(root, { clients: ['codex'], readQuota: read,
+      now: opts.now, locale, cache: new Map() });
+    assert.equal(table.rows[0].fiveHour, 58);
+    assert.equal(table.rows[0].week, 61);
+    assert.ok(table.markdown.includes(words));
+  }
+});
+test('config commands persist quota settings and refuse invalid values without changing them', async () => {
+  const { root, opts } = await quotaFixture();
+  const io = { root, env: opts.env, stdout() {}, stderr() {} };
+  assert.equal(await runCli(['config', 'set', 'codexQuota.tailBytes', '32768'], io), 0);
+  const file = join(root, 'config.json');
+  const before = await readFile(file, 'utf8');
+  assert.equal(JSON.parse(before).codexQuota.tailBytes, 32768);
+  for (const [key, value] of [['recentFiles', '0'], ['maxTailBytes', '1'], ['fields.usedPercent', '']]) {
+    assert.equal(await runCli(['config', 'set', `codexQuota.${key}`, value], io), 1);
+    assert.equal(await readFile(file, 'utf8'), before);
+  }
+});
+test('session settings validate and field names, paths and candidate count are configurable', async () => {
+  const { directory, opts } = await quotaFixture();
+  for (const codexQuota of [{ recentFiles: 0 }, { maxAgeMinutes: -1 }, { tailBytes: 0 },
+    { maxTailBytes: 1 }, { sessionsDirectory: '' }, { fields: { usedPercent: '' } }]) {
+    assert.throws(() => configOf({ codexQuota }), TypeError);
+    assert.equal(await readCodexSessionQuota({ ...opts, config: { codexQuota } }), null);
+  }
+  await writeFile(join(directory, 'rollout-old.jsonl'), quotaEvent(42));
+  await utimes(join(directory, 'rollout-old.jsonl'), new Date(QUOTA_TIME - 1000), new Date(QUOTA_TIME - 1000));
+  await writeFile(join(directory, 'rollout-new.jsonl'), 'malformed');
+  await utimes(join(directory, 'rollout-new.jsonl'), new Date(QUOTA_TIME), new Date(QUOTA_TIME));
+  const settings = { sessionsDirectory: directory, sessionsEnv: 'TEST_SESSIONS', recentFiles: 1 };
+  assert.equal(await readCodexSessionQuota({ ...opts, env: {}, config: { codexQuota: settings } }), null);
+  settings.recentFiles = 2;
+  assert.equal((await readCodexSessionQuota({ ...opts, env: {}, config: { codexQuota: settings } })).remainingPct, 58);
+  await writeFile(join(directory, 'rollout-new.jsonl'), quotaEvent(43).replaceAll('used_percent', 'spent'));
+  settings.fields = { usedPercent: 'spent' };
+  assert.equal((await readCodexSessionQuota({ ...opts, env: { TEST_SESSIONS: directory },
+    config: { codexQuota: settings } })).remainingPct, 57);
+  assert.equal(await readCodexSessionQuota({ ...opts, openFile: () => { throw new Error('unreadable'); } }), null);
+});
+test('huge session uses bounded tail reads and expands only to configured limit', async () => {
+  const { directory, opts } = await quotaFixture();
+  const file = join(directory, 'rollout-huge.jsonl');
+  await writeFile(file, `${'ignored\n'.repeat(300000)}${quotaEvent(42)}\n`);
+  let bytes = 0;
+  const openFile = async (...args) => {
+    assert.equal(args[1], 'r');
+    const handle = await open(...args);
+    return { stat: () => handle.stat(), close: () => handle.close(),
+      read: async (...readArgs) => { const result = await handle.read(...readArgs); bytes += result.bytesRead; return result; } };
+  };
+  const config = { codexQuota: { tailBytes: 128, maxTailBytes: 2048 } };
+  assert.equal((await readCodexSessionQuota({ ...opts, config, openFile })).remainingPct, 58);
+  assert.ok(bytes <= 128 + 256 + 512 + 1024 + 2048);
+  assert.ok(bytes < (await stat(file)).size / 100);
+  await writeFile(file, `${quotaEvent(99)}\n${'ignored\n'.repeat(300000)}`);
+  bytes = 0;
+  assert.equal(await readCodexSessionQuota({ ...opts, config, openFile }), null);
+  assert.equal(bytes, 128 + 256 + 512 + 1024 + 2048);
+});
+test('empty sessions fall back to manual; newer manual and equal timestamps win', async () => {
+  const { root, directory, opts } = await quotaFixture();
+  assert.equal(await readCodexSessionQuota(opts), null);
+  await mkdir(join(root, 'quota'));
+  const file = join(root, 'quota', 'codex.json');
+  const sample = { remainingPct: 77, recordedAt: new Date(QUOTA_TIME).toISOString() };
+  await writeFile(file, JSON.stringify(sample));
+  assert.deepEqual(await readQuota(opts), { source: 'manual', ...sample, ageMinutes: 1 });
+  for (const [locale, words] of [['en', 'manual (1 minute ago)'], ['pt-BR', 'manual (há 1 minuto)']]) {
+    const table = await statusTable(root, { clients: ['codex'], readQuota: adapterQuotaReader(opts),
+      now: opts.now, locale, cache: new Map() });
+    assert.ok(table.markdown.includes(words));
+  }
+  await writeFile(join(directory, 'rollout-test.jsonl'), quotaEvent(42, QUOTA_TIME - 1000));
+  assert.equal((await readQuota(opts)).source, 'manual');
+  await writeFile(join(directory, 'rollout-test.jsonl'), quotaEvent(42));
+  assert.equal((await readQuota(opts)).source, 'manual');
+  await writeFile(join(directory, 'rollout-test.jsonl'), quotaEvent(42, QUOTA_TIME + 1000));
+  assert.equal((await readQuota(opts)).source, 'automatic');
+  assert.equal(await readCodexSessionQuota({ ...opts, now: () => QUOTA_TIME + 121 * 60_000 }), null);
+  const out = [];
+  await runCli(['quota', 'show', 'codex'], { root, env: opts.env,
+    now: () => QUOTA_TIME + 121 * 60_000, stdout: (line) => out.push(line) });
+  assert.match(out.join('\n'), /manual \(121 minutes ago\).*manual \(há 121 minutos\)/);
+});
+test('session quota selects newest mtime and last valid event without writes', async () => {
+  const { directory, opts } = await quotaFixture();
+  const old = join(directory, 'rollout-old.jsonl'), latest = join(directory, 'rollout-new.jsonl');
+  await writeFile(old, quotaEvent(95));
+  const bytes = [quotaEvent(90, QUOTA_TIME - 60_000), 'broken JSON', '{}', quotaEvent(42),
+    '{"type":"event_msg","payload":{"type":"other"}}', 'bad trailing line'].join('\n');
+  await writeFile(latest, bytes);
+  await utimes(old, new Date(QUOTA_TIME - 1000), new Date(QUOTA_TIME - 1000));
+  await utimes(latest, new Date(QUOTA_TIME), new Date(QUOTA_TIME));
+  const before = await stat(latest), oldBefore = await stat(old);
+  const reading = await readQuota(opts);
+  assert.equal(reading.source, 'automatic');
+  assert.equal(reading.remainingPct, 58); // Selecting the oldest event must fail.
+  assert.equal(reading.ageMinutes, 1);
+  assert.deepEqual(reading.windows.map((w) => [w.windowMinutes, w.remainingPct]), [[300, 58], [10080, 61]]);
+  assert.equal(reading.windows[0].resetsAt, new Date(1793003358000).toISOString());
+  assert.equal(await readFile(latest, 'utf8'), bytes);
+  assert.equal((await stat(latest)).mtimeMs, before.mtimeMs);
+  assert.equal(await readFile(old, 'utf8'), quotaEvent(95));
+  assert.equal((await stat(old)).mtimeMs, oldBefore.mtimeMs);
 });
 
 // | case | must pass | must refuse |
@@ -98,22 +294,22 @@ test('spawn refuses invalid input before any process starts', async () => {
 
 test('readQuota parses a recorded user sample read-only and is registered in core', async () => {
   const root = await temp();
-  const opts = { stateRoot: root };
-  assert.deepEqual(await readQuota(opts), { source: 'user' });
+  const opts = { stateRoot: root, env: { CODEX_SESSIONS_DIR: join(root, 'sessions') } };
+  assert.deepEqual(await readQuota(opts), { source: 'manual' });
   await mkdir(join(root, 'quota'));
   const file = join(root, 'quota', 'codex.json');
   const sample = '{"remainingPct":61,"windowMinutes":300,"client":"codex"}\n';
   await writeFile(file, sample);
   const before = await stat(file);
-  const expected = { source: 'user', remainingPct: 61, windowMinutes: 300 };
+  const expected = { source: 'manual', remainingPct: 61, windowMinutes: 300 };
   assert.deepEqual(await readQuota(opts), expected);
   assert.deepEqual(await adapterQuotaReader(opts)('codex'), expected);
   assert.deepEqual(await adapterQuotaReader(opts)('claude-code'), { source: 'user' });
   assert.equal(await readFile(file, 'utf8'), sample);
   assert.equal((await stat(file)).mtimeMs, before.mtimeMs);
-  for (const [sample, expected] of [[{ remainingPct: 0 }, { source: 'user', remainingPct: 0 }],
-    [{ remainingPct: '61' }, { source: 'user' }],
-    [{ remainingPct: 61, windowMinutes: '300' }, { source: 'user', remainingPct: 61 }]]) {
+  for (const [sample, expected] of [[{ remainingPct: 0 }, { source: 'manual', remainingPct: 0 }],
+    [{ remainingPct: '61' }, { source: 'manual' }],
+    [{ remainingPct: 61, windowMinutes: '300' }, { source: 'manual', remainingPct: 61 }]]) {
     await writeFile(file, JSON.stringify(sample));
     assert.deepEqual(await readQuota(opts), expected);
   }

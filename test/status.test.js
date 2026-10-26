@@ -5,13 +5,17 @@ import { PassThrough } from 'node:stream';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { main } from '../src/cli.js';
+import { main as runMain } from '../src/cli.js';
 import { inboxAdd, inboxClaim, inboxList } from '../src/inbox.js';
 import { createServer } from '../src/mcp/server.js';
 import { TOOLS } from '../src/mcp/tools.js';
 import { CLIENT_ENV_MARKERS, detectClient, shouldShowStatus, statusTable as buildStatusTable } from '../src/status.js';
+import { quotaEnv } from './helpers/env.js';
 
-const statusTable = (root, deps = {}) => buildStatusTable(root, { env: {}, ...deps });
+const main = (argv, io) => runMain(argv, { ...io, env: quotaEnv(io.root, io.env) });
+const statusTable = (root, deps = {}) => buildStatusTable(root, {
+  ...deps, env: quotaEnv(root, deps.env),
+});
 
 // Scratch state lives inside the repository, never in the system temp folder.
 const TMP = fileURLToPath(new URL('../.delegate/tmp/', import.meta.url));
@@ -71,6 +75,7 @@ const clock = (start = T0) => {
 async function tempRoot(t) {
   await mkdir(TMP, { recursive: true });
   const root = await mkdtemp(join(TMP, 'status-'));
+  await mkdir(join(root, 'sessions'));
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
 }
@@ -90,7 +95,8 @@ function readerOf(readings) {
 function harness(ctx) {
   const input = new PassThrough();
   const output = new PassThrough();
-  const server = createServer({ tools: TOOLS, input, output, ctx: { env: {}, ...ctx }, version: '9.9.9' });
+  const server = createServer({ tools: TOOLS, input, output,
+    ctx: { ...ctx, env: quotaEnv(ctx.root, ctx.env) }, version: '9.9.9' });
   const seen = [];
   const waiters = [];
   let buffer = '';
