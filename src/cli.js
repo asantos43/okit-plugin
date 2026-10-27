@@ -162,8 +162,8 @@ const USAGE = [
   '       {command} inbox release <id> [--client <c>] [--session <s>]',
   '       {command} kit [--require]',
   '       {command} hook post-compact',
-  '       {command} smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]',
-  '       {command} client-smoke [--client claude-code] [--headless|--demo|--dry-run|--rehearsal]',
+  '       {command} smoke [--client claude-code|codex|opencode] [--real] [--keep] [--only <ids>] [--timeout <ms>]',
+  '       {command} client-smoke [--client claude-code|codex|opencode] [--headless|--demo|--dry-run|--rehearsal]',
   '       {command} smoke-demo [--dry-run] [--client <client>] [--locale en|pt-BR] [--confirm <preview>] [--json]',
   '         [--only <C ids>] [--keep] [--allow-unknown-quota]',
   '         [--max-usd [n]] [--max-turns [n]] [--max-minutes [n]] [--quota-floor [pct]] [--timeout [ms]]',
@@ -563,6 +563,10 @@ async function daemonCommand(ctx, action, args) {
  * them, and the runner answers with its own stub otherwise.
  */
 async function smokeCommand(ctx, args, io) {
+  if (args.some((arg) => arg === '--client' || arg.startsWith('--client='))) {
+    const { runClientSmoke } = await import('./smoke/client.js');
+    return (await runClientSmoke(args, { ...ctx, ...io })).code;
+  }
   const { runSmoke } = await import('./smoke.js');
   const smoke = await runSmoke(args, { ...ctx, run: io.run, spawn: io.spawn });
   // A flag or an `--only` id the runner refuses is a usage error, so the usage

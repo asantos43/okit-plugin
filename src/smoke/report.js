@@ -167,7 +167,9 @@ function humanText(header, records, environment, summary) {
     if (records.some((record) => record.error === 'config-missing')) lines.push('The installation is incomplete: config-missing');
     if (summary?.stopped) lines.push(`ceiling: ${summary.stopped}`);
     if (summary?.partial) lines.push('PARCIAL: some checks were skipped');
-    if (summary) lines.push(`spent USD: ${summary.spentUsd}`);
+    if (summary?.reportsCost) lines.push(`money spent / gasto em dinheiro: USD ${summary.spentUsd}`);
+    if (summary && !summary.reportsCost) lines.push(
+      `amount of text read and written / quantidade de texto lido e escrito: ${summary.tokens}`);
   }
   return `${lines.join('\n')}\n`;
 }

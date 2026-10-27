@@ -66,8 +66,20 @@ test('CLI and MCP share previews and refusal for all clients and languages', asy
         assert.equal(code, dryRun ? 0 : 2);
         assert.equal(cli.status, dryRun ? 'preview' : 'refused');
         assert.doesNotMatch(cli.text, /\b[DO]\d+\b|runId|inbox|profile_pick|Executor|Critic|snapshot/);
-        assert.match(cli.text, /USD/);
-        assert.ok(cli.text.includes(String(deps.config.smoke.maxUsd)));
+        if (client === 'codex') {
+          assert.match(cli.text, locale === 'en'
+            ? /does not report money, so no money ceiling is available/
+            : /não informa custo em dinheiro, então não há teto de dinheiro disponível/);
+          assert.match(cli.text, locale === 'en'
+            ? /set "maxTokens" under "smoke" in config.json to a positive whole number/
+            : /defina "maxTokens" dentro de "smoke" em config.json como um número inteiro positivo/);
+          assert.doesNotMatch(cli.text, /USD/);
+        } else {
+          assert.match(cli.text, locale === 'en'
+            ? /new work stops at the money ceiling/
+            : /novos trabalhos param ao atingir o teto em dinheiro/);
+          assert.ok(cli.text.includes(`${locale === 'en' ? 'Total ceiling' : 'Teto total'}: USD ${deps.config.smoke.maxUsd}`));
+        }
         assert.equal(cli.confirmed, false);
       }
     }

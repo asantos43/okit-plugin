@@ -8,12 +8,14 @@ import { main } from '../src/cli.js';
 import { tick } from '../src/daemon.js';
 import { loadConfig, TOOLS, TOOL_NAMES } from '../src/mcp/tools.js';
 import { readJson, writeJsonAtomic } from '../src/state.js';
-import { invokeClient, runClientSmoke, smokePreflight } from '../src/smoke/client.js';
+import { clientRequest, invokeClient, invokeCodex, invokeOpenCode, runClientSmoke, smokePreflight } from '../src/smoke/client.js';
+import { smokeDemo } from '../src/smoke/demo/entry.js';
 import { clientEnv } from './helpers/env.js';
 import { collectStatusline } from '../src/quota/statusline-collector.js';
 import { adapterQuotaReader } from '../src/status.js';
+import { configOf } from '../src/profiles.js';
 
-const HELP = '--output-format --include-hook-events --verbose --max-budget-usd --permission-mode --no-session-persistence';
+const HELP = '--output-format --include-hook-events --verbose --max-budget-usd --permission-mode --no-session-persistence --json --skip-git-repo-check --sandbox --approve-for-me --ephemeral --format --dir --auto';
 
 test('demo settings do not change the numeric limits of the C1–C23 runner', async (t) => {
   const f = await fixture(t, { smoke: { demoMaxReworkRounds: 0, demoDemandMaxUsd: null,
@@ -31,7 +33,8 @@ async function fixture(t, options = {}) {
   await writeJsonAtomic(join(plugin, 'hooks/hooks.json'), { hooks: {} });
   const profiles = Object.fromEntries(['simple', 'normal', 'hard'].map((effort) =>
     [effort, { model: effort, effort: 'medium', maxTurns: 1 }]));
-  await writeJsonAtomic(join(root, 'config.json'), { profiles: { 'claude-code': profiles }, smoke: options.smoke ?? {} });
+  await writeJsonAtomic(join(root, 'config.json'), { profiles: { 'claude-code': profiles },
+    smoke: options.smoke ?? {}, smokeDrivers: options.smokeDrivers });
   await writeJsonAtomic(join(root, 'quota/claude-code.json'), { remainingPct: options.quota ?? 80 });
   const lines = []; const calls = [];
   // The client of the smoke is claude-code, so the environment names it: the
@@ -45,7 +48,7 @@ async function fixture(t, options = {}) {
     },
     client: async (request) => {
       calls.push(request);
-      if (request.args[0] === '--help') return { stdout: HELP };
+      if (request.args.includes('--help')) return { stdout: `${HELP} --json --format` };
       if (options.respond) {
         const response = await options.respond(request);
         if (response) return response;
@@ -146,6 +149,7 @@ async function automaticQuotaFixture(t, client, { readingClient = client, ageMin
   const config = await readJson(join(f.root, 'config.json'));
   config.configuredClients = [...new Set([client, readingClient].filter(Boolean))];
   config.profiles[client] = config.profiles['claude-code'];
+  if (client === 'codex') config.smoke = { ...config.smoke, maxTokens: 100_000 };
   if (readingClient === 'claude-code') {
     await collectStatusline({ stateRoot: f.root, now: () => recorded,
       input: JSON.stringify({ rate_limits: { five_hour: {
@@ -163,6 +167,14 @@ async function automaticQuotaFixture(t, client, { readingClient = client, ageMin
           used_percent: 100 - percentage, window_minutes: 300, resets_at: now / 1000 + 3600 } } } }));
   }
   await writeJsonAtomic(join(f.root, 'config.json'), config);
+  if (client === 'codex') {
+    const respond = f.io.client;
+    f.io.client = async (request) => {
+      const response = await respond(request);
+      if (request.step && response.events) response.events.at(-1).usage = { input_tokens: 1, output_tokens: 1 };
+      return response;
+    };
+  }
   return f;
 }
 
@@ -419,7 +431,7 @@ test('rehearsal and dry run walk SCENARIO and expose configured maximum without 
 
 test('CLI rejects unknown flags, clients, ids and invalid budgets with code 2', async (t) => {
   const f = await fixture(t);
-  for (const args of [['--wat'], ['--client', 'codex'], ['--only', 'I1'], ['--max-usd=-1'],
+  for (const args of [['--wat'], ['--client', 'unknown'], ['--only', 'I1'], ['--max-usd=-1'],
     ['--max-turns=1.5'], ['--timeout=no'], ['--only']]) {
     assert.equal(await main(['client-smoke', ...args], { ...f.io, client: undefined,
       stdout: f.io.out, stderr: f.io.err }), 2);
@@ -481,6 +493,601 @@ test('the process driver consumes chunked JSON from an injected child and honour
   await assert.rejects(pending, { name: 'AbortError' });
 });
 
+// Must pass / must refuse corpus:
+// | input | must pass | must refuse |
+// | native tool output and terminal event | tool evidence, usage when supplied | model prose as evidence |
+// | non-zero exit with a result / without a result | preserve result | missing result |
+// | missing executable / abort | - | every client |
+// | Codex without money / at text ceiling | continue below ceiling | further calls at ceiling |
+// | whole placeholder / literal or unknown placeholder | replace known whole placeholder | replacing literals |
+// | result before child termination | resolve even after abort/kill | no result |
+// | negative cost / missing text usage with a ceiling | stop new work | another call |
+// | Codex with a stray money total | count text normally | money accounting replacing text accounting |
+// | known / unknown client preview | known clients, no spawn | unknown names |
+const nativeLines = {
+  codex: [
+    { type: 'thread.started', thread_id: 'example' }, { type: 'turn.started' },
+    { type: 'item.started', item: { id: 'tool-1', type: 'mcp_tool_call', server: 'okit', tool: 'limits_status', status: 'in_progress' } },
+    { type: 'item.completed', item: { id: 'tool-1', type: 'mcp_tool_call', server: 'okit', tool: 'limits_status',
+      status: 'completed', result: { content: [{ type: 'text', text: '{"ok":true}' }] }, error: null } },
+    { type: 'item.completed', item: { id: 'text-1', type: 'agent_message', text: 'Ready' } },
+    { type: 'turn.completed', usage: { input_tokens: 120, cached_input_tokens: 0, output_tokens: 15 } },
+  ],
+  opencode: [
+    { type: 'step_start', part: { type: 'step-start' } },
+    { type: 'tool_use', part: { type: 'tool', callID: 'tool-1', tool: 'okit_limits_status',
+      state: { status: 'completed', input: {}, output: '{"ok":true}' } } },
+    { type: 'step_finish', part: { type: 'step-finish', reason: 'tool-calls', cost: 0.01,
+      tokens: { input: 10, output: 5 } } },
+    { type: 'text', part: { type: 'text', text: 'Ready' } },
+    { type: 'step_finish', part: { type: 'step-finish', reason: 'stop', cost: 0.02,
+      tokens: { input: 3, output: 2 } } },
+  ],
+};
+
+function fakeChild(lines, { exit = 0, killed, error, capture = () => {} } = {}) {
+  return (command, args, options) => {
+    capture(command, args, options);
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+    options.signal?.addEventListener('abort', () => {
+      child.emit('error', Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    }, { once: true });
+    queueMicrotask(() => {
+      if (error) { child.emit('error', error); return; }
+      const output = lines.map((line) => typeof line === 'string' ? line : JSON.stringify(line)).join('\n');
+      child.stdout.emit('data', output.slice(0, 7));
+      child.stdout.emit('data', output.slice(7)); // Last line deliberately has no newline.
+      child.emit('close', exit, killed);
+    });
+    return child;
+  };
+}
+
+test('each driver launches configured argv and streams native evidence', async () => {
+  for (const [client, driver, expected] of [
+    ['claude-code', invokeClient, ['-p', 'Say ready', '--output-format', 'stream-json', '--include-hook-events', '--verbose',
+      '--max-budget-usd', '0.5', '--permission-mode', 'default', '--no-session-persistence']],
+    ['codex', invokeCodex, ['exec', '--json', '--skip-git-repo-check', '--sandbox', 'workspace-write', '--approve-for-me', '--ephemeral', 'Say ready']],
+    ['opencode', invokeOpenCode, ['run', '--format', 'json', '--dir', '/scratch', '--auto', 'Say ready']],
+  ]) {
+    const request = { ...clientRequest(client, {}, { briefing: 'Say ready', maxUsd: 0.5, cwd: '/scratch' }), cwd: '/scratch' };
+    const seen = [];
+    const result = await driver({ ...request, env: { TEST: 'yes' },
+      spawn: fakeChild(nativeLines[client] ?? [{ type: 'result', total_cost_usd: 0 }], {
+        capture: (command, args, options) => {
+          assert.equal(command, client === 'claude-code' ? 'claude' : client);
+          assert.deepEqual(args, expected); assert.deepEqual(options.env, { TEST: 'yes' });
+          assert.deepEqual(options.stdio, ['ignore', 'pipe', 'pipe']);
+          if (client !== 'claude-code') assert.equal(options.cwd, '/scratch');
+        },
+      }), onEvent: (event) => seen.push(event) });
+    assert.deepEqual(result.events, seen);
+    assert.equal(seen.at(-1).type, 'result');
+    if (nativeLines[client]) assert.equal(seen.filter((event) => event.message?.content[0]?.type === 'tool_result').length, 1);
+    if (client === 'codex') {
+      assert.equal(seen.at(-1).total_cost_usd, undefined);
+      assert.deepEqual(seen.at(-1).usage, { input_tokens: 120, cached_input_tokens: 0, output_tokens: 15 });
+    }
+    if (client === 'opencode') {
+      assert.equal(seen.at(-1).total_cost_usd, 0.03);
+      assert.deepEqual(seen.at(-1).usage, { input_tokens: 13, output_tokens: 7 });
+    }
+  }
+});
+
+test('drivers reject failed exits, missing programs and aborts', async () => {
+  for (const driver of [invokeClient, invokeCodex, invokeOpenCode]) {
+    await assert.rejects(driver({ args: [], spawn: fakeChild([], { exit: 1 }) }),
+      /The helper stopped before finishing\. \/ O ajudante parou antes de terminar\./);
+    await assert.rejects(driver({ args: [], spawn: fakeChild([], {
+      error: Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }),
+    }) }), /Install .* and sign in.*Instale/);
+    await assert.rejects(driver({ args: [], spawn: () => { throw Object.assign(new Error(), { code: 'ENOENT' }); } }), /Install/);
+    const controller = new AbortController();
+    const pending = driver({ args: [], signal: controller.signal, spawn: fakeChild([]) });
+    controller.abort();
+    await assert.rejects(pending, { name: 'AbortError' });
+  }
+});
+
+test('non-zero exits preserve result events, including Claude budget exhaustion', async () => {
+  for (const [driver, lines] of [
+    [invokeClient, [{ type: 'result', is_error: true, total_cost_usd: 0.5,
+      subtype: 'error_max_budget_usd', terminal_reason: 'budget_exhausted' }]],
+    [invokeClient, [{ type: 'result', is_error: true, subtype: 'error_during_execution' }]],
+    [invokeCodex, nativeLines.codex], [invokeOpenCode, nativeLines.opencode],
+  ]) {
+    const response = await driver({ args: [], spawn: fakeChild(lines, { exit: 1 }) });
+    assert.equal(response.events.at(-1).type, 'result');
+    if (driver === invokeClient) assert.deepEqual(response.events, lines);
+    const killedAfterResult = await driver({ args: [], spawn: fakeChild(lines, { exit: null, killed: 'SIGTERM' }) });
+    assert.equal(killedAfterResult.events.at(-1).type, 'result');
+    await assert.rejects(driver({ args: [], spawn: fakeChild([], { exit: 1, killed: 'SIGTERM' }) }),
+      /The helper stopped before finishing\. \/ O ajudante parou antes de terminar\./);
+  }
+});
+
+test('a result event is preserved when the child is aborted or killed afterwards', async () => {
+  for (const [driver, lines] of [
+    [invokeClient, [{ type: 'result', total_cost_usd: 0 }]],
+    [invokeCodex, nativeLines.codex], [invokeOpenCode, nativeLines.opencode],
+  ]) {
+    const controller = new AbortController();
+    const response = await driver({ args: [], signal: controller.signal, spawn: () => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+      queueMicrotask(() => {
+        child.stdout.emit('data', `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+        controller.abort(); // A result already arrived before the child's abort error.
+        child.emit('error', Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        child.emit('close', 0);
+      });
+      return child;
+    } });
+    assert.equal(response.events.at(-1).type, 'result');
+    assert.ok(controller.signal.aborted);
+  }
+});
+
+test('the Claude driver attaches partial state and keeps stderr in artifacts only', async (t) => {
+  const raw = { type: 'step_finish', part: { reason: 'tool-calls', cost: 0.2,
+    tokens: { input: 8, output: 3 } } };
+  await assert.rejects(invokeOpenCode({ args: [], spawn: (command, args, options) => {
+    const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+    queueMicrotask(() => {
+      child.stdout.emit('data', JSON.stringify(raw));
+      child.stderr.emit('data', 'private child diagnostic');
+      child.emit('close', 1);
+    });
+    return child;
+  } }), (error) => {
+    assert.equal(error.state.cost, 0.2);
+    assert.equal(error.events.length, 0);
+    assert.equal(error.stderr, 'private child diagnostic');
+    return true;
+  });
+
+  const f = await fixture(t);
+  const spawn = (command, args, options) => {
+    if (args.includes('--help')) return fakeChild([HELP])(command, args, options);
+    const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+    queueMicrotask(() => {
+      child.stderr.emit('data', 'private child diagnostic');
+      child.emit('close', 1);
+    });
+    return child;
+  };
+  const result = await runClientSmoke(['--only=C6,C11'], { ...f.io, client: undefined, spawn,
+    readQuota: async () => ({ source: 'user', remainingPct: 80 }) });
+  assert.equal(result.records[0].status, 'fail');
+  assert.ok(f.lines.every((line) => !line.includes('private child diagnostic')));
+  assert.match(await readFile(result.artifacts.jsonl, 'utf8'), /private child diagnostic/);
+});
+
+test('command, help and prompt arguments can be replaced through configuration', () => {
+  for (const client of ['claude-code', 'codex', 'opencode']) {
+    const config = { smokeDrivers: { [client]: { command: 'custom', helpArgs: ['help'], args: ['{briefing}', '{maxUsd}'] } } };
+    assert.deepEqual(clientRequest(client, config, { briefing: 'literal $HOME', maxUsd: 0.2 }).args, ['literal $HOME', '0.2']);
+    assert.equal(clientRequest(client, config).command, 'custom');
+    assert.deepEqual(clientRequest(client, config, { help: true }).args, ['help']);
+  }
+  const config = { smokeDrivers: { codex: { args: ['-p', 'apb', '{briefing}', '{unknown}', '--text={briefing}', '{briefing}x'] } } };
+  assert.deepEqual(clientRequest('codex', config, { '': 'wrong', p: 'wrong', briefing: 'ready' }).args,
+    ['-p', 'apb', 'ready', '{unknown}', '--text={briefing}', '{briefing}x']);
+});
+
+test('a real-shaped Claude budget result with non-zero exit becomes a skip', async (t) => {
+  const f = await fixture(t);
+  const result = await runClientSmoke(['--only=C6,C7'], { ...f.io, client: undefined,
+    spawn: (command, args, options) => fakeChild(args.includes('--help') ? [HELP] : [
+      { type: 'result', is_error: true, subtype: 'error_max_budget_usd',
+        terminal_reason: 'budget_exhausted', total_cost_usd: 0.5 },
+    ], { exit: args.includes('--help') ? 0 : 1 })(command, args, options) });
+  assert.equal(result.stopped, 'smoke.maxUsd', JSON.stringify({ records: result.records, lines: f.lines }));
+  assert.ok(result.records.every((record) => record.status === 'skip' && record.error === 'budget-exhausted'));
+});
+
+test('demo previews both clients without spending and retains confirmation protection', async (t) => {
+  const f = await fixture(t, { smoke: { maxUsd: 0.75 } });
+  for (const client of ['codex', 'opencode']) {
+    for (const locale of ['en', 'pt-BR']) {
+      const config = await loadConfig(f.root);
+      const snapshot = { now: Date.now(), config, inUse: client, clients: [{ client,
+        quota: { source: 'automatic', remainingPct: 80, ageMinutes: 1 }, candidates: [], slots: {} }] };
+      const deps = { ...f.io, snapshot, spawn: () => assert.fail('preview must not spawn'),
+        actor: { run: () => assert.fail('preview must not launch') } };
+      const preview = await smokeDemo({ client, locale, dryRun: true }, deps);
+      assert.equal(preview.exitCode, 0); assert.equal(preview.plan.client, client);
+      assert.equal(preview.plan.limits.maxUsd, 0.75);
+      assert.match(preview.text, new RegExp(client));
+      if (client === 'codex') {
+        assert.doesNotMatch(preview.text, /USD 0\.75/);
+        assert.match(preview.text, locale === 'en' ? /no money ceiling is available/ : /não há teto de dinheiro disponível/);
+        assert.match(preview.text, locale === 'en' ? /limited by time and the number of steps/ : /limitado pelo tempo e pelo número de passos/);
+        assert.match(preview.text, locale === 'en' ? /no ceiling on the amount of text/ : /Não há teto para a quantidade de texto/);
+        assert.match(preview.text, locale === 'en' ? /does not report a money total/ : /não informa o custo em dinheiro/);
+      } else {
+        assert.match(preview.text, /USD 0\.75/);
+        assert.match(preview.text, locale === 'en' ? /stops at the money ceiling/ : /param ao atingir o teto em dinheiro/);
+        assert.match(preview.text, locale === 'en' ? /Time and the number of steps are also limited/ : /tempo e o número de passos também são limitados/);
+      }
+      assert.doesNotMatch(preview.text, /reportsCost|input_tokens|output_tokens/);
+      assert.doesNotMatch(preview.text, /text units|small units/i);
+      const refused = await smokeDemo({ client, locale, confirm: 'outdated' }, deps);
+      assert.equal(refused.exitCode, 2); assert.equal(refused.confirmed, false);
+      assert.equal(f.calls.length, 0);
+      if (client === 'codex') {
+        const cappedConfig = { ...config, smoke: { ...config.smoke, maxTokens: 500 } };
+        const capped = await smokeDemo({ client, locale, dryRun: true }, { ...deps,
+          snapshot: { ...snapshot, config: cappedConfig } });
+        assert.equal(capped.exitCode, 0); assert.equal(capped.plan.limits.maxTokens, 500);
+        assert.match(capped.text, locale === 'en' ? /500 in the helper's measure of text read and written/ : /500 na medição de texto lido e escrito pelo ajudante/);
+        assert.notEqual(capped.planHash, preview.planHash);
+      }
+    }
+  }
+});
+
+test('native subprocess tool answers reach the existing checks', async (t) => {
+  for (const client of ['codex', 'opencode']) {
+    const f = await fixture(t, { smoke: { maxTokens: client === 'codex' ? 1000 : null } });
+    const tool = TOOLS.find((entry) => entry.name === 'limits_status');
+    const answer = await tool.handler({}, { root: f.root, env: f.io.env });
+    const lines = structuredClone(nativeLines[client]);
+    if (client === 'codex') lines[3].item.result = { content: [{ type: 'text', text: answer }] };
+    else lines[1].part.state.output = answer;
+    const calls = [];
+    const result = await runClientSmoke(['--client', client, '--only', 'C6'], { ...f.io, client: undefined,
+      readQuota: async () => ({ source: 'user', remainingPct: 80 }),
+      spawn: (command, args, options) => {
+        calls.push([command, args]);
+        return fakeChild(args.includes('--help') ? [HELP] : lines)(command, args, options);
+      } });
+    assert.equal(result.records[0]?.status, 'pass', `${client}: ${JSON.stringify({ records: result.records, lines: f.lines })}`);
+    assert.equal(calls[0][0], client);
+    assert.deepEqual(calls[0][1], [client === 'codex' ? 'exec' : 'run', '--help']);
+    assert.equal(calls.length, 2);
+  }
+});
+
+test('full Codex and OpenCode scenarios skip unavailable install evidence without paid calls', async (t) => {
+  for (const client of ['codex', 'opencode']) {
+    const f = await fixture(t, { smoke: { maxTokens: 100_000 } });
+    const config = await readJson(join(f.root, 'config.json'));
+    config.profiles[client] = config.profiles['claude-code'];
+    await writeJsonAtomic(join(f.root, 'config.json'), config);
+    await writeJsonAtomic(join(f.root, `quota/${client}.json`), { remainingPct: 80 });
+    const env = clientEnv(client, { OKWORK_HOME: f.root });
+    const prompts = [];
+    const spawn = (command, args, options) => {
+      assert.equal(command, client);
+      assert.equal(options.cwd, f.root);
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+      queueMicrotask(async () => {
+        if (args.includes('--help')) {
+          child.stdout.emit('data', HELP);
+          child.emit('close', 0); return;
+        }
+        const prompt = args.at(-1);
+        const prefix = 'Call exactly these MCP operations, preserve their arguments. Never judge success or modify other records. ';
+        assert.ok(prompt.startsWith(prefix), `${client} unexpected paid prompt: ${prompt}`);
+        prompts.push(prompt);
+        const operation = JSON.parse(prompt.slice(prefix.length));
+        const events = [];
+        for (const call of [operation, operation.then].filter((entry) => entry?.tool)) {
+          const tool = TOOLS.find((entry) => entry.name === call.tool);
+          let value; let isError = false;
+          try { value = await tool.handler(call.arguments, { root: f.root, env }); }
+          catch (error) { value = { error: error.message }; isError = true; }
+          const text = typeof value === 'string' ? value : JSON.stringify(value);
+          if (client === 'codex') events.push({ type: 'item.completed', item: { id: `fake-${events.length}`,
+            type: 'mcp_tool_call', server: 'okit', tool: call.tool,
+            result: { content: [{ type: 'text', text }], ...(isError ? { isError: true } : {}) } } });
+          else events.push({ type: 'tool_use', part: { type: 'tool', callID: `fake-${events.length}`,
+            tool: `okit_${call.tool}`, state: { status: isError ? 'error' : 'completed',
+              ...(isError ? { error: text } : { output: text }) } } });
+        }
+        events.push(client === 'codex'
+          ? { type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } }
+          : { type: 'step_finish', part: { reason: 'stop', cost: 0.01, tokens: { input: 10, output: 5 } } });
+        child.stdout.emit('data', events.map((event) => JSON.stringify(event)).join('\n'));
+        child.emit('close', 0);
+      });
+      return child;
+    };
+    const result = await runClientSmoke(['--client', client], { ...f.io, env, client: undefined, spawn,
+      readQuota: async () => ({ source: 'user', remainingPct: 80 }) });
+    assert.equal(result.code, 0, `${client}: ${JSON.stringify(result.records.filter((record) => record.status === 'fail'))}`);
+    for (const id of ['C1', 'C2', 'C3', 'C4', 'C5', 'C21']) {
+      const record = result.records.find((entry) => entry.id === id);
+      assert.equal(record.status, 'skip', `${client}/${id}`);
+      assert.match(record.error, /does not provide installation details.*não fornece detalhes da instalação/);
+    }
+    assert.ok(result.records.filter((record) => !['C1', 'C2', 'C3', 'C4', 'C5', 'C21'].includes(record.id))
+      .every((record) => record.status === 'pass'), client);
+    assert.ok(prompts.length > 0, client);
+    assert.ok(prompts.every((prompt) => prompt.startsWith('Call exactly these MCP operations')), client);
+  }
+});
+
+test('native tool errors and failed turns remain failures', async () => {
+  for (const [driver, lines] of [
+    [invokeCodex, [{ type: 'item.completed', item: { id: 'bad', type: 'mcp_tool_call', server: 'okit',
+      tool: 'inbox_set_status', result: { isError: true, content: [{ type: 'text', text: 'Cannot move' }] } } },
+    { type: 'turn.failed', error: { message: 'Failed' } }]],
+    [invokeOpenCode, [{ type: 'tool_use', part: { type: 'tool', callID: 'bad', tool: 'okit_inbox_set_status',
+      state: { status: 'error', error: 'Cannot move' } } }, { type: 'error', error: { message: 'Failed' } }]],
+  ]) {
+    const response = await driver({ args: [], spawn: fakeChild(lines) });
+    assert.equal(response.events[1].message.content[0].is_error, true);
+    assert.equal(response.events.at(-1).is_error, true);
+  }
+});
+
+test('Codex ignores a late error after a completed turn', async () => {
+  const response = await invokeCodex({ args: [], spawn: fakeChild([
+    { type: 'turn.completed', usage: { input_tokens: 3, output_tokens: 2 } },
+    { type: 'error', error: { message: 'late retry notice' } },
+  ]) });
+  assert.equal(response.events.length, 1);
+  assert.equal(response.events[0].is_error, undefined);
+  assert.deepEqual(response.events[0].usage, { input_tokens: 3, output_tokens: 2 });
+});
+
+test('OpenCode rejects invalid step costs and treats zero cost with text use as unknown', async () => {
+  for (const [cost, tokens] of [[-0.5, { input: 2, output: 1 }], [0, { input: 2, output: 1 }], [null, undefined]]) {
+    const response = await invokeOpenCode({ args: [], spawn: fakeChild([
+      { type: 'step_finish', part: { reason: 'stop', cost, ...(tokens ? { tokens } : {}) } },
+    ]) });
+    assert.equal(response.events.at(-1).total_cost_usd, undefined);
+    if (tokens) assert.deepEqual(response.events.at(-1).usage, { input_tokens: 2, output_tokens: 1 });
+    assert.equal(response.state.unknownCost, true);
+  }
+});
+
+test('OpenCode zero money with measured text uses the money ceiling as an unknown cost', async (t) => {
+  const f = await fixture(t, { smoke: { maxUsd: 0.5 } });
+  let runs = 0;
+  const result = await runClientSmoke(['--client', 'opencode', '--only=C6,C11'], { ...f.io,
+    client: undefined, readQuota: async () => ({ source: 'user', remainingPct: 80 }),
+    spawn: (command, args, options) => {
+      if (args.includes('--help')) return fakeChild([HELP])(command, args, options);
+      runs += 1;
+      return fakeChild([{ type: 'step_finish', part: { reason: 'stop', cost: 0,
+        tokens: { input: 10, output: 2 } } }])(command, args, options);
+    } });
+  assert.equal(runs, 1);
+  assert.equal(result.stopped, 'smoke.maxUsd');
+  assert.equal(result.spentUsd, 0.5);
+  assert.equal(result.records[1].error, 'budget-exhausted');
+  assert.match(f.lines.join('\n'), /Spending could not be measured/);
+  assert.doesNotMatch(f.lines.join('\n'), /amount of text read and written could not be measured/);
+});
+
+test('OpenCode applies the configured text limit in addition to its money limit', async (t) => {
+  const f = await fixture(t, { smoke: { maxUsd: 1, maxTokens: 10 }, respond: async () => ({ events: [
+    { type: 'result', total_cost_usd: 0.01, usage: { input_tokens: 8, output_tokens: 4 } },
+  ] }) });
+  const result = await runClientSmoke(['--client', 'opencode', '--only=C6,C11'], { ...f.io,
+    readQuota: async () => ({ source: 'user', remainingPct: 80 }) });
+  assert.equal(result.stopped, 'smoke.maxTokens');
+  assert.equal(result.tokens, 12);
+  assert.equal(f.calls.filter((request) => request.step).length, 1);
+  assert.equal(result.records[1].error, 'budget-exhausted');
+  assert.doesNotMatch(f.lines.join('\n'), /Spending could not be measured|amount of text read and written could not be measured/);
+});
+
+test('partial cost and text use survive timed out, failed and result-less client runs', async (t) => {
+  for (const client of ['opencode', 'codex']) for (const failure of ['timeout', 'non-zero exit', 'missing stop']) {
+    const f = await fixture(t, { smoke: { maxUsd: 0.5, maxTokens: 20, checkTimeoutMs: 12 } });
+    let calls = 0;
+    const state = client === 'opencode'
+      ? { cost: 0.75, tokens: 30, usage: { input_tokens: 20, output_tokens: 10 } }
+      : { tokens: 30, usage: { input_tokens: 20, output_tokens: 10 } };
+    const response = async (request) => {
+      if (request.help) return { stdout: HELP };
+      calls += 1;
+      if (failure === 'timeout') {
+        request.onProgress({ events: [], state });
+        return new Promise(() => {});
+      }
+      if (failure === 'non-zero exit') throw Object.assign(new Error('The helper stopped before finishing.'), {
+        events: [], state, stderr: 'private diagnostic from child',
+      });
+      return { events: [], state }; // No terminal result/stop event was received.
+    };
+    const result = await runClientSmoke(['--client', client, '--only=C6,C11'], { ...f.io,
+      client: response, readQuota: async () => ({ source: 'user', remainingPct: 80 }) });
+    assert.equal(result.code, 1, `${client}/${failure}`);
+    assert.equal(calls, 1, `${client}/${failure}`);
+    assert.equal(result.records[0].status, 'fail', `${client}/${failure}`);
+    assert.equal(result.records[1].status, 'skip', `${client}/${failure}`);
+    assert.equal(result.records[1].error, 'budget-exhausted', `${client}/${failure}`);
+    if (client === 'opencode') assert.equal(result.spentUsd, 0.75, `${client}/${failure}`);
+    else assert.equal(result.tokens, 30, `${client}/${failure}`);
+    if (failure === 'non-zero exit') {
+      assert.ok(f.lines.every((line) => !line.includes('private diagnostic from child')));
+      const artifact = (await readFile(result.artifacts.jsonl, 'utf8'));
+      assert.match(artifact, /private diagnostic from child/);
+    }
+  }
+});
+
+test('failed client runs with no usable measurement spend the remaining allowance', async (t) => {
+  for (const client of ['opencode', 'codex']) {
+    for (const failure of ['timeout', 'non-zero exit', 'missing stop']) {
+      const f = await fixture(t, { smoke: { maxUsd: 0.5, maxTokens: 20, checkTimeoutMs: 12 } });
+      let calls = 0;
+      const response = async (request) => {
+        if (request.help) return { stdout: HELP };
+        calls += 1;
+        if (failure === 'timeout') { request.onProgress({ events: [], state: {} }); return new Promise(() => {}); }
+        if (failure === 'non-zero exit') throw Object.assign(new Error('The helper stopped before finishing.'), { events: [], state: {} });
+        return { events: [], state: {} };
+      };
+      const result = await runClientSmoke(['--client', client, '--only=C6,C11'], { ...f.io,
+        client: response, readQuota: async () => ({ source: 'user', remainingPct: 80 }) });
+      assert.equal(calls, 1, `${client}/${failure}`);
+      assert.equal(result.records[1].error, 'budget-exhausted', `${client}/${failure}`);
+      if (client === 'opencode') assert.equal(result.spentUsd, 0.5, `${client}/${failure}`);
+      else assert.equal(result.tokens, 20, `${client}/${failure}`);
+    }
+  }
+});
+
+test('missing money totals stop clients configured to report money', async (t) => {
+  for (const client of ['claude-code', 'opencode', 'codex']) {
+    const f = await fixture(t, { smoke: { maxTokens: client === 'codex' ? 100 : null },
+      smokeDrivers: { [client]: { reportsCost: true } },
+      respond: async () => ({ events: [{ type: 'result' }] }) });
+    const result = await runClientSmoke(['--client', client, '--only=C6,C7'], { ...f.io,
+      readQuota: async () => ({ source: 'user', remainingPct: 80 }) });
+    assert.equal(result.stopped, 'smoke.maxUsd');
+    assert.equal(f.calls.filter((request) => request.step).length, 1);
+    assert.equal(result.records.at(-1).status, 'skip');
+    assert.ok(f.lines.some((line) => line.includes('Spending could not be measured')));
+  }
+});
+
+test('negative money totals are unknown cost and stop further work', async (t) => {
+  for (const client of ['claude-code', 'opencode']) {
+    const f = await fixture(t, { cost: -0.25 });
+    const result = await runClientSmoke(['--client', client, '--only=C6,C11'], { ...f.io,
+      readQuota: async () => ({ source: 'user', remainingPct: 80 }) });
+    assert.equal(result.records[0].status, 'pass');
+    assert.equal(result.stopped, 'smoke.maxUsd');
+    assert.equal(f.calls.filter((request) => request.step).length, 1);
+    assert.equal(result.records[1].status, 'skip');
+    assert.equal(result.records[1].error, 'budget-exhausted');
+    assert.ok(f.lines.some((line) => line.includes('Spending could not be measured')));
+  }
+});
+
+test('Codex continues across replies and stops at cumulative text or step ceilings', async (t) => {
+  for (const [maxTokens, maxTurns, calls, stopped] of [
+    [1000, 10, 3, null], [150, 10, 2, 'smoke.maxTokens'],
+    [200, 10, 2, 'smoke.maxTokens'], [1000, 2, 2, 'smoke.maxTurns'],
+  ]) {
+    const f = await fixture(t, { smoke: { maxUsd: 0.01, maxTokens, maxTurns } });
+    const result = await runClientSmoke(['--client', 'codex', '--only=C6,C11,C12'], { ...f.io,
+      readQuota: async () => ({ source: 'user', remainingPct: 80 }), client: async (request) => {
+        const response = await f.io.client(request);
+        if (response.events) {
+          const final = response.events.at(-1);
+          delete final.total_cost_usd;
+          final.usage = { input_tokens: 60, output_tokens: 40, cached_input_tokens: 40 };
+        }
+        return response;
+      } });
+    assert.equal(f.calls.filter((request) => request.step).length, calls);
+    assert.equal(result.tokens, calls * 100, 'cached input is already part of input, not counted twice');
+    assert.equal(result.stopped, stopped);
+    assert.ok(result.records.slice(0, calls).every((record) => record.status === 'pass'));
+    if (stopped) assert.equal(result.records.at(-1).error, 'budget-exhausted');
+    assert.equal(result.spentUsd, null);
+    assert.doesNotMatch(f.lines.join('\n'), /Spending could not be measured|amount of text read and written could not be measured/);
+  }
+});
+
+test('a Codex text ceiling stops further work when usage is unusable', async (t) => {
+  for (const usage of [undefined, {}, { input_tokens: 10 },
+    { input_tokens: -1, output_tokens: 10 }, { input_tokens: '10', output_tokens: 10 }]) {
+    const f = await fixture(t, { smoke: { maxTokens: 100 },
+      respond: async () => ({ events: [{ type: 'result', usage }] }) });
+    const result = await runClientSmoke(['--client', 'codex', '--only=C6,C11'], { ...f.io,
+      readQuota: async () => ({ source: 'user', remainingPct: 80 }) });
+    assert.equal(result.stopped, 'smoke.maxTokens');
+    assert.equal(f.calls.filter((request) => request.step).length, 1);
+    assert.equal(result.records[1].status, 'skip');
+    assert.equal(result.records[1].error, 'budget-exhausted');
+    assert.ok(f.lines.some((line) => line.includes('amount of text read and written could not be measured')));
+    assert.doesNotMatch(f.lines.join('\n'), /Spending could not be measured/);
+  }
+});
+
+test('Codex ignores stray money totals and keeps counting text usage', async (t) => {
+  const f = await fixture(t, { cost: 999, smoke: { maxUsd: 0.01, maxTokens: 200 } });
+  const result = await runClientSmoke(['--client', 'codex', '--only=C6,C11,C12'], { ...f.io,
+    readQuota: async () => ({ source: 'user', remainingPct: 80 }), client: async (request) => {
+      const response = await f.io.client(request);
+      if (response.events) response.events.at(-1).usage = { input_tokens: 60, output_tokens: 40 };
+      return response;
+    } });
+  assert.equal(result.tokens, 200);
+  assert.equal(result.stopped, 'smoke.maxTokens');
+  assert.equal(f.calls.filter((request) => request.step).length, 2);
+  assert.ok(result.records.slice(0, 2).every((record) => record.status === 'pass'));
+  assert.equal(result.records[2].status, 'skip');
+  assert.equal(result.records[2].error, 'budget-exhausted');
+  assert.equal(result.spentUsd, null);
+  assert.doesNotMatch(f.lines.join('\n'), /Spending could not be measured|amount of text read and written could not be measured/);
+});
+
+test('a text ceiling also guards extra requests within one check', async (t) => {
+  const f = await fixture(t, { smoke: { maxTokens: 100 } });
+  const result = await runClientSmoke(['--client', 'codex', '--only=C14'], { ...f.io,
+    readQuota: async () => ({ source: 'user', remainingPct: 80 }), client: async (request) => {
+      const response = await f.io.client(request);
+      if (response.events) {
+        delete response.events.at(-1).total_cost_usd;
+        response.events.at(-1).usage = { input_tokens: 60, output_tokens: 40 };
+      }
+      return response;
+    } });
+  assert.equal(f.calls.filter((request) => request.step).length, 1);
+  assert.equal(result.stopped, 'smoke.maxTokens');
+  assert.equal(result.records.at(-1).error, 'budget-exhausted');
+});
+
+test('text allowance accepts null or positive whole numbers and refuses invalid ceilings', () => {
+  for (const maxTokens of [null, 1, 500]) {
+    assert.equal(configOf({ smoke: { maxTokens } }).smoke.maxTokens, maxTokens);
+  }
+  for (const maxTokens of [0, -1, 1.5, '100', NaN, Infinity]) {
+    assert.throws(() => configOf({ smoke: { maxTokens } }), /positive whole number.*inteiro positivo/);
+  }
+});
+
+test('smoke helper overrides are validated with a plain bilingual refusal', () => {
+  for (const smokeDrivers of [null, [], { unknown: {} }, { codex: null }, { codex: [] },
+    { codex: { args: '-p' } }, { opencode: { requiredFlags: [1] } },
+    { codex: { reportsCost: 'yes' } }, { codex: { unsupported: true } }]) {
+    assert.throws(() => configOf({ smokeDrivers }), /Smoke.*\/.*ajustes|Ajustes.*\/|Escolha um ajudante/);
+  }
+  assert.deepEqual(configOf({ smokeDrivers: { codex: { args: ['exec', '{briefing}'] } } })
+    .smokeDrivers.codex.args, ['exec', '{briefing}']);
+});
+
+test('Codex needs a text ceiling for real work and explains the setting in previews', async (t) => {
+  const f = await fixture(t);
+  const options = { ...f.io, readQuota: async () => ({ source: 'user', remainingPct: 80 }),
+    spawn: () => assert.fail('a missing ceiling must be refused before client help') };
+  const refused = await runClientSmoke(['--client', 'codex'], options);
+  assert.equal(refused.code, 2); assert.equal(refused.reason, 'text allowance required');
+  assert.ok(f.lines.some((line) => line.includes('Set "maxTokens" under "smoke" in config.json')));
+  assert.ok(f.lines.some((line) => line.includes('Defina "maxTokens" dentro de "smoke" em config.json')));
+  const preview = await runClientSmoke(['--client', 'codex', '--dry-run'], options);
+  assert.equal(preview.code, 0);
+  assert.ok(f.lines.some((line) => line.includes('Before a real Codex run, set "maxTokens"')));
+  assert.ok(f.lines.some((line) => line.includes('Antes de executar o Codex, defina "maxTokens"')));
+  assert.equal(f.calls.length, 0);
+});
+
+test('missing client program refuses before starting any scenario work', async (t) => {
+  for (const client of ['codex', 'opencode']) {
+    const f = await fixture(t, { smoke: { maxTokens: client === 'codex' ? 1000 : null } });
+    const result = await runClientSmoke(['--client', client], { ...f.io, client: undefined,
+      readQuota: async () => ({ source: 'user', remainingPct: 80 }),
+      spawn: fakeChild([], { error: Object.assign(new Error('ENOENT'), { code: 'ENOENT' }) }) });
+    assert.equal(result.code, 2); assert.equal(result.reason, 'client-refused');
+    assert.deepEqual(result.records, []);
+    assert.ok(f.lines.some((line) => line.includes(`Install ${client} and sign in`)));
+    assert.ok(f.lines.some((line) => line.includes(`Instale ${client}`)));
+  }
+});
+
 test('unsupported client flags refuse before scenario execution', async (t) => {
   const f = await fixture(t);
   const result = await runClientSmoke([], { ...f.io, client: async () => ({ stdout: '--verbose' }) });
@@ -489,13 +1096,16 @@ test('unsupported client flags refuse before scenario execution', async (t) => {
   assert.equal(result.reason, 'client-refused');
 });
 
-test('built-in driver refuses Codex and OpenCode client selections', async (t) => {
+test('built-in driver accepts Codex and OpenCode offline selections', async (t) => {
   for (const client of ['codex', 'opencode']) {
     const f = await fixture(t);
-    const result = await runClientSmoke(['--client', client], { ...f.io, client: undefined });
-    assert.equal(result.code, 2, client);
-    assert.ok(f.lines.some((line) => line.includes(`Unknown client ${client}`)), client);
+    const result = await runClientSmoke(['--client', client, '--dry-run'], { ...f.io, client: undefined,
+      spawn: () => assert.fail('offline preview must not spawn') });
+    assert.equal(result.code, 0, client);
+    assert.ok(!f.lines.some((line) => line.includes('Unknown client')), client);
     assert.equal(f.calls.length, 0, client);
+    assert.equal(await main(['smoke', '--client', client, '--dry-run'], { ...f.io,
+      client: undefined, spawn: () => assert.fail('must not spawn'), stdout: f.io.out, stderr: f.io.err }), 0);
   }
 });
 

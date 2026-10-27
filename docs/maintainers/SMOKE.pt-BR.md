@@ -22,7 +22,7 @@ Para executar a prévia, consulte o [guia](../guide/smoke-demo.pt-BR.md); contra
 
 Migração: execute o plugin como `okit-plugin`; instalar/atualizar removem apenas seus links antigos `okit`. Mantenha `okit`/`kit` do kit separados; o detector ignora executáveis do plugin.
 
-Implementado: `okit-plugin smoke` executa 32 checks isolados; `okit-plugin client-smoke` executa o cenário C1–C23 com driver real de Claude Code. Não comprova outros clientes ou sistemas.
+Implementado: `okit-plugin smoke` executa 32 verificações isoladas. Acrescentar `--client claude-code`, `--client codex` ou `--client opencode` seleciona verificações no cliente real, também disponíveis por `client-smoke`. Os testes offline comprovam o tratamento dos comandos; o Produtor precisa verificar instalação e uso reais em cada cliente.
 
 <a id="section-1"></a>
 ## Commands
@@ -166,7 +166,7 @@ Dois arquivos caem em `<state root>/logs/smoke/`: `smoke-<runid>.jsonl`, um obje
 <a id="section-9"></a>
 ## In-client smoke (real)
 
-O runner acima é a camada barata: não inicia cliente nenhum, não gasta cota e prova o código. Esta seção é a outra camada, e roda **dentro de uma sessão real do cliente** — Claude Code primeiro, Codex e opencode depois. Gasta a cota do usuário de propósito, e compra o que o runner em processo não compra: a prova de que o plugin está *instalado e em uso* — o cliente carregou o plugin, o servidor MCP dele responde por um pipe stdio de verdade, as skills estão lá, os hooks disparam, o daemon dá um tick, e a caixa de entrada, as ordens permanentes e os templates guardam o que o cliente escreveu.
+As verificações isoladas não iniciam clientes nem gastam cota. Escolher um cliente executa **dentro de uma sessão real do cliente** com Claude Code, Codex ou OpenCode e gasta a cota do usuário. As verificações buscam provas de que o plugin está instalado e em uso: ferramentas respondem, skills estão disponíveis e registros persistem. A falta de evidência continua sem comprovação.
 
 Os testes sintéticos já existem: o `okit-plugin smoke` acima cobre o código. O que falta é um teste de **uso real**, então esta camada tem dois propósitos, e os checks se dividem assim:
 
@@ -251,6 +251,12 @@ Os arquivos de manifesto, MCP e hook do Claude Code são gerados pelo build de r
 
 ### Os drivers
 
+Instale o comando escolhido (`claude`, `codex` ou `opencode`), entre na sua conta e configure o plugin nesse cliente. Uma execução real gasta cota; `--dry-run` não inicia modelos. Os comandos são `claude -p … --output-format stream-json`, `codex exec --json …` e `opencode run --format json …`. O Codex usa por padrão `--skip-git-repo-check`, `--sandbox workspace-write`, `--approve-for-me` e `--ephemeral`; OpenCode usa `--dir <pasta-temporária>` e `--auto`. Comandos, argumentos e verificações da ajuda são configuráveis em `smokeDrivers` no `config.json`; os padrões ficam em `DEFAULT_CONFIG`.
+
+A ajuda instalada do Codex confirma as opções para ignorar a exigência de repositório, usar sandbox gravável, encaminhar aprovações para revisão e encerrar sem salvar a sessão. A ajuda do OpenCode confirma saída JSON, escolha da pasta e aprovação automática de permissões; o modo sem interação já é o padrão. A ajuda não lista opção para impedir que a sessão seja salva. Essas verificações da ajuda não comprovam uma execução real do modelo nem o comportamento real de aprovação do MCP.
+
+As respostas das ferramentas de Codex e OpenCode passam pelas mesmas verificações das respostas de Claude Code. Como a saída não mostra detalhes de instalação do plugin, skills, hooks ou daemon, C1–C5 e C21 são pulados com explicação, sem chamada do cliente nesses passos; esses pulos, sozinhos, não deixam a execução vermelha. `smokeDrivers.<client>.reportsInstallation` registra se essa prova está disponível. `smokeDrivers.<client>.reportsCost` escolhe a contagem em dinheiro: `true` para Claude Code e OpenCode, `false` para Codex. A falta de medição de dinheiro ou texto interrompe novos trabalhos; medições parciais de uma chamada que falhou são preservadas. As quantidades de entrada e saída do Codex são somadas entre respostas; entrada reutilizada já está incluída. Uma execução real do Codex exige `smoke.maxTokens` positivo; `null` é aceito na prévia, mas recusa a execução real. Os custos e a quantidade de texto informados por etapa do OpenCode são somados. Só Claude Code tem teto em dinheiro comprovado dentro de uma chamada. A prévia explica os limites do ajudante escolhido sem gastar; a confirmação continua recusando a demonstração paga até comprovar medição e teto de custo.
+
 Um roteiro, quatro maneiras de rodá-lo.
 
 | driver | como | o que o usuário vê |
@@ -291,16 +297,19 @@ Uma execução real gasta o dinheiro do usuário, então tem preço e piso. Nenh
 | variável em `config.json` | o que limita |
 | :- | :- |
 | `smoke.quotaFloorPct` | a cota abaixo da qual a execução é recusada antes de começar |
-| `smoke.maxUsd` | o dinheiro que uma execução pode gastar; o próprio cliente o impõe (`--max-budget-usd` no Claude Code, que `claude --help` confirma) |
+| `smoke.maxUsd` | interrompe novas chamadas ao atingir o total em dinheiro nos clientes com `reportsCost: true`; Claude Code também impõe o teto dentro de uma chamada usando `--max-budget-usd` |
+| `smoke.maxTokens` | total informado pelo cliente de texto lido e escrito entre chamadas; inteiro positivo ou `null` (padrão). Uma execução real do Codex exige um valor positivo; adicione `"maxTokens": 50000` dentro de `"smoke"` no config.json e escolha um teto adequado. |
 | `smoke.maxTurns` | os passos que o roteiro pode dar; o runner o impõe e nunca o passa ao cliente (o cliente não tem `--max-turns`) |
 | `smoke.maxMinutes` | o relógio de parede de uma execução |
 | `smoke.checkTimeoutMs` | o prazo de um check |
 
 As flags são sobrescritas de uma execução dessas variáveis, e nada mais: `--quota-floor` sobrescreve `smoke.quotaFloorPct`, `--max-usd` sobrescreve `smoke.maxUsd`, `--max-turns` sobrescreve `smoke.maxTurns`, `--max-minutes` sobrescreve `smoke.maxMinutes` e `--timeout` sobrescreve `smoke.checkTimeoutMs`. Uma flag sem valor toma o valor da variável, e uma variável sem chave em `config.json` toma o seu valor padrão. O runner em processo da seção acima mantém os seus próprios defaults, então as duas camadas nunca derivam uma da outra.
 
-A **pré-checagem de cota** lê a cota do próprio cliente antes do primeiro passo. Continua aceitando leituras manuais válidas e observações sem idade, além de leituras automáticas das sessões do Codex ou da fonte configurada do OpenCode. Quando informada, a idade precisa ser um número válido e não negativo, e o percentual precisa estar entre zero e cem. A pré-checagem compartilhada sinaliza leituras acima de `smoke.quotaMaxAgeMinutes` e recusa leituras vencidas por `smoke.quotaExpireMinutes`; a execução do smoke de Codex/OpenCode também recusa uma leitura sinalizada como antiga. Dados ausentes, inválidos, vencidos ou de outro cliente geram `quota-unknown` antes de chamar o cliente, salvo escolha explícita de `--allow-unknown-quota`. Abaixo de `smoke.quotaFloorPct`, a execução é sempre recusada. O driver real incluído continua sendo o Claude Code; os testes fornecem um driver para os outros clientes.
+Defina `smoke.maxTokens` na configuração para limitar a quantidade de texto que o cliente informa ter lido e escrito. Atingir ou ultrapassar o limite impede a próxima chamada, inclusive chamadas extras dentro da mesma verificação; o trabalho não executado recebe o mesmo motivo de orçamento esgotado usado pelo teto em dinheiro. Uma resposta pode ultrapassar o limite antes de ser medida. Se uma resposta omitir o uso de texto com o teto habilitado, novos trabalhos param porque não é possível medir o restante. Uma saída diferente de zero com resultado final preserva esse resultado, então a recusa de orçamento do Claude Code continua pulando o trabalho. Um resultado recebido antes do encerramento do processo também é preservado; o encerramento sem resultado falha a etapa.
 
-O teto é *duro* no sentido de ser a flag do próprio cliente, não uma promessa dentro de um prompt: `--max-budget-usd` faz o cliente parar de gastar, e o evento `result` do próprio cliente diz isso — `terminal_reason: "budget_exhausted"` com `subtype: "error_max_budget_usd"`. Os passos que não rodaram são `skip` com o motivo `budget-exhausted`. Um passo que nunca rodou nunca é um `pass`.
+A **pré-checagem de cota** lê a cota do próprio cliente antes do primeiro passo. Continua aceitando leituras manuais válidas e observações sem idade, além de leituras automáticas das sessões do Codex ou da fonte configurada do OpenCode. Quando informada, a idade precisa ser um número válido e não negativo, e o percentual precisa estar entre zero e cem. A pré-checagem compartilhada sinaliza leituras acima de `smoke.quotaMaxAgeMinutes` e recusa leituras vencidas por `smoke.quotaExpireMinutes`; a execução do smoke de Codex/OpenCode também recusa uma leitura sinalizada como antiga. Dados ausentes, inválidos, vencidos ou de outro cliente geram `quota-unknown` antes de chamar o cliente, salvo escolha explícita de `--allow-unknown-quota`. Abaixo de `smoke.quotaFloorPct`, a execução é sempre recusada. Há drivers incluídos para os três clientes.
+
+No Claude Code, o teto é imposto pela própria flag: `--max-budget-usd` interrompe o gasto, e o evento `result` do cliente informa isso. Os passos que não rodaram são pulados. Um passo que nunca rodou nunca é aprovado. Codex e OpenCode não oferecem essa proteção comprovada dentro de uma chamada.
 
 ### Recusa, skip e falha
 
@@ -319,10 +328,10 @@ O código de saída diz se a *instalação* foi provada, e um check pulado nunca
 | saída | quando | o que significa |
 | :- | :- | :- |
 | `2` | a execução foi recusada **antes de começar**: a cota está abaixo do piso, a cota é desconhecida sem `--allow-unknown-quota`, a flag ou o cliente é desconhecido | nada foi verificado |
-| `1` | a execução começou e a instalação **não** foi provada: algum check é `fail`, ou um de `C1`–`C5` não passou | a instalação está quebrada ou sem prova |
-| `0` | a execução começou, `C1`–`C5` passaram todos, nada falhou, e todo outro check passou ou foi pulado (o teto de custo, uma config ausente) | a instalação está provada |
+| `1` | a execução começou e algum check falhou, ou uma verificação de instalação que o cliente pode informar não passou | um check falhou ou falta prova de instalação que o cliente informa |
+| `0` | a execução começou, nenhum check falhou e passaram as verificações que o cliente pode informar; provas indisponíveis de Codex/OpenCode são puladas | verificações informadas passaram; os pulos aparecem no resumo |
 
-`C1`–`C5` são a própria instalação (plugin, skills, handshake do MCP, hooks, daemon), então um deles pulado é tão ruim quanto um deles falhado: o ponto da execução é a instalação, e uma instalação sem prova não é um `0`. Os checks de `C6` em diante são a lógica em uso real, e os que o teto de custo cortou — ou que um `--rehearsal` não pôde rodar, por falta de login — são relatados como pulados, contados no resumo e seguidos de uma linha `PARCIAL`: a execução sai `0` mas diz em voz alta que não verificou tudo.
+Claude Code informa detalhes da instalação para `C1`–`C5`. Codex e OpenCode não fornecem esses detalhes; por isso essas verificações e a verificação do daemon `C21` são puladas sem chamar o cliente e não entram na decisão sobre provas da instalação. Outras falhas continuam retornando `1`; os pulos são contados no resumo e aparecem na linha de execução parcial.
 
 O motivo é uma palavra fixa, então um leitor conta recusas sem ler prosa: `quota-below-floor`, `quota-unknown`, `budget-exhausted`, `permission-denied`, `client-refused`, `hook-evidence-unavailable`, `config-missing`, `no-login`, `timeout`.
 

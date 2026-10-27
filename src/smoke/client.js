@@ -45,7 +45,7 @@ const LINES = {
 // The flags of a run. The parse hands back the flags it understood and the
 // first refusal, instead of throwing, so the runner still prints its start
 // line before it reports the refusal.
-function flagsOf(args, injectedDriver = false) {
+function flagsOf(args) {
   const flags = { client: 'claude-code', only: [], overrides: {} };
   const switches = ['rehearsal', 'dry-run', 'headless', 'demo', 'keep', 'allow-unknown-quota'];
   for (let index = 0; index < args.length; index += 1) {
@@ -66,9 +66,8 @@ function flagsOf(args, injectedDriver = false) {
       else flags.client = value;
     } else return { flags, error: new Error(`Unknown flag ${args[index]}`) };
   }
-  if (flags.client !== 'claude-code' && (!injectedDriver
-    || !Object.hasOwn(DEFAULT_CONFIG.install.clients, flags.client))) {
-    return { flags, error: new Error(`Unknown client ${flags.client}`) };
+  if (!Object.hasOwn(DEFAULT_CONFIG.install.clients, flags.client)) {
+    return { flags, error: new Error(`Unknown client ${flags.client}. / Cliente desconhecido ${flags.client}.`) };
   }
   if (flags.only.some((id) => id !== 'C' && !SCENARIO.some((step) => step.id === id))) {
     return { flags, error: new Error('Unknown --only check') };
@@ -87,13 +86,93 @@ function modeOf(flags) {
 }
 
 // No shell; AbortSignal kills the child when a check or run deadline expires.
-export function invokeClient({ command = 'claude', args, env, signal, onEvent, spawn: launch = spawn }) {
+export function clientRequest(client, config = {}, values = {}) {
+  const settings = { ...DEFAULT_CONFIG.smokeDrivers[client], ...config.smokeDrivers?.[client] };
+  return { command: settings.command, args: values.help ? settings.helpArgs
+    : settings.args.map((arg) => {
+      const placeholder = /^\{(\w+)\}$/.exec(arg)?.[1];
+      return placeholder && Object.hasOwn(values, placeholder) ? String(values[placeholder]) : arg;
+    }), requiredFlags: settings.requiredFlags, reportsCost: settings.reportsCost,
+    reportsInstallation: settings.reportsInstallation, help: !!values.help };
+}
+
+export const invokeCodex = (request) => invokeClient({ ...request, client: 'codex' });
+export const invokeOpenCode = (request) => invokeClient({ ...request, client: 'opencode' });
+
+function clientEvents(client, event, state) {
+  const message = (type, content) => ({ type, message: { content } });
+  const tool = (id, name, output, isError) => [
+    message('assistant', [{ type: 'tool_use', id, name }]),
+    message('user', [{ type: 'tool_result', tool_use_id: id,
+      content: typeof output === 'string' ? output : JSON.stringify(output), is_error: isError }]),
+  ];
+  if (client === 'claude-code') return [event];
+  if (client === 'codex') {
+    const item = event.item;
+    if (event.type === 'turn.completed') state.completed = true;
+    if ((event.type === 'turn.completed' || event.type === 'turn.failed') && event.usage) {
+      state.usage = event.usage;
+      const counts = [event.usage.input_tokens, event.usage.output_tokens];
+      if (counts.every((count) => Number.isSafeInteger(count) && count >= 0)) {
+        state.tokens = (state.tokens ?? 0) + counts.reduce((total, count) => total + count, 0);
+      } else state.unknownTokens = true;
+    }
+    if (event.type === 'item.completed' && item?.type === 'mcp_tool_call') {
+      return tool(item.id, `mcp__${item.server}__${item.tool}`, item.result ?? item.error,
+        !!item.error || item.result?.isError === true);
+    }
+    if (event.type === 'item.completed' && item?.type === 'agent_message') return [message('assistant', [{ type: 'text', text: item.text }])];
+    if (event.type === 'turn.completed') return [{ type: 'result', usage: event.usage }];
+    if (event.type === 'turn.failed') return [{ type: 'result', is_error: true, usage: event.usage }];
+    if (event.type === 'error' && !state.completed) return [{ type: 'result', is_error: true }];
+  }
+  if (client === 'opencode') {
+    const part = event.part;
+    if (event.type === 'tool_use' && ['completed', 'error'].includes(part?.state?.status)) {
+      return tool(part.callID, part.tool, part.state.output ?? part.state.error, part.state.status === 'error');
+    }
+    if (event.type === 'text') return [message('assistant', [{ type: 'text', text: part?.text }])];
+    if (event.type === 'step_finish') {
+      const cost = part?.cost;
+      if (Number.isFinite(cost) && cost >= 0) state.cost = (state.cost ?? 0) + cost;
+      else state.unknownCost = true;
+      const counts = [part?.tokens?.input ?? part?.tokens?.input_tokens,
+        part?.tokens?.output ?? part?.tokens?.output_tokens];
+      if (counts.every((count) => Number.isSafeInteger(count) && count >= 0)) {
+        state.tokens = (state.tokens ?? 0) + counts.reduce((total, count) => total + count, 0);
+        state.usage = { input_tokens: (state.usage?.input_tokens ?? 0) + counts[0],
+          output_tokens: (state.usage?.output_tokens ?? 0) + counts[1] };
+      } else if (part?.tokens !== undefined) state.unknownTokens = true;
+      if (cost === 0 && counts.some((count) => Number.isSafeInteger(count) && count > 0)) state.unknownCost = true;
+      if (part?.reason === 'stop') return [{ type: 'result',
+        ...(!state.unknownCost && state.cost != null ? { total_cost_usd: state.cost } : {}),
+        ...(state.usage ? { usage: state.usage } : {}) }];
+    }
+    if (event.type === 'error') return [{ type: 'result', is_error: true }];
+  }
+  return [];
+}
+
+export function invokeClient({ client = 'claude-code', config, command = clientRequest(client, config).command,
+  args, env, cwd, signal, help = false, onEvent, onProgress, spawn: launch = spawn }) {
   return new Promise((resolve, reject) => {
-    const child = launch(command, args, { env, signal, stdio: ['ignore', 'pipe', 'pipe'] });
-    let output = ''; let stderr = ''; let pending = '';
-    const events = [];
+    let output = ''; let pending = ''; let diagnostics = '';
+    const events = []; const state = {};
+    const failure = (message) => Object.assign(new Error(message), { events, state, stderr: diagnostics, stdout: output });
+    const unavailable = (error) => reject(error.code === 'ENOENT' ? failure(
+      `Install ${command} and sign in before starting. / Instale ${command} e entre na sua conta antes de começar.`)
+      : Object.assign(error, { events, state, stderr: diagnostics, stdout: output }));
+    let child;
+    try { child = launch(command, args, { env, cwd, signal, stdio: ['ignore', 'pipe', 'pipe'] }); }
+    catch (error) { unavailable(error); return; }
     const consume = (line) => {
-      try { const event = JSON.parse(line); events.push(event); onEvent?.(event); }
+      try {
+        const raw = JSON.parse(line);
+        for (const event of clientEvents(client, raw, state)) {
+          events.push(event); onEvent?.(event);
+        }
+        onProgress?.({ events: [...events], state: { ...state } });
+      }
       catch { /* Help is text; model prose is never evidence. */ }
     };
     child.stdout.on('data', (chunk) => {
@@ -103,12 +182,16 @@ export function invokeClient({ command = 'claude', args, env, signal, onEvent, s
       pending = lines.pop();
       for (const line of lines) consume(line);
     });
-    child.stderr.on('data', (chunk) => { stderr += chunk; });
-    child.once('error', reject);
+    child.stderr.on('data', (chunk) => { diagnostics += chunk; });
+    child.once('error', (error) => {
+      if (events.some((event) => event.type === 'result')) resolve({ events, stdout: output, state });
+      else unavailable(error);
+    });
     child.once('close', (code) => {
       if (pending) consume(pending);
-      if (code && !events.some((event) => event.type === 'result')) reject(new Error(stderr || 'Client failed'));
-      else resolve({ events, stdout: output });
+      const resultReceived = events.some((event) => event.type === 'result');
+      if (resultReceived || (help && code === 0)) resolve({ events, stdout: output, state });
+      else reject(failure('The helper stopped before finishing. / O ajudante parou antes de terminar.'));
     });
   });
 }
@@ -191,8 +274,7 @@ async function runScenario(argv, io) {
   const out = io.out;
   const err = io.err;
   const root = io.root;
-  // The built-in driver is Claude-only; supplied drivers can exercise known adapters.
-  const { flags, error } = flagsOf(argv, typeof io.client === 'function');
+  const { flags, error } = flagsOf(argv);
   out(LINES.start(flags.client, modeOf(flags)));
   if (error) { err(error.message); return { code: 2, records: [] }; }
   const env = { ...io.env, OKWORK_HOME: root };
@@ -201,6 +283,7 @@ async function runScenario(argv, io) {
   budget.maxTurns ??= SCENARIO.length;
   for (const [key, value] of Object.entries(budget)) {
     if (['demoMaxReworkRounds', 'demoDemandMaxUsd', 'demoRequireQuotaConfirmation'].includes(key)) continue;
+    if (key === 'maxTokens' && value === null) continue;
     if (!Number.isFinite(value) || value < 0 || (key !== 'quotaFloorPct' && value === 0)
       || (key === 'maxTurns' && !Number.isInteger(value))) {
       err(`Invalid smoke.${key}`); return { code: 2, records: [] };
@@ -213,6 +296,8 @@ async function runScenario(argv, io) {
   if (flags.rehearsal || flags['dry-run']) {
     for (const step of selected) out(`${step.id} ${step.name}: ${JSON.stringify(step.call)} — ${step.behaviour}`);
     out(`rehearsal: no client; maximum USD ${budget.maxUsd}; steps ${budget.maxTurns}; minutes ${budget.maxMinutes}`);
+    if (flags.client === 'codex' && budget.maxTokens === null) out(
+      'Before a real Codex run, set "maxTokens" under "smoke" in config.json to a positive whole number. / Antes de executar o Codex, defina "maxTokens" dentro de "smoke" em config.json como um número inteiro positivo.');
     return { code: 0, records: [], budget };
   }
   const read = io.readQuota ?? adapterQuotaReader({ stateRoot: root, env, now, config: stored });
@@ -237,6 +322,10 @@ async function runScenario(argv, io) {
     out(`${refusal}\n${artifacts.jsonl}\n${artifacts.log}`);
     return { code: 2, records: [], artifacts, reason: refusal };
   }
+  if (flags.client === 'codex' && budget.maxTokens === null) {
+    const message = 'Set "maxTokens" under "smoke" in config.json to a positive whole number before running Codex. / Defina "maxTokens" dentro de "smoke" em config.json como um número inteiro positivo antes de executar o Codex.';
+    err(message); return { code: 2, records: [], reason: 'text allowance required' };
+  }
   if (!Number.isFinite(quota?.remainingPct)) out('quota-unknown: explicitly allowed');
   // profile_pick accepts only these fields; adapter metadata stays local.
   const profileQuota = quota && { source: quota.source,
@@ -250,13 +339,14 @@ async function runScenario(argv, io) {
       dueTemplate: { name: `okit-smoke-${runId}`, schedule: '* * * * *',
         demand: { title: 'okit-smoke', body: `okit-smoke ${runId}` } },
     } };
-  const client = io.client ?? invokeClient;
+  const drivers = { 'claude-code': invokeClient, codex: invokeCodex, opencode: invokeOpenCode };
+  const client = io.client ?? ((request) => drivers[flags.client]({ ...request, cwd: root, spawn: io.spawn }));
+  const helpRequest = clientRequest(flags.client, stored, { help: true });
   try {
-    const help = await bounded((signal) => client({ command: 'claude', args: ['--help'], env, signal }),
+    const help = await bounded((signal) => client({ ...helpRequest, env, signal }),
       Math.min(budget.checkTimeoutMs, budget.maxMinutes * MINUTE_MS), io.signal);
-    for (const flag of ['--output-format', '--include-hook-events', '--verbose', '--max-budget-usd',
-      '--permission-mode', '--no-session-persistence']) {
-      if (!help.stdout?.includes(flag)) throw new Error(`Client lacks ${flag}`);
+    for (const flag of helpRequest.requiredFlags) {
+      if (!help.stdout?.includes(flag)) throw new Error('Update your helper before starting. / Atualize seu ajudante antes de começar.');
     }
   } catch (error) {
     header.reason = 'client-refused';
@@ -265,26 +355,79 @@ async function runScenario(argv, io) {
     return { code: 2, records: [], artifacts, reason: header.reason };
   }
   const records = [];
-  let spent = 0; let turns = 0; let stopped;
-  const ceiling = () => spent >= budget.maxUsd ? 'smoke.maxUsd'
-    : turns >= budget.maxTurns ? 'smoke.maxTurns'
-      : now() - started >= budget.maxMinutes * MINUTE_MS ? 'smoke.maxMinutes' : null;
+  const reportsCost = helpRequest.reportsCost;
+  const reportsInstallation = helpRequest.reportsInstallation;
+  let spent = 0; let tokens = 0; let turns = 0; let stopped;
+  let moneyUnknown = false; let textUnknown = false; let activeAttempt;
+  const usageCeiling = () => (reportsCost && (moneyUnknown || spent >= budget.maxUsd) ? 'smoke.maxUsd'
+    : budget.maxTokens !== null && (textUnknown || tokens >= budget.maxTokens) ? 'smoke.maxTokens' : null);
+  const ceiling = () => usageCeiling() ?? (turns >= budget.maxTurns ? 'smoke.maxTurns'
+    : now() - started >= budget.maxMinutes * MINUTE_MS ? 'smoke.maxMinutes' : null);
+  const measureTokens = (result, state) => {
+    if (Number.isSafeInteger(state?.tokens) && state.tokens >= 0 && !state.unknownTokens) return state.tokens;
+    const counts = [result?.usage?.input_tokens, result?.usage?.output_tokens];
+    return counts.every((count) => Number.isSafeInteger(count) && count >= 0)
+      ? counts.reduce((total, count) => total + count, 0) : null;
+  };
+  const settleAttempt = (attempt, { result, failed = false } = {}) => {
+    if (!attempt || attempt.accounted) return;
+    attempt.accounted = true;
+    const state = attempt.state ?? {};
+    if (reportsCost) {
+      const resultCost = result?.total_cost_usd;
+      let cost = Number.isFinite(resultCost) && resultCost >= 0 ? resultCost
+        : Number.isFinite(state.cost) && state.cost >= 0 ? state.cost : null;
+      if (state.unknownCost && cost === 0) cost = null;
+      if (cost !== null) spent += cost;
+      if (state.unknownCost || cost === null) {
+        if (cost === null) spent = budget.maxUsd;
+        moneyUnknown = true;
+        out('Spending could not be measured; no further work will start. / Não foi possível medir o gasto; nenhum outro trabalho será iniciado.');
+      }
+    }
+    if (!reportsCost || budget.maxTokens !== null) {
+      const amount = measureTokens(result, state);
+      if (amount !== null) tokens += amount;
+      else if (budget.maxTokens !== null && (failed || result || state.unknownTokens)) {
+        tokens = budget.maxTokens; textUnknown = true;
+        out('The amount of text read and written could not be measured; no further work will start. / Não foi possível medir a quantidade de texto lido e escrito; nenhum outro trabalho será iniciado.');
+      }
+    }
+  };
   const request = async (step, signal) => {
-    if (spent >= budget.maxUsd) { stopped = 'smoke.maxUsd'; return { outcome: skip('budget-exhausted') }; }
+    const exhausted = usageCeiling();
+    if (exhausted) { stopped = exhausted; return { outcome: skip('budget-exhausted') }; }
     const resolved = resolveRefs(step.call, context);
     const operation = resolved?.tool ? { tool: resolved.tool, arguments: resolved.arguments,
       ...(resolved.then ? { then: resolved.then } : {}) } : null;
     const briefing = operation?.tool
       ? `Call exactly these MCP operations, preserve their arguments. Never judge success or modify other records. ${JSON.stringify(operation)}`
       : 'Initialize this session with the installed okit plugin. Do not call tools or change files. Reply ready.';
-    const args = ['-p', briefing, '--output-format', 'stream-json', '--include-hook-events', '--verbose',
-      '--max-budget-usd', String(budget.maxUsd - spent), '--permission-mode', 'default', '--no-session-persistence'];
-    context.command = ['claude', ...args];
-    const response = await client({ command: 'claude', args, env, signal, step, operation,
+    const request = clientRequest(flags.client, stored, { briefing, maxUsd: budget.maxUsd - spent, cwd: root });
+    context.command = [request.command, ...request.args];
+    const attempt = { events: [], state: {}, accounted: false, stderr: '' };
+    activeAttempt = attempt;
+    const onProgress = (progress) => {
+      if (attempt.accounted) return;
+      attempt.events = progress.events ?? attempt.events;
+      attempt.state = progress.state ?? attempt.state;
+    };
+    let response;
+    try { response = await client({ ...request, cwd: root, env, signal, step, operation, onProgress,
       onEvent: flags.demo ? (event) => {
         for (const block of event.message?.content ?? []) if (block.type === 'text') out(block.text);
-      } : undefined });
+      } : undefined }); }
+    catch (error) {
+      attempt.events = error.events ?? attempt.events;
+      attempt.state = error.state ?? attempt.state;
+      attempt.stderr = error.stderr ?? '';
+      const partial = attempt.events.findLast((event) => event.type === 'result');
+      settleAttempt(attempt, { result: partial, failed: true });
+      error.smokeStderr = attempt.stderr;
+      throw error;
+    }
     const events = response.events ?? [];
+    attempt.events = events; attempt.state = response.state ?? attempt.state;
     context.events.push(...events);
     context.init ??= events.find((event) => event.subtype === 'init');
     context.pluginRoot ??= context.init?.plugins?.find((plugin) => plugin.name?.includes('okit'))?.path;
@@ -294,8 +437,8 @@ async function runScenario(argv, io) {
     context.result = result && Object.fromEntries(['type', 'subtype', 'is_error', 'num_turns',
       'total_cost_usd', 'permission_denials', 'terminal_reason'].filter((key) => key in result)
       .map((key) => [key, result[key]]));
-    if (!result) return { outcome: { status: 'fail', error: 'Missing client result event' } };
-    if (result?.total_cost_usd != null) spent += result.total_cost_usd;
+    settleAttempt(attempt, { result, failed: !result || result.is_error === true });
+    if (!result) return { outcome: { status: 'fail', error: 'The helper stopped before finishing. / O ajudante parou antes de terminar.' } };
     if (result?.terminal_reason === 'budget_exhausted' || result?.subtype === 'error_max_budget_usd') {
       stopped = 'smoke.maxUsd'; return { outcome: skip('budget-exhausted') };
     }
@@ -319,6 +462,10 @@ async function runScenario(argv, io) {
         outcome = await bounded(async (signal) => {
           if (step.id === 'C14' && await readJson(paths(root).config, null) === null) return skip('config-missing');
           if (step.id === 'C23') return { status: 'pass' }; // Verified after the first artifact write below.
+          if (!reportsInstallation && ['C1', 'C2', 'C3', 'C4', 'C5', 'C21'].includes(step.id)) {
+            return { status: 'skip', error: 'This helper does not provide installation details. / Este ajudante não fornece detalhes da instalação.',
+              logTail: 'evidence-unavailable' };
+          }
           const preparation = await prepare(step, context, signal);
           if (preparation) return preparation;
           let answers = [];
@@ -341,12 +488,15 @@ async function runScenario(argv, io) {
           return result;
         }, timeoutMs, io.signal);
       } catch (error) {
+        const partial = activeAttempt?.events?.findLast((event) => event.type === 'result');
+        settleAttempt(activeAttempt, { result: partial, failed: true });
         if (error.message === 'timeout') {
           outcome = { status: 'fail', error: 'timeout' };
-          stopped = now() - started >= budget.maxMinutes * MINUTE_MS ? 'smoke.maxMinutes' : 'timeout';
+          stopped = ceiling() ?? (now() - started >= budget.maxMinutes * MINUTE_MS ? 'smoke.maxMinutes' : 'timeout');
         } else if (error.message === 'interrupted') {
-          outcome = skip('client-refused'); stopped = 'interrupted'; header.interrupted = true;
+          outcome = skip('client-refused'); stopped = ceiling() ?? 'interrupted'; header.interrupted = true;
         } else outcome = { status: 'fail', error };
+        if (activeAttempt?.stderr) outcome.logTail = [error.message, activeAttempt.stderr];
       } finally { if (step.id === 'C8') await cleanup(context); }
     }
     records.push(recordOf({ ...step, group: 'C', timeoutMs: budget.checkTimeoutMs },
@@ -363,7 +513,8 @@ async function runScenario(argv, io) {
     catch (error) { report.status = 'fail'; report.error = error.message; }
   }
   const partial = records.some((record) => record.status === 'skip');
-  deps.summary = { spentUsd: spent, steps: turns, stopped: stopped ?? null, partial };
+  deps.summary = { spentUsd: reportsCost ? spent : null, tokens, reportsCost, steps: turns,
+    stopped: stopped ?? null, partial };
   header.finishedAt = now();
   artifacts = await writeArtifacts(root, runId, header, records, deps);
   for (const record of records) out(`${record.status} ${record.id} ${record.name} ${record.durationMs}ms${record.error ? ` ${record.error}` : ''}`);
@@ -371,10 +522,15 @@ async function runScenario(argv, io) {
   if (stopped) out(`ceiling: ${stopped}`);
   if (partial) out('PARCIAL: some checks were skipped');
   const count = (status) => records.filter((record) => record.status === status).length;
-  out(`passed: ${count('pass')} failed: ${count('fail')} skipped: ${count('skip')}; spent USD ${spent}`);
+  const usage = reportsCost
+    ? `money spent / gasto em dinheiro: USD ${spent}`
+    : `amount of text read and written / quantidade de texto lido e escrito: ${tokens}`;
+  out(`passed: ${count('pass')} failed: ${count('fail')} skipped: ${count('skip')}; ${usage}`);
   out(`${artifacts.jsonl}\n${artifacts.log}`);
   const failed = records.some((record) => record.status === 'fail');
-  const installed = INSTALLATION.every((step) => records.some((record) => record.id === step.id && record.status === 'pass'));
+  const installed = INSTALLATION.filter((step) => reportsInstallation || !['C1', 'C2', 'C3', 'C4', 'C5'].includes(step.id))
+    .every((step) => records.some((record) => record.id === step.id && record.status === 'pass'));
   await finish(context, flags.keep);
-  return { code: failed || !installed ? 1 : 0, records, artifacts, budget, stopped };
+  return { code: failed || !installed ? 1 : 0, records, artifacts, budget, stopped,
+    spentUsd: reportsCost ? spent : null, tokens };
 }
