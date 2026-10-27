@@ -17,6 +17,7 @@ const collectorEntry = process.argv[2] === 'statusline-collector';
 const { AUTOSTART_KINDS, applyAutostart, autostartPlan, detectAutostart } = collectorEntry
   ? {} : await import('./autostart.js');
 const { configCommand } = collectorEntry ? {} : await import('./config.js');
+const { todoRun } = collectorEntry ? {} : await import('./todo/index.js');
 const { daemonPause, daemonResume, daemonRun, daemonStatus, tick } = collectorEntry
   ? {} : await import('./daemon.js');
 const { limitsStatus } = collectorEntry ? {} : await import('./limits.js');
@@ -70,6 +71,28 @@ async function showHoldSituation(ctx, item, config) {
   }
 }
 
+async function todoCommand(ctx, action, args) {
+  if (!['sync', 'check'].includes(action)) return ctx.unknown();
+  let project;
+  let dryRun = false;
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === '--dry-run' && action === 'sync') dryRun = true;
+    else if (args[i] === '--project' && args[i + 1]) project = args[++i];
+    else return ctx.unknown();
+  }
+  const result = await todoRun(ctx.root, { project, dryRun, check: action === 'check' });
+  for (const report of result.reports) {
+    ctx.out(`${report.project}: ${report.enabled ? 'Task list enabled / Lista de tarefas ligada' : 'Task list disabled / Lista de tarefas desligada'}`);
+    for (const change of report.changes) ctx.out(dryRun ? change.diff : `Updated / Atualizada: ${change.title} (${change.file}:${change.line})`);
+    for (const suggestion of report.suggestions) ctx.out(`${suggestion.message} ${suggestion.item}`);
+    if (action === 'check') {
+      for (const item of report.demandsWithoutItem) ctx.out(`Work without task / Trabalho sem tarefa: ${item.title}`);
+      for (const item of report.itemsWithoutDemand) ctx.out(`Task without work / Tarefa sem trabalho: ${item.text}`);
+    }
+  }
+  return 0;
+}
+
 async function inboxCommand(ctx, action, args, io) {
   const config = await readConfig(ctx.root);
   if (action === 'list') {
@@ -82,6 +105,7 @@ async function inboxCommand(ctx, action, args, io) {
   const owner = { client: 'producer' };
   let takeover = false;
   let yes = false;
+  let changed;
   for (let i = 1; i < args.length; i += 1) {
     const flag = args[i];
     if (flag === '--producer-takeover' && action === 'take') takeover = true;
@@ -96,9 +120,13 @@ async function inboxCommand(ctx, action, args, io) {
     if (!item) throw new Error(`unknown inbox item ${args[0]}`);
     await showHoldSituation(ctx, item, config);
     if (!yes && !await confirmTake(io, ctx.out)) throw new Error('transfer cancelled / transferência cancelada');
-    await inboxProducerTakeover(ctx.root, args[0], owner, item.hold);
-  } else if (action === 'take') await inboxClaim(ctx.root, args[0], owner, { allowStale: false });
-  else await inboxRelease(ctx.root, args[0], owner);
+    changed = await inboxProducerTakeover(ctx.root, args[0], owner, item.hold);
+  } else if (action === 'take') changed = await inboxClaim(ctx.root, args[0], owner, { allowStale: false });
+  else changed = await inboxRelease(ctx.root, args[0], owner);
+  if (changed.todoWarning) ctx.err(changed.todoWarning);
+  for (const report of changed.todo?.reports ?? []) {
+    for (const suggestion of report.suggestions) ctx.out(`${suggestion.message} ${suggestion.item}`);
+  }
   ctx.out(`${args[0]}: ${action}`);
   return 0;
 }
@@ -126,6 +154,8 @@ const USAGE = [
   '       {command} quota show [client]',
   '       {command} statusline-collector [--previous <command> <args...>]',
   '       {command} inbox list [--locale en|pt-BR]',
+  '       {command} todo sync [--dry-run] [--project <path>]',
+  '       {command} todo check [--project <path>]',
   '       {command} inbox take <id> [--producer-takeover] [--client <c>] [--session <s>] [--worktree <path>] [--yes]',
   '       {command} inbox release <id> [--client <c>] [--session <s>]',
   '       {command} kit [--require]',
@@ -630,6 +660,7 @@ export async function main(argv = [], io = {}) {
       return await configCommand(ctx, action, args, { write: ctx.writeConfig });
     }
     if (group === 'inbox') return await inboxCommand(ctx, action, args, io);
+    if (group === 'todo') return await todoCommand(ctx, action, args);
     if (group === 'env' && action === 'report') return await environmentCommand(ctx, args, io);
     if (group === 'quota') return await quotaCommand(ctx, action, args);
     if (group === 'kit') {

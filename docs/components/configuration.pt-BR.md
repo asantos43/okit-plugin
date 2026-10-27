@@ -16,6 +16,14 @@ client é um cliente configurado; class é simple, normal ou hard. O padrão de 
 | Padrão de chave | Efeito |
 | :- | :- |
 | `limits.global` | Número padrão de executores permitidos ao mesmo tempo em cada cliente. |
+| `todo.enabled` | false; habilite a sincronização apenas nos projetos desejados. |
+| `todo.file` | TODO.md; arquivo existente dentro da raiz declarada. |
+| `todo.areaDir` | Vazio; diretório opcional de arquivos Markdown por área. |
+| `todo.section` | ## Inbox; título exato para novas tarefas, preferindo o arquivo principal, senão um único arquivo de área. |
+| `todo.checkbox.open` | Espaço; caractere da caixa desmarcada. |
+| `todo.checkbox.progress` | -; caractere de andamento. |
+| `todo.checkbox.done` | x; caractere de conclusão. |
+| `todo.projects` | {}; objeto JSON por raiz absoluta, substituindo enabled/file/areaDir/section/checkbox por projeto. |
 | `limits.clients.<client>` | Limite de executores deste cliente; ele substitui o limite global. |
 | `profiles.<client>.<class>` | O perfil deste cliente e desta classe de trabalho; null desliga a classe. |
 | `profiles.<client>.<class>.model` | Modelo usado neste cliente e nesta classe de trabalho. |

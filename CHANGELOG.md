@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Keep project task lists synchronized with saved work through safe writes, configurable layouts, previews, link checks and shared CLI/MCP operations in all clients. / Manter listas de tarefas dos projetos sincronizadas com trabalhos salvos por escrita segura, layouts configuráveis, prévias, conferência de vínculos e operações CLI/MCP iguais nos clientes.
 - Move bilingual design and maintenance pages into a maintainer index with summaries, contents and links to the user guide and component reference. / Mover páginas bilíngues de desenho e manutenção para um índice de mantenedores com resumos, índices e links para o guia e a referência de componentes.
 - Add a bilingual component reference with source-derived coverage checks for skills, MCP tools, hooks and CLI commands, plus configuration and state inventories. / Adicionar referência bilíngue dos componentes com cobertura extraída do código para skills, ferramentas MCP, hooks e comandos CLI, além de inventários de configuração e estado.
 - Add compact bilingual front pages, a task-based user guide and structure checks while retaining technical details in the architecture reference. / Adicionar páginas de entrada bilíngues compactas, guia do usuário por tarefa e verificações de estrutura, preservando detalhes técnicos na referência de arquitetura.

@@ -17,6 +17,8 @@ const FENCE = '---';
 // The tools the MCP server exposes. A skill names them by name, so a name that
 // is not here is a stale reference to the old kit CLI.
 const TOOLS = new Set([
+  'todo_sync',
+  'todo_status',
   'acquire_slot',
   'release_slot',
   'limits_status',
