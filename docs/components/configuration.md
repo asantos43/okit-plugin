@@ -10,7 +10,7 @@ Configuration combines built-in defaults with choices saved in the state root.
 ## Inspect and change
 
 Use `okit-plugin config show`, `okit-plugin config get limits.global`, `okit-plugin config set limits.global 3` and `okit-plugin config unset limits.global`.
-The CLI validates only the schema keys below; other technical options are config.json overrides, not accepted by config set. Profiles and detection merge by client/class/field; other consumers may merge groups by their own rules. Back up before editing.
+The CLI validates only the schema keys below; other technical options are config.json overrides, not accepted by config set. Profiles and detection merge by client/class/field; other consumers may merge groups by their own rules. Back up before editing. Install/update fills only missing active profile fields and per-client limits. Existing choices, including disabled profiles, stay unchanged. `setup.detected.client` records the client in use; `setup.detected.quotaSources` records observed allowance sources. Unknown observations are omitted. Detection reuses existing readers without spending allowance or confirming setup.
 
 <a id="schema"></a>
 ## CLI-supported keys

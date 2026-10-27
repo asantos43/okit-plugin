@@ -12,6 +12,28 @@ import { runSetup, SetupSaveError } from '../src/setup/setup.js';
 import codex from '../adapters/codex/index.js';
 import { detectClients } from '../src/setup/detect.js';
 
+for (const locale of ['en', 'pt-BR']) {
+  test(`every setup question explains its recommendation in ${locale}`, async (t) => {
+    const { home, root } = await temporaryHome(t);
+    const questions = [];
+    const result = await runSetup({ root, env: { HOME: home }, locale,
+      run: falseRun(), adapters: [fakeClient('claude-code', ['other/model'])],
+      ask: async (question, recommended) => {
+        questions.push(question);
+        return recommended ? '' : 'yes';
+      } });
+    assert.equal(result.cancelled, false);
+    assert.equal(questions.length, 4);
+    for (const question of questions) {
+      assert.match(question, locale === 'en' ? /Recommend(?:ed|ation):/ : /Recomend(?:ado|ação):/);
+      assert.match(question, locale === 'en' ? /available assistant|future work/ : /assistente disponível|próximos trabalhos/);
+    }
+    assert.match(questions[0], locale === 'en' ? /small, straightforward tasks/ : /tarefas pequenas e diretas/);
+    assert.match(questions[1], locale === 'en' ? /everyday work/ : /trabalhos do dia a dia/);
+    assert.match(questions[2], locale === 'en' ? /complex work/ : /trabalhos complexos/);
+  });
+}
+
 async function temporaryHome(t) {
   const home = await mkdtemp(join(tmpdir(), 'okit-setup-'));
   t.after(() => rm(home, { recursive: true, force: true }));

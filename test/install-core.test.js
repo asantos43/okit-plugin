@@ -25,6 +25,47 @@ const execute = promisify(execFile);
 import { commandWords } from '../src/install/statusline.js';
 import { detectKit } from '../src/install/kit.js';
 
+// | Input | Must pass | Must refuse |
+// | active listing | save detected profiles and configured caps | hidden/catalog models |
+// | repeat/update or prior choice | preserve existing leaves | overwrite a choice |
+test('install initializes detected configuration and update keeps every existing choice', async (t) => {
+  const f = await fixture(t);
+  f.io.env.CODEX_THREAD_ID = 'session';
+  f.io.readQuota = async () => ({ source: 'auto', remainingPct: 70 });
+  f.io.adapters = [{ CLIENT: 'codex', listModels: async () => ({ installed: true,
+    models: ['gpt-5-codex', 'hidden-model'], hidden: ['hidden-model'], source: 'listing' }) }];
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0);
+  const file = join(f.root, 'config.json');
+  const initial = JSON.parse(await fs.readFile(file));
+  assert.deepEqual(initial.profiles.codex, DEFAULT_CONFIG.profiles.codex);
+  assert.equal(initial.limits.clients.codex, DEFAULT_CONFIG.limits.global);
+  assert.deepEqual(initial.setup.detected, { client: 'codex', quotaSources: {
+    'claude-code': 'auto', codex: 'auto', opencode: 'auto' } });
+  const bytes = await fs.readFile(file, 'utf8');
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0);
+  assert.equal(await fs.readFile(file, 'utf8'), bytes);
+  initial.profiles.codex.simple = null;
+  initial.profiles.codex.normal = { model: 'my-choice', effort: 'high', maxTurns: 7 };
+  initial.limits.clients.codex = 8;
+  initial.setup.detected.client = 'claude-code';
+  initial.setup.detected.quotaSources.codex = 'manual';
+  await fs.writeFile(file, JSON.stringify(initial));
+  f.setVersion('1.0.1');
+  assert.equal(await main(['update', '--client', 'codex'], f.io), 0);
+  assert.deepEqual(JSON.parse(await fs.readFile(file)), initial);
+});
+
+test('install does not save catalog or hidden model guesses', async (t) => {
+  const f = await fixture(t);
+  f.io.readQuota = async () => ({ source: 'off' });
+  f.io.adapters = [{ CLIENT: 'codex', listModels: async () => ({ installed: true,
+    models: ['gpt-5-codex'], hidden: ['gpt-5-codex'], source: 'listing' }) }];
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0);
+  const raw = JSON.parse(await fs.readFile(join(f.root, 'config.json')));
+  assert.equal(raw.profiles, undefined);
+  assert.equal(raw.limits, undefined);
+});
+
 // Input                         | Must pass                 | Must refuse
 // literal/quoted/shell command   | preserve previous output  | drop chaining
 // no consent/check/invalid JSON | identical settings bytes  | settings write
@@ -449,6 +490,7 @@ async function fixture(t) {
   };
   deps.fetch = fetch;
   const io = { ...deps, pkg, arch: 'x64', tmpdir: home, tty: false, stdout: deps.out, stderr: deps.out,
+    adapters: [], readQuota: async () => ({ source: 'off' }),
     run: async (command) => { commands.push(command); return {}; },
     stopDaemon: async () => { events.push('stop'); return true; },
     startDaemon: async () => { events.push('start'); }, autostart: async () => { events.push('autostart'); },

@@ -37,6 +37,20 @@ const NAMES = [
 
 const roots = [];
 
+test('profile_pick uses valid default profiles without a configuration or setup', async () => {
+  const server = harness({ root: await tempRoot() });
+  for (const [client, profiles] of Object.entries(DEFAULT_CONFIG.profiles)) {
+    for (const [effort, expected] of Object.entries(profiles)) {
+      const frame = await server.call('profile_pick', { client, effort });
+      assert.equal(frame.result.isError, false);
+      assert.deepEqual(server.data(frame), expected);
+      assert.ok(expected.model.trim());
+      assert.ok(expected.maxTurns > 0);
+    }
+  }
+  await server.stop();
+});
+
 // | Input | Must pass | Must refuse |
 // | known client | same report and text as CLI | other clients in a selected report |
 // | current client | retained even without profiles | dropping the client in use |

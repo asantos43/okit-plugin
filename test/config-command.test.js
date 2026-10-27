@@ -10,6 +10,74 @@ import { formatEnvironmentReport } from '../src/env/report.js';
 import { configuredClientsOf } from '../src/profiles.js';
 import { writeJsonAtomic } from '../src/state.js';
 import { quotaEnv } from './helpers/env.js';
+import { initializeDetectedConfig } from '../src/setup/setup.js';
+import { fillMissingConfig } from '../src/config.js';
+
+test('reserved detected keys are ignored without polluting Object.prototype', () => {
+  const detected = JSON.parse('{"__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}}}');
+  const target = {};
+  assert.equal(fillMissingConfig(target, detected), false);
+  assert.deepEqual(target, {});
+  assert.equal(Object.prototype.polluted, undefined);
+});
+
+async function initializeFromSnapshot(t, { installed = true, source = 'listing', models = ['haiku'],
+  proposed = 'haiku', quotaSource = 'manual', remainingPct = 50 } = {}) {
+  const root = await tempRoot(t);
+  const file = join(root, 'config.json');
+  await writeFile(file, '{}');
+  const profile = { model: proposed, effort: 'low', maxTurns: 20 };
+  const snapshot = { inUse: null, config: { profiles: { codex: { simple: profile } } },
+    proposals: { clients: [{ client: 'codex', profiles: { simple: { model: proposed, effort: 'low' } } }] },
+    clients: [{ client: 'codex', installed, evidence: { models: source }, models,
+      slots: { total: 4 }, reading: { source: quotaSource }, quota: { remainingPct } }] };
+  await initializeDetectedConfig({ root, snapshot });
+  return JSON.parse(await readFile(file));
+}
+
+test('an uninstalled client is not added to profiles or client limits', async (t) => {
+  const raw = await initializeFromSnapshot(t, { installed: false });
+  assert.equal(raw.profiles, undefined);
+  assert.equal(raw.limits, undefined);
+});
+
+test('models without a confirmed listing do not produce profile choices', async (t) => {
+  const raw = await initializeFromSnapshot(t, { source: 'catalog' });
+  assert.equal(raw.profiles, undefined);
+  assert.equal(raw.limits, undefined);
+});
+
+test('a proposed profile outside the active model list is not saved', async (t) => {
+  const raw = await initializeFromSnapshot(t, { models: ['haiku'], proposed: 'opus' });
+  assert.equal(raw.profiles, undefined);
+  assert.deepEqual(raw.limits, { clients: { codex: 4 } });
+});
+
+test('a disabled quota source is not recorded', async (t) => {
+  const raw = await initializeFromSnapshot(t, { quotaSource: 'off' });
+  assert.equal(raw.setup, undefined);
+});
+
+test('detected initialization fills missing fields and preserves explicit choices', async (t) => {
+  const root = await tempRoot(t);
+  const file = join(root, 'config.json');
+  const prior = { limits: { global: 6 }, profiles: { codex: {
+    simple: null, normal: { effort: 'high', maxTurns: 9 } } } };
+  await writeFile(file, JSON.stringify(prior));
+  const options = { root, env: { CODEX_THREAD_ID: 'session' },
+    readQuota: async () => ({ source: 'manual', remainingPct: null }),
+    adapters: [{ CLIENT: 'codex', listModels: async () => ({ installed: true,
+      source: 'listing', models: ['gpt-5-codex'], hidden: [] }) }] };
+  assert.equal((await initializeDetectedConfig(options)).written, true);
+  const raw = JSON.parse(await readFile(file));
+  assert.equal(raw.profiles.codex.simple, null);
+  assert.deepEqual(raw.profiles.codex.normal, { model: 'gpt-5-codex', effort: 'high', maxTurns: 9 });
+  assert.equal(raw.limits.clients.codex, prior.limits.global);
+  assert.deepEqual(raw.setup.detected, { client: 'codex' });
+  const bytes = await readFile(file, 'utf8');
+  assert.equal((await initializeDetectedConfig(options)).written, false);
+  assert.equal(await readFile(file, 'utf8'), bytes);
+});
 
 const TMP = fileURLToPath(new URL('../.delegate/tmp/', import.meta.url));
 

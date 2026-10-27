@@ -7,7 +7,7 @@ Escolha os modelos usados pelos ajudantes e confira a cota restante antes do tra
 <a id="models"></a>
 ## Escolher modelos
 
-1. Execute `okit-plugin setup`. Espere clientes detectados, modelos propostos e motivos. Confirme para salvar; sem modelos ativos, a configuração continua pendente. Na conversa, a skill `okit-setup` orienta as mesmas escolhas. Execute `okit-plugin setup --again` para repetir; espere uma nova revisão das escolhas.
+1. Execute `okit-plugin setup`. A instalação já salva as escolhas encontradas sem substituir as suas. Cada pergunta restante recomenda uma escolha em palavras simples, explicando tarefas pequenas, trabalhos do dia a dia ou trabalhos complexos. Confirme para salvar as escolhas revisadas; sem modelos ativos, a configuração continua pendente. Há textos em inglês e português do Brasil. A detecção não gasta cota. Na conversa, a skill `okit-setup` orienta as mesmas escolhas. Execute `okit-plugin setup --again` para revisar novamente.
 2. Execute `okit-plugin actors --all --locale pt-BR`. Espere pares de modelo e esforço disponíveis, tamanhos de tarefa, cota restante e vagas livres. Essas escolhas são chamadas de atores; são ajudantes disponíveis, enquanto `okit-plugin status --all --locale pt-BR` mostra os ajudantes rodando e seus limites.
 3. Para mudar uma escolha, use `okit-plugin config set profiles.codex.normal.model MODELO`, trocando `MODELO` por um modelo ativo mostrado pelo cliente. Espere o valor anterior e o novo. `okit-plugin config unset profiles.codex.normal.model` restaura o padrão e informa a mudança. Troque `codex` e `normal` conforme necessário; as categorias são `simple`, `normal` e `hard`.
 

@@ -368,6 +368,21 @@ function setPath(root, path, value) {
   return { ok: true };
 }
 
+// Fill absent leaves only; explicit nulls and non-object ancestors are choices.
+export function fillMissingConfig(target, detected) {
+  let changed = false;
+  for (const [key, value] of Object.entries(detected)) {
+    if (CONFIG_SCHEMA.reservedPathSegments.includes(key)) continue;
+    if (!Object.hasOwn(target, key)) {
+      target[key] = structuredClone(value);
+      changed = true;
+    } else if (isObjectRecord(target[key]) && isObjectRecord(value)) {
+      changed = fillMissingConfig(target[key], value) || changed;
+    }
+  }
+  return changed;
+}
+
 function unsetPath(root, path) {
   if (!isSafePath(path)) return;
   const parts = path.split('.');

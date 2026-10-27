@@ -24,7 +24,7 @@ The server exposes 22 tools. Inputs are JSON objects; ? marks an optional field.
 | `env_report` | Inspect environment; observations and localized text | client?, locale? | read |
 | `smoke_demo` | Preview/confirm practice; plan, events, totals and exit code | dryRun?, client?, locale?, confirm? | preview reads; execution may write/spend, currently refuses without measured ceiling |
 | `classify` | Classify work; effort class and reasons | title, body?, kind? | read |
-| `profile_pick` | Choose saved actor; model, effort, maxTurns or refusal | client, effort, quota? | read |
+| `profile_pick` | Choose an assistant from saved settings or built-in defaults, even before setup; model, effort, maxTurns or refusal | client, effort, quota? | read |
 | `inbox_add` | Store work; confirmed link or suggested task awaiting confirmation | title, body?, kind?, accept?, effort?, client?, appliesTo?, todoLink? | write |
 | `todo_sync` | Synchronize tasks; changes/diffs and suggestions; link needs id and confirm | project?, dryRun?, id?, link?, confirm? | write; dryRun previews |
 | `todo_status` | Inspect links; demandsWithoutItem and itemsWithoutDemand | project? | read |
