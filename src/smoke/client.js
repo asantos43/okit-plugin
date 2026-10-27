@@ -21,10 +21,14 @@ const INSTALLATION = SCENARIO.slice(0, SCENARIO.findIndex((step) => step.kind ==
 export function smokePreflight(snapshot, client, budget, allowUnknown = false) {
   const row = snapshot.clients.find((entry) => entry.client === client);
   const observed = row?.quota;
+  const percentage = observed?.remainingPct;
+  const age = observed?.ageMinutes;
+  const invalid = !Number.isFinite(percentage) || percentage < 0 || percentage > 100
+    || (age != null && (!Number.isFinite(age) || age < 0));
   const expired = row?.reading?.expired || (row?.reading?.expiresAt
     && Date.parse(row.reading.expiresAt) <= snapshot.now)
-    || observed?.ageMinutes > budget.quotaExpireMinutes;
-  const quota = expired ? { source: 'user' } : observed;
+    || age > budget.quotaExpireMinutes;
+  const quota = expired || invalid ? { source: 'user' } : observed;
   const refusal = !Number.isFinite(quota?.remainingPct)
     ? (allowUnknown ? null : 'quota-unknown')
     : quota.remainingPct < budget.quotaFloorPct ? 'quota-below-floor' : null;
@@ -41,7 +45,7 @@ const LINES = {
 // The flags of a run. The parse hands back the flags it understood and the
 // first refusal, instead of throwing, so the runner still prints its start
 // line before it reports the refusal.
-function flagsOf(args) {
+function flagsOf(args, injectedDriver = false) {
   const flags = { client: 'claude-code', only: [], overrides: {} };
   const switches = ['rehearsal', 'dry-run', 'headless', 'demo', 'keep', 'allow-unknown-quota'];
   for (let index = 0; index < args.length; index += 1) {
@@ -62,7 +66,10 @@ function flagsOf(args) {
       else flags.client = value;
     } else return { flags, error: new Error(`Unknown flag ${args[index]}`) };
   }
-  if (flags.client !== 'claude-code') return { flags, error: new Error(`Unknown client ${flags.client}`) };
+  if (flags.client !== 'claude-code' && (!injectedDriver
+    || !Object.hasOwn(DEFAULT_CONFIG.install.clients, flags.client))) {
+    return { flags, error: new Error(`Unknown client ${flags.client}`) };
+  }
   if (flags.only.some((id) => id !== 'C' && !SCENARIO.some((step) => step.id === id))) {
     return { flags, error: new Error('Unknown --only check') };
   }
@@ -184,7 +191,8 @@ async function runScenario(argv, io) {
   const out = io.out;
   const err = io.err;
   const root = io.root;
-  const { flags, error } = flagsOf(argv);
+  // The built-in driver is Claude-only; supplied drivers can exercise known adapters.
+  const { flags, error } = flagsOf(argv, typeof io.client === 'function');
   out(LINES.start(flags.client, modeOf(flags)));
   if (error) { err(error.message); return { code: 2, records: [] }; }
   const env = { ...io.env, OKWORK_HOME: root };
@@ -210,8 +218,11 @@ async function runScenario(argv, io) {
   const read = io.readQuota ?? adapterQuotaReader({ stateRoot: root, env, now, config: stored });
   const snapshot = await environmentSnapshot({ ...io, root, env, now, config: stored,
     client: flags.client, readQuota: read, cache: io.quotaCache ?? new Map() });
-  const { quota, observed, refusal, stale } = smokePreflight(snapshot, flags.client, budget,
+  const preflight = smokePreflight(snapshot, flags.client, budget,
     flags['allow-unknown-quota']);
+  const { quota, observed, stale } = preflight;
+  const refusal = preflight.refusal ?? (flags.client !== 'claude-code' && stale
+    && !flags['allow-unknown-quota'] ? 'quota-unknown' : null);
   if (stale) {
     out('quota-stale: refresh quota / cota antiga: atualize a cota (smoke.quotaMaxAgeMinutes)');
   }
