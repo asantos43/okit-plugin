@@ -8,9 +8,10 @@ import { main } from '../src/cli.js';
 import { tick } from '../src/daemon.js';
 import { loadConfig, TOOLS, TOOL_NAMES } from '../src/mcp/tools.js';
 import { readJson, writeJsonAtomic } from '../src/state.js';
-import { invokeClient, runClientSmoke } from '../src/smoke/client.js';
+import { invokeClient, runClientSmoke, smokePreflight } from '../src/smoke/client.js';
 import { clientEnv } from './helpers/env.js';
 import { collectStatusline } from '../src/quota/statusline-collector.js';
+import { adapterQuotaReader } from '../src/status.js';
 
 const HELP = '--output-format --include-hook-events --verbose --max-budget-usd --permission-mode --no-session-persistence';
 
@@ -57,7 +58,9 @@ async function fixture(t, options = {}) {
       for (const operation of [request.operation, request.operation?.then].filter((entry) => entry?.tool)) {
         const tool = TOOLS.find((entry) => entry.name === operation.tool);
         let value; let isError = false;
-        try { value = await tool.handler(operation.arguments, { root, env }); }
+        try { value = await tool.handler(operation.arguments, { root, env,
+          ...(options.realQuota ? { readQuota: adapterQuotaReader({ stateRoot: root, env,
+            config: await loadConfig(root) }) } : {}) }); }
         catch (error) { value = JSON.stringify({ error: error.message }); isError = true; }
         const id = `${request.step.id}-${operation.tool}`;
         events.push({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: `mcp__okit__${operation.tool}` }] } });
@@ -130,40 +133,136 @@ test('unknown quota needs explicit opt-in', async (t) => {
 });
 
 // | Must pass | Must refuse |
-// | own automatic/manual reading above floor | only another client's reading, own below floor or expired |
-test('smoke accepts its own automatic collector but never OpenCode or Codex quota', async (t) => {
+// | recent automatic Codex/OpenCode reading | absent, stale, invalid or another client's reading |
+async function automaticQuotaFixture(t, client, { readingClient = client, ageMinutes = 1,
+  percentage = 80, smoke = {} } = {}) {
+  const f = await fixture(t, { smoke, realQuota: true });
+  await rm(join(f.root, 'quota/claude-code.json'));
+  const now = Date.now(), recorded = now - ageMinutes * 60_000;
+  f.io.now = () => now;
+  delete f.io.env.CLAUDECODE;
+  Object.assign(f.io.env, clientEnv(client), { HOME: f.root,
+    CODEX_SESSIONS_DIR: join(f.root, 'sessions') });
+  const config = await readJson(join(f.root, 'config.json'));
+  config.configuredClients = [...new Set([client, readingClient].filter(Boolean))];
+  config.profiles[client] = config.profiles['claude-code'];
+  if (readingClient === 'claude-code') {
+    await collectStatusline({ stateRoot: f.root, now: () => recorded,
+      input: JSON.stringify({ rate_limits: { five_hour: {
+        used_percentage: 100 - percentage, resets_at: now / 1000 + 3600 } } }) });
+  } else if (readingClient === 'opencode') {
+    const file = join(f.root, 'provider.json');
+    await writeJsonAtomic(file, { version: 1, company: 'example', source: 'test', read_at: recorded / 1000,
+      five_hour: { remaining_percent: percentage, reset_at: null }, weekly: null });
+    config.opencodeQuota = { sources: { example: { file } } };
+  } else if (readingClient === 'codex') {
+    await mkdir(f.io.env.CODEX_SESSIONS_DIR);
+    await writeFile(join(f.io.env.CODEX_SESSIONS_DIR, 'rollout-test.jsonl'), JSON.stringify({
+      timestamp: new Date(recorded).toISOString(), type: 'event_msg', payload: {
+        type: 'token_count', rate_limits: { primary: {
+          used_percent: 100 - percentage, window_minutes: 300, resets_at: now / 1000 + 3600 } } } }));
+  }
+  await writeJsonAtomic(join(f.root, 'config.json'), config);
+  return f;
+}
+
+test('smoke accepts its own automatic collector, including OpenCode and Codex quota', async (t) => {
   for (const client of ['claude-code', 'opencode', 'codex']) {
-    const f = await fixture(t);
-    await rm(join(f.root, 'quota/claude-code.json'));
-    const now = Date.now();
-    if (client === 'claude-code') {
-      await collectStatusline({ stateRoot: f.root, now: () => now,
-        input: JSON.stringify({ rate_limits: { five_hour: { used_percentage: 20, resets_at: now / 1000 + 3600 } } }) });
-    } else if (client === 'opencode') {
-      const file = join(f.root, 'provider.json');
-      await writeJsonAtomic(file, { version: 1, company: 'example', source: 'test', read_at: now / 1000,
-        five_hour: { remaining_percent: 80, reset_at: null }, weekly: null });
-      const config = await readJson(join(f.root, 'config.json'));
-      await writeJsonAtomic(join(f.root, 'config.json'), { ...config, configuredClients: ['claude-code', 'opencode'],
-        opencodeQuota: { sources: { example: { file } } } });
-    } else {
-      const directory = join(f.root, 'sessions');
-      await mkdir(directory);
-      f.io.env.CODEX_SESSIONS_DIR = directory;
-      const config = await readJson(join(f.root, 'config.json'));
-      await writeJsonAtomic(join(f.root, 'config.json'), { ...config, configuredClients: ['claude-code', 'codex'] });
-      await writeFile(join(directory, 'rollout-test.jsonl'), JSON.stringify({ timestamp: new Date(now).toISOString(),
-        type: 'event_msg', payload: { type: 'token_count', rate_limits: {
-          primary: { used_percent: 20, window_minutes: 300, resets_at: now / 1000 + 3600 } } } }));
+    const f = await automaticQuotaFixture(t, client);
+    const result = await runClientSmoke(['--client', client], f.io);
+    assert.equal(result.code, 0, `${client}: ${JSON.stringify(result.records.filter((r) => r.status === 'fail'))}`);
+    assert.notEqual(result.reason, 'quota-unknown', client);
+    assert.ok(f.calls.length > 0, client);
+    const header = JSON.parse((await readFile(result.artifacts.jsonl, 'utf8')).split('\n')[0]);
+    assert.equal(header.quota.source, 'automatic', client);
+    assert.equal(header.quota.remainingPct, 80, client);
+  }
+});
+
+test('automatic smoke readings refuse missing, old, invalid and other-client data before calls', async (t) => {
+  for (const client of ['codex', 'opencode']) {
+    const smoke = { quotaMaxAgeMinutes: 2, quotaExpireMinutes: 4 };
+    for (const [name, options] of [
+      ['missing', { readingClient: null }], ['old', { ageMinutes: 3 }],
+      ['negative percentage', { percentage: -1 }], ['excess percentage', { percentage: 101 }],
+      ['other client', { readingClient: client === 'codex' ? 'opencode' : 'codex' }],
+    ]) {
+      const f = await automaticQuotaFixture(t, client, { ...options, smoke });
+      const result = await runClientSmoke(['--client', client], f.io);
+      assert.equal(result.code, 2, `${client}/${name}`);
+      assert.equal(result.reason, 'quota-unknown', `${client}/${name}`);
+      assert.equal(f.calls.length, 0, `${client}/${name}`);
     }
-    const result = await runClientSmoke([], { ...f.io, now: () => now });
-    if (client === 'claude-code') {
-      assert.equal(result.code, 0, JSON.stringify(result.records));
-      assert.notEqual(result.reason, 'quota-unknown');
-    } else {
-      assert.equal(result.code, 2, client);
-      assert.equal(result.reason, 'quota-unknown', client);
-      assert.equal(f.calls.length, 0, client);
+  }
+});
+
+test('Codex/OpenCode smoke refuses old automatic readings unless explicitly allowed', async (t) => {
+  for (const client of ['codex', 'opencode']) {
+    const f = await automaticQuotaFixture(t, client, { ageMinutes: 3,
+      smoke: { quotaMaxAgeMinutes: 2, quotaExpireMinutes: 4 } });
+    const refused = await runClientSmoke(['--client', client], f.io);
+    assert.equal(refused.code, 2, client);
+    assert.equal(refused.reason, 'quota-unknown', client);
+    assert.equal(f.calls.length, 0, client);
+
+    const allowed = await runClientSmoke(['--client', client, '--allow-unknown-quota'], f.io);
+    assert.equal(allowed.code, 0, client);
+    assert.ok(f.calls.length > 0, client);
+  }
+});
+
+test('smoke accepts fresh automatic Codex and OpenCode readings', () => {
+  for (const client of ['codex', 'opencode']) {
+    const snapshot = { now: 1_000, clients: [{ client, quota: {
+      source: 'automatic', remainingPct: 80, ageMinutes: 1,
+    } }] };
+    assert.equal(smokePreflight(snapshot, client, { quotaMaxAgeMinutes: 30,
+      quotaExpireMinutes: 120, quotaFloorPct: 20 }).refusal, null, client);
+  }
+});
+
+test('preflight refuses absent, expired, invalid and other-client readings', () => {
+  const budget = { quotaMaxAgeMinutes: 30, quotaExpireMinutes: 120, quotaFloorPct: 20 };
+  const cases = [
+    { clients: [{ client: 'codex', quota: null }] },
+    { clients: [{ client: 'codex', quota: { source: 'automatic', remainingPct: 80, ageMinutes: 121 } }] },
+    { clients: [{ client: 'codex', quota: { source: 'automatic', remainingPct: 101, ageMinutes: 1 } }] },
+    { clients: [{ client: 'codex', quota: { remainingPct: 80 }, reading: { expired: true } }] },
+    { clients: [{ client: 'codex', quota: { remainingPct: 80 },
+      reading: { expiresAt: new Date(1_000).toISOString() } }] },
+    { clients: [{ client: 'opencode', quota: { source: 'automatic', remainingPct: 80, ageMinutes: 1 } }] },
+  ];
+  for (const snapshot of cases) {
+    assert.equal(smokePreflight({ now: 1_000, ...snapshot }, 'codex', budget).refusal, 'quota-unknown');
+  }
+});
+
+test('smoke refuses invalid percentages and ages, including NaN, before calls', async (t) => {
+  for (const client of ['codex', 'opencode']) {
+    for (const invalid of [
+      ...[-1, 101, NaN, Infinity, '80', null].map((remainingPct) => ({ remainingPct })),
+      ...[-1, NaN, Infinity, '1'].map((ageMinutes) => ({ ageMinutes })),
+    ]) {
+      const f = await automaticQuotaFixture(t, client, { smoke: { quotaFloorPct: 0 } });
+      const result = await runClientSmoke(['--client', client], { ...f.io,
+        readQuota: async () => ({ source: 'user', remainingPct: 80, ageMinutes: 1, ...invalid }) });
+      assert.equal(result.reason, 'quota-unknown', `${client}: ${String(Object.values(invalid)[0])}`);
+      assert.equal(result.code, 2);
+      assert.equal(f.calls.length, 0);
+    }
+  }
+});
+
+test('preflight preserves manual readings and observations without an age', () => {
+  const budget = { quotaMaxAgeMinutes: 2, quotaExpireMinutes: 4, quotaFloorPct: 20 };
+  for (const client of ['claude-code', 'codex', 'opencode']) {
+    for (const source of ['user', 'manual', 'automatic']) {
+      for (const ageMinutes of [undefined, null, 0, 4]) {
+        const quota = { source, remainingPct: 80, ageMinutes };
+        const result = smokePreflight({ clients: [{ client, quota }] }, client, budget);
+        assert.equal(result.refusal, null, `${client}/${source}/${ageMinutes}`);
+        assert.equal(result.stale, ageMinutes > budget.quotaMaxAgeMinutes);
+      }
     }
   }
 });
@@ -322,7 +421,8 @@ test('CLI rejects unknown flags, clients, ids and invalid budgets with code 2', 
   const f = await fixture(t);
   for (const args of [['--wat'], ['--client', 'codex'], ['--only', 'I1'], ['--max-usd=-1'],
     ['--max-turns=1.5'], ['--timeout=no'], ['--only']]) {
-    assert.equal(await main(['client-smoke', ...args], { ...f.io, stdout: f.io.out, stderr: f.io.err }), 2);
+    assert.equal(await main(['client-smoke', ...args], { ...f.io, client: undefined,
+      stdout: f.io.out, stderr: f.io.err }), 2);
   }
   assert.equal(f.calls.length, 0);
   assert.equal(await main(['client-smoke', '--help'], { stdout: f.io.out }), 0);
@@ -387,6 +487,26 @@ test('unsupported client flags refuse before scenario execution', async (t) => {
   assert.equal(result.code, 2);
   assert.deepEqual(result.records, []);
   assert.equal(result.reason, 'client-refused');
+});
+
+test('built-in driver refuses Codex and OpenCode client selections', async (t) => {
+  for (const client of ['codex', 'opencode']) {
+    const f = await fixture(t);
+    const result = await runClientSmoke(['--client', client], { ...f.io, client: undefined });
+    assert.equal(result.code, 2, client);
+    assert.ok(f.lines.some((line) => line.includes(`Unknown client ${client}`)), client);
+    assert.equal(f.calls.length, 0, client);
+  }
+});
+
+test('injected driver still refuses an unknown client name', async (t) => {
+  const f = await fixture(t);
+  let called = false;
+  const result = await runClientSmoke(['--client', 'nao-existe'], { ...f.io,
+    client: async () => { called = true; return { stdout: HELP }; } });
+  assert.equal(result.code, 2);
+  assert.ok(f.lines.some((line) => line.includes('Unknown client nao-existe')));
+  assert.equal(called, false);
 });
 
 test('CLI headless passes and failures return 0 and 1 with the injected client', async (t) => {
