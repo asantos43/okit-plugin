@@ -53,6 +53,7 @@ const DOC = [
   ['E17', 'templates.flow', 'E', 20000],
   ['E18', 'status.table', 'E', 15000],
   ['E19', 'commands.every', 'E', 30000],
+  ['E20', 'quota.below-launch-floor', 'E', 15000],
   ['U1', 'uninstall.skills', 'U', 10000],
   ['U2', 'uninstall.autostart', 'U', 15000],
   ['U3', 'uninstall.state', 'U', 15000],
@@ -164,14 +165,14 @@ async function runChecks(checks, deps) {
 // | a body that resolves                        | status pass, empty error        | -                            |
 // | a module call that throws                   | -                               | status fail, its message      |
 // | a body that never settles                   | -                               | status timeout               |
-// | an id repeated in the three tables          | -                               | 31 ids, one each             |
+// | an id repeated in the three tables          | -                               | 32 ids, one each             |
 // | a timeout that differs from the table       | -                               | refused                      |
 // | a scratch home left behind after a test     | -                               | removed with the test        |
 
-test('the three tables carry the 31 ids of docs/maintainers/SMOKE.md, once each', () => {
-  assert.equal(ALL.length, 31, 'the tables hold 31 checks');
+test('the three tables carry the 32 ids of docs/maintainers/SMOKE.md, once each', () => {
+  assert.equal(ALL.length, 32, 'the tables hold 32 checks');
   assert.deepEqual(INSTALL_CHECKS.length, 7);
-  assert.deepEqual(FEATURE_CHECKS.length, 19);
+  assert.deepEqual(FEATURE_CHECKS.length, 20);
   assert.deepEqual(UNINSTALL_CHECKS.length, 5);
 
   const ids = ALL.map((check) => check.id);
