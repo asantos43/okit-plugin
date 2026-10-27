@@ -7,7 +7,7 @@ Choose the models your helpers use and check the remaining allowance before work
 <a id="models"></a>
 ## Choose models
 
-1. Run `okit-plugin setup`. Expect detected clients, proposed models and reasons. Confirm to save; missing active models leave setup pending. In chat, the `okit-setup` skill guides the same choices. Run `okit-plugin setup --again` to repeat; expect another review of the choices.
+1. Run `okit-plugin setup`. Installation already saves detected choices without replacing yours. Every remaining question recommends a choice in everyday words, explaining small tasks, everyday work or complex work. Confirm to save the reviewed choices; missing active models leave setup pending. English and Brazilian Portuguese are available. Detection does not spend allowance. In chat, the `okit-setup` skill guides the same choices. Run `okit-plugin setup --again` to review again.
 2. Run `okit-plugin actors --all --locale en`. Expect available model and effort pairs, task sizes, remaining allowance and free helper places. These choices are called actors; they are available helpers, while `okit-plugin status --all --locale en` shows running helpers and their limits.
 3. To change a choice, use `okit-plugin config set profiles.codex.normal.model MODEL`, replacing `MODEL` with an active model shown by your client. Expect the previous and new value. `okit-plugin config unset profiles.codex.normal.model` restores the default and reports the change. Replace `codex` and `normal` as needed; work categories are `simple`, `normal` and `hard`.
 

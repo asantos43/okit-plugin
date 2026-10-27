@@ -325,7 +325,7 @@ const classifyTool = {
 
 const profilePickTool = {
   name: 'profile_pick',
-  description: 'Chooses the model, reasoning effort and maxTurns configured for a client and effort class, lowered one step on low quota.',
+  description: 'Chooses an assistant for the work, using built-in choices before setup. Low allowance selects a lighter choice. / Escolhe um assistente para o trabalho, usando as escolhas incluídas antes da configuração. Com pouca cota, usa uma escolha mais leve.',
   inputSchema: {
     type: 'object',
     properties: {

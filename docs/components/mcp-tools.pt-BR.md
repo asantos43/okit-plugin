@@ -24,7 +24,7 @@ O servidor expõe 22 ferramentas. Entradas são objetos JSON; ? indica campo opc
 | `env_report` | Consulta ambiente; observações e texto localizado | client?, locale? | leitura |
 | `smoke_demo` | Prévia/confirmação de exemplo; plano, eventos, totais e código de saída | dryRun?, client?, locale?, confirm? | prévia lê; execução pode escrever/gastar, atualmente recusa sem teto medido |
 | `classify` | Classifica trabalho; classe de esforço e motivos | title, body?, kind? | leitura |
-| `profile_pick` | Escolhe ator salvo; modelo, esforço, maxTurns ou recusa | client, effort, quota? | leitura |
+| `profile_pick` | Escolhe um assistente pelas escolhas salvas ou padrões incluídos, mesmo antes da configuração; modelo, esforço, maxTurns ou recusa | client, effort, quota? | leitura |
 | `inbox_add` | Grava trabalho; vínculo confirmado ou sugestão aguardando confirmação | title, body?, kind?, accept?, effort?, client?, appliesTo?, todoLink? | escrita |
 | `todo_sync` | Sincroniza tarefas; mudanças e sugestões; link exige id e confirm | project?, dryRun?, id?, link?, confirm? | escrita; dryRun só mostra |
 | `todo_status` | Confere vínculos; demandsWithoutItem e itemsWithoutDemand | project? | leitura |

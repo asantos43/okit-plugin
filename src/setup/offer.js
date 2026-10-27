@@ -16,8 +16,8 @@ export const OFFER_MESSAGES = Object.freeze({
     'pt-BR': 'O setup ainda não foi feito. Rode {command} setup para escolher os modelos.',
   },
   question: {
-    en: 'Configure now? [S/n]',
-    'pt-BR': 'Configurar agora? [S/n]',
+    en: 'Configure now? [S/n] Recommended: yes, review the detected choices together.',
+    'pt-BR': 'Configurar agora? [S/n] Recomendação: sim, revisar juntos as escolhas encontradas.',
   },
   declined: {
     en: 'Setup was not run. Run {command} setup whenever you want it.',
@@ -68,6 +68,7 @@ async function runOffer({
   run,
   env = process.env,
   adapters,
+  snapshot,
   write,
 } = {}) {
   const stored = await readJson(paths(root).config, {});
@@ -103,6 +104,7 @@ async function runOffer({
       run,
       ask,
       adapters,
+      snapshot,
       write,
       locale,
       command,

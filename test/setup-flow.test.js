@@ -10,6 +10,12 @@ import test from 'node:test';
 import { main } from '../src/cli.js';
 import { installConfig } from '../src/install/config.js';
 import { tarGz } from '../src/release/archive.js';
+import { formatOffer } from '../src/setup/offer.js';
+
+test('the remaining install question recommends review in both languages', () => {
+  assert.match(formatOffer('question', 'en'), /Recommended: yes, review the detected choices together/);
+  assert.match(formatOffer('question', 'pt-BR'), /Recomendação: sim, revisar juntos as escolhas encontradas/);
+});
 
 const PENDING = /Setup is not done yet/;
 const PENDING_PT = /O setup ainda não foi feito/;
@@ -102,6 +108,8 @@ async function installation(t, { tty = false, ask } = {}) {
   const io = {
     root,
     home,
+    adapters: [],
+    readQuota: async () => ({ source: 'off' }),
     env: { HOME: home, PATH: '' },
     platform: 'linux',
     now: () => 1700000000000,

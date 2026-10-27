@@ -4,7 +4,7 @@ import { createInterface } from 'node:readline';
 import process from 'node:process';
 import { isDeepStrictEqual } from 'node:util';
 
-import { CONFIG_SCHEMA, resolveEntry } from '../config.js';
+import { CONFIG_SCHEMA, fillMissingConfig, resolveEntry } from '../config.js';
 import { configOf, DEFAULT_CONFIG, PROFILE_EFFORTS } from '../profiles.js';
 import { readJson, withLock, writeJsonAtomic } from '../state.js';
 import { paths } from '../store.js';
@@ -86,13 +86,16 @@ class SetupRefusal extends Error {
 }
 
 export const SETUP_MESSAGES = Object.freeze({
+  simple: { en: 'small, straightforward tasks', 'pt-BR': 'tarefas pequenas e diretas' },
+  normal: { en: 'everyday work that needs some thought', 'pt-BR': 'trabalhos do dia a dia que pedem alguma reflexão' },
+  hard: { en: 'complex work that needs careful thought', 'pt-BR': 'trabalhos complexos que pedem reflexão cuidadosa' },
   plan: {
     en: '{client} ({class}): use {model}. {reason}',
     'pt-BR': '{client} ({classe}): usar {model}. {reason}',
   },
   question: {
-    en: 'Choose a model for {client} ({class}). Options: {options}. Recommended: {recommended}. {reason}',
-    'pt-BR': 'Escolha um modelo para {client} ({classe}). Opções: {options}. Recomendado: {recommended}. {reason}',
+    en: 'Choose a model for {client}: {purpose}. Options: {options}. Recommended: {recommended}, an available assistant for this work.',
+    'pt-BR': 'Escolha um modelo para {client}: {purpose}. Opções: {options}. Recomendado: {recommended}, um assistente disponível para este trabalho.',
   },
   invalid: {
     en: 'Choose one of the listed models.',
@@ -103,8 +106,8 @@ export const SETUP_MESSAGES = Object.freeze({
     'pt-BR': 'O setup foi cancelado e nada foi salvo.',
   },
   confirm: {
-    en: 'Save these model settings? {choices}',
-    'pt-BR': 'Salvar estas configurações de modelo? {choices}',
+    en: 'Save these model settings? Recommended: yes, keep these choices for future work. {choices}',
+    'pt-BR': 'Salvar estas configurações de modelo? Recomendação: sim, manter estas escolhas para os próximos trabalhos. {choices}',
   },
   omitted: {
     en: 'No model was chosen for {client} ({class}). You can choose one later with `okit-plugin config set profiles.{client}.{class}.model <model>`.',
@@ -281,8 +284,7 @@ function reasonParts(reason) {
 
 function formatConfirmation(locale, changes) {
   const entries = (language) => changes.map((change) => {
-    const reason = reasonParts(change.reason)[language];
-    return `${change.client} (${change.class}): ${change.model}. ${reason}`;
+    return `${change.client}: ${change.model} — ${format(change.class, language)}.`;
   }).join('\n');
   if (locale === 'en') return fill(SETUP_MESSAGES.confirm.en, { choices: entries('en') });
   if (locale === 'pt-BR') return fill(SETUP_MESSAGES.confirm['pt-BR'], { choices: entries('pt-BR') });
@@ -465,7 +467,9 @@ async function askModel({ ask, locale, client, className, proposal, candidates, 
     options: candidates.join(', '),
     recommended,
   };
-  let question = formatWithReason('question', locale, values, proposal.reason);
+  const languages = locale === 'both' ? ['en', 'pt-BR'] : [locale];
+  let question = languages.map((language) => formatWithReason('question', language,
+    { ...values, purpose: format(className, language) }, proposal.reason)).join(' / ');
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const answer = await askValue(ask, question, recommended);
     if (answer === undefined || answer === null) return { cancelled: true };
@@ -531,6 +535,48 @@ function storedModel(raw, client, className) {
 function wasDone(raw) {
   const done = raw?.setup?.done;
   return done !== undefined && done !== null && done !== false;
+}
+
+// Installation records observations, without accepting the remaining questions.
+export async function initializeDetectedConfig({ root, env, run, adapters, readQuota,
+  snapshot, write = writeJsonAtomic, command = DEFAULT_CONFIG.install.command } = {}) {
+  const stored = await readJson(paths(root).config, {});
+  assertReadableConfig(stored, 'both', command);
+  const observation = await environmentSnapshot({ root, config: stored, env, run, adapters,
+    readQuota, snapshot, plugin: {}, versions: {} });
+  const detected = { profiles: {}, limits: { clients: {} } };
+  for (const row of observation.clients) {
+    if (row.installed !== true || row.evidence.models !== 'listing' || !row.models.length) continue;
+    const proposals = observation.proposals.clients.find((entry) => entry.client === row.client);
+    const profiles = {};
+    for (const [name, proposal] of Object.entries(proposals?.profiles ?? {})) {
+      if (!row.models.includes(proposal.model)) continue;
+      profiles[name] = { ...observation.config.profiles[row.client][name],
+        model: proposal.model, effort: proposal.effort };
+    }
+    if (Object.keys(profiles).length) detected.profiles[row.client] = profiles;
+    detected.limits.clients[row.client] = row.slots.total;
+  }
+  const quotaSources = Object.fromEntries(observation.clients
+    .filter((row) => row.reading?.source && row.reading.source !== 'off'
+      && Number.isFinite(row.quota.remainingPct))
+    .map((row) => [row.client, row.reading.source]));
+  if (!Object.keys(detected.profiles).length) delete detected.profiles;
+  if (!Object.keys(detected.limits.clients).length) delete detected.limits;
+  if (observation.inUse || Object.keys(quotaSources).length) {
+    detected.setup = { detected: { ...(observation.inUse ? { client: observation.inUse } : {}),
+      ...(Object.keys(quotaSources).length ? { quotaSources } : {}) } };
+  }
+  if (!Object.keys(detected).length) return { written: false, observation };
+  const target = paths(root);
+  await mkdir(target.locks, { recursive: true });
+  return withLock(join(target.locks, 'config'), async () => {
+    const raw = await readJson(target.config, {});
+    assertReadableConfig(raw, 'both', command);
+    const written = fillMissingConfig(raw, detected);
+    if (written) await write(target.config, raw);
+    return { written, observation };
+  });
 }
 
 export async function runSetup({

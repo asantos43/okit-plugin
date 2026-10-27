@@ -17,7 +17,8 @@ import { localSource } from './source.js';
 import { detectKit } from './kit.js';
 import { applyLink, chooseLinkDirectory } from './link.js';
 import { offerSetup } from '../setup/offer.js';
-import { setupReader, formatUnreadable } from '../setup/setup.js';
+import { initializeDetectedConfig, setupReader, formatUnreadable, formatNotSaved } from '../setup/setup.js';
+import { adapterQuotaReader } from '../env/quota.js';
 import { registerStatusline } from './statusline.js';
 
 const packageDirectory = fileURLToPath(new URL('../../', import.meta.url));
@@ -111,6 +112,16 @@ export async function installerCommand(command, args, ctx, io = {}) {
       && results.every(({ code }) => code === 0)) {
       const reader = setupReaderOf(io);
       try {
+        let observation;
+        try {
+          ({ observation } = await initializeDetectedConfig({ root: ctx.root, env: ctx.env,
+            run: ctx.run, adapters: io.setupAdapters ?? io.adapters,
+            readQuota: io.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env,
+              config: configOf(user), now: ctx.now }),
+            write: ctx.writeConfig ?? ctx.write, command: deps.config.command }));
+        } catch {
+          ctx.out(formatNotSaved('both', ctx.root, deps.config.command));
+        }
         await offerSetup({
           root: ctx.root,
           command: deps.config.command,
@@ -120,6 +131,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
           run: ctx.run,
           env: ctx.env,
           adapters: io.setupAdapters ?? io.adapters,
+          snapshot: observation,
           write: ctx.writeConfig ?? ctx.write,
         });
       } finally { reader.close(); }
