@@ -1,0 +1,1 @@
+English / Português: Add opt-in local usage measurements with private-field filtering, retention, CLI/MCP exports and separately enabled count-only sending. / Adiciona medições locais opcionais com remoção de campos privados, retenção, exportação por CLI/MCP e envio separado somente de contagens.

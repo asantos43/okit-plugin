@@ -38,4 +38,9 @@ Autostart also registers ~/.config/systemd/user/okit-daemon.service, ~/Library/L
 JSON writes use a temporary file, sync and rename; locks use directories with owners and dead-process recovery. Missing files allow a fallback; invalid JSON does not silently become empty configuration. Do not remove active-process locks. Use `okit-plugin env report` to locate effective state and `okit-plugin config show` to inspect settings.
 Update preserves state. Uninstall preserves it by default; --purge --yes requires no remaining clients and deletes the root. Back up history before removal.
 
+<a id="measurements"></a>
+## Optional usage measurements
+
+Use telemetry on/off for recording, rede on/off for sending, export [--since ISO] for export, check for integrity and status for folder, size and last export. Nothing is recorded by default. Only counts, durations, states, helper names and a hashed project are saved in atomic OTLP/JSON files; prompts, file contents, demand text and paths are dropped. Files are pruned by age and total size. When kit is configured, its local destination and retention are reused unless overridden. Sending occurs only during export after separate opt-in, contains aggregate counts only and requires HTTPS (HTTP allowed only for localhost). Addresses and headers are never logged.
+
 [Overview](README.md) · [Configuration](configuration.md) · [Português](state.pt-BR.md)

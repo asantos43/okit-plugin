@@ -183,6 +183,10 @@ export async function environmentSnapshot(deps = {}) {
       slots: { total: cap, available: Math.max(0, cap - (deps.limits?.byClient?.[client] ?? 0)) },
       slotEvidence: { running: deps.limits?.byClient?.[client] ?? 0, source } };
   });
+  if (deps.root) {
+    const { record } = await import('../telemetry/index.js');
+    for (const row of rows) await record(deps.root, 'quota.check', { client: row.client, state: row.quota.status });
+  }
   return { now, inUse, config, detected, proposals: proposeProfiles(detected, config), clients: rows,
     plugin: { ...deps.plugin, statePath: deps.root, configured, missing } };
 }

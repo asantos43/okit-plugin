@@ -14,6 +14,7 @@ import { CLIENTS } from '../spawn-process.js';
 import { readJson } from '../state.js';
 import { paths, stateRoot } from '../store.js';
 import { todoRun } from '../todo/index.js';
+import { status as telemetryStatus, exportTelemetry, record } from '../telemetry/index.js';
 
 const HOME_ENV = 'OKWORK_HOME';
 const DEFAULT_REASON = 'revoked by the mcp tool order_remove';
@@ -351,12 +352,14 @@ const profilePickTool = {
   },
   handler: async (args, ctx) => {
     const a = argsOf('profile_pick', args, ['client', 'effort', 'quota']);
-    return reply(profilePick({
+    const profile = profilePick({
       client: requiredText('profile_pick', a, 'client'),
       effort: requiredText('profile_pick', a, 'effort'),
       quota: optionalQuota('profile_pick', a, 'quota'),
       config: await configOf(ctx),
-    }));
+    });
+    await record(ctx.root, 'profile.choice', { client: a.client, ...profile });
+    return reply(profile);
   },
 };
 
@@ -573,6 +576,16 @@ function todoTool(name, check) {
 }
 
 export const TOOLS = [
+  ...[['telemetry_status', telemetryStatus], ['telemetry_export', exportTelemetry]].map(([name, handler]) => ({
+    name, description: name === 'telemetry_status'
+      ? 'See what measurements are saved and where. / Veja quais medições são salvas e onde.'
+      : 'Export saved measurements, optionally from a date. / Exporte medições salvas, opcionalmente a partir de uma data.',
+    inputSchema: { type: 'object', properties: name === 'telemetry_export' ? { since: { type: 'string' } } : {}, additionalProperties: false },
+    handler: async (args, ctx) => {
+      const a = argsOf(name, args, name === 'telemetry_export' ? ['since'] : []);
+      return reply(await handler(ctx.root, { since: optionalText(name, a, 'since') }));
+    },
+  })),
   todoTool('todo_sync', false),
   todoTool('todo_status', true),
   acquireSlotTool,

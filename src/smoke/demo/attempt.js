@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { acquireSlot, releaseSlot } from '../../limits.js';
 import { smokePreflight } from '../client.js';
 import { safeFile } from './scenario.js';
+import { record as telemetryRecord } from '../../telemetry/index.js';
 
 export async function checksFor(root, demand) {
   return Promise.all(demand.acceptance.map(async (check) => {
@@ -23,6 +24,11 @@ export async function attempt(ctx, row, demand, role, actor, profile, round, fai
       : observation.quota.ageMinutes + Math.max(0, now - options.snapshot.now) / 60_000 },
   })) };
   const quota = smokePreflight(snapshot, client, result.limits);
+  if (options.root) {
+    await telemetryRecord(options.root, 'quota.check', { client, state: quota.refusal || quota.stale ? 'red' : 'green' });
+    await telemetryRecord(options.root, 'role.choice', { role, client });
+    await telemetryRecord(options.root, 'profile.choice', { client, model: actor.model, effort: actor.effort });
+  }
   if (quota.refusal || quota.stale) throw new Error(quota.refusal ?? 'quota needs refresh');
   const driver = role === 'Executor' ? options.actor : options.critic;
   const room = budget.remaining(row.key);

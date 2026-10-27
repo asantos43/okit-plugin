@@ -6,6 +6,7 @@ import { loadScenario, validateScenario, createScratch } from './scenario.js';
 import { resolveLimits, ledger } from './budget.js';
 import { reportText } from './report.js';
 import { executeDemands } from './run.js';
+import { record } from '../../telemetry/index.js';
 
 // No environment detection or real driver: entry points must supply one snapshot.
 export async function runDemo(options = {}) {
@@ -83,6 +84,9 @@ export async function runDemo(options = {}) {
     }
   }
   await exportCurrent('final');
+  if (options.root) await record(options.root, 'smoke.report', {
+    state: result.status, count: result.demands.length, client,
+  });
   const text = reportText(result, locale);
   return { ...result, text };
 }

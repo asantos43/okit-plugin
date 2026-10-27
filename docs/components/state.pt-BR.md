@@ -38,4 +38,9 @@ Autostart também registra ~/.config/systemd/user/okit-daemon.service, ~/Library
 Escritas JSON usam arquivo temporário, sincronização e rename; locks usam diretórios com dono e recuperação de processo morto. Arquivo ausente admite fallback, JSON inválido não vira configuração vazia silenciosamente. Não remova locks de um processo ativo. Consulte `okit-plugin env report` para localizar o estado efetivo e `okit-plugin config show` para ler ajustes.
 Update conserva estado. Uninstall conserva estado por padrão; --purge --yes exige ausência de outros clientes e apaga a raiz. Faça cópia antes de apagar histórico.
 
+<a id="measurements"></a>
+## Medições opcionais de uso
+
+Use telemetry on/off para gravar, rede on/off para enviar, export [--since ISO] para exportar, check para conferir e status para ver pasta, tamanho e última exportação. Nada é registrado por padrão. Somente contagens, durações, estados, nomes de ajudantes e resumo irreversível do projeto ficam em arquivos OTLP/JSON gravados de forma indivisível; prompts, conteúdo de arquivos, texto de demandas e caminhos são descartados. Arquivos são removidos por idade e tamanho total. Com kit configurado, destino local e retenção são reaproveitados salvo ajuste próprio. O envio ocorre somente ao exportar com ativação separada, inclui somente contagens agrupadas e exige HTTPS (HTTP somente para localhost). Endereços e cabeçalhos nunca aparecem nos registros.
+
 [Visão geral](README.pt-BR.md) · [Configuração](configuration.pt-BR.md) · [English](state.md)

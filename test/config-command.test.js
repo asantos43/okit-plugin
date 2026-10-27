@@ -90,7 +90,8 @@ test('config show and get list defaults with their origin and effect', async (t)
   const root = await tempRoot(t);
   const shown = await cli(['config', 'show'], { root });
   assert.equal(shown.code, 0, shown.err.join('\n'));
-  assert.equal(shown.out.filter((line) => !line.startsWith('codexQuota.')).length, 52);
+  assert.equal(shown.out.filter((line) => !line.startsWith('codexQuota.') && !line.startsWith('telemetry.')).length, 52);
+  assert.ok(shown.out.some(line => line.startsWith('telemetry.enabled = false [default]')));
   assert.ok(shown.out.some((line) => line.startsWith('codexQuota.tailBytes = 16384 [default]')));
   assert.ok(shown.out.every((line) => line.includes('[default]')));
   assert.match(shown.out[0], /^limits\.global = 3 \[default\] — .* \/ .*$/);

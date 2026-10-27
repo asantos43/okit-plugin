@@ -152,6 +152,7 @@ const USAGE = [
   '       {command} config unset <key>',
   '       {command} quota set <client> <pct> [--window-minutes n]',
   '       {command} quota show [client]',
+  '       {command} telemetry status|on|off|rede on|off|export [--since ISO]|check',
   '       {command} statusline-collector [--previous <command> <args...>]',
   '       {command} inbox list [--locale en|pt-BR]',
   '       {command} todo sync [--dry-run] [--project <path>]',
@@ -661,6 +662,10 @@ export async function main(argv = [], io = {}) {
     if (group === 'config') {
       if (action === '--help') { out(USAGE.replaceAll('{command}', ctx.command)); return 0; }
       return await configCommand(ctx, action, args, { write: ctx.writeConfig });
+    }
+    if (group === 'telemetry') {
+      const { telemetryCommand } = await import('./telemetry/cli.js');
+      return await telemetryCommand(ctx, action, args);
     }
     if (group === 'inbox') return await inboxCommand(ctx, action, args, io);
     if (group === 'todo') return await todoCommand(ctx, action, args);
