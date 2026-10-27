@@ -246,6 +246,22 @@ export const DEFAULT_CONFIG = {
       status: 'Status: {open} open inbox items; {orders} active standing orders',
     },
   },
+  smokeDrivers: {
+    'claude-code': {
+      command: 'claude', helpArgs: ['--help'], reportsCost: true, reportsInstallation: true,
+      requiredFlags: ['--output-format', '--include-hook-events', '--verbose', '--max-budget-usd', '--permission-mode', '--no-session-persistence'],
+      args: ['-p', '{briefing}', '--output-format', 'stream-json', '--include-hook-events', '--verbose',
+        '--max-budget-usd', '{maxUsd}', '--permission-mode', 'default', '--no-session-persistence'],
+    },
+    codex: {
+      command: 'codex', helpArgs: ['exec', '--help'], requiredFlags: ['--json', '--skip-git-repo-check', '--sandbox', '--approve-for-me', '--ephemeral'], reportsCost: false, reportsInstallation: false,
+      args: ['exec', '--json', '--skip-git-repo-check', '--sandbox', 'workspace-write', '--approve-for-me', '--ephemeral', '{briefing}'],
+    },
+    opencode: {
+      command: 'opencode', helpArgs: ['run', '--help'], requiredFlags: ['--format', '--dir', '--auto'], reportsCost: true, reportsInstallation: false,
+      args: ['run', '--format', 'json', '--dir', '{cwd}', '--auto', '{briefing}'],
+    },
+  },
   smoke: {
     demoMaxReworkRounds: 1,
     demoDemandMaxUsd: null,
@@ -254,6 +270,8 @@ export const DEFAULT_CONFIG = {
     quotaMaxAgeMinutes: 30,
     quotaExpireMinutes: 120,
     maxUsd: 1,
+    // Input + output tokens for clients without monetary usage; null disables this ceiling.
+    maxTokens: null,
     // null means the full scenario length (resolved by the runner).
     maxTurns: null,
     maxMinutes: 15,
@@ -645,6 +663,36 @@ export function configOf(config) {
   }
   const daemon = { ...DEFAULT_CONFIG.daemon, ...config?.daemon };
   const smoke = { ...DEFAULT_CONFIG.smoke, ...config?.smoke };
+  const smokeDriverOverrides = config?.smokeDrivers === undefined ? {} : config.smokeDrivers;
+  if (!smokeDriverOverrides || typeof smokeDriverOverrides !== 'object' || Array.isArray(smokeDriverOverrides)) {
+    throw new TypeError('Smoke driver settings must be a named list. / Os ajustes dos ajudantes precisam ser uma lista por nome.');
+  }
+  const smokeDrivers = {};
+  const driverKeys = ['command', 'helpArgs', 'args', 'requiredFlags', 'reportsCost', 'reportsInstallation'];
+  for (const client of Object.keys(smokeDriverOverrides)) {
+    if (!Object.hasOwn(DEFAULT_CONFIG.smokeDrivers, client)) {
+      throw new TypeError(`Choose a known helper for smoke settings. / Escolha um ajudante conhecido nos ajustes do smoke.`);
+    }
+  }
+  for (const [client, defaults] of Object.entries(DEFAULT_CONFIG.smokeDrivers)) {
+    const override = Object.hasOwn(smokeDriverOverrides, client) ? smokeDriverOverrides[client] : {};
+    if (!override || typeof override !== 'object' || Array.isArray(override)
+      || Object.keys(override).some((key) => !driverKeys.includes(key))) {
+      throw new TypeError(`Smoke helper settings are invalid for ${client}. / Os ajustes do ajudante ${client} são inválidos.`);
+    }
+    const settings = { ...defaults, ...override };
+    const list = (value) => Array.isArray(value) && value.every((part) =>
+      typeof part === 'string' && part.trim() && !/[\r\n\0]/.test(part));
+    if (typeof settings.command !== 'string' || !settings.command.trim() || /[\r\n\0]/.test(settings.command)
+      || !list(settings.helpArgs) || !list(settings.args) || !list(settings.requiredFlags)
+      || typeof settings.reportsCost !== 'boolean' || typeof settings.reportsInstallation !== 'boolean') {
+      throw new TypeError(`Smoke helper settings are invalid for ${client}. / Os ajustes do ajudante ${client} são inválidos.`);
+    }
+    smokeDrivers[client] = settings;
+  }
+  if (smoke.maxTokens !== null && (!Number.isSafeInteger(smoke.maxTokens) || smoke.maxTokens <= 0)) {
+    throw new TypeError('Use a positive whole number for the text allowance, or null for no ceiling. / Use um número inteiro positivo para o limite de texto, ou null para ficar sem teto.');
+  }
   if (!Number.isInteger(smoke.demoMaxReworkRounds) || smoke.demoMaxReworkRounds < 0
     || (smoke.demoDemandMaxUsd !== null && (!Number.isFinite(smoke.demoDemandMaxUsd)
       || smoke.demoDemandMaxUsd <= 0)) || typeof smoke.demoRequireQuotaConfirmation !== 'boolean') {
@@ -716,6 +764,7 @@ export function configOf(config) {
     todo,
     daemon,
     smoke,
+    smokeDrivers,
     statuslineCollector,
     codexQuota,
     opencodeQuota,
