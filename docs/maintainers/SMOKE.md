@@ -26,6 +26,31 @@ A configured token ceiling applies to every client, including money-reporting cl
 
 Integration contract for `src/smoke/demo/index.js`: pass `smokeDrivers[client].reportsCost` into the ledger limits. Its snapshot supplies `reportsCost`, `tokens` and `costUsd` for the result/summary. With `reportsCost: false`, money is not accounted, `costUsd` is `null` for both the total and settled demands, and those demands have `costKnown: false`. The text report says money is not reported in the selected language and shows tokens used and the ceiling. Claude Code and OpenCode keep their existing money accounting. The entry/index wiring belongs to a separate change; without that wiring the ledger retains its money-reporting default.
 
+`src/smoke/demo/driver.js` exports `realDrivers({ client, config, spawn })` for the demo's executor and reviewer. It requires an injected `spawn`; constructing the drivers starts nothing. Both roles reuse `clientRequest` and `invokeClient`, including the shared client event conversion. This module does not wire real clients into the demo entry point.
+
+The executor combines the briefing text, checks to fix, acceptance checks and allowed output paths. It launches in the supplied working folder and environment, forwards cancellation, and uses the shorter of `briefing.limits.timeoutMs` and `smoke.checkTimeoutMs`. The caller supplies the client environment, including `PATH` and credentials, through `briefing.env`; the driver passes it through as received. Only listed files under `briefing.root` become artifacts. Artifacts must be regular files of at most 128 KiB; missing files are absent, and unsafe paths or symbolic links fail. Model text cannot supply artifact content.
+
+The driver compares names, sizes and modification times in the practice root before and after the call. Changes outside the allowed files fail with "The helper wrote outside the allowed files. / O ajudante escreveu fora dos arquivos permitidos." The comparison excludes `home/`, the client's configuration folders and the demand's working folder (`briefing.cwd`). Extra working files are ignored inside `briefing.cwd`; they never become artifacts. An entry that disappears during the second scan counts as a change. Other scan failures report "Could not check the files. / Não foi possível conferir os arquivos." and retain measured usage.
+
+The reviewer receives the execution, artifacts and checks and requests one JSON object. The whole final text must parse as an object with an exact `approved` or `rejected` verdict, an array of `criteria`, and string `feedback`. Unreadable or invalid answers are rejected with an English/Portuguese explanation. A client error result cannot approve work.
+
+Both roles expose `maxCostUsd`: `smoke.demoDemandMaxUsd` when set, otherwise `smoke.maxUsd`; clients with `reportsCost: false` expose zero. This is an upper bound: `attempt.js` reduces it to the ledger's remaining room through the D84 integration. A call receives the smaller of the driver's bound and `briefing.limits.maxUsd` through the existing argument placeholders. There are no new command flags or configuration keys. Only clients that support a money ceiling enforce it inside a call.
+
+Codex, and any client with `reportsCost: false`, requires a positive whole number in `smoke.maxTokens` when the drivers are created. A call whose reported tokens exceed `smoke.maxTokens` fails with its measured `usage` attached; the limit is checked after the call finishes.
+
+Usage includes reported input plus output tokens and client turns (Claude Code's `num_turns`, Codex turns, or OpenCode steps). Money follows `smokeDrivers.<client>.reportsCost`: Codex reports `costUsd: 0` with actual token counts. Missing or invalid measurements, including a missing count in an earlier step, produce `costUsd: null` so the ledger stops. Reported costs are never clipped to the reservation. Timeout, cancellation and exit without a final result throw with `usage`, `events` and `state` attached, retaining partial measurements.
+
+| Must pass | Must refuse |
+| :- | :- |
+| Whole valid review JSON with `approved` | Garbage, surrounding prose, fenced JSON, missing fields or other verdicts |
+| Measured usage; Codex tokens without money | Unknown money or token totals presented as free |
+| Listed regular files of at most 128 KiB | Directories, other special files, larger files, path traversal or symbolic links |
+| Allowed outputs and client/work folders may change | Changes elsewhere in the practice root, including entries lost during the second scan |
+| Readable folders in both scans | Access errors that prevent checking the files |
+| Positive `smoke.maxTokens` for Codex; calls within the limit | Missing or invalid Codex token limits; calls exceeding the token limit |
+
+Offline verification: `node --test test/smoke-demo-driver.test.js test/smoke-client.test.js`. Fake child processes cover all three clients, writes to another demand or shared state, allowed client/work folders, token limits, regular files and the 128 KiB boundary. Scan tests simulate unreadable folders and disappearing entries while checking that errors retain usage. The configured deadline is checked against elapsed time; two in-memory mutants prove that approving unreadable answers and treating unknown usage as free fail their guards. No real client is launched.
+
 Migration: invoke the plugin as `okit-plugin`; install/update remove only its owned legacy `okit` links. Keep the kit's `okit`/`kit` separate; kit detection ignores plugin executables.
 
 Implemented: `okit-plugin smoke` runs 32 isolated checks. Adding `--client claude-code`, `--client codex` or `--client opencode` selects real client checks, also available through `client-smoke`. Offline tests prove command handling; the Producer must verify real installation and usage for each client.
