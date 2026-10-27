@@ -5,11 +5,56 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { main } from '../src/cli.js';
+import { TOOLS } from '../src/mcp/tools.js';
+import { formatEnvironmentReport } from '../src/env/report.js';
 import { configuredClientsOf } from '../src/profiles.js';
 import { writeJsonAtomic } from '../src/state.js';
 import { quotaEnv } from './helpers/env.js';
 
 const TMP = fileURLToPath(new URL('../.delegate/tmp/', import.meta.url));
+
+// | Input | Must pass | Must refuse |
+// | omitted / saved pt-BR / explicit en | en / pt-BR / en in CLI and MCP | system language overriding settings |
+// | unknown saved language | plain bilingual explanation | silently using English |
+test('CLI and MCP use the saved language and explicit choices win', async (t) => {
+  const root = await tempRoot(t);
+  const tool = TOOLS.find(({ name }) => name === 'env_report');
+  for (const [language, locale, expected] of [
+    [undefined, undefined, 'en'], ['pt-BR', undefined, 'pt-BR'],
+    ['pt-BR', 'en', 'en'], ['en', 'pt-BR', 'pt-BR'],
+  ]) {
+    await writeFile(join(root, 'config.json'), JSON.stringify({ language }));
+    const flags = locale ? ['--locale', locale] : [];
+    const result = await cli(['env', 'report', '--client', 'unknown', ...flags], { root, env: { LANG: 'pt_BR.UTF-8' } });
+    const text = formatEnvironmentReport({ unknownClient: true }, expected);
+    assert.equal(result.code, 1);
+    assert.deepEqual(result.err, [text]);
+    const reply = await tool.handler({ client: 'unknown', ...(locale ? { locale } : {}) }, { root });
+    assert.equal(JSON.parse(reply).text, text);
+  }
+});
+
+test('language can be set once, inspected and reset; invalid choices are refused', async (t) => {
+  const root = await tempRoot(t);
+  for (const value of ['en', 'pt-BR']) {
+    assert.equal((await cli(['config', 'set', 'language', value], { root })).code, 0);
+    assert.match((await cli(['config', 'get', 'language'], { root })).out.join('\n'), new RegExp(value));
+  }
+  const invalid = await cli(['config', 'set', 'language', 'fr'], { root });
+  assert.equal(invalid.code, 1);
+  assert.match(invalid.err.join('\n'), /Valid values: en, pt-BR.*Valores válidos: en, pt-BR/);
+  assert.equal((await cli(['config', 'unset', 'language'], { root })).code, 0);
+  for (const language of ['fr', null, 42, '']) {
+    await writeFile(join(root, 'config.json'), JSON.stringify({ language }));
+    const result = await cli(['env', 'report'], { root });
+    assert.equal(result.code, 1);
+    assert.match(result.err.join('\n'), /Choose a language: en, pt-BR.*Escolha um idioma/);
+    await assert.rejects(TOOLS.find(({ name }) => name === 'env_report').handler({}, { root }), /Choose a language.*Escolha um idioma/);
+  }
+  for (const tool of TOOLS.filter((tool) => tool.inputSchema.properties.locale)) {
+    assert.equal(tool.inputSchema.properties.locale.default, 'en', tool.name);
+  }
+});
 
 async function tempRoot(t, config) {
   await mkdir(TMP, { recursive: true });
@@ -45,7 +90,7 @@ test('config show and get list defaults with their origin and effect', async (t)
   const root = await tempRoot(t);
   const shown = await cli(['config', 'show'], { root });
   assert.equal(shown.code, 0, shown.err.join('\n'));
-  assert.equal(shown.out.filter((line) => !line.startsWith('codexQuota.')).length, 51);
+  assert.equal(shown.out.filter((line) => !line.startsWith('codexQuota.')).length, 52);
   assert.ok(shown.out.some((line) => line.startsWith('codexQuota.tailBytes = 16384 [default]')));
   assert.ok(shown.out.every((line) => line.includes('[default]')));
   assert.match(shown.out[0], /^limits\.global = 3 \[default\] — .* \/ .*$/);

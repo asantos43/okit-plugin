@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { main } from '../src/cli.js';
 import { environmentReadings, environmentReport, formatEnvironmentReport } from '../src/env/report.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
@@ -241,16 +242,22 @@ test('catalog fallback never claims active models; saved setup and command are r
 });
 
 test('CLI reports both locales and system language with injected readings', async () => {
-  for (const locale of ['en', 'pt-BR', null]) {
+  const root = '.delegate/env-report-test-state';
+  await mkdir(root, { recursive: true });
+  for (const [locale, language, expected] of [
+    ['en', undefined, 'en'], ['pt-BR', undefined, 'pt-BR'],
+    ['en', 'pt-BR', 'en'], [null, undefined, 'en'], [null, 'pt-BR', 'pt-BR'],
+  ]) {
     const output = [];
     const deps = readings();
+    await writeFile(join(root, 'config.json'), JSON.stringify(language ? { language } : {}));
     const code = await main(['env', 'report', '--client', 'codex', ...(locale ? ['--locale', locale] : [])], {
-      ...deps, root: '.delegate/env-report-test-state', home: '.delegate/env-report-test-home',
+      ...deps, root, home: '.delegate/env-report-test-home',
       env: { LANG: 'pt_BR.UTF-8', CODEX_THREAD_ID: 'session' },
       stdout: (text) => output.push(text), stderr: (text) => output.push(text),
     });
     assert.equal(code, 0, output.join('\n'));
-    assert.match(output.join('\n'), locale === 'en' ? /codex \(in use\)/ : /codex \(em uso\)/);
+    assert.match(output.join('\n'), expected === 'en' ? /codex \(in use\)/ : /codex \(em uso\)/);
     assert.doesNotMatch(output.join('\n'), /claude-code:|opencode:/);
   }
 });

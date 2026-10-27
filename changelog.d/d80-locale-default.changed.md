@@ -1,0 +1,1 @@
+Commands and MCP tools use one saved language (English by default); choose Portuguese once with `config set language pt-BR`. / Comandos e ferramentas MCP usam um idioma salvo (inglês por padrão); escolha português uma vez com `config set language pt-BR`.

@@ -67,7 +67,7 @@ test('env_report keeps the current unconfigured client and handles unknown clien
     const report = server.data(await server.call('env_report', {}));
     assert.equal(report.clients[0].client, client);
     assert.equal(report.clients[0].inUse, true);
-    assert.match(report.text, /em uso/);
+    assert.equal(report.text, formatEnvironmentReport(report, DEFAULT_CONFIG.language));
     for (const locale of ['en', 'pt-BR']) {
       const frame = await server.call('env_report', { client: 'unknown', locale });
       assert.equal(frame.result.isError, false);

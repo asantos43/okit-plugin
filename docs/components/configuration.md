@@ -2,6 +2,8 @@
 
 Configuration combines built-in defaults with choices saved in the state root.
 
+`language` chooses the language for commands and MCP tools: default `en`, with `pt-BR` also accepted. Set Portuguese once with `okit-plugin config set language pt-BR`; `okit-plugin config unset language` restores English. An explicit `--locale` or MCP `locale` takes priority for that call. Unsupported languages are refused with a message in both languages.
+
 <a id="read"></a>
 ## Inspect and change
 
@@ -15,6 +17,7 @@ client is a configured client; class is simple, normal or hard. Each field defau
 
 | Key pattern | Effect |
 | :- | :- |
+| `language` | Language used when omitted by a command or tool; default `en`, also accepts `pt-BR`. |
 | `limits.global` | Default number of executors allowed at once for each client. |
 | `todo.enabled` | false; enable task synchronization only for intended projects. |
 | `todo.file` | TODO.md; existing task file, inside the declared root. |
