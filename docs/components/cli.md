@@ -1,5 +1,7 @@
 # CLI
 
+![okit-plugin: Components](../images/banners/components.svg)
+
 Use okit-plugin in the terminal to inspect and control the plugin.
 
 `--locale` is optional everywhere it is offered. It uses `language` (default: `en`); set Portuguese once with `okit-plugin config set language pt-BR`. An explicit `--locale en` or `--locale pt-BR` overrides the saved choice for one command.

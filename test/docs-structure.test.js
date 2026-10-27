@@ -17,6 +17,7 @@ const headings = text => [...text.matchAll(/^(#{1,6}) .+$/gm)].map(m => m[1].len
 const ids = text => [...text.matchAll(/<a id="([^"]+)"><\/a>/g)].map(m => m[1]);
 
 function checkUserPage(text, budget, guide = false) {
+  text = text.replace(/^(# [^\n]+\n)\n!\[[^\n]+\]\([^\n]+\.svg\)\n/, '$1');
   assert.ok(lines(text).length <= budget, `line budget ${budget}`);
   assert.doesNotMatch(text, /\b[DO]\d+\b|\b(?:passo|step)\s+\d+\b/i);
   assert.doesNotMatch(text, /\n{3,}/, 'no surplus blank lines');
@@ -27,6 +28,7 @@ function checkUserPage(text, budget, guide = false) {
 }
 
 function checkMaintainerPage(text) {
+  text = text.replace(/^(# [^\n]+\n)\n!\[[^\n]+\]\([^\n]+\.svg\)\n/, '$1');
   assert.match(text, /^# [^\n]+\n\n[^#\s<\d][^\n]*[.!?]\n\n/, 'one-line summary');
   assert.match(text, /<a id="contents"><\/a>\n## (?:Contents|Índice)\n\n(?:- \[[^\n]+\n)+/, 'TOC');
   assert.doesNotMatch(text, /[\t ]+$/m, 'no trailing spaces');
@@ -38,7 +40,7 @@ test('both front pages have the exact title, immediate banner and compact user t
   for (const suffix of ['', '.pt-BR']) {
     const text = await read(`README${suffix}.md`);
     assert.equal(lines(text)[0], `# ${TITLE}`);
-    assert.match(lines(text)[2], /^!\[[^\]]+\]\(docs\/art\/banner\.svg\)$/);
+    assert.match(lines(text)[2], /^!\[[^\]]+\]\(docs\/images\/banners\/project\.svg\)$/);
     checkUserPage(text, README_LINE_BUDGET);
     assert.doesNotMatch(text, /^\s*\|/m, 'front pages have no tables');
   }

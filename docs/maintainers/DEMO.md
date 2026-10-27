@@ -1,5 +1,7 @@
 # Smoke orchestration demonstration
 
+![okit-plugin: Maintainers](../images/banners/maintainers.svg)
+
 Disposable demonstration contracts for isolated execution, review, budgets and reporting.
 
 <a id="contents"></a>

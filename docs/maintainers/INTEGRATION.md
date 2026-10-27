@@ -1,5 +1,7 @@
 # Integration design
 
+![okit-plugin: Maintainers](../images/banners/maintainers.svg)
+
 Integration decisions and acceptance evidence for shared environment facts and native roles.
 
 <a id="contents"></a>

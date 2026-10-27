@@ -1,5 +1,7 @@
 # Instalar e começar
 
+![okit-plugin: Guia do usuário](../images/banners/guide.svg)
+
 Instale o plugin para seu cliente de IA e confirme que ele consegue ver seu ambiente.
 
 <a id="install"></a>

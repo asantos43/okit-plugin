@@ -1,5 +1,7 @@
 # Adapters
 
+![okit-plugin: Components](../images/banners/components.svg)
+
 Each adapter translates execution, allowance, skills and context for a specific client.
 
 <a id="claude-code"></a>

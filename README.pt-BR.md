@@ -1,6 +1,6 @@
 # Orchestration Kit plugin (okit plugin)
 
-![okit plugin: terminal neon com cadeira de diretor e os principais recursos do plugin](docs/art/banner.svg)
+![okit-plugin: Projeto](docs/images/banners/project.svg)
 
 O plugin okit ajuda seu assistente de IA a planejar o trabalho, dividi-lo com ajudantes e conferir o resultado.
 Funciona com Claude Code, Codex e opencode, usando os próprios assistentes do cliente.

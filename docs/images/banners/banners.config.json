@@ -1,0 +1,13 @@
+{
+  "project": "okit-plugin",
+  "colours": {
+    "light": { "background": "#f4faf4", "foreground": "#123312", "accent": "#217510", "secondary": "#086a7c" },
+    "dark": { "background": "#050805", "foreground": "#e4f5e4", "accent": "#5be03a", "secondary": "#35d0ee" }
+  },
+  "areas": [
+    { "id": "project", "title": { "en": "Project", "pt-BR": "Projeto" }, "icon": "terminal" },
+    { "id": "guide", "title": { "en": "User guide", "pt-BR": "Guia do usuário" }, "icon": "book" },
+    { "id": "components", "title": { "en": "Components", "pt-BR": "Componentes" }, "icon": "blocks" },
+    { "id": "maintainers", "title": { "en": "Maintainers", "pt-BR": "Manutenção" }, "icon": "tools" }
+  ]
+}

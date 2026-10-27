@@ -1,5 +1,7 @@
 # Resolver um problema
 
+![okit-plugin: Guia do usuário](../images/banners/guide.svg)
+
 Use o relatório do ambiente para encontrar o item ausente e a instrução de correção.
 
 <a id="diagnose"></a>

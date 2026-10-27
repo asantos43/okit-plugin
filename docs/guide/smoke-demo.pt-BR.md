@@ -1,5 +1,7 @@
 # Ver uma demonstração
 
+![okit-plugin: Guia do usuário](../images/banners/guide.svg)
+
 Veja o trabalho proposto e a cota antes de decidir se aprova uma demonstração.
 
 <a id="preview"></a>

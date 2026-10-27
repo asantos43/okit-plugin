@@ -1,5 +1,7 @@
 # MCP tools
 
+![okit-plugin: Components](../images/banners/components.svg)
+
 MCP tools expose validated core operations to the client assistant.
 
 Every `locale` field is optional and lists default `en` from the built-in `language` setting. Calls that omit it use the saved `language`; set Portuguese once with `okit-plugin config set language pt-BR`. An explicit `locale` (`en` or `pt-BR`) takes priority for that call.

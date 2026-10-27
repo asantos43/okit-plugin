@@ -1,5 +1,7 @@
 # Estado em disco
 
+![okit-plugin: Componentes](../images/banners/components.svg)
+
 O plugin guarda configuração, trabalho e observações na pasta de estado da pessoa.
 
 <a id="root"></a>

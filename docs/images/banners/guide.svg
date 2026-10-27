@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="180" viewBox="0 0 960 180" role="img" aria-labelledby="title">
+<title id="title">okit-plugin: User guide / Guia do usuário</title>
+<style>:root{--background:#f4faf4;--foreground:#123312;--accent:#217510;--secondary:#086a7c}@media(prefers-color-scheme:dark){:root{--background:#050805;--foreground:#e4f5e4;--accent:#5be03a;--secondary:#35d0ee}}.panel{fill:var(--background);stroke:var(--accent)}.icon{fill:none;stroke:var(--accent);stroke-width:3;stroke-linecap:round;stroke-linejoin:round}text{font-family:ui-monospace,monospace;fill:var(--foreground)}.area{fill:var(--secondary)}</style>
+<rect class="panel" x="1" y="1" width="958" height="178" rx="12"/>
+<g class="icon" transform="translate(34 72)"><path d="M32 14Q16 4 4 10v44q14-6 28 4 14-10 28-4V10q-12-6-28 4v44M12 22l12 3m-12 9 12 3m16-12 12-3m-12 15 12-3"/></g>
+<path d="M26 36h908" stroke="var(--accent)" stroke-dasharray="4 6"/>
+<g fill="var(--accent)"><circle cx="34" cy="21" r="3"/><circle cx="48" cy="21" r="3"/><circle cx="62" cy="21" r="3"/></g>
+<text x="128" y="87" font-size="36">okit-plugin</text>
+<text class="area" x="128" y="122" font-size="24">User guide / Guia do usuário</text>
+</svg>

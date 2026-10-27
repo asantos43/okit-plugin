@@ -1,5 +1,7 @@
 # Hooks
 
+![okit-plugin: Componentes](../images/banners/components.svg)
+
 Os hooks restauram contexto e coletam cota nos eventos do cliente.
 
 <a id="events"></a>

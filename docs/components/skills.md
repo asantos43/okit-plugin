@@ -1,5 +1,7 @@
 # Skills
 
+![okit-plugin: Components](../images/banners/components.svg)
+
 Skills guide the model according to the role and intent recognized by the client.
 
 <a id="loading"></a>

@@ -1,5 +1,7 @@
 # User guide
 
+![okit-plugin: User guide](../images/banners/guide.svg)
+
 Choose a task to get the plugin working and ask your assistant for help.
 
 <a id="tasks"></a>

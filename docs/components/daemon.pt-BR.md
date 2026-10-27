@@ -1,5 +1,7 @@
 # Daemon e agendas
 
+![okit-plugin: Componentes](../images/banners/components.svg)
+
 O daemon processa trabalho pendente e recorrente respeitando limites e controles de parada.
 
 <a id="run"></a>

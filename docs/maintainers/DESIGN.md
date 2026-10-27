@@ -1,5 +1,7 @@
 # Design
 
+![okit-plugin: Maintainers](../images/banners/maintainers.svg)
+
 Original goals, boundaries and design choices behind the shared plugin core.
 
 <a id="contents"></a>

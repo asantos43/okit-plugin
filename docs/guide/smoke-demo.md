@@ -1,5 +1,7 @@
 # Preview a demonstration
 
+![okit-plugin: User guide](../images/banners/guide.svg)
+
 Preview the proposed work and allowance before deciding whether to approve a demonstration.
 
 <a id="preview"></a>

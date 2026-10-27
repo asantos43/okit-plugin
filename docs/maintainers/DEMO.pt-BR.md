@@ -1,5 +1,7 @@
 # Demonstração da orquestração do smoke
 
+![okit-plugin: Manutenção](../images/banners/maintainers.svg)
+
 Contratos da demonstração descartável para execução isolada, revisão, orçamentos e relatórios.
 
 <a id="contents"></a>

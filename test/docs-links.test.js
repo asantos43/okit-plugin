@@ -40,14 +40,14 @@ for (const document of documents) {
 for (const [index, readme] of readmes.entries()) {
   test(`${readme}: banner at the top with localized alt text`, () => {
     const markdown = readFileSync(resolve(root, readme), 'utf8');
-    const banner = markdown.match(/^# [^\n]+\n\s*\n!\[([^\]\n]+)\]\(docs\/art\/banner\.svg\)/);
+    const banner = markdown.match(/^# [^\n]+\n\s*\n!\[([^\]\n]+)\]\(docs\/images\/banners\/project\.svg\)/);
     assert.ok(banner, 'expected banner immediately after the heading');
-    assert.match(banner[1], index === 0 ? /director's chair/ : /cadeira de diretor/);
+    assert.equal(banner[1], index === 0 ? 'okit-plugin: Project' : 'okit-plugin: Projeto');
   });
 }
 
 test('banner is a compact self-contained SVG', () => {
-  const bytes = readFileSync(resolve(root, 'docs/art/banner.svg'));
+  const bytes = readFileSync(resolve(root, 'docs/images/banners/project.svg'));
   const svg = bytes.toString('utf8');
   assert.ok(bytes.length < 100_000, `banner is ${bytes.length} bytes`);
   assert.match(svg, /^<svg\b/);

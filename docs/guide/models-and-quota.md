@@ -1,5 +1,7 @@
 # Choose models and record allowance
 
+![okit-plugin: User guide](../images/banners/guide.svg)
+
 Choose the models your helpers use and check the remaining allowance before work.
 
 <a id="models"></a>

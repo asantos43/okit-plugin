@@ -1,5 +1,7 @@
 # Configuration
 
+![okit-plugin: Components](../images/banners/components.svg)
+
 Configuration combines built-in defaults with choices saved in the state root.
 
 `language` chooses the language for commands and MCP tools: default `en`, with `pt-BR` also accepted. Set Portuguese once with `okit-plugin config set language pt-BR`; `okit-plugin config unset language` restores English. An explicit `--locale` or MCP `locale` takes priority for that call. Unsupported languages are refused with a message in both languages.

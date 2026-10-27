@@ -1,5 +1,7 @@
 # Release design
 
+![okit-plugin: Maintainers](../images/banners/maintainers.svg)
+
 Release artifact, bootstrap, publication and native proof requirements for maintainers.
 
 <a id="contents"></a>

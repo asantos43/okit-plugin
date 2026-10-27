@@ -1,5 +1,7 @@
 # Daemon and schedules
 
+![okit-plugin: Components](../images/banners/components.svg)
+
 The daemon processes pending and recurring work within concurrency limits and stop controls.
 
 <a id="run"></a>

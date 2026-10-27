@@ -1,5 +1,7 @@
 # Desenho da integração
 
+![okit-plugin: Manutenção](../images/banners/maintainers.svg)
+
 Decisões de integração e provas de aceite para fatos de ambiente comuns e papéis nativos.
 
 <a id="contents"></a>

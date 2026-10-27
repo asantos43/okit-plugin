@@ -1,0 +1,1 @@
+English / Português: Add configurable, theme-aware area banners to all documentation pages and both root READMEs, with generation and integrity checks. / Adiciona banners por área, configuráveis e adaptáveis ao tema, a todas as páginas de documentação e aos dois READMEs da raiz, com geração e verificações de integridade.
