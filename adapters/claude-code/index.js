@@ -18,6 +18,7 @@ import { configOf, DEFAULT_CONFIG } from '../../src/profiles.js';
 import { listModelsOf, makeSpawner } from '../../src/spawn-process.js';
 import { readJson } from '../../src/state.js';
 import { paths, stateRoot } from '../../src/store.js';
+import { capture } from '../../src/trajectory/capture.js';
 
 export const CLIENT = 'claude-code';
 
@@ -257,15 +258,21 @@ export async function spawn(actor, briefing, opts = {}) {
   const prompt = delivery.native.agentCall.prompt;
 
   if (mode === 'NATIVE') {
+    await capture(opts.stateRoot ?? stateRoot(opts.env), { session_id: runId, client: CLIENT,
+      model: profile.model, effort: profile.effort, role: delivery.context.role.toLowerCase(),
+      demand: opts.demand ?? null, step: opts.step ?? null, critic_of: opts.critic_of ?? null },
+    { transcript: opts.transcript, message: prompt });
     return { mode, runId, agentCall: { model: profile.model, effort: profile.effort, prompt } };
   }
 
   const spawner = makeSpawner({ spawn: opts.spawn, logDir: opts.logDir, env: opts.env, cwd: opts.cwd });
   const outcome = await spawner(
-    { title: prompt, appliesTo: textOrNull(opts.appliesTo) },
+    { title: prompt, id: opts.demand, appliesTo: textOrNull(opts.appliesTo) },
     {
       runId,
       client: CLIENT,
+      role: delivery.context.role.toLowerCase(), critic_of: opts.critic_of,
+      step: opts.step,
       profile: {
         model: profile.model,
         effort: profile.effort,
@@ -353,3 +360,4 @@ export function installPostCompactHook(opts = {}) {
 
 export default { CLIENT, spawn, readQuota, capabilities, installSkill, installHooks, configRoot,
   listModels, postCompactHooks, sessionStartHooks, installPostCompactHook, deliverRole, installRole, removeRole };
+export { readTrajectory } from './trajectory.js';

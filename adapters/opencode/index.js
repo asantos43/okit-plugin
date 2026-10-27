@@ -157,8 +157,9 @@ export async function spawn(actor, briefing, opts = {}) {
   if (delivery.status !== 'ready') throw new TypeError(delivery.reason);
   const prompt = delivery.native.agent.prompt;
   const spawner = makeSpawner({ spawn: opts.spawn, logDir: opts.logDir, env: opts.env, cwd: opts.cwd });
-  return spawner({ title: prompt, appliesTo: opts.appliesTo }, {
+  return spawner({ title: prompt, id: opts.demand, appliesTo: opts.appliesTo }, {
     runId, client: CLIENT, profile: { model, effort }, maxMinutes: opts.maxMinutes,
+    role: delivery.context.role.toLowerCase(), critic_of: opts.critic_of, step: opts.step,
   });
 }
 
@@ -210,3 +211,4 @@ export async function installHooks(files, opts = {}) {
 
 export default { CLIENT, spawn, readQuota, capabilities, installSkill, installHooks, configRoot, listModels,
   deliverRole, installRole, removeRole, configureRoles };
+export { readTrajectory } from './trajectory.js';

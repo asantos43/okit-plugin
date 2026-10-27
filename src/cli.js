@@ -153,6 +153,7 @@ const USAGE = [
   '       {command} quota set <client> <pct> [--window-minutes n]',
   '       {command} quota show [client]',
   '       {command} telemetry status|on|off|rede on|off|export [--since ISO]|check',
+  '       {command} trajectory list|show <run>|export <run>|prune|on|off|status',
   '       {command} statusline-collector [--previous <command> <args...>]',
   '       {command} inbox list [--locale en|pt-BR]',
   '       {command} todo sync [--dry-run] [--project <path>]',
@@ -662,6 +663,10 @@ export async function main(argv = [], io = {}) {
     if (group === 'config') {
       if (action === '--help') { out(USAGE.replaceAll('{command}', ctx.command)); return 0; }
       return await configCommand(ctx, action, args, { write: ctx.writeConfig });
+    }
+    if (group === 'trajectory') {
+      const { trajectoryCommand } = await import('./trajectory/cli.js');
+      return await trajectoryCommand(ctx, action, args);
     }
     if (group === 'telemetry') {
       const { telemetryCommand } = await import('./telemetry/cli.js');
