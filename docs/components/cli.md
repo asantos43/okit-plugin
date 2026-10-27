@@ -2,6 +2,8 @@
 
 Use okit-plugin in the terminal to inspect and control the plugin.
 
+`--locale` is optional everywhere it is offered. It uses `language` (default: `en`); set Portuguese once with `okit-plugin config set language pt-BR`. An explicit `--locale en` or `--locale pt-BR` overrides the saved choice for one command.
+
 <a id="commands"></a>
 ## Commands
 
@@ -13,7 +15,7 @@ Each row shows a command and example; replace <id> with the identifier returned 
 | `okit-plugin update` | Check, replace or roll back recorded installation | `okit-plugin update --client codex --check` |
 | `okit-plugin uninstall` | Remove recorded installation; keep state by default | `okit-plugin uninstall --client codex --dry-run` |
 | `okit-plugin setup` | Propose models and save after confirmation | `okit-plugin setup` |
-| `okit-plugin env report` | Inspect client, models, allowance, folders and remedies | `okit-plugin env report --locale en` |
+| `okit-plugin env report` | Inspect client, models, allowance, folders and remedies | `okit-plugin env report` |
 | `okit-plugin actors` | Inspect available model/effort choices | `okit-plugin actors --all --json` |
 | `okit-plugin status` | Inspect allowance and free slots | `okit-plugin status --all` |
 | `okit-plugin config show` | Show effective settings, origin and effect | `okit-plugin config show` |

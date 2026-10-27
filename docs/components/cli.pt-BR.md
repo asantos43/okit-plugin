@@ -1,5 +1,7 @@
 # CLI
 
+`--locale` é opcional em todos os comandos que o oferecem. Usa `language` (padrão: `en`); configure português uma vez com `okit-plugin config set language pt-BR`. Um `--locale en` ou `--locale pt-BR` explícito substitui a escolha salva apenas naquela chamada.
+
 Use okit-plugin no terminal para consultar e controlar o plugin.
 
 <a id="commands"></a>
@@ -13,7 +15,7 @@ Cada linha mostra o comando e um exemplo; substitua <id> pelo identificador reto
 | `okit-plugin update` | Confere, troca ou reverte instalação registrada | `okit-plugin update --client codex --check` |
 | `okit-plugin uninstall` | Remove instalação registrada; preserva estado por padrão | `okit-plugin uninstall --client codex --dry-run` |
 | `okit-plugin setup` | Propõe modelos e salva após confirmação | `okit-plugin setup` |
-| `okit-plugin env report` | Consulta cliente, modelos, cota, pastas e soluções | `okit-plugin env report --locale en` |
+| `okit-plugin env report` | Consulta cliente, modelos, cota, pastas e soluções | `okit-plugin env report` |
 | `okit-plugin actors` | Consulta opções de modelo/esforço | `okit-plugin actors --all --json` |
 | `okit-plugin status` | Consulta cota e vagas livres | `okit-plugin status --all` |
 | `okit-plugin config show` | Mostra ajustes efetivos, origem e efeito | `okit-plugin config show` |

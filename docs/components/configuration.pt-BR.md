@@ -1,5 +1,7 @@
 # Configuração
 
+`language` escolhe o idioma dos comandos e ferramentas MCP: padrão `en`, também aceita `pt-BR`. Configure português uma vez com `okit-plugin config set language pt-BR`; `okit-plugin config unset language` restaura inglês. Um `--locale` ou `locale` no MCP informado na chamada tem prioridade. Idiomas não aceitos são recusados com uma mensagem nos dois idiomas.
+
 A configuração combina padrões internos e escolhas salvas na raiz de estado.
 
 <a id="read"></a>
@@ -15,6 +17,7 @@ client é um cliente configurado; class é simple, normal ou hard. O padrão de 
 
 | Padrão de chave | Efeito |
 | :- | :- |
+| `language` | Idioma usado quando omitido no comando ou ferramenta; padrão `en`, também aceita `pt-BR`. |
 | `limits.global` | Número padrão de executores permitidos ao mesmo tempo em cada cliente. |
 | `todo.enabled` | false; habilite a sincronização apenas nos projetos desejados. |
 | `todo.file` | TODO.md; arquivo existente dentro da raiz declarada. |

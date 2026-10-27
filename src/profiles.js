@@ -19,6 +19,7 @@ const PROFILE_MAX_TURNS = Object.freeze({
 });
 
 export const DEFAULT_CONFIG = {
+  language: 'en',
   opencodeQuota: {
     sources: {}, timeoutMs: 3000, maxOutputBytes: 1048576, maxAgeMinutes: 120,
     version: 1, fields: { version: 'version', company: 'company', source: 'source',
@@ -570,8 +571,20 @@ export function normalizeLimits(limits = {}) {
   return { global, clients: { ...clients } };
 }
 
+export const LOCALES = Object.keys(DEFAULT_CONFIG.actors.messages);
+
+export function localeOf(value, config) {
+  if (value !== undefined && value !== null) return value;
+  const language = config?.language === undefined ? DEFAULT_CONFIG.language : config.language;
+  if (!LOCALES.includes(language)) {
+    throw new TypeError(`Choose a language: ${LOCALES.join(', ')}. / Escolha um idioma: ${LOCALES.join(', ')}.`);
+  }
+  return language;
+}
+
 export function configOf(config) {
   const merged = { ...DEFAULT_CONFIG, ...(config ?? {}) };
+  merged.language = localeOf(undefined, merged);
   const statuslineRegistration = { ...DEFAULT_CONFIG.statuslineRegistration, ...config?.statuslineRegistration,
     shell: { ...DEFAULT_CONFIG.statuslineRegistration.shell, ...config?.statuslineRegistration?.shell } };
   for (const key of ['client', 'settingsFile', 'backupFile', 'subcommand']) {

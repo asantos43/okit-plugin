@@ -2,6 +2,8 @@
 
 MCP tools expose validated core operations to the client assistant.
 
+Every `locale` field is optional and lists default `en` from the built-in `language` setting. Calls that omit it use the saved `language`; set Portuguese once with `okit-plugin config set language pt-BR`. An explicit `locale` (`en` or `pt-BR`) takes priority for that call.
+
 <a id="tools"></a>
 ## Tool contract
 
@@ -32,6 +34,6 @@ The server exposes 19 tools. Inputs are JSON objects; ? marks an optional field.
 <a id="try"></a>
 ## Try it
 
-With the MCP server active in the client, call env_report with `{"locale":"en"}`. Expect environment observations and repair commands without a model launch. Client fields use claude-code, codex or opencode; effort uses simple, normal or hard.
+With the MCP server active in the client, call env_report with `{}`. Expect environment observations and repair commands without a model launch. Client fields use claude-code, codex or opencode; effort uses simple, normal or hard.
 
 [Overview](README.md) · [Skills](skills.md) · [Português](mcp-tools.pt-BR.md)

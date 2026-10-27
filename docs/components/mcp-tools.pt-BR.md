@@ -1,5 +1,7 @@
 # Ferramentas MCP
 
+Todo campo `locale` é opcional e informa o padrão `en`, vindo da configuração inicial de `language`. Chamadas que o omitem usam o idioma salvo em `language`; configure português uma vez com `okit-plugin config set language pt-BR`. Um `locale` explícito (`en` ou `pt-BR`) tem prioridade naquela chamada.
+
 As ferramentas MCP expõem operações validadas do núcleo ao assistente do cliente.
 
 <a id="tools"></a>
@@ -32,6 +34,6 @@ O servidor expõe 19 ferramentas. Entradas são objetos JSON; ? indica campo opc
 <a id="try"></a>
 ## Consultar
 
-Com o servidor MCP ativo no cliente, chame env_report com `{"locale":"pt-BR"}`. Espere observações do ambiente e comandos de reparo; nenhuma execução de modelo. Campos client usam claude-code, codex ou opencode; effort usa simple, normal ou hard.
+Com o servidor MCP ativo no cliente, chame env_report com `{}`. Espere observações do ambiente e comandos de reparo; nenhuma execução de modelo. Campos client usam claude-code, codex ou opencode; effort usa simple, normal ou hard.
 
 [Visão geral](README.pt-BR.md) · [Skills](skills.pt-BR.md) · [English](mcp-tools.md)

@@ -361,8 +361,9 @@ test('environment skill routes bilingual questions to the report and explains re
     'onde você está', 'o que você tem aqui', 'qual ambiente']) assert.ok(fields.description.includes(trigger));
   assert.match(body, /okit-plugin env report/);
   assert.match(body, /env_report/);
-  assert.match(body, /--locale en/);
-  assert.match(body, /--locale pt-BR/);
+  assert.match(body, /language` is used automatically/);
+  assert.match(body, /config set language pt-BR/);
+  assert.match(body, /`--locale` .*only to choose another language for one call/);
   assert.match(body, /each missing item/);
   assert.match(body, /cada item que falta/);
   assert.match(body, /comando informado para corrigir/);

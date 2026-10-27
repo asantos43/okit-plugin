@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { configuredClientsOf, configOf, DEFAULT_CONFIG, PROFILE_EFFORTS } from './profiles.js';
+import { configuredClientsOf, configOf, DEFAULT_CONFIG, LOCALES, PROFILE_EFFORTS } from './profiles.js';
 import { paths } from './store.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
 
@@ -14,6 +14,14 @@ export const CONFIG_SCHEMA = Object.freeze({
       description: {
         en: 'Default number of executors allowed at once for each client.',
         'pt-BR': 'Número padrão de executores permitidos ao mesmo tempo em cada cliente.',
+      },
+    },
+    {
+      path: 'language', type: 'string', defaultPath: 'language', allowedValues: LOCALES,
+      constraint: { en: 'one of the listed languages', 'pt-BR': 'um dos idiomas listados' },
+      description: {
+        en: 'Language used when no language is chosen for a command or tool.',
+        'pt-BR': 'Idioma usado quando nenhum idioma é escolhido para um comando ou ferramenta.',
       },
     },
     {

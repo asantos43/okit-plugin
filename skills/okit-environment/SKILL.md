@@ -21,13 +21,13 @@ Producer synonyms / Sinônimos do Produtor: available executor, worker, helper, 
 Environment questions are read-only: never save configuration, launch work or spend quota. Use readable titles, never demand/order ids in answers. / Perguntas de ambiente são somente leitura: nunca salvar configuração, lançar trabalho ou gastar cota. Use títulos legíveis, nunca ids de demanda/ordem nas respostas.
 
 
-Run `okit-plugin env report` or the MCP tool `env_report`, using the user's language (`--locale en` or `--locale pt-BR`; MCP `locale`). Use optional `--client <name>` (MCP `client`) only when the user asks about one client.
+Run `okit-plugin env report` or the MCP tool `env_report`. The saved `language` is used automatically (default: `en`); Portuguese users can set it once with `okit-plugin config set language pt-BR`. Pass `--locale` (MCP `locale`) only to choose another language for one call. Use optional `--client <name>` (MCP `client`) only when the user asks about one client.
 
 If the command is not found, run `node "${CLAUDE_PLUGIN_ROOT}/src/cli.js" env report` with the same arguments.
 
 Explain the returned facts in plain words: which client is in use, what is installed, confirmed active models, available work choices, quota, free slots and plugin/state folders. Keep unknown readings unknown. Name each missing item and quote the reported command that fixes it. Do not run a repair or change settings just to answer an environment question.
 
-Rode `okit-plugin env report` ou a ferramenta MCP `env_report`, no idioma do usuário (`--locale en` ou `--locale pt-BR`; `locale` no MCP). Use `--client <nome>` (`client` no MCP) somente quando a pergunta for sobre um cliente.
+Rode `okit-plugin env report` ou a ferramenta MCP `env_report`. O idioma salvo em `language` é usado automaticamente (padrão: `en`); para português, basta usar uma vez `okit-plugin config set language pt-BR`. Passe `--locale` (`locale` no MCP) somente para escolher outro idioma em uma chamada. Use `--client <nome>` (`client` no MCP) somente quando a pergunta for sobre um cliente.
 
 Se o comando não for encontrado, rode `node "${CLAUDE_PLUGIN_ROOT}/src/cli.js" env report` com os mesmos argumentos.
 

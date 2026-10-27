@@ -6,10 +6,10 @@ import { projectName, withDemandRef } from '../demand-ref.js';
 import { inboxAdd, inboxClaim, inboxRelease, inboxList, inboxSetStatus, holdText, STATUSES } from '../inbox.js';
 import { acquireSlot, limitsStatus, releaseSlot } from '../limits.js';
 import { orderAdd, orderList, orderRemove, SCOPES } from '../orders.js';
-import { configOf as normalizeConfig, DEFAULT_CONFIG, profilePick } from '../profiles.js';
+import { configOf as normalizeConfig, DEFAULT_CONFIG, LOCALES, localeOf, profilePick } from '../profiles.js';
 import { listActors } from '../actors.js';
 import { environmentReport, formatEnvironmentReport } from '../env/report.js';
-import { adapterQuotaReader, clientsOf, LABELS, shouldShowStatus, statusTable } from '../status.js';
+import { adapterQuotaReader, clientsOf, shouldShowStatus, statusTable } from '../status.js';
 import { CLIENTS } from '../spawn-process.js';
 import { readJson } from '../state.js';
 import { paths, stateRoot } from '../store.js';
@@ -17,7 +17,8 @@ import { todoRun } from '../todo/index.js';
 
 const HOME_ENV = 'OKWORK_HOME';
 const DEFAULT_REASON = 'revoked by the mcp tool order_remove';
-const LOCALES = Object.keys(LABELS);
+const LOCALE_SCHEMA = { type: 'string', enum: LOCALES, default: DEFAULT_CONFIG.language,
+  description: `Language / Idioma; language (${DEFAULT_CONFIG.language}) when omitted / quando omitido.` };
 const SIZES = ['S', 'M', 'L'];
 
 function fail(message) {
@@ -69,9 +70,9 @@ function optionalCount(tool, args, name) {
   return value;
 }
 
-function optionalChoice(tool, args, name, allowed) {
+function optionalChoice(tool, args, name, allowed, config) {
   const value = args[name];
-  if (value === undefined || value === null) return undefined;
+  if (value === undefined || value === null) return name === 'locale' ? localeOf(value, config) : undefined;
   if (!allowed.includes(value)) fail(`${tool}: ${name} must be one of ${allowed.join('|')} when given`);
   return value;
 }
@@ -209,19 +210,18 @@ const envReportTool = {
   description: 'Shows which environment is in use, installed clients, active models, quota, folders and what is missing with commands to fix it. / Mostra o ambiente em uso e o que falta com comandos para corrigir.',
   inputSchema: {
     type: 'object', properties: {
-      client: { type: 'string' }, locale: { type: 'string', enum: LOCALES },
+      client: { type: 'string' }, locale: LOCALE_SCHEMA,
     }, required: [], additionalProperties: false,
   },
   async handler(args, ctx) {
     const a = argsOf('env_report', args, ['client', 'locale']);
     const client = optionalText('env_report', a, 'client');
     const env = ctx.env ?? process.env;
-    const locale = optionalChoice('env_report', a, 'locale', LOCALES)
-      ?? (/^pt(?:[_-]|$)/i.test(env.LC_ALL || env.LC_MESSAGES || env.LANG || '') ? 'pt-BR' : 'en');
+    const config = await configOf(ctx);
+    const locale = optionalChoice('env_report', a, 'locale', LOCALES, config);
     if (client !== undefined && !Object.hasOwn(DEFAULT_CONFIG.install.clients, client)) {
       return reply({ unknownClient: true, text: formatEnvironmentReport({ unknownClient: true }, locale) });
     }
-    const config = await configOf(ctx);
     const report = await environmentReport({ ...ctx, config, env, client, locale,
       readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env }),
       cache: ctx.quotaCache, limits: ctx.limits ?? (ctx.snapshot ? undefined : await limitsStatus(ctx.root, config)) });
@@ -234,7 +234,7 @@ const actorsTool = {
   description: DEFAULT_CONFIG.actors.messages.en.description,
   inputSchema: {
     type: 'object', properties: {
-      locale: { type: 'string', enum: LOCALES },
+      locale: LOCALE_SCHEMA,
       all: { type: 'boolean' }, client: { type: 'string', enum: CLIENTS },
     }, required: [], additionalProperties: false,
   },
@@ -244,7 +244,7 @@ const actorsTool = {
     const env = ctx.env ?? process.env;
     return reply(await listActors({ ...ctx, root: ctx.root, config, env, all: a.all,
       client: optionalChoice('actors_list', a, 'client', CLIENTS),
-      locale: optionalChoice('actors_list', a, 'locale', LOCALES),
+      locale: optionalChoice('actors_list', a, 'locale', LOCALES, config),
       readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env }),
       now: ctx.now, cache: ctx.quotaCache, orders: ctx.orders ?? await orderList(ctx.root),
       limits: ctx.limits ?? (ctx.snapshot ? undefined : await limitsStatus(ctx.root, config)) }));
@@ -259,7 +259,7 @@ const statusTool = {
   inputSchema: {
     type: 'object',
     properties: {
-      locale: { type: 'string', enum: LOCALES, description: 'Language of the table; "en" by default.' },
+      locale: LOCALE_SCHEMA,
       all: { type: 'boolean', description: 'Show every client.' },
       client: { type: 'string', enum: CLIENTS, description: 'Choose a client; overrides all and detection.' },
       size: { type: 'string', enum: SIZES, description: 'Size of the task about to start.' },
@@ -288,7 +288,7 @@ const statusTool = {
       now: ctx.now,
       orders: ctx.orders ?? await orderList(ctx.root),
       limits: ctx.limits ?? (ctx.snapshot ? undefined : await limitsStatus(ctx.root, config)),
-      locale: optionalChoice('status', a, 'locale', LOCALES),
+      locale: optionalChoice('status', a, 'locale', LOCALES, config),
       cache: ctx.quotaCache,
     });
 
@@ -403,14 +403,15 @@ const inboxListTool = {
       client: { type: 'string', description: 'Only items of this client.' },
       appliesTo: { type: 'string', description: 'Project name, or "global" for the shared items alone.' },
       limit: { type: 'integer', minimum: 0, description: 'How many items at most.' },
-      locale: { type: 'string', enum: LOCALES },
+      locale: LOCALE_SCHEMA,
     },
     required: [],
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
     const a = argsOf('inbox_list', args, ['status', 'client', 'appliesTo', 'limit', 'locale']);
-    optionalChoice('inbox_list', a, 'locale', LOCALES);
+    const config = await configOf(ctx);
+    const locale = optionalChoice('inbox_list', a, 'locale', LOCALES, config);
     const items = await inboxList(ctx.root, {
       status: optionalChoice('inbox_list', a, 'status', STATUSES),
       client: optionalText('inbox_list', a, 'client'),
@@ -418,8 +419,7 @@ const inboxListTool = {
       limit: optionalCount('inbox_list', a, 'limit'),
     });
     const name = await projectName(ctx.root);
-    const config = await readJson(paths(ctx.root).config, {});
-    return reply(items.map((item) => ({ ...withDemandRef(item, name), owner: holdText(item, config, a.locale) })));
+    return reply(items.map((item) => ({ ...withDemandRef(item, name), owner: holdText(item, config, locale) })));
   },
 };
 
@@ -542,16 +542,17 @@ const smokeDemoTool = {
   description: 'Preview practice work and confirm its allowance ceiling. / Veja os trabalhos de exemplo e confirme o teto de cota.',
   inputSchema: { type: 'object', properties: {
     dryRun: { type: 'boolean' }, client: { type: 'string', enum: CLIENTS },
-    locale: { type: 'string', enum: LOCALES }, confirm: { type: 'string' },
+    locale: LOCALE_SCHEMA, confirm: { type: 'string' },
   }, additionalProperties: false },
   async handler(args, ctx) {
     const a = argsOf('smoke_demo', args, ['dryRun', 'client', 'locale', 'confirm']);
     if (a.dryRun !== undefined && typeof a.dryRun !== 'boolean') fail('smoke_demo: dryRun must be boolean');
     const { smokeDemo } = await import('../smoke/demo/entry.js');
+    const config = await configOf(ctx);
     return reply(await smokeDemo({ dryRun: a.dryRun,
       client: optionalChoice('smoke_demo', a, 'client', CLIENTS),
-      locale: optionalChoice('smoke_demo', a, 'locale', LOCALES),
-      confirm: optionalText('smoke_demo', a, 'confirm') }, { ...ctx, config: await configOf(ctx) }));
+      locale: optionalChoice('smoke_demo', a, 'locale', LOCALES, config),
+      confirm: optionalText('smoke_demo', a, 'confirm') }, { ...ctx, config }));
   },
 };
 

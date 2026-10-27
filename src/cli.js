@@ -26,7 +26,7 @@ const { inboxClaim, inboxRelease, inboxProducerTakeover, inboxList, holdText, ho
 const { runPostCompact } = collectorEntry ? {} : await import('./hook-post-compact.js');
 const { runSessionStart } = collectorEntry ? {} : await import('./hook-session-start.js');
 const { orderList } = collectorEntry ? {} : await import('./orders.js');
-import { configOf, DEFAULT_CONFIG } from './profiles.js';
+import { configOf, DEFAULT_CONFIG, localeOf } from './profiles.js';
 const { listActors, formatActors } = collectorEntry ? {} : await import('./actors.js');
 const { environmentReport, formatEnvironmentReport } = collectorEntry
   ? {} : await import('./env/report.js');
@@ -96,8 +96,8 @@ async function todoCommand(ctx, action, args) {
 async function inboxCommand(ctx, action, args, io) {
   const config = await readConfig(ctx.root);
   if (action === 'list') {
-    const { locale, rest } = readLocale(args);
-    if (rest.length || (locale && !Object.hasOwn(LABELS, locale))) return ctx.unknown();
+    const { locale, rest } = await readLocale(args, ctx);
+    if (rest.length || !Object.hasOwn(LABELS, locale)) return ctx.unknown();
     for (const item of await inboxList(ctx.root)) ctx.out(`${item.id} ${item.status} ${item.title} — ${holdText(item, config, locale)}`);
     return 0;
   }
@@ -166,7 +166,9 @@ const USAGE = [
   '         [--only <C ids>] [--keep] [--allow-unknown-quota]',
   '         [--max-usd [n]] [--max-turns [n]] [--max-minutes [n]] [--quota-floor [pct]] [--timeout [ms]]',
   `OKWORK_HOME names the state root; --kind defaults to ${AUTOSTART_KINDS?.join(', ') ?? ''} by platform.`,
-].join('\n');
+  'Choose the language once / Escolha o idioma uma vez: {command} config set language pt-BR.',
+].map((line) => line.includes('--locale en|pt-BR')
+  ? `${line} — default / padrão: language (${DEFAULT_CONFIG.language})` : line).join('\n');
 
 const execFileAsync = promisify(execFile);
 
@@ -199,19 +201,20 @@ function readKind(args) {
   return { kind, rest };
 }
 
-/** `--locale pt-BR`, `--locale=pt-BR` or nothing, which is `en`. */
-function readLocale(args) {
+/** An explicit language overrides the saved language. */
+async function readLocale(args, ctx) {
   const rest = [];
   let locale = null;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === '--locale') {
-      locale = args[index + 1] ?? null;
+      locale = args[index + 1] ?? '';
       index += 1;
     } else if (arg.startsWith('--locale=')) locale = arg.slice('--locale='.length);
     else rest.push(arg);
   }
-  return { locale, rest };
+  const config = locale === null ? ctx.snapshot?.config ?? await readConfig(ctx.root) : undefined;
+  return { locale: localeOf(locale, config), rest };
 }
 
 /** `--table` is a switch, not a value: `--table=true` is not a form of it. */
@@ -400,8 +403,8 @@ function readStatusSelection(args) {
 }
 
 async function environmentCommand(ctx, args, io) {
-  const parsed = readLocale(args);
-  const locale = parsed.locale ?? (/^pt(?:[_-]|$)/i.test(ctx.env.LC_ALL || ctx.env.LC_MESSAGES || ctx.env.LANG || '') ? 'pt-BR' : 'en');
+  const parsed = await readLocale(args, ctx);
+  const locale = parsed.locale;
   const selection = readStatusSelection(parsed.rest);
   if (!Object.hasOwn(LABELS, locale) || parsed.rest.includes('--all')) return ctx.unknown();
   if (selection.client !== undefined && !CLIENTS.includes(selection.client)) {
@@ -418,29 +421,29 @@ async function environmentCommand(ctx, args, io) {
 }
 
 async function actorsCommand(ctx, args) {
-  const { locale, rest } = readLocale(args);
+  const { locale, rest } = await readLocale(args, ctx);
   const json = rest.includes('--json');
   const selection = readStatusSelection(rest.filter((arg) => arg !== '--json'));
   if (selection.invalid || (locale !== null && !Object.hasOwn(LABELS, locale))) return ctx.unknown();
-  const result = await listActors({ root: ctx.root, ...await tableDeps(ctx, locale ?? 'en'), ...selection });
+  const result = await listActors({ root: ctx.root, ...await tableDeps(ctx, locale), ...selection });
   if (json) ctx.out(formatActors(result, { json: true }));
   else for (const line of formatActors(result).split('\n')) ctx.out(line);
   return 0;
 }
 
 async function statusCommand(ctx, args) {
-  const { locale, rest } = readLocale(args);
+  const { locale, rest } = await readLocale(args, ctx);
   const selection = readStatusSelection(rest);
   if (selection.invalid || (locale !== null && !Object.hasOwn(LABELS, locale))) return ctx.unknown();
 
-  const table = await statusTable(ctx.root, { ...await tableDeps(ctx, locale ?? 'en'), ...selection });
+  const table = await statusTable(ctx.root, { ...await tableDeps(ctx, locale), ...selection });
   for (const line of table.markdown.split('\n')) ctx.out(line);
   ctx.out(table.capacityLine);
   const stored = await readConfig(ctx.root);
   const config = installConfig(stored.install);
   // One line, only while the setup is pending: what is missing and the command
   // that does it. It is gone once the setup was done.
-  const pending = setupPendingLine(stored, { locale: locale ?? 'en', command: config.command });
+  const pending = setupPendingLine(stored, { locale, command: config.command });
   if (pending) ctx.out(pending);
   const home = ctx.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir();
   const deps = { ...ctx, config, home, ...installPaths(config, { ...ctx, home }) };
@@ -500,14 +503,14 @@ async function daemonCommand(ctx, action, args) {
   if (action === 'status') {
     // `--locale` alone is a refusal: it names a table, so it needs `--table`, and
     // an unknown language is refused the same way `okit-plugin status` refuses it.
-    const { locale, rest: withoutLocale } = readLocale(args);
+    const { locale, rest: withoutLocale } = await readLocale(args, ctx);
     const { table, rest } = readTable(withoutLocale);
-    if (rest.length > 0 || (locale !== null && (table === false || !Object.hasOwn(LABELS, locale)))) {
+    if (rest.length > 0 || (!Object.hasOwn(LABELS, locale) || (!table && args.some((arg) => arg === '--locale' || arg.startsWith('--locale='))))) {
       return ctx.unknown();
     }
 
     const options = { now: ctx.now() };
-    if (table) options.table = await tableDeps(ctx, locale ?? 'en');
+    if (table) options.table = await tableDeps(ctx, locale);
     const status = await daemonStatus(ctx.root, options);
     report(ctx.out, [
       `running: ${status.running}`,
@@ -697,7 +700,10 @@ export async function main(argv = [], io = {}) {
     if (group === 'smoke-demo') {
       const { smokeDemoCommand } = await import('./smoke/demo/entry.js');
       const config = ctx.snapshot?.config ?? await readConfig(ctx.root);
-      return smokeDemoCommand(action === undefined ? args : [action, ...args], { ...ctx, ...io, config, out, err });
+      const flags = action === undefined ? args : [action, ...args];
+      const explicit = flags.some((arg) => arg === '--locale' || arg.startsWith('--locale='));
+      const { locale } = explicit ? {} : await readLocale(flags, ctx);
+      return smokeDemoCommand(explicit ? flags : [...flags, '--locale', locale], { ...ctx, ...io, config, out, err });
     }
     if (group === 'client-smoke') {
       const { runClientSmoke } = await import('./smoke/client.js');
