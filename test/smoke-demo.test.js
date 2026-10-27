@@ -10,6 +10,142 @@ import { runDemo } from '../src/smoke/demo/index.js';
 import { limitsStatus } from '../src/limits.js';
 import { inboxList } from '../src/inbox.js';
 import { ledger, resolveLimits } from '../src/smoke/demo/budget.js';
+import { reportText } from '../src/smoke/demo/report.js';
+import { attempt } from '../src/smoke/demo/attempt.js';
+
+// | Input | Must pass | Must refuse |
+// | token limit | null or positive safe integer | zero, negative, fractional, unsafe, missing |
+// | measured tokens | zero or non-negative safe integer | missing/invalid with a ceiling |
+// | next reservation | below ceiling | at/above ceiling or unresolved usage |
+test('demo token limits preserve null and positive safe integers and reject invalid limits', () => {
+  const smoke = configOf().smoke;
+  for (const maxTokens of [null, 1, Number.MAX_SAFE_INTEGER]) {
+    assert.equal(resolveLimits({ ...smoke, maxTokens }, 5).maxTokens, maxTokens);
+  }
+  for (const maxTokens of [undefined, 0, -1, 0.5, NaN, Infinity, '10', Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(() => resolveLimits({ ...smoke, maxTokens }, 5), /invalid maxTokens/);
+  }
+});
+
+test('token ceiling refuses reservations at equality and after an overshoot', () => {
+  for (const tokens of [10, 11]) {
+    const budget = ledger(resolveLimits({ ...configOf().smoke, maxTokens: 10 }, 5));
+    budget.settle(budget.reserve('first', 0), { costUsd: 0, turns: 1, tokens });
+    assert.equal(budget.snapshot().tokens, tokens);
+    assert.throws(() => budget.reserve('next', 0), /ceiling/);
+  }
+});
+
+test('unknown token usage with a ceiling prevents any further reservation', () => {
+  for (const tokens of [undefined, null, -1, 0.5, NaN, Infinity, '1', Number.MAX_SAFE_INTEGER + 1]) {
+    const budget = ledger(resolveLimits({ ...configOf().smoke, maxTokens: 10 }, 5));
+    assert.throws(() => budget.settle(budget.reserve('first', 0), { costUsd: 0, turns: 1, tokens }),
+      /unresolved usage or unenforced ceiling/);
+    assert.equal(budget.snapshot().costUsd, null);
+    assert.throws(() => budget.reserve('next', 0), /ceiling/);
+  }
+});
+
+test('optional tokens and unlaunched tickets preserve money accounting', () => {
+  const budget = ledger(resolveLimits(configOf().smoke, 5));
+  budget.settle(budget.reserve('first', 0.01), { costUsd: 0.005, turns: 1 });
+  assert.equal(budget.snapshot().costUsd, 0.005);
+  const bounded = ledger(resolveLimits({ ...configOf().smoke, maxTokens: 10 }, 5));
+  bounded.settle(bounded.reserve('cancelled', 0.01), undefined, false);
+  bounded.settle(bounded.reserve('first', 0), { costUsd: 0, turns: 1, tokens: 0 });
+  assert.equal(bounded.snapshot().tokens, 0);
+  assert.equal(bounded.snapshot().turns, 1);
+  bounded.reserve('next', 0);
+});
+
+test('a configured token ceiling requires tokens from money-reporting clients too', () => {
+  for (const maxTokens of [10, null]) {
+    const limits = resolveLimits({ ...configOf().smoke, maxTokens }, 5);
+    assert.equal(Object.hasOwn(limits, 'reportsCost'), false);
+    const budget = ledger(limits), ticket = budget.reserve('first', 0.01);
+    const settle = () => budget.settle(ticket, { costUsd: 0.005, turns: 1 });
+    if (maxTokens === null) {
+      assert.equal(settle(), 0.005);
+      assert.equal(budget.snapshot().costUsd, 0.005);
+      assert.doesNotThrow(() => budget.reserve('next', 0));
+    } else {
+      assert.throws(settle, /unresolved usage or unenforced ceiling/);
+      assert.equal(budget.snapshot().costUsd, null);
+      assert.throws(() => budget.reserve('next', 0), /ceiling/);
+    }
+  }
+});
+
+test('two parallel reservations share one token ceiling across demands', async () => {
+  const budget = ledger(resolveLimits({ ...configOf().smoke, maxTokens: 10 }, 5));
+  const tickets = ['first', 'second'].map((key) => budget.reserve(key, 0));
+  await Promise.all(tickets.map(async (ticket) => {
+    await Promise.resolve();
+    budget.settle(ticket, { costUsd: 0, turns: 1, tokens: 5 });
+  }));
+  assert.equal(budget.snapshot().tokens, 10);
+  assert.equal(budget.snapshot().reservedUsd, 0);
+  assert.throws(() => budget.reserve('third', 0), /ceiling/);
+});
+
+test('clients without money reports settle tokens and expose null cost in the summary', () => {
+  const limits = { ...resolveLimits({ ...configOf().smoke, maxTokens: 10 }, 5), reportsCost: false };
+  const budget = ledger(limits);
+  assert.equal(budget.settle(budget.reserve('first', limits.maxUsd + 1), { costUsd: null, turns: 1, tokens: 10 }), null);
+  assert.deepEqual(budget.snapshot(), { costUsd: null, reservedUsd: 0, turns: 1, tokens: 10, reportsCost: false });
+  assert.throws(() => budget.reserve('next', 0), /ceiling/);
+});
+
+test('no-money driver attempts keep demand and attempt JSON costs unknown', async () => {
+  const deps = fixture({ smoke: { maxTokens: 10 } });
+  deps.actor.run = async () => ({ status: 'completed', artifacts: [], usage: { turns: 1, tokens: 2 } });
+  const scenario = await loadScenario(), demand = scenario.demands[0];
+  const scratch = await createScratch(scenario, deps.snapshot.config);
+  const limits = { ...resolveLimits(deps.snapshot.config.smoke, 5), reportsCost: false };
+  const budget = ledger(limits), result = { limits };
+  const row = { key: demand.key, title: demand.title.en, size: 'S', class: 'simple',
+    classificationReasons: [], slots: [], attempts: [], reworkRounds: 0, costUsd: 0, costKnown: true };
+  const ctx = { options: deps, scratch, result, config: deps.snapshot.config, budget,
+    scenario, controller: new AbortController(), clock: deps.clock, say() {}, client: 'codex', locale: 'en', startedAt: 1000 };
+  try {
+    for (let round = 0; round < 2; round += 1) {
+      await attempt(ctx, row, demand, 'Executor', deps.snapshot.clients[0].candidates[0], {}, round, []);
+      const json = JSON.parse(JSON.stringify({ demands: [row], ...budget.snapshot() }));
+      assert.equal(json.costUsd, null);
+      assert.equal(json.demands[0].costUsd, null);
+      assert.equal(json.demands[0].costKnown, false);
+      assert.ok(json.demands[0].attempts.every((record) => record.costUsd === null));
+    }
+  } finally { await scratch.cleanup(); }
+});
+
+test('no-money text reports localize unavailable cost and show tokens used against the ceiling', () => {
+  const limits = { ...resolveLimits({ ...configOf().smoke, maxTokens: 10 }, 5), reportsCost: false };
+  const budget = ledger(limits);
+  budget.settle(budget.reserve('first', 0), { turns: 1, tokens: 3 });
+  const result = { ...budget.snapshot(), limits, status: 'partial', events: [], demands: [
+    { title: 'Example', verdict: 'approved', reworkRounds: 0, costKnown: true, costUsd: 0 },
+  ] };
+  for (const locale of ['en', 'pt-BR']) {
+    const text = reportText(result, locale);
+    assert.match(text, locale === 'en' ? /Money is not reported by this client\./ : /Este cliente não informa custo em dinheiro\./);
+    assert.doesNotMatch(text, locale === 'en' ? /Este cliente|máximo/ : /Money is|\/ max /);
+    assert.match(text, locale === 'en' ? /tokens: 3 \/ max 10/ : /tokens: 3 \/ máximo 10/);
+    assert.match(text, locale === 'en' ? /cost: not reported/ : /custo: não informado/);
+    assert.doesNotMatch(text, /USD|unknown|desconhecido/);
+  }
+  assert.equal(result.costUsd, null);
+});
+
+test('explicit money-reporting clients retain cost enforcement and measured totals', () => {
+  const limits = { ...resolveLimits(configOf().smoke, 5), reportsCost: true };
+  const budget = ledger(limits);
+  budget.settle(budget.reserve('first', 0.01), { costUsd: 0.005, turns: 1, tokens: 4 });
+  assert.equal(budget.snapshot().costUsd, 0.005);
+  assert.equal(budget.snapshot().reportsCost, true);
+  assert.throws(() => budget.reserve('first', limits.demoDemandMaxUsd), /ceiling/);
+  assert.throws(() => budget.settle(budget.reserve('second', 0), { turns: 1 }), /unresolved usage/);
+});
 
 test('a settled budget ticket refuses a second settlement', () => {
   const budget = ledger(resolveLimits(configOf().smoke, 5));

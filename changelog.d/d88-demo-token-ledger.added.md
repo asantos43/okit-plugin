@@ -1,0 +1,1 @@
+Add shared demo token accounting, safe token ceilings and explicit unavailable-money reports / Adiciona contabilização compartilhada de tokens na demonstração, tetos seguros e relatórios explícitos de custo em dinheiro não informado.
