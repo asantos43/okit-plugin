@@ -1,5 +1,7 @@
 # State on disk
 
+![okit-plugin: Components](../images/banners/components.svg)
+
 The plugin stores configuration, work and observations in the person's state directory.
 
 <a id="root"></a>

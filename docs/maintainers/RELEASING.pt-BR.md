@@ -1,5 +1,7 @@
 # Desenho do release
 
+![okit-plugin: Manutenção](../images/banners/maintainers.svg)
+
 Requisitos de artefatos, bootstrap, publicação e provas nativas do release para mantenedores.
 
 <a id="contents"></a>

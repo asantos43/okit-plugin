@@ -1,5 +1,7 @@
 # Component reference
 
+![okit-plugin: Components](../images/banners/components.svg)
+
 Look up each component to understand how the plugin organizes and runs work.
 
 <a id="map"></a>

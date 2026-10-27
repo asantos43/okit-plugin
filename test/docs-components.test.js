@@ -30,6 +30,7 @@ function equalInventory(text, expected, label) {
 }
 
 function checkPage(text, budget) {
+  text = text.replace(/^(# [^\n]+\n)\n!\[[^\n]+\]\([^\n]+\.svg\)\n/, '$1');
   assert.ok(text.trimEnd().split('\n').length <= budget, `line budget ${budget}`);
   assert.match(text, /^# [^\n]+\n\n[^#\s<\d][^\n]*[.!?]\n\n/, 'one-line summary after title');
   assert.doesNotMatch(text, /\b[DO]\d+\b|\b(?:passo|step)\s+\d+\b/i);

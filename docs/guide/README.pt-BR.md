@@ -1,5 +1,7 @@
 # Guia do usuário
 
+![okit-plugin: Guia do usuário](../images/banners/guide.svg)
+
 Escolha uma tarefa para colocar o plugin em funcionamento e pedir ajuda ao assistente.
 
 <a id="tasks"></a>

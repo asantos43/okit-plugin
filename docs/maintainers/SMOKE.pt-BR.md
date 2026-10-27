@@ -1,5 +1,7 @@
 # Teste de fumaça
 
+![okit-plugin: Manutenção](../images/banners/maintainers.svg)
+
 Contratos de verificação e provas para verificações isoladas e smoke em clientes reais.
 
 <a id="contents"></a>

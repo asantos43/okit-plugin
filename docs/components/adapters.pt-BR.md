@@ -1,5 +1,7 @@
 # Adaptadores
 
+![okit-plugin: Componentes](../images/banners/components.svg)
+
 Cada adaptador traduz execução, cota, skills e contexto para um cliente específico.
 
 <a id="claude-code"></a>

@@ -1,5 +1,7 @@
 # Architecture
 
+![okit-plugin: Maintainers](../images/banners/maintainers.svg)
+
 Core contracts and invariants for persistence, scheduling, adapters and execution.
 
 <a id="contents"></a>
@@ -408,6 +410,8 @@ See the reference: [configuration](../components/configuration.md).
 See the reference: [hooks](../components/hooks.md).
 
 ### Development — Desenvolvimento
+
+Every Markdown page under `docs/` and both root READMEs place an area banner immediately after the H1, with localized alt text naming `okit-plugin`. Edit titles, icons and light/dark colour tokens in `docs/images/banners/banners.config.json`, run `node scripts/docs-banners.js`, and verify with `node scripts/docs-banners.js --check`; keep history newest first and avoid stray blank lines.
 
 Run `node --test test/docs-consistency.test.js` for documentation checks and
 `node --test` for the complete suite. Release commands are documented in the

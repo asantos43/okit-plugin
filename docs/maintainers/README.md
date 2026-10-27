@@ -1,5 +1,7 @@
 # Maintainer documentation
 
+![okit-plugin: Maintainers](../images/banners/maintainers.svg)
+
 Design contracts, verification evidence and release procedures for plugin maintainers.
 
 <a id="contents"></a>

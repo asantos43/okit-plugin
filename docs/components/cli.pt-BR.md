@@ -1,5 +1,7 @@
 # CLI
 
+![okit-plugin: Componentes](../images/banners/components.svg)
+
 `--locale` é opcional em todos os comandos que o oferecem. Usa `language` (padrão: `en`); configure português uma vez com `okit-plugin config set language pt-BR`. Um `--locale en` ou `--locale pt-BR` explícito substitui a escolha salva apenas naquela chamada.
 
 Use okit-plugin no terminal para consultar e controlar o plugin.

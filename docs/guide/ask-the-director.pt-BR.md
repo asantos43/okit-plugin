@@ -1,5 +1,7 @@
 # Pedir ao Diretor
 
+![okit-plugin: Guia do usuário](../images/banners/guide.svg)
+
 Descreva o resultado desejado para o Diretor planejar, distribuir e revisar o trabalho.
 
 <a id="ask"></a>

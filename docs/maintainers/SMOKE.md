@@ -1,5 +1,7 @@
 # Smoke test
 
+![okit-plugin: Maintainers](../images/banners/maintainers.svg)
+
 Verification contracts and evidence for isolated checks and real-client smoke runs.
 
 <a id="contents"></a>

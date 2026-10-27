@@ -1,5 +1,7 @@
 # Atualizar ou remover
 
+![okit-plugin: Guia do usuário](../images/banners/guide.svg)
+
 Confira uma atualização ou remoção antes de alterar o plugin instalado.
 
 <a id="update"></a>

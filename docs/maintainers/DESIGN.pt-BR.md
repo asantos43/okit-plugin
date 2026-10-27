@@ -1,5 +1,7 @@
 # Design
 
+![okit-plugin: Manutenção](../images/banners/maintainers.svg)
+
 Objetivos, limites e decisões originais de desenho do núcleo compartilhado do plugin.
 
 <a id="contents"></a>

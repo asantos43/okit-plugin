@@ -1,5 +1,7 @@
 # Escolher modelos e registrar cota
 
+![okit-plugin: Guia do usuário](../images/banners/guide.svg)
+
 Escolha os modelos usados pelos ajudantes e confira a cota restante antes do trabalho.
 
 <a id="models"></a>

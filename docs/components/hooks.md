@@ -1,5 +1,7 @@
 # Hooks
 
+![okit-plugin: Components](../images/banners/components.svg)
+
 Hooks restore context and collect allowance at client events.
 
 <a id="events"></a>

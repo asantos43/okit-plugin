@@ -1,5 +1,7 @@
 # Arquitetura
 
+![okit-plugin: Manutenção](../images/banners/maintainers.svg)
+
 Contratos e invariantes do núcleo para persistência, agendamento, adaptadores e execução.
 
 <a id="contents"></a>
@@ -410,6 +412,8 @@ Consulte a referência: [configuration](../components/configuration.pt-BR.md).
 Consulte a referência: [hooks](../components/hooks.pt-BR.md).
 
 ### Development — Desenvolvimento
+
+Toda página Markdown em `docs/` e os dois READMEs da raiz trazem um banner da área logo após o H1, com texto alternativo no idioma da página e o nome `okit-plugin`. Edite títulos, ícones e cores dos temas claro/escuro em `docs/images/banners/banners.config.json`, rode `node scripts/docs-banners.js` e confira com `node scripts/docs-banners.js --check`; mantenha o histórico mais recente primeiro e evite linhas em branco soltas.
 
 Rode `node --test test/docs-consistency.test.js` para verificar a documentação e
 `node --test` para a suíte completa. Os testes de cota injetam HOME/USERPROFILE

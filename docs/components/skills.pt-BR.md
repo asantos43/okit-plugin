@@ -1,5 +1,7 @@
 # Skills
 
+![okit-plugin: Componentes](../images/banners/components.svg)
+
 As skills orientam o modelo conforme o papel e a intenção reconhecidos pelo cliente.
 
 <a id="loading"></a>

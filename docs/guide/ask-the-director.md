@@ -1,5 +1,7 @@
 # Ask the Director
 
+![okit-plugin: User guide](../images/banners/guide.svg)
+
 Describe the result you want so the Director can plan, assign and review the work.
 
 <a id="ask"></a>

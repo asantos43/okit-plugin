@@ -15,6 +15,7 @@
     "smoke": "node src/cli.js smoke",
     "release:build": "node scripts/build-release.js",
     "test": "node --test",
+    "docs:banners": "node scripts/docs-banners.js",
     "release:checksums": "node scripts/checksums.js",
     "release:notes": "node scripts/release-notes.js",
     "release:checklist": "node scripts/release-checklist.js",
