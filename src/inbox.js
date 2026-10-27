@@ -5,6 +5,7 @@ import { inScope, validateAppliesTo, validateAppliesToFilter } from './applies.j
 import { readJson, withLock, writeJsonAtomic } from './state.js';
 import { paths } from './store.js';
 import { configOf } from './profiles.js';
+import { record } from './telemetry/index.js';
 import { todoHook, validateTodoLink } from './todo/index.js';
 
 export const STATUSES = ['pending', 'delegated', 'criticised', 'consolidated', 'failed'];
@@ -182,7 +183,10 @@ export async function inboxAdd(root, { title, body, kind, accept, effort, client
     if (link) item.ext = { ...item.ext, todo: link };
     store.items.push(item);
     return item;
-  }).then(item => todoHook(root, item, 'register'));
+  }).then(async item => {
+    await record(root, 'demand.status', { state: item.status, client: item.client, effort: item.effort });
+    return todoHook(root, item, 'register');
+  });
 }
 
 
@@ -256,5 +260,9 @@ export async function inboxSetStatus(root, id, status, { holder } = {}) {
     item.status = status;
     item.updatedAt = new Date().toISOString();
     return item;
-  }).then(item => todoHook(root, item, 'status'));
+  }).then(async item => {
+    await record(root, 'demand.status', { state: item.status, client: item.client, effort: item.effort,
+      durationMs: Date.parse(item.updatedAt) - Date.parse(item.createdAt) });
+    return todoHook(root, item, 'status');
+  });
 }

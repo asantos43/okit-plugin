@@ -97,6 +97,17 @@ export const CONFIG_SCHEMA = Object.freeze({
         'pt-BR': 'O smoke recusa iniciar quando a cota restante fica abaixo deste percentual.',
       },
     },
+    ...Object.entries(DEFAULT_CONFIG.telemetry).filter(([key]) => key !== 'rede')
+      .concat(Object.entries(DEFAULT_CONFIG.telemetry.rede).map(([key, value]) => [`rede.${key}`, value]))
+      .map(([key, value]) => ({
+        path: `telemetry.${key}`, defaultPath: `telemetry.${key}`,
+        type: value === null ? 'text' : typeof value === 'object' ? 'object'
+          : typeof value === 'boolean' ? 'boolean' : typeof value === 'number' ? 'integer' : 'string',
+        ...(typeof value === 'number' ? { minimum: 1 } : {}),
+        constraint: { en: 'a measurement storage or sending setting', 'pt-BR': 'um ajuste de armazenamento ou envio de medições' },
+        description: { en: 'Optional measurements; sending is separately enabled.',
+          'pt-BR': 'Medições opcionais; o envio é ativado separadamente.' },
+      })),
     ...Object.entries(DEFAULT_CONFIG.codexQuota).filter(([key]) => key !== 'fields')
       .concat(Object.entries(DEFAULT_CONFIG.codexQuota.fields).map(([key, value]) => [`fields.${key}`, value]))
       .map(([key, value]) => ({

@@ -13,6 +13,7 @@ import { demandRef, projectName, withDemandRef } from './demand-ref.js';
 import { inboxList, inboxSetExt, inboxSetStatus } from './inbox.js';
 import { acquireSlot, releaseSlot } from './limits.js';
 import { DEFAULT_CONFIG, profilePick } from './profiles.js';
+import { record as telemetryRecord } from './telemetry/index.js';
 import { orderPurge } from './orders.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
 import { statusTable } from './status.js';
@@ -90,6 +91,8 @@ async function appendDecision(root, record) {
   const file = logFile(root, Date.parse(record.at));
   await mkdir(dirname(file), { recursive: true });
   await appendFile(file, `${JSON.stringify(record)}\n`, 'utf8');
+  await telemetryRecord(root, 'daemon.tick', { count: record.spawned?.length ?? 0,
+    state: record.stopped ? 'stopped' : record.skipped?.some(item => item.reason === PAUSED) ? 'paused' : 'running' });
   return file;
 }
 
@@ -162,6 +165,7 @@ async function delegate(root, item, deps, settings, cache) {
   const effort = item.effort ?? classify(item).effort;
   const quota = quotaOf(await readQuota(deps, client, cache));
   const profile = profilePick({ client, effort, quota, config: settings.config });
+  await telemetryRecord(root, 'profile.choice', { client, ...profile });
   const runId = newRunId();
 
   const slot = await acquireSlot(root, runId, { client, config: settings.config });
@@ -265,6 +269,9 @@ export async function tick(root, deps = {}) {
   const pending = await inboxList(root, { status: 'pending' });
   const clients = clientsOf(pending);
   const stop = await quotaStopReason(deps, clients, settings.minQuotaPct, cache);
+  for (const [client, reading] of cache) await telemetryRecord(root, 'quota.check', { client,
+    state: typeof reading?.remainingPct !== 'number' ? 'unknown'
+      : reading.remainingPct < settings.minQuotaPct ? 'red' : 'green' });
   if (stop !== null) {
     record.stopped = stop;
     record.skipped.push({ id: 'daemon', reason: stop });

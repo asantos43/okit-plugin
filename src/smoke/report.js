@@ -8,6 +8,7 @@ import { mkdir, open, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import process from 'node:process';
 import { DEFAULT_CONFIG } from '../profiles.js';
+import { record } from '../telemetry/index.js';
 
 // How many lines of the deciding file a record carries: enough to see the
 // failure, short enough that the record stays a line in the jsonl.
@@ -187,5 +188,6 @@ export async function writeArtifacts(stateRoot, runId, header, records, deps = {
 
   await writeTextAtomic(jsonl, `${lines.join('\n')}\n`);
   await writeTextAtomic(log, humanText(header, records, environmentOf(deps), deps.summary));
+  await record(stateRoot, 'smoke.report', { count: records.length, client: header.client });
   return { jsonl, log };
 }

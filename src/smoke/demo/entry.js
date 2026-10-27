@@ -51,7 +51,7 @@ export async function smokeDemo(args = {}, deps = {}) {
   // No adapter currently proves both a paid cost cap and measured final usage.
   // Never launch an injected actor as a substitute for that evidence.
   if (!args.dryRun && !reason) {
-    const result = await runDemo({ snapshot, client, locale, mode: 'real', confirmed: true });
+    const result = await runDemo({ root: deps.root, snapshot, client, locale, mode: 'real', confirmed: true });
     reason = pt ? 'Não há medição de uso e teto de custo comprovados. Nenhum trabalho pago foi iniciado.'
       : 'Measured usage and a cost ceiling are not proven. No paid work was started.';
     result.status = 'refused'; result.exitCode = 2; result.confirmed = true;

@@ -7,10 +7,12 @@ Every `locale` field is optional and lists default `en` from the built-in `langu
 <a id="tools"></a>
 ## Tool contract
 
-The server exposes 19 tools. Inputs are JSON objects; ? marks an optional field. Replies are JSON text containing a result or refusal; invalid arguments raise an error. Writing state does not itself launch a model or spend allowance.
+The server exposes 21 tools. Inputs are JSON objects; ? marks an optional field. Replies are JSON text containing a result or refusal; invalid arguments raise an error. Writing state does not itself launch a model or spend allowance.
 
 | Name | Purpose and return | Inputs | Effect |
 | :- | :- | :- | :- |
+| `telemetry_status` | Inspect optional saved measurements; consent, folder, size, last export | {} | read |
+| `telemetry_export` | Export saved measurements from an optional date | since? | writes last-export receipt; sends counts only if separately enabled |
 | `acquire_slot` | Reserve a slot; result or cap refusal | runId, client, waitMs? | write |
 | `release_slot` | Free a slot; release result | runId | write |
 | `limits_status` | Inspect caps; client caps and live runs | {} | read |

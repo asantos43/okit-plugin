@@ -19,6 +19,12 @@ const PROFILE_MAX_TURNS = Object.freeze({
 });
 
 export const DEFAULT_CONFIG = {
+  telemetry: {
+    enabled: false, destination: 'file', dir: 'telemetry', retentionDays: 7,
+    maxBytes: 10 * 1024 * 1024, batchSeconds: 60, maxFileBytes: 1024 * 1024,
+    kitExecutable: 'kit', kitConfigFile: null, kitTimeoutMs: 1000,
+    rede: { ligado: false, endpoint: null, cabecalhos: {}, timeoutMs: 5000 },
+  },
   language: 'en',
   opencodeQuota: {
     sources: {}, timeoutMs: 3000, maxOutputBytes: 1048576, maxAgeMinutes: 120,
@@ -584,6 +590,8 @@ export function localeOf(value, config) {
 
 export function configOf(config) {
   const merged = { ...DEFAULT_CONFIG, ...(config ?? {}) };
+  merged.telemetry = { ...DEFAULT_CONFIG.telemetry, ...config?.telemetry,
+    rede: { ...DEFAULT_CONFIG.telemetry.rede, ...config?.telemetry?.rede } };
   merged.language = localeOf(undefined, merged);
   const statuslineRegistration = { ...DEFAULT_CONFIG.statuslineRegistration, ...config?.statuslineRegistration,
     shell: { ...DEFAULT_CONFIG.statuslineRegistration.shell, ...config?.statuslineRegistration?.shell } };

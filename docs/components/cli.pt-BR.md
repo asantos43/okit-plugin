@@ -46,6 +46,10 @@ Cada linha mostra o comando e um exemplo; substitua <id> pelo identificador reto
 | `okit-plugin client-smoke` | Executa cenário no cliente ou prévia/ensaio offline | `okit-plugin client-smoke --client claude-code --dry-run` |
 | `okit-plugin smoke-demo` | Mostra prévia e exige contrato de confirmação/custo | `okit-plugin smoke-demo --dry-run --json` |
 
+| `okit-plugin telemetry` | Medições opcionais de uso | `okit-plugin telemetry status` |
+
+Use `okit-plugin telemetry status`, `okit-plugin telemetry on`, `okit-plugin telemetry off`, `okit-plugin telemetry rede on` / `okit-plugin telemetry rede off`, `okit-plugin telemetry export [--since ISO]` e `okit-plugin telemetry check`. Gravação e envio exigem escolhas separadas.
+
 <a id="effects"></a>
 ## Efeitos e resultados
 

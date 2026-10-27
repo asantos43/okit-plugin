@@ -45,6 +45,9 @@ Each row shows a command and example; replace <id> with the identifier returned 
 | `okit-plugin smoke` | Run isolated offline checks in scratch state | `okit-plugin smoke` |
 | `okit-plugin client-smoke` | Run real-client scenario or offline preview/rehearsal | `okit-plugin client-smoke --client claude-code --dry-run` |
 | `okit-plugin smoke-demo` | Preview practice and enforce confirmation/cost contract | `okit-plugin smoke-demo --dry-run --json` |
+| `okit-plugin telemetry` | Optional usage measurements | `okit-plugin telemetry status` |
+
+Use `okit-plugin telemetry status`, `okit-plugin telemetry on`, `okit-plugin telemetry off`, `okit-plugin telemetry rede on` / `okit-plugin telemetry rede off`, `okit-plugin telemetry export [--since ISO]` and `okit-plugin telemetry check`. Recording and sending require separate choices.
 
 <a id="effects"></a>
 ## Effects and results

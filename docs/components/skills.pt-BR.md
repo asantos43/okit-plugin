@@ -54,4 +54,6 @@ Mantém as tarefas dos projetos habilitados em dia; pergunta antes de usar uma s
 
 Experimente pedir “mostre o ambiente” e conferir o relatório, sem iniciar trabalho.
 
+A skill de ambiente também explica medições opcionais por telemetry_status e telemetry_export ou okit-plugin telemetry. Gravação e envio começam desligados e exigem pedidos separados; mensagens e conteúdo de arquivos são excluídos.
+
 [Visão geral](README.pt-BR.md) · [MCP](mcp-tools.pt-BR.md) · [English](skills.md)

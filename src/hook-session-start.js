@@ -3,6 +3,8 @@ import { paths } from './store.js';
 import { limitsStatus } from './limits.js';
 import { environmentSnapshot } from './env/snapshot.js';
 import { deliverRole } from '../adapters/claude-code/index.js';
+import { record } from './telemetry/index.js';
+import { briefedRole } from './roles.js';
 
 /** Read-only native SessionStart response, including explicit diagnostic failures. */
 export async function runSessionStart({ root, stdin = process.stdin, stdout = () => {},
@@ -19,6 +21,7 @@ export async function runSessionStart({ root, stdin = process.stdin, stdout = ()
     const observed = snapshot ?? await loadSnapshot({ root, config, env, limits, orders: orders.orders });
     const result = deliverRole({ snapshot: observed, limits, items: inbox.items, orders: orders.orders,
       cwd: input.cwd, briefing: input.briefing });
+    await record(root, 'role.choice', { role: briefedRole(input.briefing), client: 'claude-code' });
     stdout(JSON.stringify(result.status === 'ready' ? { hookSpecificOutput: result.native.hookSpecificOutput }
       : { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: result.reason } }));
     // Claude only consumes context from successful command hooks.

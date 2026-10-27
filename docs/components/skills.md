@@ -52,6 +52,8 @@ Keeps enabled project tasks in step with saved work; asks before using a suggest
 | :- | :- | :- |
 | `okit-environment` | Answers environment questions; loaded when asked about client, models, allowance, folders or missing setup. Explain confirmed observations and repair commands, preserve unknowns and change nothing. | `env_report`, `okit-plugin env report` |
 
+The environment skill also explains optional measurements via telemetry_status and telemetry_export or okit-plugin telemetry. Recording and sending start off and require separate requests; messages and file contents are excluded.
+
 Try asking “show the environment” and inspect the report without starting work.
 
 [Overview](README.md) · [MCP](mcp-tools.md) · [Português](skills.pt-BR.md)
