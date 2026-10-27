@@ -19,6 +19,18 @@ const PROFILE_MAX_TURNS = Object.freeze({
 });
 
 export const DEFAULT_CONFIG = {
+  trajectory: {
+    enabled: false, dir: 'trajectory', retentionDays: 7,
+    maxBytes: 10 * 1024 * 1024, maxFileBytes: 1024 * 1024,
+    truncationMarker: '[Content shortened / Conteúdo reduzido]',
+    redactionMarker: '[Hidden / Oculto]',
+    redactionPatterns: [
+      '(?:sk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]+',
+      '(?:Bearer\\s+)[A-Za-z0-9._~+/-]+=*',
+      '(?:["\\\']?(?:api[_-]?key|token|secret|password|authorization|access[_-]?key)["\\\']?\\s*[:=]\\s*)(?:"[^"\\n]*"|\\\'[^\\\'\\n]*\\\'|[^\\s,;}]+)',
+      '-----BEGIN [^-]*PRIVATE KEY-----[\\s\\S]*?-----END [^-]*PRIVATE KEY-----',
+    ],
+  },
   telemetry: {
     enabled: false, destination: 'file', dir: 'telemetry', retentionDays: 7,
     maxBytes: 10 * 1024 * 1024, batchSeconds: 60, maxFileBytes: 1024 * 1024,
@@ -590,6 +602,7 @@ export function localeOf(value, config) {
 
 export function configOf(config) {
   const merged = { ...DEFAULT_CONFIG, ...(config ?? {}) };
+  merged.trajectory = { ...DEFAULT_CONFIG.trajectory, ...config?.trajectory };
   merged.telemetry = { ...DEFAULT_CONFIG.telemetry, ...config?.telemetry,
     rede: { ...DEFAULT_CONFIG.telemetry.rede, ...config?.telemetry?.rede } };
   merged.language = localeOf(undefined, merged);

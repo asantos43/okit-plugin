@@ -576,6 +576,16 @@ function todoTool(name, check) {
 }
 
 export const TOOLS = [
+  {
+    name: 'trajectory_show',
+    description: 'Read a saved run step by step on this computer. / Leia uma execução salva passo a passo neste computador.',
+    inputSchema: { type: 'object', properties: { run: { type: 'string' } }, required: ['run'], additionalProperties: false },
+    handler: async (args, ctx) => {
+      const a = argsOf('trajectory_show', args, ['run']);
+      const { show } = await import('../trajectory/index.js');
+      return reply(await show(ctx.root, requiredText('trajectory_show', a, 'run')));
+    },
+  },
   ...[['telemetry_status', telemetryStatus], ['telemetry_export', exportTelemetry]].map(([name, handler]) => ({
     name, description: name === 'telemetry_status'
       ? 'See what measurements are saved and where. / Veja quais medições são salvas e onde.'

@@ -4,13 +4,14 @@
 
 import child_process from 'node:child_process';
 import { mkdir, open, stat } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, dirname } from 'node:path';
 import process from 'node:process';
 import { promisify } from 'node:util';
 
 import { LIST_MESSAGES } from './profiles.js';
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
+import { capture } from './trajectory/capture.js';
 
 export const CLIENTS = ['claude-code', 'codex', 'opencode'];
 
@@ -206,7 +207,7 @@ const runFile = (runs, runId) => join(runs, `${runId}.json`);
  * @returns {(demand: object, opts: object) => Promise<{runId: string, pid: number|null, mode: string}>}
  */
 export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDir, env = process.env, cwd, transient = NO_TRANSIENT, faults = NO_TRANSIENT } = {}) {
-  const runs = logDir ?? paths(stateRoot()).runs;
+  const runs = logDir ?? paths(stateRoot(env)).runs;
   const fallbackCwd = cwd ?? process.cwd();
 
   return async function spawnDemand(demand, options = {}) {
@@ -281,7 +282,16 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
         .catch(reportRunFile);
     };
 
-    child.on?.('error', (error) => record({ status: 'failed', error: error.message, exitCode: null }));
+    const captureRun = outcome => capture(dirname(runs), {
+      session_id: runId, client: options.client, model: options.profile?.model,
+      effort: options.profile?.effort, role: options.role ?? demand.role ?? 'executor',
+      demand: demand.id ?? null, step: options.step ?? null,
+      critic_of: options.critic_of ?? demand.critic_of ?? null,
+    }, { file: join(runs, `${runId}.out`), message: briefingOf(demand), outcome });
+    child.on?.('close', (code) => { void captureRun(`Exit code / Código de saída: ${code ?? 'not available / não disponível'}`); });
+    child.on?.('error', (error) => {
+      record({ status: 'failed', error: error.message, exitCode: null });
+    });
     child.on?.('exit', (code) => record({ status: 'done', exitCode: code ?? null }));
 
     const limit = minutes(options.maxMinutes);

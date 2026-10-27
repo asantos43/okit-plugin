@@ -12,6 +12,7 @@ import { configOf } from '../../src/profiles.js';
 import { listModelsOf, makeSpawner } from '../../src/spawn-process.js';
 import { readJson } from '../../src/state.js';
 import { paths, stateRoot } from '../../src/store.js';
+import { capture } from '../../src/trajectory/capture.js';
 import { readCodexSessionQuota } from './session-quota.js';
 
 export const CLIENT = 'codex';
@@ -133,12 +134,16 @@ export async function spawn(actor, briefing, opts = {}) {
   if (delivery.status !== 'ready') throw new TypeError(delivery.reason);
   const prompt = delivery.native.prompt;
   if (mode === 'NATIVE') {
+    await capture(opts.stateRoot ?? stateRoot(opts.env), { session_id: runId, client: CLIENT,
+      model, effort, role: delivery.context.role.toLowerCase(), demand: opts.demand ?? null,
+      step: opts.step ?? null, critic_of: opts.critic_of ?? null }, { transcript: opts.transcript, message: prompt });
     return { mode, runId, agentCall: { model, effort, prompt } };
   }
   const spawner = makeSpawner({ spawn: opts.spawn, logDir: opts.logDir, cwd: opts.cwd,
     env: { ...(opts.env ?? process.env), CODEX_HOME: configRoot(opts) } });
-  return spawner({ title: prompt, appliesTo: opts.appliesTo }, {
+  return spawner({ title: prompt, id: opts.demand, appliesTo: opts.appliesTo }, {
     runId, client: CLIENT, profile: { model, effort, sandbox: opts.sandbox ?? actor.sandbox },
+    role: delivery.context.role.toLowerCase(), critic_of: opts.critic_of, step: opts.step,
     maxMinutes: opts.maxMinutes,
   });
 }
@@ -180,3 +185,4 @@ export async function installHooks(files, opts = {}) {
 
 export default { CLIENT, spawn, readQuota, capabilities, installSkill, installHooks, configRoot, listModels,
   deliverRole, installRole, removeRole };
+export { readTrajectory } from './trajectory.js';

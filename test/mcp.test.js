@@ -11,6 +11,7 @@ import { environmentReport, formatEnvironmentReport } from '../src/env/report.js
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 
 const NAMES = [
+  'trajectory_show',
   'telemetry_status',
   'telemetry_export',
   'todo_sync',

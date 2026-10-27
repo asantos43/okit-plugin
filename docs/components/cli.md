@@ -46,8 +46,11 @@ Each row shows a command and example; replace <id> with the identifier returned 
 | `okit-plugin client-smoke` | Run real-client scenario or offline preview/rehearsal | `okit-plugin client-smoke --client claude-code --dry-run` |
 | `okit-plugin smoke-demo` | Preview practice and enforce confirmation/cost contract | `okit-plugin smoke-demo --dry-run --json` |
 | `okit-plugin telemetry` | Optional usage measurements | `okit-plugin telemetry status` |
+| `okit-plugin trajectory` | Read or enable local run recordings | `okit-plugin trajectory status` |
 
 Use `okit-plugin telemetry status`, `okit-plugin telemetry on`, `okit-plugin telemetry off`, `okit-plugin telemetry rede on` / `okit-plugin telemetry rede off`, `okit-plugin telemetry export [--since ISO]` and `okit-plugin telemetry check`. Recording and sending require separate choices.
+
+Use `okit-plugin trajectory list`, `okit-plugin trajectory show <run>`, `okit-plugin trajectory export <run>`, `okit-plugin trajectory prune`, `okit-plugin trajectory on`, `okit-plugin trajectory off` and `okit-plugin trajectory status`. Choose a saved run from list. Export prints JSON locally; nothing is sent. See [recordings](state.md#trajectories).
 
 <a id="effects"></a>
 ## Effects and results

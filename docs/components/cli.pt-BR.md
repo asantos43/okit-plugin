@@ -47,8 +47,11 @@ Cada linha mostra o comando e um exemplo; substitua <id> pelo identificador reto
 | `okit-plugin smoke-demo` | Mostra prévia e exige contrato de confirmação/custo | `okit-plugin smoke-demo --dry-run --json` |
 
 | `okit-plugin telemetry` | Medições opcionais de uso | `okit-plugin telemetry status` |
+| `okit-plugin trajectory` | Lê ou ativa gravações locais de execuções | `okit-plugin trajectory status` |
 
 Use `okit-plugin telemetry status`, `okit-plugin telemetry on`, `okit-plugin telemetry off`, `okit-plugin telemetry rede on` / `okit-plugin telemetry rede off`, `okit-plugin telemetry export [--since ISO]` e `okit-plugin telemetry check`. Gravação e envio exigem escolhas separadas.
+
+Use `okit-plugin trajectory list`, `okit-plugin trajectory show <run>`, `okit-plugin trajectory export <run>`, `okit-plugin trajectory prune`, `okit-plugin trajectory on`, `okit-plugin trajectory off` e `okit-plugin trajectory status`. Escolha uma execução salva na lista. Export mostra JSON localmente; nada é enviado. Veja [gravações](state.pt-BR.md#trajectories).
 
 <a id="effects"></a>
 ## Efeitos e resultados

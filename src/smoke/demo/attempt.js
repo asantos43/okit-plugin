@@ -1,9 +1,11 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { acquireSlot, releaseSlot } from '../../limits.js';
 import { smokePreflight } from '../client.js';
 import { safeFile } from './scenario.js';
 import { record as telemetryRecord } from '../../telemetry/index.js';
+import { capture } from '../../trajectory/capture.js';
 
 export async function checksFor(root, demand) {
   return Promise.all(demand.acceptance.map(async (check) => {
@@ -34,13 +36,15 @@ export async function attempt(ctx, row, demand, role, actor, profile, round, fai
   const room = budget.remaining(row.key);
   const cap = driver.maxCostUsd ?? 0; // Injected calls are free unless explicitly simulating cost.
   const ticket = budget.reserve(row.key, cap);
-  const runId = `${row.key}-${row.attempts.length}-${role.toLowerCase()}`;
+  const runId = `${row.key}-${row.attempts.length}-${role.toLowerCase()}-${randomUUID()}`;
   const slot = { attempt: row.attempts.length + 1, runId };
   row.slots.push(slot);
   let launched = false, settled = false;
-  const record = { role, actor, profile: { ...profile, origin: 'snapshot' }, start: clock(), end: null,
+  const criticOf = role === 'Critic' ? row.attempts.findLast(item => item.role === 'Executor')?.runId ?? null : null;
+  const record = { runId, role, actor, profile: { ...profile, origin: 'snapshot' }, start: clock(), end: null,
     reservedUsd: cap, costUsd: null, artifacts: [] };
   let timer;
+  let transcript = null, summary = null, usage;
   try {
     slot.acquired = await acquireSlot(scratch.state, runId, { client, config,
       waitMs: Math.min(result.limits.checkTimeoutMs, Math.max(0,
@@ -72,6 +76,9 @@ export async function attempt(ctx, row, demand, role, actor, profile, round, fai
       `${role === 'Executor' ? 'Um ajudante está executando' : 'Um crítico está verificando'} ${row.title}.`);
     const response = role === 'Executor' ? await driver.run(briefing)
       : await driver.review({ briefing, result: review.execution, artifacts: review.execution.artifacts, checks: review.checks });
+    transcript = response.transcript ?? null;
+    summary = response.summary ?? response.feedback ?? response.verdict ?? response.status ?? null;
+    if (transcript == null) usage = { cost_usd: response.usage?.costUsd };
     settled = true; record.costUsd = budget.settle(ticket, response.usage);
     row.costUsd += record.costUsd;
     if (response.usage.turns > briefing.limits.maxTurns) throw new Error('profile turn ceiling');
@@ -94,6 +101,12 @@ export async function attempt(ctx, row, demand, role, actor, profile, round, fai
     record.error = error.message; throw error;
   } finally {
     clearTimeout(timer); record.end = clock();
+    if (launched && options.root) {
+      await capture(options.root, { session_id: runId, client, model: actor.model,
+        effort: actor.effort, role: role.toLowerCase(), demand: row.key,
+        step: round, critic_of: criticOf }, { transcript,
+        message: demand.body[locale], outcome: record.error ?? summary, usage });
+    }
     if (slot.acquired?.ok) {
       slot.released = await releaseSlot(scratch.state, runId);
       say(`The helper's place for ${row.title} is free again.`, `A vaga do ajudante para ${row.title} está livre de novo.`);

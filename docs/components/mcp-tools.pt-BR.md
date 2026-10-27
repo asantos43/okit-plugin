@@ -7,10 +7,11 @@ As ferramentas MCP expõem operações validadas do núcleo ao assistente do cli
 <a id="tools"></a>
 ## Contrato das ferramentas
 
-O servidor expõe 21 ferramentas. Entradas são objetos JSON; ? indica campo opcional. Respostas são texto JSON com resultado ou recusa; argumentos inválidos geram erro. Escrita de estado não lança modelo nem gasta cota por si só.
+O servidor expõe 22 ferramentas. Entradas são objetos JSON; ? indica campo opcional. Respostas são texto JSON com resultado ou recusa; argumentos inválidos geram erro. Escrita de estado não lança modelo nem gasta cota por si só.
 
 | Nome | Propósito e retorno | Entradas | Efeito |
 | :- | :- | :- | :- |
+| `trajectory_show` | Lê execução salva passo a passo, com ferramentas que falharam e tokens | run | lê somente arquivos locais |
 | `telemetry_status` | Consulta medições opcionais; consentimento, pasta, tamanho, última exportação | {} | leitura |
 | `telemetry_export` | Exporta medições salvas a partir de uma data opcional | since? | grava recibo; envia somente contagens se ativado separadamente |
 | `acquire_slot` | Reserva vaga; resultado ou recusa pelo limite | runId, client, waitMs? | escrita |

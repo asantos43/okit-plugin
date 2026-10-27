@@ -24,6 +24,7 @@ import { withLock, writeJsonAtomic } from '../state.js';
 import { statusTable } from '../status.js';
 import { paths } from '../store.js';
 import { listActors } from '../actors.js';
+import { capture } from '../trajectory/capture.js';
 import { openDue, templateAdd, templateList, templateRemove, templateSet } from '../templates.js';
 
 // The profiles the daemon and the `profile_pick` tool need; without them a
@@ -463,6 +464,7 @@ async function skillsPackaged(deps) {
 const TOOL_ARGS = {
   telemetry_status: () => ({}),
   telemetry_export: () => ({}),
+  trajectory_show: (state) => ({ run: state.trajectory }),
   todo_sync: () => ({ dryRun: true }),
   todo_status: () => ({}),
   acquire_slot: () => ({ runId: 'smoke-e14', client: 'claude-code' }),
@@ -487,11 +489,14 @@ const TOOL_ARGS = {
 // E14: every tool answers `tools/call`, an unknown tool and a bad line are
 // protocol errors, and the loop keeps reading after both.
 async function mcpTools(deps) {
-  await writeConfig(deps);
+  await writeConfig(deps, { trajectory: { enabled: true } });
+  const state = { trajectory: 'smoke-e14-trajectory' };
+  await capture(deps.stateRoot, { session_id: state.trajectory, client: 'codex', model: 'smoke-model',
+    effort: 'low', role: 'executor' }, { transcript: JSON.stringify({ type: 'turn_context',
+    payload: { model: 'smoke-model', effort: 'low' } }), message: 'smoke trajectory' });
   for (const name of TOOL_NAMES) need(TOOL_ARGS[name] !== undefined, `${name} has no arguments in this check`);
   const server = createServer({ tools: TOOLS, ctx: { ...deps, root: deps.stateRoot }, version: await serverVersion() });
 
-  const state = {};
   let asked = 0;
   for (const tool of TOOLS) {
     asked += 1;
