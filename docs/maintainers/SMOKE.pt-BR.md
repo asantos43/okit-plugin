@@ -20,7 +20,7 @@ Para executar a prévia, consulte o [guia](../guide/smoke-demo.pt-BR.md); contra
 
 Migração: execute o plugin como `okit-plugin`; instalar/atualizar removem apenas seus links antigos `okit`. Mantenha `okit`/`kit` do kit separados; o detector ignora executáveis do plugin.
 
-Implementado: `okit-plugin smoke` executa 31 checks isolados; `okit-plugin client-smoke` executa o cenário C1–C23 com driver real de Claude Code. Não comprova outros clientes ou sistemas.
+Implementado: `okit-plugin smoke` executa 32 checks isolados; `okit-plugin client-smoke` executa o cenário C1–C23 com driver real de Claude Code. Não comprova outros clientes ou sistemas.
 
 <a id="section-1"></a>
 ## Commands
@@ -113,6 +113,9 @@ Cada check tem id, nome, timeout e corpo. `status` é `pass`, `fail`, `timeout` 
 | :- | :- | :- | :- |
 | `E18` | `status.table` | `statusTable` tem suas seis colunas, uma linha de capacidade, nenhum ANSI, e outra palavra por idioma | 15 s |
 | `E19` | `commands.every` | cada ação do CLI (`daemon start|stop|status|pause|resume|run-once`, `autostart show|install|uninstall`, `status`) sai com `0` com `run`/`spawn` injetados | 30 s |
+| `E20` | `quota.below-launch-floor` | com runner de processos, `kit quota --cached --json` lê amostras locais simuladas, `kit capacity` informa zero executores disponíveis e `kit run` recusa com saída `6`, o motivo de cada executor e o horário de retorno mais próximo; mudar `parallel.minQuotaPercent` muda o gate para a mesma amostra; a orientação do plugin usa palavras simples em inglês e português | 15 s |
+
+Sem um resultado de processo do runner de comandos injetado, E20 não afirma nada sobre o kit. Seu teste de integração encontra o kit instalado com `detectKit` e se pula com mensagem clara quando ele está ausente ou o sandbox nega a execução de processos com EPERM. HOME, configuração e registro de cota são temporários; KIT_HOME continua identificando o código do kit.
 
 **C. Desinstalação e idempotência (`U`)**
 
@@ -124,7 +127,7 @@ Cada check tem id, nome, timeout e corpo. `status` é `pass`, `fail`, `timeout` 
 | `U4` | `idempotence.install` | o grupo `I` rodado duas vezes deixa a mesma árvore e os mesmos bytes; a segunda rodada reporta `skipped: identical` | 30 s |
 | `U5` | `idempotence.run` | duas execuções em raízes descartáveis novas relatam os mesmos ids na mesma ordem; só o run id do nome dos artefatos muda | 30 s |
 
-31 checks. O `--only` aceita ids (`--only I,E7`) e a letra do grupo. `--timeout <ms>` ergue o teto por check para um host Windows lento e nunca baixa um check que já tem teto menor; a execução inteira tem teto de 10 minutos.
+32 checks. O `--only` aceita ids (`--only I,E7`) e a letra do grupo. `--timeout <ms>` ergue o teto por check para um host Windows lento e nunca baixa um check que já tem teto menor; a execução inteira tem teto de 10 minutos.
 
 <a id="section-5"></a>
 ## Checkout against installed plugin
@@ -145,7 +148,7 @@ Um objeto por check, e os mesmos campos no log humano: `id`, `name`, `group` (`E
 <a id="section-7"></a>
 ## Output
 
-O stdout é um fato por linha, a forma que `report()` de `src/cli.js` já imprime: `okit-plugin smoke`, `run: <runid>`, uma linha `pass E7 state.locks 120ms` por check, depois `passed: 31 failed: 0 skipped: 0`, os caminhos dos artefatos e, com `--keep`, o caminho do scratch.
+O stdout é um fato por linha, a forma que `report()` de `src/cli.js` já imprime: `okit-plugin smoke`, `run: <runid>`, uma linha `pass E7 state.locks 120ms` por check, depois `passed: 32 failed: 0 skipped: 0`, os caminhos dos artefatos e, com `--keep`, o caminho do scratch.
 
 Dois arquivos caem em `<state root>/logs/smoke/`: `smoke-<runid>.jsonl`, um objeto JSON por linha (o cabeçalho da execução e um registro por check, na ordem de execução), e `smoke-<runid>.log`, o texto humano com o bloco de ambiente inteiro no topo e cada tail na linha. Ambos são UTF-8 só com `\n`, então o arquivo do Windows cola numa issue sem mudança. O run id é o instante UTC mais o pid (`20261023T091530Z-4242`), o que separa duas execuções e as ordena.
 
@@ -240,7 +243,7 @@ Um passo nomeia um recurso, a chamada que o toca e o **comportamento** que ele a
 | `C22` | status | a tabela bate com as leituras de cota | a linha do cliente na resposta do `status` traz a mesma porcentagem que o `quota/<client>.json`, e a palavra de situação que segue o piso |
 | `C23` | relatório | os artefatos estão onde a execução disse | os dois arquivos no caminho impresso |
 
-23 checks no grupo `C`, ao lado dos 31 dos grupos `I`, `E` e `U` — ids diferentes, então o `--only` de um runner nunca pega um check do outro.
+23 checks no grupo `C`, ao lado dos 32 dos grupos `I`, `E` e `U` — ids diferentes, então o `--only` de um runner nunca pega um check do outro.
 
 Os arquivos de manifesto, MCP e hook do Claude Code são gerados pelo build de release; não ficam na raiz do checkout. O runner julga a instalação carregada pelo cliente, não a presença desses arquivos no checkout.
 

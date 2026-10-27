@@ -76,7 +76,7 @@ const FAILING = { id: 'X2', name: 'fails', group: 'X', timeoutMs: 5000, run: asy
 
 // Must pass / must refuse (the runner and the CLI):
 // | case                                        | must pass                       | must refuse                  |
-// | every check of the tables, scratch home     | code 0, 31 records, 2 files    | -                            |
+// | every check of the tables, scratch home     | code 0, 32 records, 2 files    | -                            |
 // | a body that throws                          | -                               | code 1, `fail`, its error    |
 // | a body that never settles                   | -                               | code 1, `timeout`, run ends  |
 // | `--only I,E7`                               | 8 records, in table order      | -                            |
@@ -220,11 +220,11 @@ test('a passing smoke on a scratch root exits 0 and writes both artifacts', asyn
   const run = await runSmoke(['--keep'], io);
 
   assert.equal(run.code, 0, `${run.records.filter((r) => r.status !== 'pass').map((r) => `${r.id} ${r.error}`).join(' / ')}`);
-  assert.equal(run.records.length, 31, 'the three tables hold 31 checks');
+  assert.equal(run.records.length, 32, 'the three tables hold 32 checks');
   assert.ok(run.records.every((record) => record.status === 'pass'));
   assert.deepEqual(run.records.map((record) => record.id), [
     'I1', 'I2', 'I3', 'I4', 'I5', 'I6', 'I7',
-    'E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'E10', 'E11', 'E12', 'E13', 'E14', 'E15', 'E16', 'E17', 'E18', 'E19',
+    'E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'E10', 'E11', 'E12', 'E13', 'E14', 'E15', 'E16', 'E17', 'E18', 'E19', 'E20',
     'U1', 'U2', 'U3', 'U4', 'U5',
   ], 'the order is the table order of docs/maintainers/SMOKE.md');
 
@@ -235,17 +235,17 @@ test('a passing smoke on a scratch root exits 0 and writes both artifacts', asyn
   assert.equal(run.artifacts.log, join(stateRoot, 'logs', 'smoke', `smoke-${run.runId}.log`));
   const lines = (await readFile(run.artifacts.jsonl, 'utf8')).split('\n');
   assert.equal(lines.at(-1), '');
-  assert.equal(lines.length - 1, 32, 'the header and 31 records');
+  assert.equal(lines.length - 1, 33, 'the header and 32 records');
 
   // The stdout of the run, one fact per line.
   assert.equal(out[0], 'okit-plugin smoke');
   assert.equal(out[1], `run: ${run.runId}`);
   assert.match(out[2], /^pass I1 files\.placed \d+ms$/);
-  assert.match(out[32], /^pass U5 idempotence\.run \d+ms$/);
-  assert.equal(out[33], 'passed: 31 failed: 0 skipped: 0');
-  assert.equal(out[34], run.artifacts.jsonl);
-  assert.equal(out[35], run.artifacts.log);
-  assert.equal(out[36], `scratch: ${scratch}`, '--keep prints the scratch path');
+  assert.match(out[33], /^pass U5 idempotence\.run \d+ms$/);
+  assert.equal(out[34], 'passed: 32 failed: 0 skipped: 0');
+  assert.equal(out[35], run.artifacts.jsonl);
+  assert.equal(out[36], run.artifacts.log);
+  assert.equal(out[37], `scratch: ${scratch}`, '--keep prints the scratch path');
 });
 
 test('an injected failing check exits 1 with its id, error, command and environment', async (t) => {

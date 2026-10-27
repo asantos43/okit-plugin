@@ -4,8 +4,9 @@
 // started: the spawner, the command runner, the clock and the sleep all come in
 // through `deps`.
 
-import { access, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import process from 'node:process';
 
 import { AUTOSTART_KINDS, applyAutostart, autostartPlan, detectAutostart } from '../autostart.js';
@@ -22,6 +23,7 @@ import { buildCommand, makeSpawner } from '../spawn-process.js';
 import { withLock, writeJsonAtomic } from '../state.js';
 import { statusTable } from '../status.js';
 import { paths } from '../store.js';
+import { listActors } from '../actors.js';
 import { openDue, templateAdd, templateList, templateRemove, templateSet } from '../templates.js';
 
 // The profiles the daemon and the `profile_pick` tool need; without them a
@@ -617,6 +619,112 @@ async function commandsEvery(deps) {
   }
 }
 
+// E20: the kit reads only quota samples in a disposable registry. Its launch
+// floor comes from its existing configuration. Local command meters and their
+// caches simulate quota; no client is launched or real user home consulted.
+async function quotaBelowLaunchFloor(deps) {
+  const base = await mkdtemp(join(tmpdir(), 'okit-smoke-quota-'));
+  const home = join(base, 'home');
+  const registry = join(base, 'registry');
+  await Promise.all([mkdir(home), mkdir(registry)]);
+  const env = { PATH: deps.env?.PATH ?? process.env.PATH, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: home,
+    CLAUDE_CONFIG_DIR: join(home, '.claude'), OKWORK_HOME: join(home, '.okwork'),
+    KIT_REGISTRY: registry, NO_COLOR: '1' };
+  Object.assign(env, { KIT_CONFIG_USER: join(base, 'config.json'),
+    KIT_CONFIG_PROJECT: join(base, 'empty.json'), KIT_CONFIG: home,
+    KIT_EXECUTORS_DEFAULT: join(base, 'executors.json'),
+    KIT_EXECUTORS_USER: join(base, 'empty.json'), KIT_EXECUTORS_PROJECT: join(base, 'empty.json'),
+    KIT_LOG_DIR: join(base, 'logs'), KIT_SKIP_HEALTH: '1', KIT_RUN_ALLOW_DETACHED: '1',
+    KIT_WAIT_DEBT: '0', KIT_TZ: 'UTC', XDG_STATE_HOME: join(home, 'state') });
+  const run = async (args) => {
+    const result = await deps.run({ command: 'kit', args, env, cwd: base });
+    return { ...result, code: Object.hasOwn(result, 'code') ? result.code : result.exitCode };
+  };
+  try {
+    await writeFile(env.KIT_CONFIG_USER, JSON.stringify({ parallel: deps.config?.parallel ?? {} }));
+    await writeFile(env.KIT_CONFIG_PROJECT, '{}');
+    const configured = await run(['config', 'get', 'parallel.minQuotaPercent', '--json']);
+    // The in-process runner has a no-op command seam. Without a process result
+    // there is no kit evidence to assert; process-backed runners verify below.
+    if (configured.code === undefined) return;
+    need(configured.code === 0, `kit must read its configured launch floor: ${configured.stderr}`);
+    let floor;
+    try {
+      const value = JSON.parse(configured.stdout);
+      floor = typeof value === 'number' ? value : value.value ?? value.parallel?.minQuotaPercent;
+    } catch { floor = Number(configured.stdout.trim()); }
+    need(Number.isFinite(floor) && floor > 0, 'parallel.minQuotaPercent must allow a below-floor quota sample');
+    const names = ['smoke-first', 'smoke-later'];
+    const checked = Math.floor(deps.now() / 1000);
+    const providers = names.map((name, index) => {
+      const resetsAt = new Date((checked + (index + 1) * 3600) * 1000).toISOString();
+      return { name, remaining_percent: floor - 1, resets_at: resetsAt,
+        windows: [{ name: 'window', remaining_percent: floor - 1, resets_at: resetsAt }] };
+    });
+    await writeFile(env.KIT_EXECUTORS_DEFAULT, JSON.stringify({
+      executors: names.map((name) => ({ id: name, alias: name, model: `smoke/${name}`,
+        client: 'smoke-no-client', class: 'normal', quota: name, subscription: name, enabled: true })),
+      quotas: Object.fromEntries(names.map((name) => [name,
+        { cmd: `cat "$KIT_REGISTRY/${name}-reading.json"` }])),
+    }));
+    for (const provider of providers) {
+      await writeFile(join(registry, `${provider.name}-reading.json`), JSON.stringify(provider));
+      await writeFile(join(registry, `${provider.name}-quota.json`), JSON.stringify({ checked, reading: provider }));
+    }
+    await writeFile(join(registry, 'quotas.json'), JSON.stringify({ checked, providers }));
+    await writeFile(join(base, 'briefing.md'), 'Check that no executor can launch.\n');
+    const quota = await run(['quota', '--cached', '--json']);
+    need(quota.code === 0, `kit quota must read the simulated registry: ${quota.stderr}`);
+    const readings = JSON.parse(quota.stdout).providers;
+    need(names.every((name) => readings.some((reading) => reading.name === name
+      && reading.remaining_percent === floor - 1)), 'kit quota must report every simulated reading');
+    const capacity = await run(['capacity', '--cached', '--json']);
+    need(capacity.code === 0, `kit capacity must read the simulated quota: ${capacity.stderr}`);
+    const available = JSON.parse(capacity.stdout);
+    need(available.total === 0 && available.subscriptions.length === names.length
+      && available.subscriptions.every((entry) => entry.can_launch === 0 && entry.threshold === floor),
+    'kit capacity must report zero launchable executors at the configured threshold');
+    const refusal = await run(['run', join(base, 'briefing.md'), '--class', 'normal', '--strict']);
+    need(refusal.code === 6, `kit run must refuse with quota code 6, got ${refusal.code}`);
+    for (const name of names) {
+      need(new RegExp(`- ${name}: subscription ${name} below launch threshold .*resets in`).test(refusal.stderr),
+        `kit run must list ${name} and its quota/reset reason: ${refusal.stderr}`);
+    }
+    const earliest = providers[0].resets_at.slice(11, 16);
+    need(refusal.stderr.includes(`first available at ${earliest} (${names[0]})`),
+      `kit run must print the nearest quota return time: ${refusal.stderr}`);
+    // The same sample must become launchable when the configured floor drops
+    // to its percentage. Probe only the gate, never start a client as a control.
+    await writeFile(env.KIT_CONFIG_USER, JSON.stringify({ parallel: { minQuotaPercent: floor - 1 } }));
+    const control = await run(['executor', 'gate', names[0], '--cached']);
+    const gate = JSON.parse(control.stdout);
+    need(control.code === 0 && gate.status === 'ok' && gate.threshold === floor - 1,
+      `changing the configured floor must change the launch gate: ${control.stdout} ${control.stderr}`);
+    const actorFloor = deps.config?.lowQuotaPct ?? DEFAULT_CONFIG.lowQuotaPct;
+    const simulated = async (locale) => listActors({ root: deps.stateRoot, home,
+      config: { ...DEFAULT_CONFIG, lowQuotaPct: actorFloor, profiles: PROFILES }, locale,
+      client: 'claude-code', now: deps.now, env: { HOME: home, USERPROFILE: home }, orders: [],
+      cache: new Map(),
+      plugin: { path: deps.projectRoot, onPath: true }, versions: { 'claude-code': { installed: true } },
+      detectClients: async () => ({ clients: [{ client: 'claude-code', installed: true,
+        source: 'listing', models: ['haiku', 'sonnet', 'opus'], hidden: [] }] }),
+      readQuota: async (client) => ({ source: 'manual', remainingPct: Math.min(floor - 1, actorFloor - 1),
+        recordedAt: deps.now(), client }), limits: { global: 3, clients: {} } });
+    for (const [locale, words] of [['en', ['below the floor', 'Wait for quota reset']],
+      ['pt-BR', ['Cota abaixo do piso', 'Aguarde a renovação']]]) {
+      const actors = await simulated(locale);
+      need(actors.actors.length > 0 && actors.actors.every((actor) => !actor.canLaunch),
+        `${locale} actors must all be refused below the configured floor`);
+      need(actors.markdown.includes(words[0]) && actors.markdown.includes(words[1]),
+        `${locale} actor output must explain the quota refusal in plain words: ${actors.markdown}`);
+      need(!/\b(?:[DECO][0-9]+|quota-below-floor|lowQuotaPct|KIT_[A-Z_]+|[a-f0-9]{8}-[a-f0-9-]{27})\b/i.test(actors.markdown),
+        `${locale} actor output must not expose check codes or ids`);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+}
+
 /**
  * The feature group, in the order of the table in `docs/maintainers/SMOKE.md`. Every check
  * drives a real module of `src/` and writes only inside the scratch root.
@@ -641,6 +749,7 @@ export const FEATURE_CHECKS = [
   { id: 'E17', name: 'templates.flow', group: 'E', timeoutMs: 20000, run: templatesFlow },
   { id: 'E18', name: 'status.table', group: 'E', timeoutMs: 15000, run: statusTableCheck },
   { id: 'E19', name: 'commands.every', group: 'E', timeoutMs: 30000, run: commandsEvery },
+  { id: 'E20', name: 'quota.below-launch-floor', group: 'E', timeoutMs: 15000, run: quotaBelowLaunchFloor },
 ];
 
 export default FEATURE_CHECKS;
