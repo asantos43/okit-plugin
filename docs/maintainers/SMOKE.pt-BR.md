@@ -26,6 +26,31 @@ Um teto de tokens configurado vale para qualquer cliente, inclusive clientes com
 
 Contrato de integração para `src/smoke/demo/index.js`: passar `smokeDrivers[client].reportsCost` nos limites do ledger. Seu snapshot fornece `reportsCost`, `tokens` e `costUsd` ao resultado/resumo. Com `reportsCost: false`, dinheiro não é contabilizado, `costUsd` é `null` tanto no total quanto nas demandas acertadas, e essas demandas têm `costKnown: false`. O relatório textual informa no idioma escolhido que o custo em dinheiro não é informado e mostra os tokens usados e o teto. Claude Code e OpenCode mantêm a contabilização em dinheiro existente. A ligação no entry/index pertence a outra alteração; sem ela o ledger mantém o padrão de contabilizar dinheiro.
 
+`src/smoke/demo/driver.js` exporta `realDrivers({ client, config, spawn })` para o executor e o revisor da demonstração. Exige `spawn` injetado; criar os drivers não inicia nada. Os dois papéis reutilizam `clientRequest` e `invokeClient`, incluindo a conversão compartilhada dos eventos dos clientes. Este módulo não conecta clientes reais à entrada da demonstração.
+
+O executor combina o texto da tarefa, verificações a corrigir, critérios de aceitação e caminhos permitidos. Inicia na pasta e no ambiente recebidos, encaminha o cancelamento e usa o menor prazo entre `briefing.limits.timeoutMs` e `smoke.checkTimeoutMs`. O chamador fornece o ambiente do cliente, incluindo `PATH` e credenciais, em `briefing.env`; o driver o repassa como recebido. Somente arquivos listados sob `briefing.root` viram artefatos. Os artefatos devem ser arquivos comuns de até 128 KiB; arquivos ausentes ficam de fora e caminhos inseguros ou links simbólicos causam falha. O texto do modelo não fornece conteúdo dos artefatos.
+
+O driver compara nomes, tamanhos e horários de modificação na raiz de exemplo antes e depois da chamada. Mudanças fora dos arquivos permitidos causam falha com "The helper wrote outside the allowed files. / O ajudante escreveu fora dos arquivos permitidos." Ficam fora da comparação `home/`, as pastas de configuração do cliente e o diretório de trabalho da demanda (`briefing.cwd`). Arquivos extras de trabalho são ignorados dentro de `briefing.cwd`; nunca viram artefatos. Um arquivo ou pasta que desaparece durante a segunda varredura conta como mudança. Outras falhas da varredura informam "Could not check the files. / Não foi possível conferir os arquivos." e preservam o uso medido.
+
+O revisor recebe a execução, os artefatos e as verificações e pede um objeto JSON. Todo o texto final precisa ser um objeto válido com veredito exatamente `approved` ou `rejected`, `criteria` como lista e `feedback` como texto. Respostas ilegíveis ou inválidas são rejeitadas com explicação em inglês e português. Um resultado de erro do cliente não pode aprovar o trabalho.
+
+Os dois papéis expõem `maxCostUsd`: `smoke.demoDemandMaxUsd` quando definido, senão `smoke.maxUsd`; clientes com `reportsCost: false` expõem zero. Esse valor é um limite superior: o `attempt.js` o reduz ao espaço restante do ledger pela ligação da demanda D84. Cada chamada recebe o menor valor entre o limite do driver e `briefing.limits.maxUsd` pelos argumentos configurados existentes. Não há novas opções de comando ou chaves de configuração. Somente clientes com teto em dinheiro o impõem dentro da chamada.
+
+Codex, assim como qualquer cliente com `reportsCost: false`, exige `smoke.maxTokens` inteiro positivo ao criar os drivers. Uma chamada cuja quantidade de texto informada ultrapasse `smoke.maxTokens` falha levando seu `usage` medido; o limite é conferido depois que a chamada termina.
+
+O uso inclui a soma de texto de entrada e saída informado e os turnos do cliente (`num_turns` do Claude Code, turnos do Codex ou etapas do OpenCode). O dinheiro segue `smokeDrivers.<client>.reportsCost`: Codex informa `costUsd: 0` com a quantidade real de texto. Medições ausentes ou inválidas, inclusive em uma etapa anterior, produzem `costUsd: null` para interromper o orçamento. Custos informados nunca são reduzidos ao valor reservado. Prazo vencido, cancelamento e saída sem resultado final lançam erro com `usage`, `events` e `state`, preservando medições parciais.
+
+| Deve aceitar | Deve recusar |
+| :- | :- |
+| JSON inteiro de revisão válido com `approved` | Lixo, texto ao redor, bloco de código, campos ausentes ou outros vereditos |
+| Uso medido; texto do Codex sem dinheiro | Totais desconhecidos de dinheiro ou texto tratados como gratuitos |
+| Arquivos comuns listados de até 128 KiB | Diretórios, outros arquivos especiais, arquivos maiores, caminhos que saem da raiz ou links simbólicos |
+| Saídas permitidas e pastas do cliente e da demanda podem mudar | Mudanças no restante da raiz de exemplo, inclusive arquivos ou pastas que somem na segunda varredura |
+| Pastas legíveis nas duas varreduras | Erros de acesso que impedem conferir os arquivos |
+| `smoke.maxTokens` inteiro positivo para Codex; chamadas dentro do limite | Limite de texto ausente ou inválido para Codex; chamadas acima do limite |
+
+Verificação offline: `node --test test/smoke-demo-driver.test.js test/smoke-client.test.js`. Processos falsos cobrem os três clientes, escritas em outra demanda ou no estado compartilhado, pastas permitidas do cliente e da demanda, limites de texto, arquivos comuns e a fronteira de 128 KiB. Testes da varredura simulam pastas ilegíveis e arquivos que desaparecem, conferindo que os erros preservam o uso. O prazo configurado é conferido pelo tempo decorrido; dois mutantes em memória comprovam que aprovar respostas ilegíveis e tratar uso desconhecido como gratuito falham nas verificações. Nenhum cliente real é iniciado.
+
 Migração: execute o plugin como `okit-plugin`; instalar/atualizar removem apenas seus links antigos `okit`. Mantenha `okit`/`kit` do kit separados; o detector ignora executáveis do plugin.
 
 Implementado: `okit-plugin smoke` executa 32 verificações isoladas. Acrescentar `--client claude-code`, `--client codex` ou `--client opencode` seleciona verificações no cliente real, também disponíveis por `client-smoke`. Os testes offline comprovam o tratamento dos comandos; o Produtor precisa verificar instalação e uso reais em cada cliente.
