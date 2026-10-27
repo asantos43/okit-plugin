@@ -20,6 +20,12 @@ Contratos de verificação e provas para verificações isoladas e smoke em clie
 
 Para executar a prévia, consulte o [guia](../guide/smoke-demo.pt-BR.md); contratos do motor e relatórios estão em [DEMO](DEMO.pt-BR.md).
 
+O ledger da demonstração mantém `smoke.maxTokens` como `null` ou inteiro positivo seguro e soma o inteiro seguro não negativo `usage.tokens` de cada tentativa iniciada. Ao atingir ou ultrapassar o teto, nenhuma nova reserva começa. Uso de tokens ausente ou inválido com teto habilitado deixa o uso sem resolução e bloqueia novas reservas. Reservas e acertos continuam síncronos: trabalhos paralelos compartilham o total, mas tentativas já reservadas podem terminar acima do teto. Uma tentativa que não iniciou não consome tokens.
+
+Um teto de tokens configurado vale para qualquer cliente, inclusive clientes com dinheiro e `reportsCost` verdadeiro ou ausente: seus drivers também devem fornecer `usage.tokens`. Com `maxTokens: null`, a falta de tokens não deixa o ledger desconhecido. Reservas não reservam tokens: o pior caso de ultrapassagem acima do teto configurado é paralelismo × tokens consumidos por uma tentativa (considerando a maior tentativa em andamento). Sem limite de tokens por tentativa, não há limite fixo para essa ultrapassagem.
+
+Contrato de integração para `src/smoke/demo/index.js`: passar `smokeDrivers[client].reportsCost` nos limites do ledger. Seu snapshot fornece `reportsCost`, `tokens` e `costUsd` ao resultado/resumo. Com `reportsCost: false`, dinheiro não é contabilizado, `costUsd` é `null` tanto no total quanto nas demandas acertadas, e essas demandas têm `costKnown: false`. O relatório textual informa no idioma escolhido que o custo em dinheiro não é informado e mostra os tokens usados e o teto. Claude Code e OpenCode mantêm a contabilização em dinheiro existente. A ligação no entry/index pertence a outra alteração; sem ela o ledger mantém o padrão de contabilizar dinheiro.
+
 Migração: execute o plugin como `okit-plugin`; instalar/atualizar removem apenas seus links antigos `okit`. Mantenha `okit`/`kit` do kit separados; o detector ignora executáveis do plugin.
 
 Implementado: `okit-plugin smoke` executa 32 verificações isoladas. Acrescentar `--client claude-code`, `--client codex` ou `--client opencode` seleciona verificações no cliente real, também disponíveis por `client-smoke`. Os testes offline comprovam o tratamento dos comandos; o Produtor precisa verificar instalação e uso reais em cada cliente.

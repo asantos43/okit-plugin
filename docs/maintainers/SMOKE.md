@@ -20,6 +20,12 @@ Verification contracts and evidence for isolated checks and real-client smoke ru
 
 For preview instructions, see the [guide](../guide/smoke-demo.md); engine and report contracts are in [DEMO](DEMO.md).
 
+The demo ledger keeps `smoke.maxTokens` as `null` or a positive safe integer and adds each launched attempt's non-negative safe integer `usage.tokens`. At or above the ceiling, no new reservation starts. Missing or invalid token usage with a ceiling makes usage unresolved and blocks new reservations. Reservations and settlements remain synchronous: parallel work shares the total, but already reserved attempts may finish above the ceiling. An attempt that never launched consumes no tokens.
+
+A configured token ceiling applies to every client, including money-reporting clients with `reportsCost` true or absent: their drivers must also supply `usage.tokens`. With `maxTokens: null`, missing token usage does not make the ledger unknown. Reservations do not reserve tokens: the worst-case overshoot above the configured ceiling is parallelism × tokens consumed by one attempt (using the largest attempt in flight). Without a per-attempt token limit, there is no fixed bound on that overshoot.
+
+Integration contract for `src/smoke/demo/index.js`: pass `smokeDrivers[client].reportsCost` into the ledger limits. Its snapshot supplies `reportsCost`, `tokens` and `costUsd` for the result/summary. With `reportsCost: false`, money is not accounted, `costUsd` is `null` for both the total and settled demands, and those demands have `costKnown: false`. The text report says money is not reported in the selected language and shows tokens used and the ceiling. Claude Code and OpenCode keep their existing money accounting. The entry/index wiring belongs to a separate change; without that wiring the ledger retains its money-reporting default.
+
 Migration: invoke the plugin as `okit-plugin`; install/update remove only its owned legacy `okit` links. Keep the kit's `okit`/`kit` separate; kit detection ignores plugin executables.
 
 Implemented: `okit-plugin smoke` runs 32 isolated checks. Adding `--client claude-code`, `--client codex` or `--client opencode` selects real client checks, also available through `client-smoke`. Offline tests prove command handling; the Producer must verify real installation and usage for each client.

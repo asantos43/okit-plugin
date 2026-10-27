@@ -80,7 +80,8 @@ export async function attempt(ctx, row, demand, role, actor, profile, round, fai
     summary = response.summary ?? response.feedback ?? response.verdict ?? response.status ?? null;
     if (transcript == null) usage = { cost_usd: response.usage?.costUsd };
     settled = true; record.costUsd = budget.settle(ticket, response.usage);
-    row.costUsd += record.costUsd;
+    if (record.costUsd === null) { row.costUsd = null; row.costKnown = false; }
+    else row.costUsd += record.costUsd;
     if (response.usage.turns > briefing.limits.maxTurns) throw new Error('profile turn ceiling');
     if (controller.signal.aborted) throw new Error('run interrupted');
     if (role === 'Executor') {
