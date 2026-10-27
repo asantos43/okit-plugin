@@ -11,6 +11,8 @@ All route environment questions to env_report, actors to actors_list/status and 
 <a id="okit-director"></a>
 ## okit-director
 
+Keeps enabled project tasks in step with saved work; asks before using a suggested task and checks missing links before delivery with `todo_status` and previews repairs with `todo_sync`.
+
 | Skill | Use and instruction | Main resources |
 | :- | :- | :- |
 | `okit-director` | Orchestrates requested work; loaded when directing or delegating. Read orders and inbox, classify, choose actors, claim work, reserve/release slots, brief Executor and Critic, verify evidence and record transitions. | `order_list`, `inbox_list`, `inbox_claim`, `inbox_release`, `limits_status`, `status`, `actors_list`, `env_report`, `classify`, `profile_pick`, `acquire_slot`, `release_slot`, `inbox_add`, `inbox_set_status`, `order_add` |

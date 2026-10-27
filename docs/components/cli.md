@@ -25,6 +25,8 @@ Each row shows a command and example; replace <id> with the identifier returned 
 | `okit-plugin inbox list` | List work and ownership | `okit-plugin inbox list` |
 | `okit-plugin inbox take` | Claim work; human takeover needs confirmation | `okit-plugin inbox take <id> --client codex` |
 | `okit-plugin inbox release` | Release owned or stale work | `okit-plugin inbox release <id> --client codex` |
+| `okit-plugin todo sync` | Synchronize configured project task lists | `okit-plugin todo sync --dry-run --project /projects/example` |
+| `okit-plugin todo check` | List work without tasks and tasks without work | `okit-plugin todo check --project /projects/example` |
 | `okit-plugin kit` | Detect orchestration-kit without installing it | `okit-plugin kit --require` |
 | `okit-plugin daemon start` | Run daemon loop in foreground | `okit-plugin daemon start` |
 | `okit-plugin daemon stop` | Request termination through stop file | `okit-plugin daemon stop` |

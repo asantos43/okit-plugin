@@ -25,6 +25,8 @@ Cada linha mostra o comando e um exemplo; substitua <id> pelo identificador reto
 | `okit-plugin inbox list` | Lista trabalho e posse | `okit-plugin inbox list` |
 | `okit-plugin inbox take` | Assume trabalho; tomada humana exige confirmação | `okit-plugin inbox take <id> --client codex` |
 | `okit-plugin inbox release` | Libera trabalho próprio ou obsoleto | `okit-plugin inbox release <id> --client codex` |
+| `okit-plugin todo sync` | Sincroniza listas de tarefas configuradas por projeto | `okit-plugin todo sync --dry-run --project /projects/example` |
+| `okit-plugin todo check` | Lista trabalhos sem tarefas e tarefas sem trabalho | `okit-plugin todo check --project /projects/example` |
 | `okit-plugin kit` | Detecta orchestration-kit sem instalar | `okit-plugin kit --require` |
 | `okit-plugin daemon start` | Executa loop do daemon em primeiro plano | `okit-plugin daemon start` |
 | `okit-plugin daemon stop` | Solicita término pelo arquivo de parada | `okit-plugin daemon stop` |

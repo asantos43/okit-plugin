@@ -5,7 +5,7 @@ MCP tools expose validated core operations to the client assistant.
 <a id="tools"></a>
 ## Tool contract
 
-The server exposes 17 tools. Inputs are JSON objects; ? marks an optional field. Replies are JSON text containing a result or refusal; invalid arguments raise an error. Writing state does not itself launch a model or spend allowance.
+The server exposes 19 tools. Inputs are JSON objects; ? marks an optional field. Replies are JSON text containing a result or refusal; invalid arguments raise an error. Writing state does not itself launch a model or spend allowance.
 
 | Name | Purpose and return | Inputs | Effect |
 | :- | :- | :- | :- |
@@ -18,7 +18,9 @@ The server exposes 17 tools. Inputs are JSON objects; ? marks an optional field.
 | `smoke_demo` | Preview/confirm practice; plan, events, totals and exit code | dryRun?, client?, locale?, confirm? | preview reads; execution may write/spend, currently refuses without measured ceiling |
 | `classify` | Classify work; effort class and reasons | title, body?, kind? | read |
 | `profile_pick` | Choose saved actor; model, effort, maxTurns or refusal | client, effort, quota? | read |
-| `inbox_add` | Store work; item with id | title, body?, kind?, accept?, effort?, client?, appliesTo? | write |
+| `inbox_add` | Store work; confirmed link or suggested task awaiting confirmation | title, body?, kind?, accept?, effort?, client?, appliesTo?, todoLink? | write |
+| `todo_sync` | Synchronize tasks; changes/diffs and suggestions; link needs id and confirm | project?, dryRun?, id?, link?, confirm? | write; dryRun previews |
+| `todo_status` | Inspect links; demandsWithoutItem and itemsWithoutDemand | project? | read |
 | `inbox_list` | Inspect work; items with project reference and owner | status?, client?, appliesTo?, limit?, locale? | read |
 | `inbox_claim` | Claim work atomically; ownership result/refusal | id, client, session?, worktree? | write |
 | `inbox_release` | Release owned/stale hold; result/refusal | id, client, session? | write |

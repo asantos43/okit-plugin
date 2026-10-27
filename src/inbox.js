@@ -5,6 +5,7 @@ import { inScope, validateAppliesTo, validateAppliesToFilter } from './applies.j
 import { readJson, withLock, writeJsonAtomic } from './state.js';
 import { paths } from './store.js';
 import { configOf } from './profiles.js';
+import { todoHook, validateTodoLink } from './todo/index.js';
 
 export const STATUSES = ['pending', 'delegated', 'criticised', 'consolidated', 'failed'];
 export const EFFORTS = ['simple', 'normal', 'hard'];
@@ -37,7 +38,8 @@ const heldMessage = (item) => `${item.id} held by ${item.hold.client} (${item.ho
 function clearHold(item, reason) {
   if (!item.hold) return;
   const { client, session, worktree, takenAt } = item.hold;
-  (item.heldBefore ??= []).push({ client, session, worktree, takenAt, releasedAt: new Date().toISOString(), reason });
+  (item.heldBefore ??= []).push({ client, session, worktree, takenAt, releasedAt: new Date().toISOString(), reason,
+    ...(reason === 'released' ? { statusAtRelease: item.status } : {}) });
   delete item.hold;
 }
 
@@ -130,7 +132,7 @@ async function changeHold(root, id, owner, { release = false, producer = false, 
     if (!release) item.hold = { ...owner, takenAt: new Date().toISOString(), via: producer ? 'producer' : 'claim' };
     item.updatedAt = new Date().toISOString();
     return { ...item, stale };
-  });
+  }).then(item => todoHook(root, item, release ? 'release' : 'take'));
 }
 
 export const inboxClaim = (root, id, owner, options) => changeHold(root, id, owner, { allowStale: options?.allowStale ?? true });
@@ -146,7 +148,8 @@ export const inboxProducerTakeover = (root, id, owner, expectedHold) =>
  * names the projects the demand is about; absent or `global`, it is shared and
  * the field is left out of the stored item.
  */
-export async function inboxAdd(root, { title, body, kind, accept, effort, client, appliesTo, ext } = {}) {
+export async function inboxAdd(root, { title, body, kind, accept, effort, client, appliesTo, ext, todoLink } = {}) {
+  const link = validateTodoLink(todoLink ?? ext?.todo);
   const clean = {
     title: validateTitle(title),
     body: validateBody(body),
@@ -176,9 +179,10 @@ export async function inboxAdd(root, { title, body, kind, accept, effort, client
       item.ext = ext;
     }
 
+    if (link) item.ext = { ...item.ext, todo: link };
     store.items.push(item);
     return item;
-  });
+  }).then(item => todoHook(root, item, 'register'));
 }
 
 
@@ -252,5 +256,5 @@ export async function inboxSetStatus(root, id, status, { holder } = {}) {
     item.status = status;
     item.updatedAt = new Date().toISOString();
     return item;
-  });
+  }).then(item => todoHook(root, item, 'status'));
 }

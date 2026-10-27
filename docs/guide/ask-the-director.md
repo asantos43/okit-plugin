@@ -12,4 +12,7 @@ Describe the result you want so the Director can plan, assign and review the wor
 
 The Director coordinates; Executors do assigned work and the Critic checks it. Model and effort choices do not change these roles. Use [models and allowance](models-and-quota.md) to adjust your choices, or [preview a demonstration](smoke-demo.md) first.
 
+To keep a project's task list up to date, configure only that project: `okit-plugin config set todo.projects '{"/projects/example":{"enabled":true,"file":"TODO.md","areaDir":"","section":"## Inbox","checkbox":{"open":" ","progress":"-","done":"x"}}}'`. Replace the example with the full project folder. The file and section must already exist; see [configuration](../components/configuration.md). With area files, set areaDir to their folder; new tasks go under the configured section in the main file or a single matching area file.
+Ask “Keep this project's task list in sync and show me the proposed changes.” `okit-plugin todo sync --dry-run --project /projects/example` shows changes without writing; remove --dry-run to apply. `okit-plugin todo check` lists work without a task and tasks without saved work. The Director asks before using a nearby task suggestion. Taking work marks progress, completing it records completion and date, and releasing or abandoning it restores the original task. A changed file or an outside path is refused; the work stays saved and the Director explains what needs checking. This works the same in all three clients.
+
 [Guide](README.md) · [Português](ask-the-director.pt-BR.md)

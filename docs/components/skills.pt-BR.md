@@ -11,6 +11,8 @@ Todas encaminham perguntas de ambiente para env_report, atores para actors_list/
 <a id="okit-director"></a>
 ## okit-director
 
+Mantém as tarefas dos projetos habilitados em dia; pergunta antes de usar uma sugestão, confere vínculos ausentes antes da entrega com `todo_status` e mostra correções com `todo_sync`.
+
 | Skill | Uso e instrução | Recursos principais |
 | :- | :- | :- |
 | `okit-director` | Orquestra trabalho solicitado; carregada ao dirigir ou delegar. Lê ordens e fila, classifica, escolhe atores, assume trabalho, reserva/libera vagas, orienta Executor e Critic, verifica provas e registra transições. | `order_list`, `inbox_list`, `inbox_claim`, `inbox_release`, `limits_status`, `status`, `actors_list`, `env_report`, `classify`, `profile_pick`, `acquire_slot`, `release_slot`, `inbox_add`, `inbox_set_status`, `order_add` |

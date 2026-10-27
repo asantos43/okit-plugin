@@ -13,6 +13,7 @@ import { adapterQuotaReader, clientsOf, LABELS, shouldShowStatus, statusTable } 
 import { CLIENTS } from '../spawn-process.js';
 import { readJson } from '../state.js';
 import { paths, stateRoot } from '../store.js';
+import { todoRun } from '../todo/index.js';
 
 const HOME_ENV = 'OKWORK_HOME';
 const DEFAULT_REASON = 'revoked by the mcp tool order_remove';
@@ -372,12 +373,13 @@ const inboxAddTool = {
       effort: { type: 'string', enum: EFFORT_CLASSES, description: 'Effort class; call classify when it is absent.' },
       client: { type: 'string', description: 'Client the demand belongs to.' },
       appliesTo: { description: 'Project the demand is about; absent or "global" means every project.' },
+      todoLink: { type: 'object', description: 'Confirmed task link: project (absolute root), item (text or anchor), optional file.' },
     },
     required: ['title'],
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
-    const a = argsOf('inbox_add', args, ['title', 'body', 'kind', 'accept', 'effort', 'client', 'appliesTo']);
+    const a = argsOf('inbox_add', args, ['title', 'body', 'kind', 'accept', 'effort', 'client', 'appliesTo', 'todoLink']);
     return reply(await inboxAdd(ctx.root, {
       title: requiredText('inbox_add', a, 'title'),
       body: optionalText('inbox_add', a, 'body'),
@@ -386,6 +388,7 @@ const inboxAddTool = {
       effort: optionalChoice('inbox_add', a, 'effort', EFFORT_CLASSES),
       client: optionalText('inbox_add', a, 'client'),
       appliesTo: optionalAppliesTo('inbox_add', a, 'appliesTo'),
+      todoLink: a.todoLink,
     }));
   },
 };
@@ -552,7 +555,25 @@ const smokeDemoTool = {
   },
 };
 
+function todoTool(name, check) {
+  return { name, description: check
+    ? 'Inspect project tasks and saved work without changing files. / Confira tarefas e trabalhos salvos sem alterar arquivos.'
+    : 'Synchronize project tasks; preview with dryRun. Confirm suggested links explicitly. / Sincronize tarefas; veja antes com dryRun. Confirme vínculos sugeridos.',
+  inputSchema: { type: 'object', properties: { project: { type: 'string' },
+    ...(!check ? { dryRun: { type: 'boolean' }, id: { type: 'string' }, link: { type: 'object' }, confirm: { type: 'boolean' } } : {}) },
+  required: [], additionalProperties: false },
+  handler: async (args, ctx) => {
+    const a = argsOf(name, args, check ? ['project'] : ['project', 'dryRun', 'id', 'link', 'confirm']);
+    for (const key of ['dryRun', 'confirm']) {
+      if (a[key] !== undefined && typeof a[key] !== 'boolean') fail(`${name}: ${key} must be boolean`);
+    }
+    return reply(await todoRun(ctx.root, { ...a, project: optionalText(name, a, 'project'), check }));
+  } };
+}
+
 export const TOOLS = [
+  todoTool('todo_sync', false),
+  todoTool('todo_status', true),
   acquireSlotTool,
   releaseSlotTool,
   limitsStatusTool,

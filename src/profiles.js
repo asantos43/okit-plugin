@@ -1,6 +1,7 @@
 // Actor profile choice: the maintainer owns the model names, the core only
 // picks which configured profile to use and may lower it on low quota.
 import process from 'node:process';
+import { isAbsolute } from 'node:path';
 import { setupPending as environmentSetupPending } from './env/configuration.js';
 
 import { EFFORT_CLASSES } from './classify.js';
@@ -106,6 +107,8 @@ export const DEFAULT_CONFIG = {
   limits: { global: 3, clients: {} },
   staleMinutes: 30,
   inbox: { holdStaleMinutes: 120, gitTimeoutMs: 5000 },
+  todo: { enabled: false, file: 'TODO.md', areaDir: '', section: '## Inbox',
+    checkbox: { open: ' ', progress: '-', done: 'x' }, projects: {} },
   // Editable in config.json; model names change as client catalogues change.
   profiles: {
     'claude-code': {
@@ -589,6 +592,23 @@ export function configOf(config) {
     }
   }
   const inbox = { ...DEFAULT_CONFIG.inbox, ...config?.inbox };
+  const todo = { ...DEFAULT_CONFIG.todo, ...config?.todo,
+    checkbox: { ...DEFAULT_CONFIG.todo.checkbox, ...config?.todo?.checkbox } };
+  if (!todo.projects || typeof todo.projects !== 'object' || Array.isArray(todo.projects)) throw new TypeError('todo.projects: object');
+  if (Object.keys(todo.projects).some(project => !isAbsolute(project))) throw new TypeError('todo.projects: absolute project folders');
+  for (const settings of [todo, ...Object.values(todo.projects ?? {})]) {
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new TypeError('todo.projects: project settings');
+    if (settings.enabled !== undefined && typeof settings.enabled !== 'boolean') throw new TypeError('todo.enabled: boolean');
+    for (const key of ['file', 'areaDir', 'section']) {
+      if (settings[key] !== undefined && (typeof settings[key] !== 'string' || /[\r\n]/.test(settings[key]))) throw new TypeError(`todo.${key}: text`);
+    }
+    for (const value of Object.values(settings.checkbox ?? {})) {
+      if (typeof value !== 'string' || value.length !== 1 || /[\]\r\n]/.test(value)) throw new TypeError('todo.checkbox: one character');
+    }
+    if (settings.checkbox !== undefined && (!settings.checkbox || typeof settings.checkbox !== 'object' || Array.isArray(settings.checkbox))) throw new TypeError('todo.checkbox: object');
+    if (settings.file !== undefined && !settings.file.trim()) throw new TypeError('todo.file: non-empty text');
+    if (settings.section !== undefined && !settings.section.trim()) throw new TypeError('todo.section: non-empty text');
+  }
   const daemon = { ...DEFAULT_CONFIG.daemon, ...config?.daemon };
   const smoke = { ...DEFAULT_CONFIG.smoke, ...config?.smoke };
   if (!Number.isInteger(smoke.demoMaxReworkRounds) || smoke.demoMaxReworkRounds < 0
@@ -659,6 +679,7 @@ export function configOf(config) {
     ...merged,
     statuslineRegistration,
     inbox,
+    todo,
     daemon,
     smoke,
     statuslineCollector,

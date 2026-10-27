@@ -16,6 +16,14 @@ client is a configured client; class is simple, normal or hard. Each field defau
 | Key pattern | Effect |
 | :- | :- |
 | `limits.global` | Default number of executors allowed at once for each client. |
+| `todo.enabled` | false; enable task synchronization only for intended projects. |
+| `todo.file` | TODO.md; existing task file, inside the declared root. |
+| `todo.areaDir` | Empty; optional directory of Markdown area files. |
+| `todo.section` | ## Inbox; exact heading for new tasks, preferably in the main file, otherwise in one area file. |
+| `todo.checkbox.open` | Space; original unchecked character. |
+| `todo.checkbox.progress` | -; in progress character. |
+| `todo.checkbox.done` | x; completed character. |
+| `todo.projects` | {}; JSON object keyed by absolute project root, overriding enabled/file/areaDir/section/checkbox per project. |
 | `limits.clients.<client>` | Executor limit for this client; it replaces the global limit. |
 | `profiles.<client>.<class>` | The profile of this client and work class; null disables the class. |
 | `profiles.<client>.<class>.model` | Model used for this client and work class. |

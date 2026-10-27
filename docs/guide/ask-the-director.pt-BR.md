@@ -12,4 +12,7 @@ Descreva o resultado desejado para o Diretor planejar, distribuir e revisar o tr
 
 O Diretor coordena; Executores fazem o trabalho atribuído e o Crítico confere. As escolhas de modelo e esforço não mudam esses papéis. Use [modelos e cota](models-and-quota.pt-BR.md) para ajustar as escolhas ou [veja uma demonstração](smoke-demo.pt-BR.md) primeiro.
 
+Para manter a lista de um projeto em dia, configure só esse projeto: `okit-plugin config set todo.projects '{"/projects/example":{"enabled":true,"file":"TODO.md","areaDir":"","section":"## Inbox","checkbox":{"open":" ","progress":"-","done":"x"}}}'`. Troque o exemplo pela pasta completa do projeto. Arquivo e seção devem existir; veja [configuração](../components/configuration.pt-BR.md). Com arquivos por área, ajuste areaDir; tarefas novas entram na seção configurada do arquivo principal ou de um único arquivo de área correspondente.
+Peça “Mantenha a lista de tarefas deste projeto em dia e mostre as mudanças propostas.” `okit-plugin todo sync --dry-run --project /projects/example` mostra mudanças sem gravar; remova --dry-run para aplicar. `okit-plugin todo check` lista trabalhos sem tarefa e tarefas sem trabalho salvo. O Diretor pergunta antes de usar uma sugestão próxima. Tomar marca andamento, concluir registra conclusão e data, e liberar ou abandonar restaura a tarefa original. Arquivos alterados ou caminhos externos são recusados; o trabalho permanece salvo e o Diretor explica o que conferir. Funciona igual nos três clientes.
+
 [Guia](README.pt-BR.md) · [English](ask-the-director.md)

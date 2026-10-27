@@ -100,6 +100,13 @@ export const CONFIG_SCHEMA = Object.freeze({
         description: { en: 'Codex automatic quota reading setting.',
           'pt-BR': 'Ajuste da leitura automática de cota do Codex.' },
       })),
+    ...['enabled', 'file', 'areaDir', 'section', 'checkbox.open', 'checkbox.progress', 'checkbox.done', 'projects'].map(key => ({
+      path: `todo.${key}`, defaultPath: `todo.${key}`,
+      type: key === 'enabled' ? 'boolean' : key === 'projects' ? 'object' : 'text',
+      constraint: { en: 'a TODO setting (projects is a JSON object keyed by absolute project root)',
+        'pt-BR': 'um ajuste do TODO (projects é um objeto JSON por raiz absoluta do projeto)' },
+      description: { en: 'Project TODO synchronization setting.', 'pt-BR': 'Ajuste da sincronização do TODO do projeto.' },
+    })),
   ],
   scopeMessages: { clients: 'unknownClient', classes: 'unknownClass' },
   scopePatterns: {
@@ -269,7 +276,15 @@ export function resolveEntry(key, raw) {
 function parseValue(entry, text) {
   const trimmed = String(text ?? '').trim();
   let value;
-  if (entry.type === 'integer') {
+  if (entry.type === 'boolean') {
+    if (!['true', 'false'].includes(trimmed)) return { error: 'invalidValue' };
+    value = trimmed === 'true';
+  } else if (entry.type === 'object') {
+    try { value = JSON.parse(trimmed); } catch { return { error: 'invalidValue' }; }
+    if (!isObjectRecord(value)) return { error: 'invalidValue' };
+  } else if (entry.type === 'text') {
+    value = String(text ?? '');
+  } else if (entry.type === 'integer') {
     if (!/^[+-]?\d+$/.test(trimmed)) return { error: 'invalidValue' };
     value = Number(trimmed);
     if (!Number.isFinite(value) || !Number.isSafeInteger(value)) return { error: 'invalidValue' };
@@ -458,7 +473,7 @@ async function setConfig(ctx, args, write) {
     const previous = effectiveValue(resolved.entry, raw, config);
     const written = setPath(raw, key, parsed.value);
     if (written.error) return { error: written.error, entry: resolved.entry };
-    if (key.startsWith('codexQuota.')) {
+    if (key.startsWith('codexQuota.') || key.startsWith('todo.')) {
       try { configOf(raw); }
       catch { return { error: { type: 'invalidValue' }, entry: resolved.entry }; }
     }

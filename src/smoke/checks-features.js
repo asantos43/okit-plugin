@@ -461,6 +461,8 @@ async function skillsPackaged(deps) {
 // The arguments of each tool, in the order `TOOLS` lists them: a later one uses
 // what an earlier one returned, which is what a client does.
 const TOOL_ARGS = {
+  todo_sync: () => ({ dryRun: true }),
+  todo_status: () => ({}),
   acquire_slot: () => ({ runId: 'smoke-e14', client: 'claude-code' }),
   release_slot: () => ({ runId: 'smoke-e14' }),
   limits_status: () => ({}),
