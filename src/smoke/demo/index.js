@@ -1,14 +1,15 @@
 import { configOf } from '../../profiles.js';
 import { listActors } from '../../actors.js';
 import { inboxAdd, inboxList } from '../../inbox.js';
-import { smokePreflight } from '../client.js';
+import { clientRequest, smokePreflight } from '../client.js';
+import { realDrivers } from './driver.js';
 import { loadScenario, validateScenario, createScratch } from './scenario.js';
 import { resolveLimits, ledger } from './budget.js';
 import { reportText } from './report.js';
 import { executeDemands } from './run.js';
 import { record } from '../../telemetry/index.js';
 
-// No environment detection or real driver: entry points must supply one snapshot.
+// Entry points supply the environment snapshot and launcher explicitly.
 export async function runDemo(options = {}) {
   const { snapshot, actor, critic, client = snapshot?.inUse, locale = 'en', mode = 'test',
     clock = () => Date.now(), signal, onNarration = () => {}, exportReport } = options;
@@ -36,7 +37,8 @@ export async function runDemo(options = {}) {
     const config = configOf(snapshot.config);
     const scenario = validateScenario(options.scenario ?? await loadScenario());
     result.limits = resolveLimits(config.smoke, scenario.demands.length);
-    budget = ledger(result.limits);
+    budget = ledger({ ...result.limits, ...(mode === 'real'
+      ? { reportsCost: clientRequest(client, config).reportsCost } : {}) });
     scratch = await createScratch(scenario, config);
     result.cleanup.root = scratch.root;
     const preflight = smokePreflight(snapshot, client, result.limits);
@@ -57,16 +59,27 @@ export async function runDemo(options = {}) {
     await inboxList(scratch.state);
     say('I have prepared five practice tasks.', 'Preparei cinco trabalhos de exemplo.');
     if (mode !== 'test') {
-      // Step 3 owns consent and real launch adapters. Injection never enables paid work.
       if (!options.confirmed) throw new Error('explicit quota confirmation required');
-      result.status = 'partial';
-      for (const row of result.demands) { row.verdict = 'skipped'; row.skipReason = pt ? 'Lançamento pago indisponível.' : 'Paid launch unavailable.'; }
+      result.confirmed = true;
+      const pathKey = Object.keys(options.env ?? {}).find((key) => key.toUpperCase() === 'PATH');
+      if (typeof options.env?.[pathKey] !== 'string' || options.env[pathKey] === '') throw new Error(
+        'PATH is missing from the environment, so the helper cannot be found. / '
+        + 'O PATH não está no ambiente, então o ajudante não pode ser encontrado.');
+      options = { ...options, ...realDrivers({ client, config, spawn: options.spawn }) };
+      const allowed = { 'claude-code': ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN',
+        'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_BASE_URL'], codex: ['OPENAI_API_KEY', 'OPENAI_BASE_URL'],
+      opencode: [] };
+      scratch.env.PATH = options.env[pathKey];
+      for (const key of allowed[client] ?? []) {
+        if (typeof options.env?.[key] === 'string') scratch.env[key] = options.env[key];
+      }
+      say('This work uses your allowance.', 'Este trabalho usa sua cota.');
     } else {
       say('This test uses injected helpers without allowance.', 'Este teste usa ajudantes injetados sem consumir cota.');
-      result.status = 'pass';
-      await executeDemands({ options, config, scenario, scratch, result, actors, budget,
-        say, clock, controller, client, locale, startedAt: clock() });
     }
+    result.status = 'pass';
+    await executeDemands({ options, config, scenario, scratch, result, actors, budget,
+      say, clock, controller, client, locale, startedAt: clock() });
   } catch (error) {
     result.reasons.push(error.message);
     if (result.status !== 'refused') result.status = 'partial';

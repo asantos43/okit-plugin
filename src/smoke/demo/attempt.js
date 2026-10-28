@@ -34,7 +34,14 @@ export async function attempt(ctx, row, demand, role, actor, profile, round, fai
   if (quota.refusal || quota.stale) throw new Error(quota.refusal ?? 'quota needs refresh');
   const driver = role === 'Executor' ? options.actor : options.critic;
   const room = budget.remaining(row.key);
-  const cap = driver.maxCostUsd ?? 0; // Injected calls are free unless explicitly simulating cost.
+  const reportsCost = budget.snapshot().reportsCost;
+  const real = options.mode === 'real';
+  const cap = real ? (reportsCost ? Math.min(driver.maxCostUsd ?? 0, room.total, room.demand) : 0)
+    : (driver.maxCostUsd ?? 0);
+  if (!Number.isFinite(cap) || cap < 0 || (real && reportsCost && (driver.maxCostUsd ?? 0) > 0
+    && (room.total <= 0 || room.demand <= 0))) {
+    throw new Error('budget or turn ceiling');
+  }
   const ticket = budget.reserve(row.key, cap);
   const runId = `${row.key}-${row.attempts.length}-${role.toLowerCase()}-${randomUUID()}`;
   const slot = { attempt: row.attempts.length + 1, runId };
@@ -95,8 +102,11 @@ export async function attempt(ctx, row, demand, role, actor, profile, round, fai
     return response;
   } catch (error) {
     if (launched && !settled) {
-      try { budget.settle(ticket, null); } catch { /* Keep unresolved reservation visible. */ }
-      row.costKnown = false; row.costUsd = null;
+      const measured = Number.isFinite(error.usage?.costUsd) && Number.isFinite(error.usage?.tokens);
+      try {
+        record.costUsd = budget.settle(ticket, measured ? error.usage : null);
+        if (record.costUsd !== null) row.costUsd += record.costUsd;
+      } catch { /* Keep unresolved reservation visible. */ }
     } else if (!launched && !settled) budget.settle(ticket, null, false);
     if (launched && record.costUsd === null) { row.costKnown = false; row.costUsd = null; }
     record.error = error.message; throw error;

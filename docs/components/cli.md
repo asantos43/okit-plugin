@@ -46,7 +46,7 @@ Each row shows a command and example; replace <id> with the identifier returned 
 | `okit-plugin statusline-collector` | Collect JSON stdin quota and chain prior bar | `okit-plugin statusline-collector` |
 | `okit-plugin smoke` | Run isolated offline checks in scratch state | `okit-plugin smoke` |
 | `okit-plugin client-smoke` | Run real-client scenario or offline preview/rehearsal | `okit-plugin client-smoke --client claude-code --dry-run` |
-| `okit-plugin smoke-demo` | Preview practice and enforce confirmation/cost contract | `okit-plugin smoke-demo --dry-run --json` |
+| `okit-plugin smoke-demo` | Preview practice; with --confirm and the preview hash it runs the real client and spends allowance within the displayed ceilings | `okit-plugin smoke-demo --dry-run --json` |
 | `okit-plugin telemetry` | Optional usage measurements | `okit-plugin telemetry status` |
 | `okit-plugin trajectory` | Read or enable local run recordings | `okit-plugin trajectory status` |
 

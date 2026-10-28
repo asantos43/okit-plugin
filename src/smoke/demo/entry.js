@@ -64,14 +64,11 @@ export async function smokeDemo(args = {}, deps = {}) {
     : 'Confirm the current preview before starting; changes need fresh confirmation.';
   if (!args.dryRun && !reason && !config.smoke.demoRequireQuotaConfirmation) reason = pt
     ? 'A confirmação de cota precisa estar habilitada.' : 'Allowance confirmation must be enabled.';
-  // No adapter currently proves both a paid cost cap and measured final usage.
-  // Never launch an injected actor as a substitute for that evidence.
   if (!args.dryRun && !reason) {
-    const result = await runDemo({ root: deps.root, snapshot, client, locale, mode: 'real', confirmed: true });
-    reason = pt ? 'Não há medição de uso e teto de custo comprovados. Nenhum trabalho pago foi iniciado.'
-      : 'Measured usage and a cost ceiling are not proven. No paid work was started.';
-    result.status = 'refused'; result.exitCode = 2; result.confirmed = true;
-    result.reasons = [reason]; result.text += `\n${reason}`;
+    const { spawn: nodeSpawn } = await import('node:child_process');
+    const result = await runDemo({ root: deps.root, snapshot, client, locale,
+      mode: 'real', confirmed: true, spawn: deps.spawn ?? nodeSpawn, env: deps.env,
+      scenario, signal: deps.signal });
     return { ...result, planHash, plan };
   }
   if (reason) text.push(reason);
