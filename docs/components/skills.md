@@ -45,7 +45,7 @@ Keeps enabled project tasks in step with saved work; asks before using a suggest
 
 | Skill | Use and instruction | Main resources |
 | :- | :- | :- |
-| `okit-smoke` | Narrates demonstrations and smoke checks; loaded for /okit-smoke or a demonstration/real-test request. Preview, show limits, obtain explicit allowance consent tied to the plan, then report runner evidence and exit status. Paid demo execution currently refuses without enforceable measurement. | `smoke_demo`, `okit-plugin smoke-demo`, `okit-plugin client-smoke`, `okit-plugin quota set` |
+| `okit-smoke` | Narrates demonstrations and smoke checks; loaded for /okit-smoke or a demonstration/real-test request. Preview, show limits, obtain explicit allowance consent tied to the plan, then run real work and report measured usage and exit status. Clients without money reports require smoke.maxTokens. Paid proof belongs to the owner. | `smoke_demo`, `okit-plugin smoke-demo`, `okit-plugin client-smoke`, `okit-plugin quota set` |
 
 <a id="okit-environment"></a>
 ## okit-environment

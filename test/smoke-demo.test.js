@@ -4,7 +4,7 @@ import { access, readFile, writeFile, unlink, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadScenario, validateScenario, createScratch } from '../src/smoke/demo/scenario.js';
 import { classify } from '../src/classify.js';
-import { configOf } from '../src/profiles.js';
+import { configOf, DEFAULT_CONFIG } from '../src/profiles.js';
 import { actorPairs } from '../src/env/snapshot.js';
 import { runDemo } from '../src/smoke/demo/index.js';
 import { limitsStatus } from '../src/limits.js';
@@ -98,14 +98,18 @@ test('clients without money reports settle tokens and expose null cost in the su
 
 test('no-money driver attempts keep demand and attempt JSON costs unknown', async () => {
   const deps = fixture({ smoke: { maxTokens: 10 } });
-  deps.actor.run = async () => ({ status: 'completed', artifacts: [], usage: { turns: 1, tokens: 2 } });
+  deps.actor.maxCostUsd = 5;
+  deps.actor.run = async (briefing) => {
+    assert.equal(briefing.limits.maxUsd, 0);
+    return { status: 'completed', artifacts: [], usage: { turns: 1, tokens: 2 } };
+  };
   const scenario = await loadScenario(), demand = scenario.demands[0];
   const scratch = await createScratch(scenario, deps.snapshot.config);
   const limits = { ...resolveLimits(deps.snapshot.config.smoke, 5), reportsCost: false };
   const budget = ledger(limits), result = { limits };
   const row = { key: demand.key, title: demand.title.en, size: 'S', class: 'simple',
     classificationReasons: [], slots: [], attempts: [], reworkRounds: 0, costUsd: 0, costKnown: true };
-  const ctx = { options: deps, scratch, result, config: deps.snapshot.config, budget,
+  const ctx = { options: { ...deps, mode: 'real' }, scratch, result, config: deps.snapshot.config, budget,
     scenario, controller: new AbortController(), clock: deps.clock, say() {}, client: 'codex', locale: 'en', startedAt: 1000 };
   try {
     for (let round = 0; round < 2; round += 1) {
@@ -171,6 +175,77 @@ test('failed prerequisite skips dependent work without calling its helper', asyn
 });
 
 const usage = { costUsd: 0, turns: 1 };
+
+async function attemptFixture(t, budget, mode = 'real') {
+  const deps = fixture(), scenario = await loadScenario(), demand = scenario.demands[0];
+  const scratch = await createScratch(scenario, deps.snapshot.config);
+  t.after(() => scratch.cleanup());
+  const limits = resolveLimits(deps.snapshot.config.smoke, 3);
+  const row = { key: demand.key, title: demand.title.en, size: 'S', class: 'simple',
+    classificationReasons: [], slots: [], attempts: [], reworkRounds: 0, costUsd: 0, costKnown: true };
+  const ctx = { options: { ...deps, mode }, scratch, result: { limits }, config: deps.snapshot.config, budget,
+    scenario, controller: new AbortController(), clock: deps.clock, say() {}, client: 'codex', locale: 'en', startedAt: 1000 };
+  const run = (round = 0) => attempt(ctx, row, demand, 'Executor',
+    deps.snapshot.clients[0].candidates[0], {}, round, []);
+  return { deps, ctx, row, run };
+}
+
+test('attempt reservation shrinks to remaining demand room and permits paid rework', async (t) => {
+  const limits = resolveLimits(DEFAULT_CONFIG.smoke, 3), budget = ledger(limits);
+  const { deps, row, run } = await attemptFixture(t, budget), caps = [];
+  deps.actor.maxCostUsd = 1;
+  deps.actor.run = async (briefing) => {
+    caps.push(briefing.limits.maxUsd);
+    return { status: 'completed', artifacts: [], usage: { costUsd: 0.01, tokens: 2, turns: 1 } };
+  };
+  await run(); await run(1);
+  assert.deepEqual(caps, [limits.demoDemandMaxUsd, limits.demoDemandMaxUsd - 0.01]);
+  assert.equal(row.reworkRounds, 1); assert.equal(row.costUsd, 0.02);
+  assert.equal(budget.snapshot().tokens, 4); assert.equal(budget.snapshot().reservedUsd, 0);
+});
+
+test('a money room of exactly zero stops a real actor that can spend, but not a free actor; test mode keeps the reserve behavior', async (t) => {
+  const zero = { ...resolveLimits(DEFAULT_CONFIG.smoke, 3), maxUsd: 0, demoDemandMaxUsd: 0 };
+  const free = await attemptFixture(t, ledger(zero)); let launched = 0;
+  free.deps.actor.maxCostUsd = 0;
+  free.deps.actor.run = async () => {
+    launched += 1; return { status: 'completed', artifacts: [], usage: { costUsd: 0, tokens: 1, turns: 1 } };
+  };
+  await free.run();
+  assert.equal(launched, 1); assert.equal(free.row.attempts.length, 1);
+  const noMoney = await attemptFixture(t, ledger({ ...zero, reportsCost: false }));
+  noMoney.deps.actor.maxCostUsd = 0.1;
+  noMoney.deps.actor.run = async (briefing) => {
+    launched += 1; assert.equal(briefing.limits.maxUsd, 0);
+    return { status: 'completed', artifacts: [], usage: { tokens: 1, turns: 1 } };
+  };
+  await noMoney.run();
+  assert.equal(launched, 2); assert.equal(noMoney.row.attempts.length, 1);
+  for (const mode of ['real', 'test']) {
+    const paid = await attemptFixture(t, ledger(zero), mode);
+    paid.deps.actor.maxCostUsd = 0.1;
+    paid.deps.actor.run = async () => { launched += 1; throw new Error('must not launch'); };
+    await assert.rejects(paid.run(), /budget or turn ceiling/);
+    assert.equal(launched, 2, mode); assert.equal(paid.row.attempts.length, 0, mode);
+  }
+});
+
+test('attempt reservation respects both driver and shared total room', async (t) => {
+  for (const driverCap of [0.05, 1]) {
+    const limits = resolveLimits(DEFAULT_CONFIG.smoke, 3), budget = ledger(limits);
+    for (const key of ['other-1', 'other-2', 'other-3']) {
+      budget.settle(budget.reserve(key, 0.3), { costUsd: 0.3, tokens: 1, turns: 1 });
+    }
+    const room = budget.remaining('card'), { deps, row, run } = await attemptFixture(t, budget);
+    deps.actor.maxCostUsd = driverCap;
+    deps.actor.run = async (briefing) => {
+      assert.equal(briefing.limits.maxUsd, Math.min(driverCap, room.total, room.demand));
+      return { status: 'completed', artifacts: [], usage: { costUsd: 0, tokens: 1, turns: 1 } };
+    };
+    await run();
+    assert.equal(row.attempts[0].reservedUsd, Math.min(driverCap, room.total, room.demand));
+  }
+});
 function fixture(overrides = {}) {
   const config = configOf({ limits: { global: 2 }, profiles: { codex: {
     simple: { model: 'small', effort: 'low' }, normal: { model: 'medium', effort: 'medium' },
@@ -204,6 +279,26 @@ function fixture(overrides = {}) {
   return { snapshot, actor, critic, clock: () => 1000 };
 }
 
+test('failed attempts retain measured money and tokens; unmeasured failures block more work', async (t) => {
+  for (const measured of [true, false]) {
+    const budget = ledger(resolveLimits(DEFAULT_CONFIG.smoke, 3));
+    const { deps, row, run } = await attemptFixture(t, budget);
+    deps.actor.maxCostUsd = 0.1;
+    deps.actor.run = async () => {
+      throw Object.assign(new Error('helper failed'), measured
+        ? { usage: { costUsd: 0.02, tokens: 7, turns: 1 } } : {});
+    };
+    await assert.rejects(run(), /helper failed/);
+    assert.equal(budget.snapshot().costUsd, measured ? 0.02 : null);
+    assert.equal(budget.snapshot().tokens, measured ? 7 : 0);
+    assert.equal(row.costUsd, measured ? 0.02 : null);
+    assert.equal(row.costKnown, measured);
+    assert.equal(row.attempts[0].costUsd, measured ? 0.02 : null);
+    assert.equal(row.slots[0].released.ok, true);
+    if (!measured) assert.throws(() => budget.reserve('next', 0), /ceiling/);
+  }
+});
+
 test('canonical corpus and disposable loader', async () => {
   const scenario = validateScenario(await loadScenario());
   for (const locale of ['en', 'pt-BR']) assert.deepEqual(scenario.demands.map((demand) =>
@@ -221,6 +316,15 @@ test('canonical corpus and disposable loader', async () => {
     (s) => { s.demands[0].acceptance[0].type = 'command'; },
     (s) => { s.demands[0].expectedSize = 'L'; },
   ]) { const bad = structuredClone(scenario); mutate(bad); assert.throws(() => validateScenario(bad)); }
+});
+
+test('test mode uses injected helpers without reading host environment or launching', async () => {
+  const result = await runDemo({ ...fixture(), env: new Proxy({}, {
+    get() { assert.fail('test mode must not read the environment'); },
+  }), spawn() { assert.fail('test mode must not spawn'); } });
+  assert.equal(result.status, 'pass');
+  assert.equal(result.costUsd, 0);
+  assert.match(result.text, /This test uses injected helpers without allowance/);
 });
 
 test('parallel actors, planted fault, correction, slot release and matching reports', async () => {
@@ -319,7 +423,7 @@ test('demand budget includes the critic and rejects the next reservation', async
   assert.equal(result.demands[0].attempts.length, 1);
 });
 
-test('quota and consent refuse before any real launch; missing cost enforcement is partial', async () => {
+test('quota, consent and missing real launcher refuse before any launch', async () => {
   for (const change of ['unknown', 'low', 'expired', 'stale', 'consent', 'disabled', 'driver']) {
     const deps = fixture(); let calls = 0;
     deps.actor.run = async () => { calls += 1; throw new Error('must not launch'); };
@@ -329,9 +433,10 @@ test('quota and consent refuse before any real launch; missing cost enforcement 
     if (change === 'expired') row.reading.expired = true;
     if (change === 'stale') row.quota.ageMinutes = 31;
     if (change === 'disabled') deps.snapshot.config.smoke.demoRequireQuotaConfirmation = false;
-    const result = await runDemo({ ...deps, mode: 'real', confirmed: change === 'driver' });
-    assert.equal(calls, 0, change); assert.equal(result.status, change === 'driver' ? 'partial' : 'refused', change);
-    assert.equal(result.costUsd, 0); assert.equal(result.cleanup.removed, true);
+    const result = await runDemo({ ...deps, mode: 'real', confirmed: change === 'driver',
+      env: { PATH: '/fake/bin' } });
+    assert.equal(calls, 0, change); assert.equal(result.status, 'refused', change);
+    assert.equal(result.costUsd, null); assert.equal(result.cleanup.removed, true);
     await assert.rejects(access(result.cleanup.root));
   }
 });
@@ -465,4 +570,50 @@ test('simulated measured usage charges executor, critic and rework and refunds u
     && attempt.costUsd === simulated.costUsd)));
   assert.ok(Math.abs(result.demands.reduce((sum, row) => sum + row.costUsd, result.overheadUsd)
     - result.costUsd) < Number.EPSILON);
+});
+
+// | Failed call usage | Must keep | Must refuse |
+// | finite cost and finite tokens | measured cost and tokens | - |
+// | finite cost, tokens missing or null | - | treating the cost as known |
+test('a failed call with money but unmeasured tokens leaves demand cost and ledger unknown', async (t) => {
+  for (const tokens of [null, undefined, 7]) {
+    const budget = ledger(resolveLimits(DEFAULT_CONFIG.smoke, 3));
+    const { deps, row, run } = await attemptFixture(t, budget);
+    deps.actor.maxCostUsd = 0.1;
+    deps.actor.run = async () => { throw Object.assign(new Error('helper failed'),
+      { usage: { costUsd: 0.01, tokens, turns: 1 } }); };
+    await assert.rejects(run(), /helper failed/);
+    const known = Number.isFinite(tokens);
+    assert.equal(row.costKnown, known, String(tokens));
+    assert.equal(row.costUsd, known ? 0.01 : null, String(tokens));
+    assert.equal(row.attempts[0].costUsd, known ? 0.01 : null, String(tokens));
+    assert.equal(budget.snapshot().costUsd, known ? 0.01 : null, String(tokens));
+    assert.equal(budget.snapshot().tokens, known ? 7 : 0, String(tokens));
+  }
+});
+
+test('real mode without explicit confirmation refuses before any helper or demand runs', async () => {
+  for (const confirmation of [{ confirmed: false }, {}]) {
+    const deps = fixture(), calls = { spawn: 0, actor: 0, critic: 0 };
+    deps.actor.run = async () => { calls.actor += 1; throw new Error('must not launch'); };
+    deps.critic.review = async () => { calls.critic += 1; throw new Error('must not launch'); };
+    const result = await runDemo({ ...deps, mode: 'real', ...confirmation,
+      spawn: () => { calls.spawn += 1; throw new Error('must not spawn'); } });
+    assert.equal(result.status, 'refused'); assert.equal(result.exitCode, 2);
+    assert.deepEqual(result.reasons, ['explicit quota confirmation required']);
+    assert.equal(result.confirmed, false);
+    assert.deepEqual(calls, { spawn: 0, actor: 0, critic: 0 });
+    assert.ok(result.demands.every((row) => row.verdict === 'pending' && row.attempts.length === 0));
+    assert.equal(result.cleanup.removed, true);
+  }
+});
+
+test('a real refusal before the ledger exists prints no cost or token lines', async () => {
+  for (const locale of ['en', 'pt-BR']) {
+    const result = await runDemo({ ...fixture(), mode: 'real', confirmed: true, locale,
+      scenario: { version: 1, demands: [] }, env: { PATH: '/fake/bin' } });
+    assert.equal(result.status, 'refused'); assert.equal(result.reportsCost, undefined);
+    assert.match(result.reasons.join('; '), /invalid scenario/);
+    assert.doesNotMatch(result.text, /undefined|Measured total cost|Custo total medido|tokens:/);
+  }
 });

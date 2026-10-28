@@ -22,7 +22,7 @@ O servidor expõe 22 ferramentas. Entradas são objetos JSON; ? indica campo opc
 | `status` | Consulta cota; linhas, markdown, capacityLine e showBefore opcional | locale?, all?, client?, size?, slices?, executors? | leitura |
 | `actors_list` | Consulta atores; modelos, esforço, disponibilidade e soluções | locale?, all?, client? | leitura |
 | `env_report` | Consulta ambiente; observações e texto localizado | client?, locale? | leitura |
-| `smoke_demo` | Prévia/confirmação de exemplo; plano, eventos, totais e código de saída | dryRun?, client?, locale?, confirm? | prévia lê; execução pode escrever/gastar, atualmente recusa sem teto medido |
+| `smoke_demo` | Prévia/confirmação de exemplo; plano, eventos, totais medidos e código de saída | dryRun?, client?, locale?, confirm? | prévia lê; confirm válido executa o cliente real e gasta cota nos tetos mostrados; cliente sem dinheiro exige smoke.maxTokens |
 | `classify` | Classifica trabalho; classe de esforço e motivos | title, body?, kind? | leitura |
 | `profile_pick` | Escolhe um assistente pelas escolhas salvas ou padrões incluídos, mesmo antes da configuração; modelo, esforço, maxTurns ou recusa | client, effort, quota? | leitura |
 | `inbox_add` | Grava trabalho; vínculo confirmado ou sugestão aguardando confirmação | title, body?, kind?, accept?, effort?, client?, appliesTo?, todoLink? | escrita |

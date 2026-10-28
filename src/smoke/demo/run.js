@@ -8,7 +8,7 @@ import { safeFile } from './scenario.js';
 
 export async function executeDemands(ctx) {
   const { result, scenario, config, client, actors, scratch, say, controller } = ctx;
-  const cap = capOf(config.limits, client).cap;
+  const cap = ctx.options.mode === 'real' ? 1 : capOf(config.limits, client).cap;
   say(cap > 1 ? 'Independent tasks can be done together.' : 'One place is available; tasks will run in sequence.',
     cap > 1 ? 'Trabalhos independentes podem ser feitos juntos.' : 'Há uma vaga; os trabalhos serão feitos em sequência.');
   const pending = new Set(result.demands);

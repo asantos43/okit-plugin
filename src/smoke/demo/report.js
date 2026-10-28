@@ -1,10 +1,14 @@
 export function reportText(result, locale = 'en') {
-  // index.js must pass smokeDrivers[client].reportsCost into ledger limits;
-  // snapshot() exposes reportsCost and costUsd on the result before reporting.
   const pt = locale === 'pt-BR', partial = pt ? 'PARCIAL' : 'PARTIAL';
   const lines = result.events.slice().reverse().map((event) => event.text);
+  if (result.mode === 'real') lines.push(...result.reasons);
   if (result.reportsCost === false) {
     lines.push(pt ? 'Este cliente não informa custo em dinheiro.' : 'Money is not reported by this client.');
+  } else if (result.mode === 'real' && result.reportsCost !== undefined) {
+    lines.push(`${pt ? 'Custo total medido' : 'Measured total cost'}: ${result.costUsd === null
+      ? (pt ? 'desconhecido' : 'unknown') : `USD ${result.costUsd}`}`);
+  }
+  if (result.reportsCost === false || (result.mode === 'real' && result.reportsCost !== undefined)) {
     const maximum = result.limits?.maxTokens ?? (pt ? 'sem limite' : 'unlimited');
     lines.push(`tokens: ${result.tokens} / ${pt ? 'máximo' : 'max'} ${maximum}`);
   }

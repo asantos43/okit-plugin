@@ -46,7 +46,7 @@ Cada linha mostra o comando e um exemplo; substitua <id> pelo identificador reto
 | `okit-plugin statusline-collector` | Coleta cota do JSON no stdin e encadeia barra anterior | `okit-plugin statusline-collector` |
 | `okit-plugin smoke` | Executa verificações offline isoladas em estado temporário | `okit-plugin smoke` |
 | `okit-plugin client-smoke` | Executa cenário no cliente ou prévia/ensaio offline | `okit-plugin client-smoke --client claude-code --dry-run` |
-| `okit-plugin smoke-demo` | Mostra prévia e exige contrato de confirmação/custo | `okit-plugin smoke-demo --dry-run --json` |
+| `okit-plugin smoke-demo` | Mostra prévia; com --confirm e o hash da prévia executa o cliente real e gasta cota dentro dos tetos mostrados | `okit-plugin smoke-demo --dry-run --json` |
 
 | `okit-plugin telemetry` | Medições opcionais de uso | `okit-plugin telemetry status` |
 | `okit-plugin trajectory` | Lê ou ativa gravações locais de execuções | `okit-plugin trajectory status` |

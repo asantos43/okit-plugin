@@ -555,7 +555,7 @@ const smokeDemoTool = {
     return reply(await smokeDemo({ dryRun: a.dryRun,
       client: optionalChoice('smoke_demo', a, 'client', CLIENTS),
       locale: optionalChoice('smoke_demo', a, 'locale', LOCALES, config),
-      confirm: optionalText('smoke_demo', a, 'confirm') }, { ...ctx, config }));
+      confirm: optionalText('smoke_demo', a, 'confirm') }, { ...ctx, config, env: ctx.env ?? process.env }));
   },
 };
 

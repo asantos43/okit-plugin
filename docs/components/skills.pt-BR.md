@@ -45,7 +45,7 @@ Mantém as tarefas dos projetos habilitados em dia; pergunta antes de usar uma s
 
 | Skill | Uso e instrução | Recursos principais |
 | :- | :- | :- |
-| `okit-smoke` | Narra demonstrações e verificações; carregada para /okit-smoke ou pedido de demonstração/teste real. Mostra prévia e limites, pede consentimento explícito de cota vinculado ao plano e relata provas e saída do runner. A demonstração paga recusa sem medição garantida. | `smoke_demo`, `okit-plugin smoke-demo`, `okit-plugin client-smoke`, `okit-plugin quota set` |
+| `okit-smoke` | Narra demonstrações e verificações; carregada para /okit-smoke ou pedido de demonstração/teste real. Mostra prévia e limites, pede consentimento explícito de cota vinculado ao plano, executa trabalho real e relata uso medido e saída. Clientes sem custo em dinheiro exigem smoke.maxTokens. A prova paga cabe ao dono. | `smoke_demo`, `okit-plugin smoke-demo`, `okit-plugin client-smoke`, `okit-plugin quota set` |
 
 <a id="okit-environment"></a>
 ## okit-environment

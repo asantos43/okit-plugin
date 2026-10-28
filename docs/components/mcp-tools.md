@@ -22,7 +22,7 @@ The server exposes 22 tools. Inputs are JSON objects; ? marks an optional field.
 | `status` | Inspect allowance; rows, markdown, capacityLine and optional showBefore | locale?, all?, client?, size?, slices?, executors? | read |
 | `actors_list` | Inspect actor choices; models, effort, availability and remedies | locale?, all?, client? | read |
 | `env_report` | Inspect environment; observations and localized text | client?, locale? | read |
-| `smoke_demo` | Preview/confirm practice; plan, events, totals and exit code | dryRun?, client?, locale?, confirm? | preview reads; execution may write/spend, currently refuses without measured ceiling |
+| `smoke_demo` | Preview/confirm practice; plan, events, measured totals and exit code | dryRun?, client?, locale?, confirm? | preview reads; valid confirm runs the real client and spends allowance within displayed ceilings; no-money clients require smoke.maxTokens |
 | `classify` | Classify work; effort class and reasons | title, body?, kind? | read |
 | `profile_pick` | Choose an assistant from saved settings or built-in defaults, even before setup; model, effort, maxTurns or refusal | client, effort, quota? | read |
 | `inbox_add` | Store work; confirmed link or suggested task awaiting confirmation | title, body?, kind?, accept?, effort?, client?, appliesTo?, todoLink? | write |
