@@ -1,1 +1,0 @@
-Add opt-in local executor and critic recordings with redaction, retention and step-by-step viewing / Adiciona gravações locais opcionais de ajudantes e críticos com ocultação de segredos, retenção e leitura passo a passo.
