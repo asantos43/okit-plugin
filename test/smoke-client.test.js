@@ -1147,3 +1147,57 @@ test('denying a prerequisite skips dependent checks instead of blaming the plugi
   assert.equal(result.records.find((entry) => entry.id === 'C7').error, 'permission-denied');
   assert.equal(result.records.find((entry) => entry.id === 'C9').error, 'client-refused');
 });
+
+test('a Claude Code failure without a result stops the run as unmeasured spend; one with a known cost stays measured', async (t) => {
+  const silent = await fixture(t, { respond: async ({ step }) => {
+    if (step.id === 'C6') throw Object.assign(new Error('The helper stopped before finishing.'), { events: [], state: {} });
+    return null;
+  } });
+  const stopped = await runClientSmoke(['--only=C6,C7'], silent.io);
+  assert.equal(stopped.stopped, 'smoke.maxUsd');
+  assert.equal(silent.calls.filter((request) => request.step).length, 1);
+  assert.equal(stopped.records.find((entry) => entry.id === 'C7').error, 'budget-exhausted');
+  assert.ok(silent.lines.some((line) => line.includes('Spending could not be measured')));
+  const measured = await fixture(t, { respond: async ({ step }) => step.id === 'C6'
+    ? { events: [{ type: 'result', is_error: true, subtype: 'error_during_execution', total_cost_usd: 0.1 }] } : null });
+  const kept = await runClientSmoke(['--only=C6,C7'], measured.io);
+  assert.ok(!kept.stopped);
+  assert.equal(measured.calls.filter((request) => request.step).length, 2);
+  assert.equal(kept.spentUsd, 0.1);
+  assert.ok(measured.lines.every((line) => !line.includes('Spending could not be measured')));
+});
+
+test('an OpenCode error after its final stop still becomes is_error, unlike the Codex late error', async () => {
+  const stop = { type: 'step_finish', part: { reason: 'stop', cost: 0.01, tokens: { input: 3, output: 2 } } };
+  const late = await invokeOpenCode({ args: [], spawn: fakeChild([stop, { type: 'error', error: { message: 'late' } }]) });
+  assert.equal(late.events.length, 2);
+  assert.equal(late.events[0].total_cost_usd, 0.01);
+  assert.equal(late.events[1].is_error, true);
+  const early = await invokeOpenCode({ args: [], spawn: fakeChild([{ type: 'error', error: { message: 'early' } }, stop]) });
+  assert.equal(early.events[0].is_error, true);
+});
+
+test('a timeout on the last allowed step stops with timeout, not smoke.maxTurns', async (t) => {
+  const state = { cost: 0.01, tokens: 5, usage: { input_tokens: 3, output_tokens: 2 } };
+  const f = await fixture(t, { smoke: { checkTimeoutMs: 25, maxTurns: 1 },
+    respond: async (request) => {
+      if (request.step?.id !== 'C6') return null;
+      request.onProgress({ events: [], state }); // Partial cost is known, then the call never finishes.
+      return new Promise(() => {});
+    } });
+  const result = await runClientSmoke(['--only=C6'], f.io);
+  assert.equal(result.records.find((entry) => entry.id === 'C6').error, 'timeout');
+  assert.equal(result.stopped, 'timeout');
+  assert.ok(f.lines.some((line) => line === 'ceiling: timeout'));
+});
+
+test('the usage text keeps --real away from the --client forms', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'okit-usage-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const lines = [];
+  assert.equal(await main(['client-smoke', '--help'], { root,
+    stdout: (line) => lines.push(line), stderr: (line) => lines.push(line) }), 0);
+  const usage = lines.join('\n').split('\n');
+  assert.ok(usage.some((line) => line.includes('smoke [--real]')));
+  assert.ok(usage.every((line) => !(line.includes('--client') && line.includes('--real'))));
+});
