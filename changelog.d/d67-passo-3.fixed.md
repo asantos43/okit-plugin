@@ -1,3 +1,1 @@
-Added regression coverage rejecting valid OpenCode quota JSON from commands that exit unsuccessfully.
-Added regression coverage enforcing the command timeout after valid quota JSON, with process cleanup.
-Added regression coverage for bilingual fallback reasons with and without saved manual quota, and no reason without sources.
+Add regression coverage for OpenCode quota commands that fail, exceed the timeout after valid JSON, and for bilingual fallback reasons / Adiciona cobertura de regressão para comandos de cota do OpenCode que falham, excedem o tempo após JSON válido e para motivos de contingência bilíngues.
