@@ -1,6 +1,6 @@
 # Contributing
 
-The package version is 0.2.3. Use Node.js >=20; no dependency installation is required for the tests.
+The package version is 0.3.0. Use Node.js >=20; no dependency installation is required for the tests.
 
 ## How to contribute
 
