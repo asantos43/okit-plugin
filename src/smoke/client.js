@@ -16,6 +16,9 @@ const MINUTE_MS = 60 * 1000;
 const OVERRIDES = { '--max-usd': 'maxUsd', '--max-turns': 'maxTurns',
   '--max-minutes': 'maxMinutes', '--quota-floor': 'quotaFloorPct', '--timeout': 'checkTimeoutMs' };
 const INSTALLATION = SCENARIO.slice(0, SCENARIO.findIndex((step) => step.kind === 'call'));
+const INSTALLATION_IDS = INSTALLATION.map((step) => step.id);
+// The checks that need installation details from the helper: the installation steps and the template one.
+const INSTALL_EVIDENCE_IDS = [...INSTALLATION_IDS, SCENARIO.find((step) => step.name === 'template.opened').id];
 
 // Consume the shared observation; smoke keeps its own expiry and floor policy.
 export function smokePreflight(snapshot, client, budget, allowUnknown = false) {
@@ -148,6 +151,8 @@ function clientEvents(client, event, state) {
         ...(!state.unknownCost && state.cost != null ? { total_cost_usd: state.cost } : {}),
         ...(state.usage ? { usage: state.usage } : {}) }];
     }
+    // Intentional: unlike Codex (which ignores an error after `turn.completed`), an OpenCode error
+    // after the final stop still fails the call, so the demo critic rejects instead of approving.
     if (event.type === 'error') return [{ type: 'result', is_error: true }];
   }
   return [];
@@ -369,6 +374,8 @@ async function runScenario(argv, io) {
     return counts.every((count) => Number.isSafeInteger(count) && count >= 0)
       ? counts.reduce((total, count) => total + count, 0) : null;
   };
+  // A failed call that never produced a `result` event (Claude Code included) is spend
+  // nobody measured, so the run stops on purpose: it fails closed, never as free.
   const settleAttempt = (attempt, { result, failed = false } = {}) => {
     if (!attempt || attempt.accounted) return;
     attempt.accounted = true;
@@ -462,7 +469,7 @@ async function runScenario(argv, io) {
         outcome = await bounded(async (signal) => {
           if (step.id === 'C14' && await readJson(paths(root).config, null) === null) return skip('config-missing');
           if (step.id === 'C23') return { status: 'pass' }; // Verified after the first artifact write below.
-          if (!reportsInstallation && ['C1', 'C2', 'C3', 'C4', 'C5', 'C21'].includes(step.id)) {
+          if (!reportsInstallation && INSTALL_EVIDENCE_IDS.includes(step.id)) {
             return { status: 'skip', error: 'This helper does not provide installation details. / Este ajudante não fornece detalhes da instalação.',
               logTail: 'evidence-unavailable' };
           }
@@ -492,7 +499,8 @@ async function runScenario(argv, io) {
         settleAttempt(activeAttempt, { result: partial, failed: true });
         if (error.message === 'timeout') {
           outcome = { status: 'fail', error: 'timeout' };
-          stopped = ceiling() ?? (now() - started >= budget.maxMinutes * MINUTE_MS ? 'smoke.maxMinutes' : 'timeout');
+          // The step that timed out names the timeout even when it was the last turn allowed.
+          stopped = usageCeiling() ?? (now() - started >= budget.maxMinutes * MINUTE_MS ? 'smoke.maxMinutes' : 'timeout');
         } else if (error.message === 'interrupted') {
           outcome = skip('client-refused'); stopped = ceiling() ?? 'interrupted'; header.interrupted = true;
         } else outcome = { status: 'fail', error };
@@ -528,7 +536,7 @@ async function runScenario(argv, io) {
   out(`passed: ${count('pass')} failed: ${count('fail')} skipped: ${count('skip')}; ${usage}`);
   out(`${artifacts.jsonl}\n${artifacts.log}`);
   const failed = records.some((record) => record.status === 'fail');
-  const installed = INSTALLATION.filter((step) => reportsInstallation || !['C1', 'C2', 'C3', 'C4', 'C5'].includes(step.id))
+  const installed = INSTALLATION.filter((step) => reportsInstallation || !INSTALLATION_IDS.includes(step.id))
     .every((step) => records.some((record) => record.id === step.id && record.status === 'pass'));
   await finish(context, flags.keep);
   return { code: failed || !installed ? 1 : 0, records, artifacts, budget, stopped,
