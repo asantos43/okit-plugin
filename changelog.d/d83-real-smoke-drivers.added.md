@@ -1,1 +1,0 @@
-Add Codex and OpenCode smoke drivers with documented settings, tested money or text limits, preserved budget results and plain-language allowance previews / Adiciona execução do smoke com Codex e OpenCode, ajustes documentados, limites de dinheiro ou texto testados, resultados de orçamento preservados e prévias de cota em linguagem simples.

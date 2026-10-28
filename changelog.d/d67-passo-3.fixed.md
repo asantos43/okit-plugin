@@ -1,1 +1,0 @@
-Add regression coverage for OpenCode quota commands that fail, exceed the timeout after valid JSON, and for bilingual fallback reasons / Adiciona cobertura de regressão para comandos de cota do OpenCode que falham, excedem o tempo após JSON válido e para motivos de contingência bilíngues.

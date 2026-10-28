@@ -1,1 +1,0 @@
-Count only status bar consent in the interactive `--no-statusline` regression test, declining unrelated setup prompts / Contar apenas o consentimento da barra de status no teste de regressão interativo de `--no-statusline`, recusando os outros pedidos de configuração.

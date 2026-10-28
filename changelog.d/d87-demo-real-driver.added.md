@@ -1,1 +1,0 @@
-Add injectable real demo drivers for Claude Code, Codex and OpenCode with safe file reads, strict review JSON and preserved usage on failures / Adiciona drivers reais injetáveis da demonstração para Claude Code, Codex e OpenCode com leitura segura de arquivos, revisão JSON estrita e uso preservado nas falhas.

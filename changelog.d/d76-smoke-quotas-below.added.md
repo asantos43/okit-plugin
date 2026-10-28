@@ -1,1 +1,0 @@
-Added an isolated smoke check and real kit integration test for quota refusal, configured launch thresholds and bilingual guidance / Adicionado check isolado ao smoke e teste com kit real para recusa por cota, limiar configurável de lançamento e orientação bilíngue
