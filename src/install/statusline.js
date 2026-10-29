@@ -52,6 +52,13 @@ export function collectorCommandIndex(command, settings, config = {}) {
   return -1;
 }
 
+// The executable the status bar command names. Claude Code runs it through Git Bash on Windows, which cannot run a .cmd
+// by bare name: there it is the absolute path of the extensionless shim (forward slashes, as Git Bash writes them).
+function collectorExecutable(deps) {
+  const { config, bin, platform } = deps;
+  return platform === config.windowsPlatform && bin ? join(bin, config.command).replaceAll('\\', '/') : config.command;
+}
+
 export async function planStatusline(record, deps) {
   const settings = deps.statuslineConfig;
   const path = record.statusline?.path ?? join(clientRoot(record.client, deps), settings.settingsFile);
@@ -65,12 +72,13 @@ export async function planStatusline(record, deps) {
   const owned = collectorIndex > 0;
   // A collector at another path is already registered; only update a command
   // whose original settings this installation can restore.
-  if (owned && (!record.statusline || (collectorIndex === 1 && words[0] === deps.config.command))) return null;
+  const executable = collectorExecutable(deps);
+  if (owned && (!record.statusline || (collectorIndex === 1 && words[0] === executable))) return null;
   let command;
-  if (owned) command = [deps.config.command, ...words.slice(collectorIndex)].map(quote).join(' ');
+  if (owned) command = [executable, ...words.slice(collectorIndex)].map(quote).join(' ');
   else {
     const prior = previous?.command ? (words ?? [...settings.shell[deps.platform], previous.command]) : [];
-    command = [deps.config.command, settings.subcommand, ...(prior.length ? ['--previous', ...prior] : [])].map(quote).join(' ');
+    command = [executable, settings.subcommand, ...(prior.length ? ['--previous', ...prior] : [])].map(quote).join(' ');
   }
   value.statusLine = { ...previous, type: 'command', command };
   return { path, original, previous, bytes: Buffer.from(`${JSON.stringify(value, null, 2)}\n`) };

@@ -1,7 +1,7 @@
 import { OperationalError, UsageError } from './exit.js';
 import { PATH_STATE_SCHEMA, problemOf } from '../config-schema.js';
 import { binInPath, commandInPath } from '../env/path.js';
-import { join, delimiter, dirname, resolve, relative, isAbsolute } from 'node:path';
+import { join, delimiter, dirname, resolve, relative, isAbsolute, extname } from 'node:path';
 import { createRequire } from 'node:module';
 import { readRecords } from './place.js';
 import { presenterOf, pick } from './present.js';
@@ -13,6 +13,32 @@ import { promisify } from 'node:util';
 const execute = promisify(execFile);
 export const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 const missingFile = (error) => { if (error.code !== 'ENOENT') throw error; return null; };
+
+/**
+ * The extensionless shim for Git Bash (the shell Claude Code runs a status bar command through; it cannot run a .cmd by
+ * bare name). POSIX sh, LF only: the paths are the Windows paths of the configuration, converted with cygpath when the
+ * shell has it, and single-quoted so no character of a path is ever interpreted.
+ *
+ * @param {string} node the node executable
+ * @param {string} target the command's script
+ * @returns {string} the file's content
+ */
+export const shellShim = (node, target) => [
+  '#!/bin/sh', `node=${quote(node)}`, `target=${quote(target)}`,
+  'if command -v cygpath >/dev/null 2>&1; then', '  node=$(cygpath -u "$node")', '  target=$(cygpath -u "$target")', 'fi',
+  'exec "$node" "$target" "$@"', ''].join('\n');
+
+// Longer than this is not a shim of ours; the read of an unknown file on the PATH stays small.
+const SHIM_MAX_BYTES = 4096;
+const unquoted = (text) => text.match(/^'((?:[^']|'\\'')*)'$/)?.[1].replaceAll("'\\''", "'");
+
+/** The script a shell shim of ours runs, or null when the content is not exactly what shellShim writes. */
+function shimTarget(content) {
+  const [, node, target] = content.split('\n');
+  const nodePath = node?.startsWith('node=') ? unquoted(node.slice('node='.length)) : undefined;
+  const targetPath = target?.startsWith('target=') ? unquoted(target.slice('target='.length)) : undefined;
+  return nodePath !== undefined && targetPath !== undefined && content === shellShim(nodePath, targetPath) ? targetPath : null;
+}
 
 /**
  * The shell of the current terminal, from the environment only: the basename
@@ -278,6 +304,15 @@ export async function pluginExecutable(path, deps) {
     const target = content.match(/^@echo off\r?\n"[^"\r\n]+" "([^"\r\n]+)" %\*\r?\n?$/)?.[1]
       ?? content.match(/^& '[^'\r\n]+' '([^'\r\n]+)' @args\r?\n?$/)?.[1];
     if (target && resolve(target) !== actual) return pluginExecutable(target, deps);
+  } else if (!extname(actual)) {
+    // The extensionless shim of Git Bash: ours when it is exactly what shellShim writes.
+    const info = await fs.stat(actual).catch((error) => {
+      if (!['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes(error.code)) throw error;
+      return null;
+    });
+    const content = info?.isFile() && info.size <= SHIM_MAX_BYTES ? await fs.readFile(actual, 'utf8') : '';
+    const target = shimTarget(content);
+    if (target && resolve(target) !== actual) return pluginExecutable(target, deps);
   }
   for (let folder = dirname(actual); dirname(folder) !== folder; folder = dirname(folder)) {
     const metadata = await fs.readFile(join(folder, 'package.json'), 'utf8').catch(() => null);
@@ -296,8 +331,10 @@ export function linkPlan(record, deps) {
   if (platform !== config.windowsPlatform) return [{ path: join(bin, config.command), target }];
   // Quote for each shell; no unquoted interpolated command or arguments.
   if (/[\r\n"%]/.test(target + config.node)) throw new UsageError('Unsupported shim path');
-  // Only the .cmd: PowerShell finds it too, and a .ps1 would need an execution policy that allows scripts.
-  return [{ path: join(bin, `${config.command}.cmd`), content: `@echo off\r\n"${config.node}" "${target}" %*\r\n` }];
+  // The .cmd for PowerShell and cmd.exe (PowerShell finds it too, and a .ps1 would need an execution policy that allows
+  // scripts), and the extensionless shim for Git Bash. The order is the index that updates and ownership compare by.
+  return [{ path: join(bin, `${config.command}.cmd`), content: `@echo off\r\n"${config.node}" "${target}" %*\r\n` },
+    { path: join(bin, config.command), content: shellShim(config.node, target) }];
 }
 
 // What an earlier version wrote as the .ps1 shim of a record.
@@ -338,7 +375,7 @@ export async function applyLink(record, deps, previous = null, remove = false) {
         for (let current of records) for (; current; current = current.previous) {
           if (linkPlan(current, legacyDeps).some((entry) => entry.content === content)) ours = true;
         }
-        if (!ours && /\.(cmd|ps1)$/i.test(item.path)) ours = await pluginExecutable(item.path, deps);
+        if (!ours && item.content !== undefined) ours = await pluginExecutable(item.path, deps);
       }
       if (ours) await fs.unlink(item.path);
     }

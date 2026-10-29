@@ -13,9 +13,17 @@ import { promisify } from 'node:util';
 import { installConfig, installPaths, clientRoot } from '../install/config.js';
 import { binInPath } from './path.js';
 import { readRecords } from '../install/place.js';
+import { paths } from '../store.js';
 
 const exec = promisify(execFile);
 const READING_CACHE = new Map();
+
+// Whether the collector has written a reading yet: null when this cannot be told (no state folder, or the file system refused).
+async function readingReceived(deps, settings) {
+  if (!deps.root) return null;
+  try { await (deps.fs ?? filesystem).stat(join(paths(deps.root).quota, `${settings.client}.json`)); return true; }
+  catch (error) { return ['ENOENT', 'ENOTDIR'].includes(error?.code) ? false : null; }
+}
 
 async function statuslineState(deps, config, command) {
   const settings = config.statuslineRegistration;
@@ -29,7 +37,8 @@ async function statuslineState(deps, config, command) {
     active = value.statusLine?.type === 'command' && typeof value.statusLine.command === 'string'
       && collectorCommandIndex(value.statusLine.command, settings, { ...config.install, command }) > 0;
   } catch (error) { if (error.code === 'ENOENT') active = false; }
-  return { active, path, command: `${command} install --client ${settings.client} --statusline` };
+  return { active, path, command: `${command} install --client ${settings.client} --statusline`,
+    received: active === true ? await readingReceived(deps, settings) : null };
 }
 
 async function withTimeout(pending, milliseconds) {

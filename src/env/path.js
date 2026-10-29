@@ -18,7 +18,8 @@ export async function commandInPath({ fs, config, windows, path, separator }) {
   let resolved;
   for (const directory of path.split(separator)) {
     if (!directory) continue;
-    for (const extension of windows ? config.pathExtensions : ['']) {
+    // On Windows a file with no extension (the shim of Git Bash) is not a command of cmd.exe or PowerShell.
+    for (const extension of windows ? config.pathExtensions.filter(Boolean) : ['']) {
       const path = join(directory, config.command + extension);
       try { await fs.access(path, windows ? constants.F_OK : constants.X_OK); resolved = path; break; }
       catch (error) { if (!['ENOENT', 'EACCES', 'ENOTDIR'].includes(error.code)) throw error; }

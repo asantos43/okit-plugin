@@ -8,6 +8,7 @@ const WORDS = {
     unknownClient: 'Client not recognized. Choose a known client.', unknown: 'unknown', none: 'none confirmed',
     installed: 'installed', absent: 'not installed (optional)', inUse: 'in use', version: 'version',
     collector: 'Status bar collector (statusline-collector)', active: 'active', inactive: 'inactive',
+    noReading: 'no reading received yet',
     models: 'Active models', actors: 'Actors', sizes: 'sizes', critic: 'review',
     quota: 'Quota remaining', renews: 'renews in', minutes: 'minutes', slots: 'Free slots', of: 'of',
     plugin: 'Plugin folder', state: 'State folder', path: 'Command available in PATH', yes: 'yes', no: 'no',
@@ -21,6 +22,7 @@ const WORDS = {
     unknownClient: 'Cliente não reconhecido. Escolha um cliente conhecido.', unknown: 'desconhecida', none: 'nenhum confirmado',
     installed: 'instalado', absent: 'não instalado (opcional)', inUse: 'em uso', version: 'versão',
     collector: 'Coletor da barra de status (statusline-collector)', active: 'ativo', inactive: 'inativo',
+    noReading: 'nenhuma leitura recebida ainda',
     models: 'Modelos ativos', actors: 'Atores', sizes: 'tamanhos', critic: 'revisão',
     quota: 'Cota restante', renews: 'renova em', minutes: 'minutos', slots: 'Vagas livres', of: 'de',
     plugin: 'Pasta do plugin', state: 'Pasta de estado', path: 'Comando disponível no PATH', yes: 'sim', no: 'não',
@@ -48,8 +50,9 @@ export function formatEnvironmentReport(report, locale = 'en') {
   }
   const plugin = report.plugin;
   if (plugin.statusline) {
-    const { active, command } = plugin.statusline;
-    lines.push(`${words.collector}: ${active === null ? words.unknown : active ? words.active : words.inactive}.${active === true ? '' : ` ${words.run} ${command}.`}`);
+    const { active, command, received } = plugin.statusline;
+    const state = active === null ? words.unknown : active ? words.active : words.inactive;
+    lines.push(`${words.collector}: ${state}${active === true && received === false ? `; ${words.noReading}` : ''}.${active === true ? '' : ` ${words.run} ${command}.`}`);
   }
   lines.push(`${words.plugin}: ${plugin.path ?? words.unknown}.`, `${words.state}: ${plugin.statePath ?? words.unknown}.`);
   lines.push(`${words.path}: ${plugin.onPath === undefined ? words.unknown : plugin.onPath ? words.yes : words.no}.`);
