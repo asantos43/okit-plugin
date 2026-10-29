@@ -11,6 +11,7 @@ import { installSkillFiles } from '../../src/skills.js';
 import { configOf } from '../../src/profiles.js';
 import { listModelsOf, makeSpawner } from '../../src/spawn-process.js';
 import { readJson } from '../../src/state.js';
+import { timeOf } from '../../src/quota-fields.js';
 import { paths, stateRoot } from '../../src/store.js';
 import { capture } from '../../src/trajectory/capture.js';
 import { readCodexSessionQuota } from './session-quota.js';
@@ -80,13 +81,13 @@ export async function readQuota({ stateRoot: root, env, now = Date.now, config }
   const settings = config ?? await readJson(join(base, 'config.json'), {});
   const automatic = await readCodexSessionQuota({ config: settings, env, now });
   const stored = await readJson(join(paths(base).quota, `${CLIENT}.json`), null);
-  const recorded = Date.parse(stored?.recordedAt);
-  if (automatic && (!finite(stored?.remainingPct) || !Number.isFinite(recorded)
-    || Date.parse(automatic.recordedAt) > recorded)) return automatic;
+  const recorded = timeOf(stored?.recordedAt);
+  if (automatic && (!finite(stored?.remainingPct) || !recorded
+    || Date.parse(automatic.recordedAt) > recorded.ms)) return automatic;
   if (!finite(stored?.remainingPct)) return { source: 'manual' };
   return { source: 'manual', remainingPct: stored.remainingPct,
-    ...(Number.isFinite(recorded) ? { recordedAt: stored.recordedAt,
-      ageMinutes: Math.max(0, now() - recorded) / 60_000 } : {}),
+    ...(recorded ? { recordedAt: recorded.text,
+      ageMinutes: Math.max(0, now() - recorded.ms) / 60_000 } : {}),
     ...(finite(stored.windowMinutes) ? { windowMinutes: stored.windowMinutes } : {}) };
 }
 

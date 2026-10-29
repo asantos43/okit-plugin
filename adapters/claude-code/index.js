@@ -17,6 +17,7 @@ import { postCompactConfig } from '../../src/hook-post-compact.js';
 import { configOf, DEFAULT_CONFIG } from '../../src/profiles.js';
 import { listModelsOf, makeSpawner } from '../../src/spawn-process.js';
 import { readJson } from '../../src/state.js';
+import { finiteNumber, timeOf, windowsOf } from '../../src/quota-fields.js';
 import { paths, stateRoot } from '../../src/store.js';
 import { capture } from '../../src/trajectory/capture.js';
 
@@ -89,10 +90,6 @@ function skillName(value) {
   return name;
 }
 
-/** A finite number, or null: an absent reading is never turned into a zero. */
-function number(value) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
 
 const isPlainObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -165,15 +162,15 @@ export function capabilities() {
  */
 export async function readQuota({ stateRoot: root, env, now = Date.now } = {}) {
   const stored = await readJson(join(paths(root ?? stateRoot(env)).quota, `${CLIENT}.json`), null);
-  const remainingPct = number(stored?.remainingPct);
-  const windowMinutes = number(stored?.windowMinutes);
+  const remainingPct = finiteNumber(stored?.remainingPct);
+  const windowMinutes = finiteNumber(stored?.windowMinutes);
   if (remainingPct === null) return { source: 'user' };
-  const recorded = Date.parse(stored.recordedAt);
+  const recorded = timeOf(stored.recordedAt);
   return { source: stored.source === 'automatic' ? 'automatic' : 'user', remainingPct,
-    ...(stored.source === 'automatic' && Array.isArray(stored.windows) ? { windows: stored.windows } : {}),
+    ...(stored.source === 'automatic' && Array.isArray(stored.windows) ? { windows: windowsOf(stored.windows) } : {}),
     ...(windowMinutes === null ? {} : { windowMinutes }),
-    ...(Number.isFinite(recorded) ? { recordedAt: stored.recordedAt,
-      ageMinutes: Math.max(0, now() - recorded) / 60_000 } : {}) };
+    ...(recorded ? { recordedAt: recorded.text,
+      ageMinutes: Math.max(0, now() - recorded.ms) / 60_000 } : {}) };
 }
 
 /**

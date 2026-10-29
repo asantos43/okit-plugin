@@ -212,17 +212,25 @@ test('install/update summaries and status contain kit; dry-run writes nothing', 
   const before = await fs.readdir(f.home, { recursive: true });
   const readonly = { ...fs };
   for (const method of ['writeFile', 'mkdir', 'rename', 'rm', 'chmod', 'copyFile', 'symlink', 'unlink']) readonly[method] = () => { throw new Error(`unexpected write: ${method}`); };
+  // The kit is one row of the run ("Kit (optional)"), before the closing line.
+  const kitRow = () => f.output.filter((line) => line.includes('Kit (optional)'));
+  const kitInstalled = /^\s*Kit \(optional\)\s+ok\s+\S+ \(kit v1\.2\.3\)$/;
   assert.equal(await main(['install', '--from', source, '--client', 'codex', '--dry-run'], { ...io, fs: readonly }), 0);
-  assert.match(f.output.at(-1), /^kit: installed/);
+  assert.equal(kitRow().length, 1);
+  assert.match(kitRow()[0], kitInstalled);
   assert.deepEqual(await fs.readdir(f.home, { recursive: true }), before);
+  f.output.length = 0;
   assert.equal(await main(['install', '--from', source, '--client', 'codex', '--no-link'], io), 0);
-  assert.match(f.output.at(-1), /^kit: installed/);
+  assert.equal(kitRow().length, 1);
+  assert.match(kitRow()[0], kitInstalled);
   const system = f.config.systems[process.platform];
   const name = renderName({ template: DEFAULT_CONFIG.release.name, values: { package: pkg.name, version: '1.0.0', client: 'codex', system, arch: f.config.architectures[process.arch], ext: DEFAULT_CONFIG.release.formats[system] } });
   const fetch = async () => Response.json({ tag_name: 'v1.0.0', assets: [{ name }, { name: 'okit-plugin-1.0.0-checksums.sha256' }] });
   for (const flags of [[], ['--dry-run']]) {
+    f.output.length = 0;
     assert.equal(await main(['update', ...flags], { ...io, fetch }), 0);
-    assert.match(f.output.at(-1), /^kit: installed/);
+    assert.equal(kitRow().length, 1);
+    assert.match(kitRow()[0], kitInstalled);
   }
   assert.equal(await main(['status'], { ...io, clients: [], orders: [] }), 0);
   assert.match(f.output.at(-1), /^kit: installed/);

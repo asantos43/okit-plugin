@@ -109,15 +109,17 @@ test('language can be set once, inspected and reset; invalid choices are refused
     assert.match((await cli(['config', 'get', 'language'], { root })).out.join('\n'), new RegExp(value));
   }
   const invalid = await cli(['config', 'set', 'language', 'fr'], { root });
-  assert.equal(invalid.code, 1);
+  assert.equal(invalid.code, 2);
   assert.match(invalid.err.join('\n'), /Valid values: en, pt-BR.*Valores válidos: en, pt-BR/);
   assert.equal((await cli(['config', 'unset', 'language'], { root })).code, 0);
   for (const language of ['fr', null, 42, '']) {
     await writeFile(join(root, 'config.json'), JSON.stringify({ language }));
     const result = await cli(['env', 'report'], { root });
-    assert.equal(result.code, 1);
-    assert.match(result.err.join('\n'), /Choose a language: en, pt-BR.*Escolha um idioma/);
-    await assert.rejects(TOOLS.find(({ name }) => name === 'env_report').handler({}, { root }), /Choose a language.*Escolha um idioma/);
+    // A language that is not one is a refusal of the language (exit 2), said in English alone when nothing names another.
+    assert.equal(result.code, 2);
+    assert.match(result.err.join('\n'), /Choose a language: en, pt-BR\./);
+    assert.doesNotMatch(result.err.join('\n'), /Escolha um idioma/);
+    await assert.rejects(TOOLS.find(({ name }) => name === 'env_report').handler({}, { root }), /Choose a language: en, pt-BR\./);
   }
   for (const tool of TOOLS.filter((tool) => tool.inputSchema.properties.locale)) {
     assert.equal(tool.inputSchema.properties.locale.default, 'en', tool.name);
@@ -306,7 +308,7 @@ test('invalid values are refused without changing the file', async (t) => {
     ['profiles.claude-code.simple.effort', 'extreme', /low, medium, high/],
   ]) {
     const refused = await cli(['config', 'set', key, value], { root });
-    assert.equal(refused.code, 1, `${key}=${value}`);
+    assert.equal(refused.code, 2, `${key}=${value}`);
     assert.match(refused.err.join('\n'), expected);
     assert.equal(await readFile(file, 'utf8'), original);
   }
@@ -329,7 +331,7 @@ test('unsafe and non-finite numbers are refused without changing the file', asyn
   ]) {
     for (const value of invalid) {
       const refused = await cli(['config', 'set', key, value], { root });
-      assert.equal(refused.code, 1, `${key}=${value}`);
+      assert.equal(refused.code, 2, `${key}=${value}`);
       assert.match(refused.err.join('\n'), expected);
       assert.match(refused.err.join('\n'), /Valor inválido/);
       assert.equal(await readFile(file, 'utf8'), original);
@@ -346,7 +348,7 @@ test('refused config mutations do not create config.json in a clean root', async
   for (const args of cases) {
     const root = await tempRoot(t);
     const refused = await cli(args, { root });
-    assert.equal(refused.code, 1, args.join(' '));
+    assert.equal(refused.code, 2, args.join(' '));
     await assert.rejects(access(join(root, 'config.json')), { code: 'ENOENT' });
   }
 });
@@ -365,7 +367,7 @@ test('refused config mutations preserve the existing file and its mtime', async 
     const original = await readFile(file, 'utf8');
     const before = await stat(file);
     const refused = await cli(args, { root });
-    assert.equal(refused.code, 1, args.join(' '));
+    assert.equal(refused.code, 2, args.join(' '));
     assert.equal(await readFile(file, 'utf8'), original);
     assert.equal((await stat(file)).mtimeMs, before.mtimeMs);
   }
@@ -374,16 +376,16 @@ test('refused config mutations preserve the existing file and its mtime', async 
 test('unknown keys, clients and classes are refused with the valid list', async (t) => {
   const root = await tempRoot(t, { limits: { global: 2 } });
   const unknownKey = await cli(['config', 'get', 'limits.unknown'], { root });
-  assert.equal(unknownKey.code, 1);
+  assert.equal(unknownKey.code, 2);
   assert.match(unknownKey.err.join('\n'), /Valid key patterns/);
   assert.match(unknownKey.err.join('\n'), /limits\.clients\.<client>/);
 
   const unknownClient = await cli(['config', 'get', 'limits.clients.nope'], { root });
-  assert.equal(unknownClient.code, 1);
+  assert.equal(unknownClient.code, 2);
   assert.match(unknownClient.err.join('\n'), /Valid clients: claude-code, codex, opencode/);
 
   const unknownClass = await cli(['config', 'get', 'profiles.claude-code.nope.model'], { root });
-  assert.equal(unknownClass.code, 1);
+  assert.equal(unknownClass.code, 2);
   assert.match(unknownClass.err.join('\n'), /Valid classes: simple, normal, hard/);
 });
 
@@ -417,7 +419,7 @@ test('reserved client and class names are refused without writes or prototype po
   });
   for (const key of keys) {
     const refused = await cli(['config', 'set', key, 'unsafe'], { root });
-    assert.equal(refused.code, 1, key);
+    assert.equal(refused.code, 2, key);
     assert.match(refused.err.join('\n'), /Unknown configuration key/);
     assert.match(refused.err.join('\n'), /Chave de configuração desconhecida/);
     assert.equal(await readFile(file, 'utf8'), original);
@@ -444,7 +446,7 @@ test('a configured client name containing a dot is refused without writing', asy
     ['profiles.codex.foo.simple.model', 'unsafe'],
   ]) {
     const refused = await cli(['config', 'set', key, value], { root });
-    assert.equal(refused.code, 1, key);
+    assert.equal(refused.code, 2, key);
     assert.match(refused.err.join('\n'), /Unknown configuration key/);
     assert.match(refused.err.join('\n'), /Chave de configuração desconhecida/);
     assert.equal(await readFile(file, 'utf8'), original);
@@ -539,7 +541,7 @@ test('a disabled profile refuses the set and says how to enable it again', async
   await utimes(file, fixedTime, fixedTime);
   const before = await stat(file);
   const refused = await cli(['config', 'set', 'profiles.codex.simple.model', 'custom'], { root });
-  assert.equal(refused.code, 1);
+  assert.equal(refused.code, 2);
   const message = refused.err.join('\n');
   assert.match(message, /The profile "profiles\.codex\.simple" is disabled/);
   assert.match(message, /config unset profiles\.codex\.simple/);
@@ -561,7 +563,7 @@ test('a set never crosses an ancestor that is not an object', async (t) => {
   const file = join(root, 'config.json');
   const original = await readFile(file, 'utf8');
   const refused = await cli(['config', 'set', 'profiles.codex.simple.model', 'custom'], { root });
-  assert.equal(refused.code, 1);
+  assert.equal(refused.code, 2);
   assert.match(refused.err.join('\n'), /is disabled/);
   assert.match(refused.err.join('\n'), /está desligado/);
   assert.equal(await readFile(file, 'utf8'), original);
@@ -571,7 +573,7 @@ test('the class key disables a class and unset brings it back', async (t) => {
   const root = await tempRoot(t);
   const file = join(root, 'config.json');
   const invalid = await cli(['config', 'set', 'profiles.codex.simple', 'oops'], { root });
-  assert.equal(invalid.code, 1);
+  assert.equal(invalid.code, 2);
   assert.match(invalid.err.join('\n'), /literal "null"/);
   assert.match(invalid.err.join('\n'), /Valor inválido/);
   const disabled = await cli(['config', 'set', 'profiles.codex.simple', 'null'], { root });
@@ -579,7 +581,7 @@ test('the class key disables a class and unset brings it back', async (t) => {
   const saved = JSON.parse(await readFile(file, 'utf8'));
   assert.equal(saved.profiles.codex.simple, null);
   const refused = await cli(['config', 'set', 'profiles.codex.simple.model', 'custom'], { root });
-  assert.equal(refused.code, 1);
+  assert.equal(refused.code, 2);
   const enabled = await cli(['config', 'unset', 'profiles.codex.simple'], { root });
   assert.equal(enabled.code, 0, enabled.err.join('\n'));
   const after = JSON.parse(await readFile(file, 'utf8'));

@@ -4,10 +4,11 @@ import { constants } from 'node:fs';
 import { clientRoot } from './config.js';
 import { quote } from './link.js';
 import { saveRecord } from './place.js';
+import { presenterOf } from './present.js';
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const missing = (error) => { if (error.code !== 'ENOENT') throw error; return null; };
-const message = 'Cannot read or change the Claude settings; check the file and its permissions. / Não foi possível ler ou alterar os ajustes do Claude; confira o arquivo e suas permissões.';
+const unreadable = (deps) => presenterOf(deps).text('statuslineError');
 
 // Tokenize only literal words. Anything requiring shell interpretation uses
 // the configured wrapper, preserving the original command as one argument.
@@ -33,9 +34,9 @@ export async function planStatusline(record, deps) {
   const path = record.statusline?.path ?? join(clientRoot(record.client, deps), settings.settingsFile);
   const original = await deps.fs.readFile(path).catch(missing);
   const value = original === null ? {} : JSON.parse(original.toString('utf8'));
-  if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error(message);
+  if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error(unreadable(deps));
   const previous = value.statusLine;
-  if (previous !== undefined && (!previous || previous.type !== 'command' || typeof previous.command !== 'string')) throw new Error(message);
+  if (previous !== undefined && (!previous || previous.type !== 'command' || typeof previous.command !== 'string')) throw new Error(unreadable(deps));
   const words = commandWords(previous?.command ?? '');
   const collectorIndex = words?.indexOf(settings.subcommand) ?? -1;
   const owned = collectorIndex > 0;
@@ -80,31 +81,39 @@ export async function applyStatusline(record, plan, deps) {
 }
 
 export async function registerStatusline(record, flags, deps) {
-  if (record.client !== deps.statuslineConfig.client || flags['no-statusline']) return;
+  if (!appliesStatusline(record, flags, deps)) return null;
+  const ui = presenterOf(deps);
   if (!flags.statusline && !record.statusline && !deps.tty) {
-    deps.out(`To record quota in the Claude status bar, use ${deps.config.command} install --client ${record.client} --statusline. / Para registrar a cota na barra do Claude, use ${deps.config.command} install --client ${record.client} --statusline.`);
-    return;
+    return { status: 'skipped', detail: ui.text('statuslineHow', { command: `${deps.config.command} install --client ${record.client} --statusline` }) };
   }
   try {
     const plan = await planStatusline(record, deps);
-    if (!plan) return;
-    deps.out(`Claude settings / Ajustes do Claude: ${plan.path}`);
-    deps.out(`Add quota recording / Adicionar registro de cota: ${deps.config.command} ${deps.statuslineConfig.subcommand}`);
-    deps.out(`Keep current bar / Manter barra atual: ${plan.previous?.command ?? '(none / nenhuma)'}`);
-    if (deps.dryRun || flags.check) return;
+    if (!plan) return { status: 'ok', detail: ui.text('statuslineDone') };
+    ui.detail(`${ui.text('statuslineFile')}: ${plan.path}`);
+    ui.detail(`${ui.text('statuslineAdd')}: ${deps.config.command} ${deps.statuslineConfig.subcommand}`);
+    ui.detail(`${ui.text('statuslineKeep')}: ${plan.previous?.command ?? ui.text('statuslineNone')}`);
+    if (deps.dryRun || flags.check) return { status: 'plan', detail: plan.path };
     if (!flags.statusline && !record.statusline) {
-      const answer = await deps.read('The Claude Code status bar will also record your quota; the current bar stays the same. Register? [y/N] / A barra de status do Claude Code vai também registrar a sua cota; a barra atual continua igual. Registrar? [s/N] ');
-      if (!/^(y|yes|s|sim)$/i.test(answer.trim())) return;
+      const accepted = await ui.confirm(deps.read, { explain: [ui.text('statuslineExplain'), ui.text('statuslineExplain2', { path: plan.path })],
+        question: ui.text('statuslineAsk') });
+      if (!accepted) return { status: 'skipped', detail: ui.text('statuslineDeclined') };
     }
     await applyStatusline(record, plan, deps);
-  } catch (error) { throw new Error(message, { cause: error }); }
+    return { status: 'ok', detail: plan.path };
+  } catch (error) { throw new Error(unreadable(deps), { cause: error }); }
+}
+
+/** Whether the quota step belongs to this run: the client has a status bar and it was not turned off. */
+export function appliesStatusline(record, flags, deps) {
+  return record.client === deps.statuslineConfig.client && !flags['no-statusline'];
 }
 
 export async function undoStatusline(record, deps) {
-  if (!record.statusline) return;
+  if (!record.statusline) return null;
   const saved = record.statusline;
-  deps.out(`Restore Claude settings / Restaurar ajustes do Claude: ${saved.path}`);
-  if (deps.dryRun) return;
+  const ui = presenterOf(deps);
+  if (deps.dryRun) return { status: 'plan', detail: saved.path };
+  let notes = [];
   try {
     const bytes = await deps.fs.readFile(saved.path).catch(missing);
     if (bytes && hash(bytes) === saved.hash) {
@@ -118,8 +127,9 @@ export async function undoStatusline(record, deps) {
         else value.statusLine = saved.previous;
         await writeBytes(saved.path, Buffer.from(`${JSON.stringify(value, null, 2)}\n`), deps.fs);
       }
-      deps.out('Kept your later edits; removed only our status bar when present. / Suas edições posteriores foram mantidas; só a nossa barra foi removida, quando presente.');
+      notes = [ui.text('statuslineKept')];
     }
     await deps.fs.rm(saved.backup, { force: true });
-  } catch (error) { throw new Error(message, { cause: error }); }
+    return { status: 'ok', detail: saved.path, notes };
+  } catch (error) { throw new Error(unreadable(deps), { cause: error }); }
 }

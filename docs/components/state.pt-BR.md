@@ -16,7 +16,7 @@ A raiz padrão é ~/.okwork; OKWORK_HOME substitui a pasta inteira (não acresce
 | `inbox.json` | Versão, sequência e itens de trabalho, estado, posse/histórico e metadados |
 | `orders.json` | Instruções globais/por projeto, validade, revogação e histórico até a retenção |
 | `templates.json` | Demandas recorrentes, agendas, regras e última execução |
-| `quota/<client>.json` | Percentual restante, origem, instante e janelas conhecidas; o leitor escolhe entre automático e manual |
+| `quota/<client>.json` | Percentual restante, origem, instante e janelas conhecidas; o leitor escolhe entre automático e manual; JSON válido de outro tipo não é leitura, e um arquivo que não é JSON faz o `status` falhar (saída 1) |
 | `runs/<runId>.json` | Estado da vaga, cliente e início/fim; lançamentos de processos também registram PID e resultado |
 | `runs/<runId>.out` | Stdout/stderr do lançador de processos quando não há outra pasta de logs |
 | `locks/config.lock/owner.json`, `inbox.json.lock/owner.json`, `orders.json.lock/owner.json`, `templates.json.lock/owner.json`, `runs.lock/owner.json` | Dono do lock de escrita, PID e instante; arquivos claim temporários coordenam recuperação |
@@ -31,7 +31,7 @@ A raiz padrão é ~/.okwork; OKWORK_HOME substitui a pasta inteira (não acresce
 ## Fora da raiz de estado
 
 O destino padrão dos payloads é XDG_DATA_HOME/okit-plugin ou ~/.local/share/okit-plugin no Linux; ~/Library/Application Support/okit-plugin no macOS; LOCALAPPDATA/okit-plugin ou ~/AppData/Local/okit-plugin no Windows. install.destination substitui esse destino.
-Nele, install.<client>.json guarda payload atual, checksum, anterior, link, autostart e barra; install.json é o registro legado. <version>-<client>/ guarda o código; managed-path.json registra somente alterações de PATH gerenciadas. O link padrão fica em ~/.local/bin ou ~/AppData/Local/bin no Windows; configuração pode substituir a pasta. Hooks, skills e blocos de papel ficam nas [raízes dos clientes](adapters.pt-BR.md).
+Nele, install.<client>.json guarda payload atual, checksum, anterior, link, autostart e barra; install.json é o registro legado. <version>-<client>/ guarda o código; managed-path.json registra somente alterações de PATH gerenciadas. Um registro ou estado do PATH com campo de tipo errado é recusado (saída 2) com a saída: remover o arquivo e rodar `okit-plugin install`. O link padrão fica em ~/.local/bin ou ~/AppData/Local/bin no Windows; configuração pode substituir a pasta. Hooks, skills e blocos de papel ficam nas [raízes dos clientes](adapters.pt-BR.md).
 Autostart também registra ~/.config/systemd/user/okit-daemon.service, ~/Library/LaunchAgents/com.okit.daemon.plist ou uma tarefa Windows, conforme plataforma e plano.
 
 <a id="integrity"></a>

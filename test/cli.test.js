@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 
 import { main } from '../src/cli.js';
 import { installConfig } from '../src/install/config.js';
+import { pick } from '../src/install/present.js';
 import { inboxAdd, inboxClaim, inboxList } from '../src/inbox.js';
 import { readQuota as claudeQuota } from '../adapters/claude-code/index.js';
 import { readQuota as codexQuota } from '../adapters/codex/index.js';
@@ -34,7 +35,7 @@ for (const shell of ['bash', 'zsh', 'fish', 'powershell']) test(`status PATH hin
   const io = { root, home: root, env: { HOME: root, SHELL: `/bin/${shell}`, PATH: '' },
     platform: windows ? 'win32' : 'linux', readQuota: async () => ({ source: 'off' }),
     run: () => assert.fail('must not run'), spawn: () => assert.fail('must not spawn') };
-  const expected = config.path.messages.activate.replaceAll('{value}',
+  const expected = pick(config.path.messages.activate, 'en').replaceAll('{value}',
     config.path.activate[shell].replaceAll('{bin}', `'${bin}'`).replaceAll('{file}', `'${profile}'`));
   const absent = await cli(['status'], io);
   assert.equal(absent.code, 0, absent.err.join('\n'));
@@ -459,7 +460,9 @@ test('daemon status refuses a locale without the table and a flag on another act
     const run = await cli(argv, io);
     assert.equal(run.code, 2, `${argv.join(' ')} exits 2`);
     assert.deepEqual(run.out, [], `${argv.join(' ')} prints nothing`);
-    assert.ok(run.err.join('\n').startsWith('usage: okit-plugin daemon start|stop|status|pause|resume|run-once'), run.err.join('\n'));
+    // The usage is in the language of the run: the flag `--locale pt-BR` makes it Portuguese, nothing else does here.
+    const head = argv.some((arg) => arg === 'pt-BR' || arg === '--locale=pt-BR') ? 'uso:' : 'usage:';
+    assert.ok(run.err.join('\n').startsWith(`${head} okit-plugin daemon start|stop|status|pause|resume|run-once`), run.err.join('\n'));
   }
   assert.deepEqual(calls, [], 'a refused command reads no quota');
 });

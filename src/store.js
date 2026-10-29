@@ -2,8 +2,8 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 
-const ROOT_FOLDER = '.okwork';
-const HOME_ENV = 'OKWORK_HOME';
+export const ROOT_FOLDER = '.okwork';
+export const HOME_ENV = 'OKWORK_HOME';
 
 /**
  * Resolves the state root: the override in the environment when it is set,

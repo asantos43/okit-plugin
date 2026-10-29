@@ -83,6 +83,18 @@ async function endedInput() {
   return stdin;
 }
 
+/**
+ * Runs a setup command once in each language, over the same state, and gives the first run's exit code: the lines
+ * of both runs reach the collectors of `io`, English first. A run says one language only (the entry-point matrix
+ * of test/install-entrypoints.test.js checks that), so a test that wants both sentences reads both runs.
+ */
+async function mainBothLanguages(args, io) {
+  const first = await main([...args, '--locale', 'en'], io);
+  const second = await main([...args, '--locale', 'pt-BR'], io);
+  assert.equal(second, first, 'the exit code does not depend on the language');
+  return first;
+}
+
 function silentOutput() {
   return new Writable({
     write(_chunk, _encoding, done) { done(); },
@@ -346,12 +358,12 @@ test('a configuration changed during the confirmation is not written', async (t)
   assert.equal(await readFile(join(root, 'config.json'), 'utf8'), '[]');
 });
 
-test('setup --defaults refuses an unsafe raw profile name without writing', async (t) => {
+test('setup --defaults refuses an unsafe raw profile name as a usage error (2) without writing', async (t) => {
   const { home, root } = await temporaryHome(t);
   const original = '{"profiles":{"claude-code":{"__proto__":{"model":"haiku","effort":"low"}}}}';
   await writeConfig(root, original);
   const errors = [];
-  const code = await main(['setup', '--defaults'], {
+  const code = await mainBothLanguages(['setup', '--defaults'], {
     root,
     env: { HOME: home, OKWORK_HOME: root },
     run: falseRun(),
@@ -359,7 +371,7 @@ test('setup --defaults refuses an unsafe raw profile name without writing', asyn
     stdout: () => {},
     stderr: (line) => errors.push(line),
   });
-  assert.equal(code, 1);
+  assert.equal(code, 2);
   assert.match(errors.join('\n'), /name that is not allowed/);
   assert.match(errors.join('\n'), /nome que não é permitido/);
   assert.equal(await readFile(join(root, 'config.json'), 'utf8'), original);
@@ -414,7 +426,7 @@ test('setup --defaults refuses a configuration whose root is not an object', asy
   await writeConfig(root, original);
   const output = [];
   const errors = [];
-  const code = await main(['setup', '--defaults'], {
+  const code = await mainBothLanguages(['setup', '--defaults'], {
     root,
     env: { HOME: home, OKWORK_HOME: root },
     run: falseRun(),
@@ -436,7 +448,7 @@ test('setup --defaults refuses a configuration whose root is null', async (t) =>
   await writeConfig(root, original);
   const output = [];
   const errors = [];
-  const code = await main(['setup', '--defaults'], {
+  const code = await mainBothLanguages(['setup', '--defaults'], {
     root,
     env: { HOME: home, OKWORK_HOME: root },
     run: falseRun(),
@@ -458,7 +470,7 @@ test('setup refuses a configuration that is not JSON with the same sentence', as
   await writeConfig(root, original);
   const output = [];
   const errors = [];
-  const code = await main(['setup', '--defaults'], {
+  const code = await mainBothLanguages(['setup', '--defaults'], {
     root,
     env: { HOME: home, OKWORK_HOME: root },
     run: falseRun(),
@@ -532,7 +544,7 @@ test('setup --defaults without a detected client says one simple sentence and wr
   const { home, root } = await temporaryHome(t);
   const output = [];
   const errors = [];
-  const code = await main(['setup', '--defaults'], {
+  const code = await mainBothLanguages(['setup', '--defaults'], {
     root,
     env: { HOME: home, OKWORK_HOME: root },
     run: falseRun(),
@@ -542,9 +554,11 @@ test('setup --defaults without a detected client says one simple sentence and wr
   });
   assert.equal(code, 0);
   assert.deepEqual(errors, []);
-  assert.equal(output.length, 1, output.join(' / '));
+  assert.equal(output.length, 2, output.join(' | '));
   assert.match(output[0], /No client with an active model was found/);
-  assert.match(output[0], /Nenhum cliente com modelo ativo foi encontrado/);
+  assert.match(output[1], /Nenhum cliente com modelo ativo foi encontrado/);
+  assert.doesNotMatch(output[0], /Nenhum cliente/);
+  assert.doesNotMatch(output[1], /No client/);
   // No `setup.done`: the configuration is still pending.
   await assert.rejects(readFile(join(root, 'config.json'), 'utf8'), { code: 'ENOENT' });
 });
@@ -553,7 +567,7 @@ test('setup --defaults with no installed client says one simple sentence and wri
   const { home, root } = await temporaryHome(t);
   const output = [];
   const errors = [];
-  const code = await main(['setup', '--defaults'], {
+  const code = await mainBothLanguages(['setup', '--defaults'], {
     root,
     env: { HOME: home, OKWORK_HOME: root },
     run: falseRun(),
@@ -563,9 +577,11 @@ test('setup --defaults with no installed client says one simple sentence and wri
   });
   assert.equal(code, 0);
   assert.deepEqual(errors, []);
-  assert.equal(output.length, 1, output.join(' / '));
+  assert.equal(output.length, 2, output.join(' | '));
   assert.match(output[0], /No client with an active model was found/);
-  assert.match(output[0], /Nenhum cliente com modelo ativo foi encontrado/);
+  assert.match(output[1], /Nenhum cliente com modelo ativo foi encontrado/);
+  assert.doesNotMatch(output[0], /Nenhum cliente/);
+  assert.doesNotMatch(output[1], /No client/);
   await assert.rejects(readFile(join(root, 'config.json'), 'utf8'), { code: 'ENOENT' });
 });
 
@@ -573,7 +589,7 @@ test('setup --defaults with a client that lists no active model says one simple 
   const { home, root } = await temporaryHome(t);
   const output = [];
   const errors = [];
-  const code = await main(['setup', '--defaults'], {
+  const code = await mainBothLanguages(['setup', '--defaults'], {
     root,
     env: { HOME: home, OKWORK_HOME: root },
     run: falseRun(),
@@ -583,14 +599,16 @@ test('setup --defaults with a client that lists no active model says one simple 
   });
   assert.equal(code, 0);
   assert.deepEqual(errors, []);
-  assert.equal(output.length, 1, output.join(' / '));
+  assert.equal(output.length, 2, output.join(' | '));
   assert.match(output[0], /No client with an active model was found/);
-  assert.match(output[0], /Nenhum cliente com modelo ativo foi encontrado/);
+  assert.match(output[1], /Nenhum cliente com modelo ativo foi encontrado/);
+  assert.doesNotMatch(output[0], /Nenhum cliente/);
+  assert.doesNotMatch(output[1], /No client/);
   await assert.rejects(readFile(join(root, 'config.json'), 'utf8'), { code: 'ENOENT' });
 });
 
 // | case | must pass | must refuse |
-// | invalid limits on either read | bilingual refusal, intact bytes | technical error, write, setup.done |
+// | invalid limits on either read | bilingual refusal, exit 2, intact bytes | technical error, write, setup.done |
 for (const global of [0, 'abc']) {
   for (const changedDuringDetection of [false, true]) {
     test(`setup --defaults refuses invalid limits ${global} on ${changedDuringDetection ? 'locked' : 'initial'} read`, async (t) => {
@@ -606,13 +624,13 @@ for (const global of [0, 'abc']) {
       const output = [];
       const errors = [];
       let writes = 0;
-      const code = await main(['setup', '--defaults'], {
+      const code = await mainBothLanguages(['setup', '--defaults'], {
         root, command: 'custom-okit', env: { HOME: home, OKWORK_HOME: root },
         run: falseRun(), adapters: [adapter],
         stdout: (line) => output.push(line), stderr: (line) => errors.push(line),
         writeConfig: async () => { writes += 1; },
       });
-      assert.equal(code, 1);
+      assert.equal(code, 2); // usage, as install (single policy in src/install/exit.js)
       assert.equal(writes, 0);
       assert.deepEqual(output, []);
       const message = errors.join('\n');
@@ -640,7 +658,7 @@ test('setup --defaults refuses an unexpected shape of profiles with the unreadab
       await writeConfig(root, original);
       const output = [];
       const errors = [];
-      const code = await main(['setup', '--defaults'], {
+      const code = await mainBothLanguages(['setup', '--defaults'], {
         root,
         env: { HOME: home, OKWORK_HOME: root },
         run: falseRun(),
@@ -683,7 +701,7 @@ test('setup --defaults says one simple sentence when the configuration folder re
     }
     const output = [];
     const errors = [];
-    const code = await main(['setup', '--defaults'], {
+    const code = await mainBothLanguages(['setup', '--defaults'], {
       root,
       env: { HOME: home, OKWORK_HOME: root },
       run: falseRun(),
@@ -735,14 +753,13 @@ test('setup --defaults says no technical code when a client cannot be read', asy
       await writeConfig(root, JSON.stringify(detectionConfig));
       const output = [];
       const errors = [];
-      const code = await main(['setup', '--defaults'], {
+      const code = await main(['setup', '--defaults', '--locale', locale], {
         root,
         env: { HOME: home, OKWORK_HOME: root },
         run,
         adapters: [codex],
         stdout: (line) => output.push(line),
         stderr: (line) => errors.push(line),
-        locale,
       });
       assert.equal(code, 0);
       assert.deepEqual(errors, []);
@@ -873,7 +890,7 @@ test('the command line that cannot save says the sentence without the command be
     }
     const output = [];
     const errors = [];
-    const code = await main(['setup', '--defaults'], {
+    const code = await mainBothLanguages(['setup', '--defaults'], {
       root,
       env: { HOME: home, OKWORK_HOME: root },
       run: falseRun(),

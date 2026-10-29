@@ -152,7 +152,7 @@ test('config commands persist quota settings and refuse invalid values without c
   const before = await readFile(file, 'utf8');
   assert.equal(JSON.parse(before).codexQuota.tailBytes, 32768);
   for (const [key, value] of [['recentFiles', '0'], ['maxTailBytes', '1'], ['fields.usedPercent', '']]) {
-    assert.equal(await runCli(['config', 'set', `codexQuota.${key}`, value], io), 1);
+    assert.equal(await runCli(['config', 'set', `codexQuota.${key}`, value], io), 2);
     assert.equal(await readFile(file, 'utf8'), before);
   }
 });

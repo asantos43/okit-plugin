@@ -22,7 +22,7 @@ export async function detectKit(deps) {
     }
   }
   if (path && await pluginExecutable(path, deps)) { path = null; ignoredPlugin = true; }
-  if (!path) return { state: 'absent', path: null, version: null,
+  if (!path) return { state: 'absent', path: null, version: null, ...(ignoredPlugin ? { ignored: true } : {}),
     message: `kit: absent${ignoredPlugin ? ' (plugin executable ignored)' : ''}. ${kit.hint}` };
   return probe(path, deps);
 }
@@ -45,9 +45,9 @@ async function probe(path, deps) {
     if (result?.code || result?.exitCode || result?.signal) throw new Error('version command failed');
     const version = String(result?.stdout ?? '').trim().split(/\r?\n/)[0];
     if (!/^(?:[^\r\n]*?\s)?v?\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) throw new Error('invalid version output');
-    return { state: 'installed', path, version, message: `kit: installed (${path}; ${version}). ${kit.overlap}` };
+    return { state: 'installed', path, version, overlap: kit.overlap, message: `kit: installed (${path}; ${version}). ${kit.overlap}` };
   } catch (error) {
     const reason = controller.signal.aborted ? `version command timed out after ${kit.timeoutMs} ms` : String(error.message).replace(/[\r\n]+/g, ' ');
-    return { state: 'broken', path, version: null, message: `kit: broken (${path}; ${reason})` };
+    return { state: 'broken', path, version: null, reason, message: `kit: broken (${path}; ${reason})` };
   } finally { clearTimeout(timer); }
 }

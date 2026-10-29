@@ -1,153 +1,14 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { configuredClientsOf, configOf, DEFAULT_CONFIG, LOCALES, PROFILE_EFFORTS } from './profiles.js';
+import { configuredClientsOf, configOf, DEFAULT_CONFIG, PROFILE_EFFORTS } from './profiles.js';
+import { CONFIG_SCHEMA } from './config-schema.js';
+import { installConfig } from './install/config.js';
+import { exitCodeFor } from './install/exit.js';
 import { paths } from './store.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
 
-export const CONFIG_SCHEMA = Object.freeze({
-  entries: [
-    {
-      path: 'limits.global', type: 'integer', minimum: 1, defaultPath: 'limits.global',
-      legacyAliases: ['limits.perClient'],
-      constraint: { en: 'an integer >= 1', 'pt-BR': 'um inteiro >= 1' },
-      description: {
-        en: 'Default number of executors allowed at once for each client.',
-        'pt-BR': 'Número padrão de executores permitidos ao mesmo tempo em cada cliente.',
-      },
-    },
-    {
-      path: 'language', type: 'string', defaultPath: 'language', allowedValues: LOCALES,
-      constraint: { en: 'one of the listed languages', 'pt-BR': 'um dos idiomas listados' },
-      description: {
-        en: 'Language used when no language is chosen for a command or tool.',
-        'pt-BR': 'Idioma usado quando nenhum idioma é escolhido para um comando ou ferramenta.',
-      },
-    },
-    {
-      path: 'limits.clients.<client>', type: 'integer', minimum: 1, defaultPath: 'limits.global',
-      placeholders: { client: 'clients' },
-      constraint: { en: 'an integer >= 1', 'pt-BR': 'um inteiro >= 1' },
-      description: {
-        en: 'Executor limit for this client; it replaces the global limit.',
-        'pt-BR': 'Limite de executores deste cliente; ele substitui o limite global.',
-      },
-    },
-    {
-      path: 'profiles.<client>.<class>', type: 'profile', defaultPath: 'profiles.<client>.<class>',
-      placeholders: { client: 'clients', class: 'classes' },
-      constraint: { en: 'the literal "null" to disable the class', 'pt-BR': 'o literal "null" para desligar a classe' },
-      description: {
-        en: 'The profile of this client and work class; null disables the class.',
-        'pt-BR': 'O perfil deste cliente e desta classe de trabalho; null desliga a classe.',
-      },
-    },
-    {
-      path: 'profiles.<client>.<class>.model', type: 'string', defaultPath: 'profiles.<client>.<class>.model',
-      placeholders: { client: 'clients', class: 'classes' },
-      constraint: { en: 'non-empty text', 'pt-BR': 'texto não vazio' },
-      description: {
-        en: 'Model used for this client and work class.',
-        'pt-BR': 'Modelo usado neste cliente e nesta classe de trabalho.',
-      },
-    },
-    {
-      path: 'profiles.<client>.<class>.effort', type: 'string', defaultPath: 'profiles.<client>.<class>.effort',
-      placeholders: { client: 'clients', class: 'classes' },
-      allowedValues: [...new Set(Object.values(PROFILE_EFFORTS))],
-      constraint: { en: 'one of the listed efforts', 'pt-BR': 'um dos esforços listados' },
-      description: {
-        en: 'Reasoning effort used for this client and work class.',
-        'pt-BR': 'Esforço de raciocínio usado neste cliente e nesta classe de trabalho.',
-      },
-    },
-    {
-      path: 'profiles.<client>.<class>.maxTurns', type: 'integer', minimum: 1,
-      defaultPath: 'profiles.<client>.<class>.maxTurns',
-      placeholders: { client: 'clients', class: 'classes' },
-      constraint: { en: 'an integer >= 1', 'pt-BR': 'um inteiro >= 1' },
-      description: {
-        en: 'Maximum number of turns for this client and work class.',
-        'pt-BR': 'Número máximo de voltas para este cliente e esta classe de trabalho.',
-      },
-    },
-    {
-      path: 'lowQuotaPct', type: 'number', minimum: 0, maximum: 100, defaultPath: 'lowQuotaPct',
-      constraint: { en: 'a number from 0 to 100', 'pt-BR': 'um número de 0 a 100' },
-      description: {
-        en: 'Profiles are lowered when the remaining quota is below this percentage.',
-        'pt-BR': 'Os perfis são rebaixados quando a cota restante fica abaixo deste percentual.',
-      },
-    },
-    {
-      path: 'daemon.minQuotaPct', type: 'number', minimum: 0, maximum: 100,
-      defaultPath: 'daemon.minQuotaPct',
-      constraint: { en: 'a number from 0 to 100', 'pt-BR': 'um número de 0 a 100' },
-      description: {
-        en: 'The daemon does not open demands when the remaining quota is below this percentage.',
-        'pt-BR': 'O daemon não abre demandas quando a cota restante fica abaixo deste percentual.',
-      },
-    },
-    {
-      path: 'smoke.quotaFloorPct', type: 'number', minimum: 0, maximum: 100,
-      defaultPath: 'smoke.quotaFloorPct',
-      constraint: { en: 'a number from 0 to 100', 'pt-BR': 'um número de 0 a 100' },
-      description: {
-        en: 'Smoke refuses to start when the remaining quota is below this percentage.',
-        'pt-BR': 'O smoke recusa iniciar quando a cota restante fica abaixo deste percentual.',
-      },
-    },
-    ...Object.entries(DEFAULT_CONFIG.telemetry).filter(([key]) => key !== 'rede')
-      .concat(Object.entries(DEFAULT_CONFIG.telemetry.rede).map(([key, value]) => [`rede.${key}`, value]))
-      .map(([key, value]) => ({
-        path: `telemetry.${key}`, defaultPath: `telemetry.${key}`,
-        type: value === null ? 'text' : typeof value === 'object' ? 'object'
-          : typeof value === 'boolean' ? 'boolean' : typeof value === 'number' ? 'integer' : 'string',
-        ...(typeof value === 'number' ? { minimum: 1 } : {}),
-        constraint: { en: 'a measurement storage or sending setting', 'pt-BR': 'um ajuste de armazenamento ou envio de medições' },
-        description: { en: 'Optional measurements; sending is separately enabled.',
-          'pt-BR': 'Medições opcionais; o envio é ativado separadamente.' },
-      })),
-    ...Object.entries(DEFAULT_CONFIG.codexQuota).filter(([key]) => key !== 'fields')
-      .concat(Object.entries(DEFAULT_CONFIG.codexQuota.fields).map(([key, value]) => [`fields.${key}`, value]))
-      .map(([key, value]) => ({
-        path: `codexQuota.${key}`, defaultPath: `codexQuota.${key}`,
-        type: typeof value === 'number' ? 'integer' : 'string',
-        ...(typeof value === 'number' ? { minimum: 1 } : {}),
-        constraint: { en: typeof value === 'number' ? 'an integer >= 1' : 'non-empty text',
-          'pt-BR': typeof value === 'number' ? 'um inteiro >= 1' : 'texto não vazio' },
-        description: { en: 'Codex automatic quota reading setting.',
-          'pt-BR': 'Ajuste da leitura automática de cota do Codex.' },
-      })),
-    ...['enabled', 'file', 'areaDir', 'section', 'checkbox.open', 'checkbox.progress', 'checkbox.done', 'projects'].map(key => ({
-      path: `todo.${key}`, defaultPath: `todo.${key}`,
-      type: key === 'enabled' ? 'boolean' : key === 'projects' ? 'object' : 'text',
-      constraint: { en: 'a TODO setting (projects is a JSON object keyed by absolute project root)',
-        'pt-BR': 'um ajuste do TODO (projects é um objeto JSON por raiz absoluta do projeto)' },
-      description: { en: 'Project TODO synchronization setting.', 'pt-BR': 'Ajuste da sincronização do TODO do projeto.' },
-    })),
-  ],
-  scopeMessages: { clients: 'unknownClient', classes: 'unknownClass' },
-  scopePatterns: {
-    clients: /^[A-Za-z0-9_-]+$/,
-    classes: /^[A-Za-z0-9_-]+$/,
-  },
-  reservedPathSegments: ['__proto__', 'constructor', 'prototype'],
-  origins: { default: 'default', user: 'user' },
-  labels: {
-    value: '{path} = {value} [{origin}] — {effect}',
-    change: '{path}: before / antes = {before} [{beforeOrigin}] -> after / depois = {after} [{afterOrigin}] — {effect}',
-  },
-  messages: {
-    unknownKey: 'Unknown configuration key "{key}". Valid key patterns: {patterns}. / Chave de configuração desconhecida "{key}". Padrões de chaves válidos: {patterns}.',
-    unknownClient: 'Unknown client "{value}" for "{key}". Valid clients: {values}. / Cliente desconhecido "{value}" para "{key}". Clientes válidos: {values}.',
-    unknownClass: 'Unknown class "{value}" for "{key}". Valid classes: {values}. / Classe desconhecida "{value}" para "{key}". Classes válidas: {values}.',
-    invalidValue: 'Invalid value for "{key}". Expected {constraintEn}. / Valor inválido para "{key}". Esperado {constraintPt}.',
-    invalidChoice: 'Invalid value for "{key}". Valid values: {values}. / Valor inválido para "{key}". Valores válidos: {values}.',
-    disabledProfile: 'The profile "{path}" is disabled; run `config unset {path}` to enable it before changing a field. / O perfil "{path}" está desligado; rode `config unset {path}` para ligá-lo antes de mudar um campo.',
-    legacyAliasRemoved: 'Removed legacy alias "{alias}"; it is the old name for "{key}". / O apelido legado "{alias}" foi removido; é o nome antigo de "{key}".',
-  },
-});
+export { CONFIG_SCHEMA };
 
 function fill(text, values) {
   return text.replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ''));
@@ -459,6 +320,8 @@ function refusalMessage(resolved, key) {
 
 async function readState(root) {
   const raw = await readJson(paths(root).config, {});
+  // The installer's settings are read here too, so that no command works on a file whose `install` is invalid.
+  installConfig(raw?.install);
   return { raw, config: configOf(raw) };
 }
 
@@ -489,7 +352,7 @@ async function getConfig(ctx, args) {
   const resolved = resolveEntry(key, raw);
   if (resolved.error) {
     ctx.err(refusalMessage(resolved, key));
-    return 1;
+    return exitCodeFor('usage');
   }
   const current = effectiveValue(resolved.entry, raw, config);
   ctx.out(valueLine(key, current, resolved.entry));
@@ -532,7 +395,7 @@ async function setConfig(ctx, args, write) {
           values: (result.entry.allowedValues ?? []).join(', '),
         });
     ctx.err(message);
-    return 1;
+    return exitCodeFor('usage');
   }
   const after = { value: result.value, origin: CONFIG_SCHEMA.origins.user };
   ctx.out(changeLine(key, result.previous, after, result.entry));
@@ -556,7 +419,7 @@ async function unsetConfig(ctx, args, write) {
   }, write);
   if (result.error) {
     ctx.err(refusalMessage(result, key));
-    return 1;
+    return exitCodeFor('usage');
   }
   ctx.out(changeLine(key, result.previous, result.after, result.entry));
   for (const alias of result.removedAliases) {

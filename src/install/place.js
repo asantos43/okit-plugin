@@ -1,18 +1,31 @@
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { extract } from './extract.js';
 import { installConfig, renderName } from './config.js';
+import { OperationalError, UsageError } from './exit.js';
+import { recordProblem } from '../config-schema.js';
 
 const recordPath = (destination, client, config) => join(destination, renderName({ template: config.recordName, values: { client } }));
-async function legacyRecord(destination, fs) {
-  try { return JSON.parse(await fs.readFile(join(destination, 'install.json'), 'utf8')); }
+// The record is a file the installer wrote and a person may have changed: text that is not JSON is a file that cannot be
+// read (a failure of the work, exit 1); JSON of the wrong shape (a field of the wrong type, at any depth) is a refusal of
+// usage (exit 2) that names the field and says how to regenerate the file, never a TypeError later.
+function checked(text, file, command) {
+  let record;
+  try { record = JSON.parse(text); } catch { throw new OperationalError(`Cannot read installation record: ${file}`); }
+  if (record === null) return null;
+  const found = !Array.isArray(record) && typeof record === 'object' && typeof record.client === 'string' && record.client ? recordProblem(record) : { path: 'client' };
+  if (found) throw new UsageError(`Invalid installation record: ${file} (${found.path}); remove it and run ${command} install`);
+  return record;
+}
+async function legacyRecord(destination, fs, config) {
+  try { return checked(await fs.readFile(join(destination, 'install.json'), 'utf8'), 'install.json', config.command); }
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
 export async function readRecords(destination, fs, config = installConfig()) {
   const records = {};
-  const legacy = await legacyRecord(destination, fs);
+  const legacy = await legacyRecord(destination, fs, config);
   if (legacy) records[legacy.client] = legacy;
   for (const client of Object.keys(config.clients)) {
-    try { records[client] = JSON.parse(await fs.readFile(recordPath(destination, client, config), 'utf8')); }
+    try { records[client] = checked(await fs.readFile(recordPath(destination, client, config), 'utf8'), basename(recordPath(destination, client, config)), config.command); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   return records;
@@ -37,22 +50,22 @@ async function writeRecord(destination, record, deps) {
   const path = recordPath(destination, record.client, deps.config ?? installConfig());
   if (deps.writeJsonAtomic) {
     await deps.writeJsonAtomic(path, record);
-    await removeLegacy(destination, record.client, deps.fs);
+    await removeLegacy(destination, record.client, deps.fs, deps.config ?? installConfig());
     return;
   }
   const temp = `${path}.tmp`;
   try {
     await deps.fs.writeFile(temp, `${JSON.stringify(record, null, 2)}\n`, { flag: 'wx' });
     await deps.fs.rename(temp, path);
-    await removeLegacy(destination, record.client, deps.fs);
+    await removeLegacy(destination, record.client, deps.fs, deps.config ?? installConfig());
   } finally { await deps.fs.rm(temp, { force: true }); }
 }
-async function removeLegacy(destination, client, fs) {
-  if ((await legacyRecord(destination, fs))?.client === client) await fs.rm(join(destination, 'install.json'), { force: true });
+async function removeLegacy(destination, client, fs, config) {
+  if ((await legacyRecord(destination, fs, config))?.client === client) await fs.rm(join(destination, 'install.json'), { force: true });
 }
 export async function removeRecord(destination, client, deps) {
   await deps.fs.rm(recordPath(destination, client, deps.config), { force: true });
-  await removeLegacy(destination, client, deps.fs);
+  await removeLegacy(destination, client, deps.fs, deps.config ?? installConfig());
 }
 
 export async function place(selected, downloaded, details, deps) {

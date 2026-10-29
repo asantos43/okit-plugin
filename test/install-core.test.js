@@ -15,6 +15,7 @@ import { extract } from '../src/install/extract.js';
 import { place, readRecord, readRecords, saveRecord } from '../src/install/place.js';
 import { applyLink, managePath, activationWarning, activationCommand, currentShell } from '../src/install/link.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
+import { pick } from '../src/install/present.js';
 import { register } from '../src/install/register.js';
 import { installerCommand } from '../src/install/index.js';
 import { rollback } from '../src/install/update.js';
@@ -155,7 +156,7 @@ test('Claude status bar consent, preview, invalid settings and permission refusa
   assert.equal(await fs.readFile(file, 'utf8'), '{}');
   assert.equal(await fs.stat(join(f.root, 'claude-statusline.original')).catch(() => null), null);
   assert.deepEqual(await fs.readdir(folder), ['settings.json']);
-  assert.ok(f.output.some((line) => line.includes('confira o arquivo e suas permissões')));
+  assert.ok(f.output.some((line) => line.includes('Failed at Quota recording') && line.includes('check the file and its permissions')));
 });
 
 test('Claude status bar approved update repairs missing command and retains backup', async (t) => {
@@ -189,7 +190,7 @@ test('Claude status bar no-statusline skips writes and prompts in an interactive
   f.io.tty = true;
   let prompts = 0;
   f.io.ask = f.io.read = async (question) => {
-    if (!/status bar|barra de status/i.test(question)) return 'n';
+    if (!/Record quota\?|Registrar a cota\?/.test(question)) return 'n';
     prompts += 1;
     return 'sim';
   };
@@ -314,7 +315,8 @@ test('managed PATH resolves and executes skill command, repeats and rolls back w
   await fs.writeFile(join(record.path, record.bin), `#!${process.execPath}\nrequire('node:fs').writeSync(1, process.argv.slice(2).join(' ')+'\\n');\n`, { mode: 0o755 });
   const result = await execute('/bin/sh', ['-ec', '. "$1"; . "$1"; command -v okit-plugin; okit-plugin client-smoke --dry-run; printf "%s" "$PATH"', 'sh', profile], { env: { HOME: f.home, PATH: '' } });
   assert.equal(result.stdout, `${join(f.bin, 'okit-plugin')}\nclient-smoke --dry-run\n${f.bin}`);
-  assert.ok(f.output.some((line) => line.includes(`Verificação do PATH: ${join(f.bin, 'okit-plugin')}`)));
+  assert.ok(f.output.some((line) => /Command and PATH\s+ok\s+okit-plugin {2}\(PATH set in /.test(line)), f.output.join('\n'));
+  assert.ok(!f.output.some((line) => line.includes('PATH check')), 'the raw PATH check is for --verbose');
 });
 
 test('uninstall removes only owned PATH blocks and keeps later user edits', async (t) => {
@@ -380,18 +382,20 @@ for (const shell of ['bash', 'zsh', 'fish', 'powershell']) {
       env: { SHELL: `/bin/${shell}`, PATH: '' },
       run: () => assert.fail('must not run'), spawn: () => assert.fail('must not spawn'),
       pathExecute: () => assert.fail('must not execute PowerShell') };
-    await managePath(deps);
+    const linked = await managePath(deps);
     const profile = windows ? null : join(f.home, config.path.shells[shell].login);
     const literal = (value) => `'${value.replaceAll("'", windows ? "''" : "'\\''")}'`;
     const command = config.path.activate[shell].replaceAll('{bin}', literal(f.bin)).replaceAll('{file}', literal(profile ?? ''));
-    const expected = config.path.messages.activate.replaceAll('{value}', command);
-    assert.ok(f.output.includes(expected), f.output.join('\n'));
+    const expected = pick(config.path.messages.activate, 'en').replaceAll('{value}', command);
+    // The hint is the command itself; the installer prints it once, in the next steps.
+    assert.equal(linked.hint, command);
+    assert.deepEqual(f.output, []);
     assert.equal(await activationWarning(deps), expected);
+    // One language per message: the other half of the pair is never shown with it.
+    assert.equal(await activationWarning({ ...deps, locale: 'pt-BR' }), pick(config.path.messages.activate, 'pt-BR').replaceAll('{value}', command));
     deps.env = windows ? { Path: f.bin.toUpperCase() + '/' } : { ...deps.env, PATH: f.bin + '/' };
-    f.output.length = 0;
-    await managePath(deps);
+    assert.equal((await managePath(deps)).hint, null);
     assert.equal(await activationWarning(deps), null);
-    assert.ok(!f.output.includes(expected));
   });
 }
 
@@ -406,9 +410,9 @@ test('activation hints detect shells using configured shellVariable and windowsS
   const deps = { ...f.deps, config, platform: 'linux',
     env: { PATH: '', SHELL: '/bin/bash', CUSTOM_SHELL: '/bin/zsh' } };
   assert.equal(await activationWarning(deps),
-    config.path.messages.activate.replaceAll('{value}', `custom '${profile}'`));
+    pick(config.path.messages.activate, 'en').replaceAll('{value}', `custom '${profile}'`));
   assert.equal(await activationWarning({ ...deps, platform: 'win32', bin: "a'b c" }),
-    config.path.messages.activate.replaceAll('{value}', "windows 'a''b c'"));
+    pick(config.path.messages.activate, 'en').replaceAll('{value}', "windows 'a''b c'"));
 });
 
 test('activation hints quote profile/bin names and fall back for unknown shells or missing blocks', async (t) => {
@@ -418,7 +422,9 @@ test('activation hints quote profile/bin names and fall back for unknown shells 
   assert.equal(activationCommand(f.config, 'powershell', null, "a'b c"), "$env:Path = 'a''b c' + ';' + $env:Path");
   for (const shell of ['unknown', 'bash', '']) {
     assert.equal(await activationWarning({ ...f.deps, env: { PATH: '', SHELL: shell } }),
-      f.config.path.messages.activateTerminal);
+      pick(f.config.path.messages.activateTerminal, 'en'));
+    assert.equal(await activationWarning({ ...f.deps, locale: 'pt-BR', env: { PATH: '', SHELL: shell } }),
+      pick(f.config.path.messages.activateTerminal, 'pt-BR'));
   }
 });
 
@@ -536,8 +542,8 @@ test('menu: explicit, invalid, one detected, multiple/none without TTY, numbered
   const { deps } = await fixture(t);
   assert.equal(await chooseClient('codex', deps), 'codex');
   await assert.rejects(chooseClient('invalid', deps), /Invalid client/);
-  await assert.rejects(chooseClient(null, deps), /Without TTY/);
-  await assert.rejects(chooseClient(null, { ...deps, detect: async () => true }), /Without TTY/);
+  await assert.rejects(chooseClient(null, deps), /Without a terminal to ask in/);
+  await assert.rejects(chooseClient(null, { ...deps, detect: async () => true }), /Without a terminal to ask in/);
   assert.equal(await chooseClient(null, { ...deps, detect: async (name) => name === 'codex' }), 'codex');
   assert.equal(await chooseClient(null, { ...deps, tty: true, read: async () => '3' }), 'opencode');
   await assert.rejects(chooseClient(null, { ...deps, tty: true, read: async () => '0' }), /Invalid client number/);
@@ -599,7 +605,8 @@ test('install all continues after failed package; unknown registered client refu
   assert.ok(await readRecord(f.destination, 'claude-code', fs));
   assert.ok(await readRecord(f.destination, 'opencode', fs));
   assert.equal(await readRecord(f.destination, 'codex', fs), null);
-  assert.ok(f.output.includes('codex: failed'));
+  assert.ok(f.output.some((line) => /^\s*Codex\s+failed$/.test(line)), f.output.join('\n'));
+  assert.ok(f.output.some((line) => /^Failed at Download and verify: .*fake package failure/.test(line)), f.output.join('\n'));
 });
 
 test('unregistered client refuses update and uninstall before touching files', async (t) => {
@@ -629,7 +636,7 @@ for (const route of ['direct', 'installerCommand']) test(`cross-client previous 
     });
   } else {
     assert.equal(await installerCommand('update', ['--rollback', '--client', 'codex'], f.deps, f.io), 2);
-    assert.ok(f.output.includes('refused: Previous version belongs to another client'));
+    assert.ok(f.output.some((line) => line.startsWith('Refused: Previous version belongs to another client')));
   }
   assert.deepEqual(await tree(f.home), before);
   assert.deepEqual(f.events, []);
@@ -800,7 +807,7 @@ test('install idempotent, fixed destination, missing client skipped, update same
   const record = await readRecord(f.destination, fs);
   assert.equal(record.path, join(f.destination, '1.0.0-claude-code'));
   assert.equal(f.commands.length, 0);
-  assert.ok(f.output.some((line) => line.includes('Missing executable')));
+  assert.ok(f.output.some((line) => line.includes('not found, so nothing was registered')));
   assert.ok(f.output.some((line) => line.includes('does not authenticate')));
   const before = await tree(f.home);
   assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0);
@@ -808,7 +815,7 @@ test('install idempotent, fixed destination, missing client skipped, update same
   assert.equal(await main(['update'], f.io), 0);
   assert.deepEqual(f.events, []);
   assert.deepEqual(await tree(f.home), before);
-  assert.ok(f.output.includes('up to date'));
+  assert.ok(f.output.some((line) => /^\s*Up to date\s+ok\s+1\.0\.0$/.test(line)), f.output.join('\n'));
 });
 
 test('update check, backup, activate, smoke failure and rollback', async (t) => {
@@ -911,8 +918,8 @@ test('marketplace clients run configured commands; codex prints /plugins instruc
   const record = { client: 'claude-code', path: f.destination };
   await register(record, deps);
   assert.deepEqual(commands.map((item) => item.args.slice(0, 3)), [['plugin', 'marketplace', 'add'], ['plugin', 'install', 'okit-plugin@okit-plugin']]);
-  await register({ ...record, client: 'codex' }, deps);
-  assert.ok(f.output.some((line) => line.includes('/plugins')));
+  const manual = await register({ ...record, client: 'codex' }, deps);
+  assert.ok(manual.detail.includes('/plugins'), manual.detail);
   await register(record, deps, 'update');
   assert.equal(commands.at(-1).args[1], 'update');
 });
@@ -989,13 +996,14 @@ test('Windows migrates owned legacy shims and preserves foreign kit shims', asyn
   const deps = { ...f.deps, platform: 'win32' };
   await applyLink(record, { ...deps, config: { ...f.config, command: 'okit' } });
   await applyLink(record, deps);
-  for (const suffix of ['.cmd', '.ps1']) {
+  for (const suffix of ['.cmd']) {
     assert.equal(await fs.stat(join(f.bin, `okit${suffix}`)).catch(() => null), null);
     assert.ok(await fs.stat(join(f.bin, `${f.config.command}${suffix}`)));
     await fs.writeFile(join(f.bin, `okit${suffix}`), 'foreign kit');
   }
+  assert.deepEqual((await fs.readdir(f.bin)).filter((name) => name.endsWith('.ps1')), []);
   await applyLink(record, deps, null, true);
-  for (const suffix of ['.cmd', '.ps1']) {
+  for (const suffix of ['.cmd']) {
     assert.equal(await fs.readFile(join(f.bin, `okit${suffix}`), 'utf8'), 'foreign kit');
     assert.equal(await fs.stat(join(f.bin, `${f.config.command}${suffix}`)).catch(() => null), null);
   }
@@ -1007,7 +1015,7 @@ test('Windows creates both configured shims and preserves a foreign replacement'
   const record = { path: join(f.home, 'path with spaces'), bin: 'src/cli.js' };
   await applyLink(record, deps);
   assert.match(await fs.readFile(join(f.bin, 'okit-plugin.cmd'), 'utf8'), /".*path with spaces.*" %\*/);
-  assert.match(await fs.readFile(join(f.bin, 'okit-plugin.ps1'), 'utf8'), /@args/);
+  assert.equal(await fs.stat(join(f.bin, 'okit-plugin.ps1')).catch(() => null), null, 'the Windows command is a .cmd only');
   await fs.writeFile(join(f.bin, 'okit-plugin.cmd'), 'foreign');
   await applyLink(record, deps, null, true);
   assert.equal(await fs.readFile(join(f.bin, 'okit-plugin.cmd'), 'utf8'), 'foreign');
@@ -1021,7 +1029,7 @@ test('Windows migrates only owned legacy shims, including during uninstall', asy
   const old = { ...deps, config: { ...deps.config, command: deps.config.legacyCommands[0] } };
   await applyLink(record, old);
   await applyLink(record, deps);
-  for (const suffix of ['.cmd', '.ps1']) {
+  for (const suffix of ['.cmd']) {
     assert.equal(await fs.lstat(join(f.bin, old.config.command + suffix)).catch(() => null), null);
     assert.ok(await fs.stat(join(f.bin, deps.config.command + suffix)));
   }

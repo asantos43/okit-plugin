@@ -5,6 +5,7 @@ import process from 'node:process';
 import { adapterQuotaReader } from '../status.js';
 import { environmentSnapshot } from '../env/snapshot.js';
 import { loadConfig } from '../mcp/tools.js';
+import { localizeReason } from '../install/present.js';
 import { DEFAULT_CONFIG } from '../profiles.js';
 import { readJson } from '../state.js';
 import { paths, stateRoot } from '../store.js';
@@ -64,13 +65,13 @@ function flagsOf(args) {
         if (!Number.isFinite(number) || number < 0 || (key !== '--quota-floor' && number === 0)
           || (key === '--max-turns' && !Number.isInteger(number))) return { flags, error: new Error(`Invalid ${key}`) };
         flags.overrides[OVERRIDES[key]] = number;
-      } else if (!value) return { flags, error: new Error(`Missing ${key}`) };
+      } else if (!value) return { flags, error: new Error(`Missing value for ${key}`) };
       else if (key === '--only') flags.only.push(...value.toUpperCase().split(','));
       else flags.client = value;
-    } else return { flags, error: new Error(`Unknown flag ${args[index]}`) };
+    } else return { flags, error: new Error(`Unknown flag: ${args[index]}`) };
   }
   if (!Object.hasOwn(DEFAULT_CONFIG.install.clients, flags.client)) {
-    return { flags, error: new Error(`Unknown client ${flags.client}. / Cliente desconhecido ${flags.client}.`) };
+    return { flags, error: new Error(`Unknown client ${flags.client}`) };
   }
   if (flags.only.some((id) => id !== 'C' && !SCENARIO.some((step) => step.id === id))) {
     return { flags, error: new Error('Unknown --only check') };
@@ -281,7 +282,7 @@ async function runScenario(argv, io) {
   const root = io.root;
   const { flags, error } = flagsOf(argv);
   out(LINES.start(flags.client, modeOf(flags)));
-  if (error) { err(error.message); return { code: 2, records: [] }; }
+  if (error) { err(localizeReason(error.message, io.locale)); return { code: 2, records: [] }; }
   const env = { ...io.env, OKWORK_HOME: root };
   const stored = await loadConfig(root);
   const budget = { ...DEFAULT_CONFIG.smoke, ...stored.smoke, ...flags.overrides };
@@ -291,7 +292,7 @@ async function runScenario(argv, io) {
     if (key === 'maxTokens' && value === null) continue;
     if (!Number.isFinite(value) || value < 0 || (key !== 'quotaFloorPct' && value === 0)
       || (key === 'maxTurns' && !Number.isInteger(value))) {
-      err(`Invalid smoke.${key}`); return { code: 2, records: [] };
+      err(localizeReason(`Invalid smoke.${key}`, io.locale)); return { code: 2, records: [] };
     }
   }
   const now = io.now ?? Date.now;
