@@ -23,6 +23,10 @@ export async function listActors(deps = {}) {
   const notes = [];
   if (!deps.client && !deps.all && !snapshot.inUse) notes.push(labelsOf(deps.locale).unknownClient);
   for (const observation of snapshot.clients) {
+    if (observation.installed === false) {
+      notes.push(`${observation.client}: ${labelsOf(deps.locale).optional}.`);
+      continue;
+    }
     const { cells: _cells, order: _order, ...quota } = observation.quota;
     const { remainingPct, readAt, status } = quota;
     const origin = quotaOrigin(observation.reading, snapshot.now, labelsOf(deps.locale));

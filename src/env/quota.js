@@ -36,6 +36,7 @@ export const LABELS = {
     demandColumns: ['Demand', 'Status', 'Title', 'Holder'],
     status: { green: 'green', yellow: 'yellow', red: 'red', off: 'off' },
     missing: MISSING,
+    optional: 'not installed (optional)',
     noQuota: (client) => `No quota value recorded. Record it with: okit-plugin quota set ${client} <pct>`,
     unknownClient: 'Client not recognized. Showing all clients; use --client <name> to choose one.',
     views: 'Slots show running executors; actors lists available model + effort profiles, even when nothing is running.',
@@ -54,12 +55,14 @@ export const LABELS = {
     unknownAge: 'age unknown',
     provider: 'provider',
     setupPending: (command) => `Setup is not done yet. Run ${command} setup to choose the models.`,
+    modelsMissing: (client, command) => `No model confirmed for ${client}. Run ${command}.`,
   },
   'pt-BR': {
     columns: ['Assinatura', 'Restante 5h', 'Restante semana', 'Reseta em', 'Situação', 'Origem (idade)'],
     demandColumns: ['Demanda', 'Situação', 'Título', 'Dono'],
     status: { green: 'verde', yellow: 'amarelo', red: 'vermelho', off: 'desligado' },
     missing: MISSING,
+    optional: 'não instalado (opcional)',
     noQuota: (client) => `Nenhum valor de cota registrado. Registre com: okit-plugin quota set ${client} <pct>`,
     unknownClient: 'Cliente não reconhecido. Mostrando todos os clientes; use --client <nome> para escolher um.',
     views: 'Vagas mostram executores em execução; actors lista perfis modelo + esforço disponíveis, mesmo sem nada rodando.',
@@ -78,6 +81,7 @@ export const LABELS = {
     unknownAge: 'idade desconhecida',
     provider: 'provedor',
     setupPending: (command) => `O setup ainda não foi feito. Rode ${command} setup para escolher os modelos.`,
+    modelsMissing: (client, command) => `Nenhum modelo confirmado para ${client}. Rode ${command}.`,
   },
 };
 

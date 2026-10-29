@@ -89,6 +89,11 @@ its client exposes. Core logic never imports a client directly.
 
 - Automatic quota uses Claude Code's status bar, Codex's local sessions and configured
   `opencodeQuota.sources`. Manual readings remain available; missing quota stays unknown.
+- Environment snapshots use adapter quota readers by default. Setup requests a manual
+  reading when none exists. Saved model/effort choices live in `setup.done.profiles`;
+  they confirm configured models only when live discovery is unavailable. Successful
+  empty or hidden listings and absent clients remain authoritative. Legacy setup
+  markers alone never confirm models; `setup --again` records the choices.
 - Do the terminal and desktop apps of each client support plugins, hooks and
   MCP servers? This still has to be verified.
 

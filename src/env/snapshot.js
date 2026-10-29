@@ -1,12 +1,13 @@
 import { capOf } from '../limits.js';
 import { configOf, DEFAULT_CONFIG, normalizeLimits } from '../profiles.js';
 import { setupPending } from './configuration.js';
-import { clientsOf, detectClient, labelsOf, DEFAULT_TTL_MS, readingWithAge, readingOf, rowOf } from './quota.js';
-import { detectClients, proposeProfiles, normalizeClientObservation } from './models.js';
+import { adapterQuotaReader, clientsOf, detectClient, labelsOf, DEFAULT_TTL_MS, readingWithAge, readingOf, rowOf } from './quota.js';
+import { confirmedActor, confirmedModels, detectClients, proposeProfiles, normalizeClientObservation } from './models.js';
 import { execFile } from 'node:child_process';
 import * as filesystem from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { collectorCommandIndex } from '../install/statusline.js';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { installConfig, installPaths, clientRoot } from '../install/config.js';
@@ -15,6 +16,21 @@ import { readRecords } from '../install/place.js';
 
 const exec = promisify(execFile);
 const READING_CACHE = new Map();
+
+async function statuslineState(deps, config, command) {
+  const settings = config.statuslineRegistration;
+  const location = { config: installConfig(config.install), env: deps.env ?? process.env,
+    home: deps.home ?? deps.env?.HOME ?? deps.env?.USERPROFILE ?? homedir() };
+  const path = join(clientRoot(settings.client, location), settings.settingsFile);
+  let active = null;
+  try {
+    const value = JSON.parse(await (deps.fs ?? filesystem).readFile(path, 'utf8'));
+    // Only a text command can be a registration; the installer refuses any other as unreadable.
+    active = value.statusLine?.type === 'command' && typeof value.statusLine.command === 'string'
+      && collectorCommandIndex(value.statusLine.command, settings, { ...config.install, command }) > 0;
+  } catch (error) { if (error.code === 'ENOENT') active = false; }
+  return { active, path, command: `${command} install --client ${settings.client} --statusline` };
+}
 
 async function withTimeout(pending, milliseconds) {
   let timer;
@@ -120,12 +136,19 @@ export async function environmentSnapshot(deps = {}) {
       .filter((client) => known.includes(client));
   if (deps.view !== 'selected') clients.sort((a, b) => Number(b === inUse) - Number(a === inUse));
   const observed = await (deps.detectClients ?? detectClients)({ ...deps, config });
-  const detected = { clients: observed.clients.map((record) => normalizeClientObservation(record, record.client)) };
+  const detected = { clients: observed.clients.map((record) => {
+    const normalized = normalizeClientObservation(record, record.client);
+    normalized.installed = deps.versions?.[record.client]?.installed ?? normalized.installed;
+    return normalized;
+  }) };
   const now = (deps.now ?? Date.now)();
   const quotas = new Map();
+  const readQuota = deps.readQuota ?? (deps.root ? adapterQuotaReader({
+    stateRoot: deps.root, env: deps.env, now: deps.now, config,
+  }) : undefined);
   for (const client of clients) {
     const { reading, at } = await readingWithAge(deps.cache ?? (deps.view === 'selected' ? READING_CACHE : new Map()), deps.root, client,
-      deps.readQuota, () => now, deps.ttlMs ?? DEFAULT_TTL_MS);
+      readQuota, () => now, deps.ttlMs ?? DEFAULT_TTL_MS);
     quotas.set(client, { reading, at });
   }
   const command = deps.command ?? config.install.command ?? DEFAULT_CONFIG.install.command;
@@ -138,16 +161,18 @@ export async function environmentSnapshot(deps = {}) {
   const rows = clients.map((client) => {
     const reading = detected.clients.find((entry) => entry.client === client);
     const installed = deps.versions?.[client]?.installed ?? reading?.installed ?? null;
-    const models = installed !== false && reading?.source === 'listing'
-      ? [...new Set(reading.models.filter((model) => model.trim() && !reading.hidden?.includes(model)))] : [];
-    const available = actorPairs(config, client).filter((actor) => models.includes(actor.model));
+    const models = confirmedModels(config, client, reading, installed);
+    const available = actorPairs(config, client).filter((actor) => confirmedActor(config, client, reading, installed, actor));
     const { cap, source } = capOf(normalizeLimits(deps.limits?.limits ?? config.limits), client);
-    if (!available.length) missing.push({ item: 'models', client, command: `${command} setup` });
-    else configured.push({ item: 'models', client });
+    if (installed !== false && !available.length) missing.push({ item: 'models', client,
+      command: `${command} setup${setupPending(config) ? '' : ' --again'}` });
+    else if (available.length) configured.push({ item: 'models', client });
     const sizes = Object.keys(config.actors.sizeClasses).filter((size) => !available.some((actor) => actor.sizes.includes(size)));
     if (available.length && sizes.length) missing.push({ item: 'sizes', client, sizes, command: `${command} setup` });
     const quota = rowOf(client, readingOf(quotas.get(client).reading), quotas.get(client).at,
       config, labelsOf(), now, deps.orders);
+    if (installed !== false && quota.status === 'off') missing.push({ item: 'quota', client,
+      command: `${command} quota set ${client} <pct>` });
     const raw = quotas.get(client).reading;
     const recorded = Date.parse(raw?.recordedAt);
     quota.ageMinutes = Number.isFinite(recorded) ? Math.max(0, now - recorded) / 60_000 : raw?.ageMinutes ?? null;
@@ -155,8 +180,8 @@ export async function environmentSnapshot(deps = {}) {
     quota.provider = raw?.provider ?? null;
     quota.observedAt = quotas.get(client).at;
     const free = Math.max(0, cap - (deps.limits?.byClient?.[client] ?? 0));
-    const candidates = actorPairs(config, client).map((actor) => {
-      const confirmed = models.includes(actor.model);
+    const candidates = (installed === false ? [] : actorPairs(config, client)).map((actor) => {
+      const confirmed = available.some((pair) => pair.model === actor.model && pair.effort === actor.effort);
       const restrictions = [!confirmed && 'unconfirmed', quota.status === 'off' && 'unknown-quota',
         (raw?.expired || (raw?.expiresAt && Date.parse(raw.expiresAt) <= now)
           || (quota.ageMinutes !== null && quota.ageMinutes > config.staleMinutes)) && 'expired-quota',
@@ -165,7 +190,7 @@ export async function environmentSnapshot(deps = {}) {
     });
     const sizeOrder = Object.keys(config.actors.sizeClasses);
     const launchable = sizeOrder.filter((size) => candidates.some((actor) => actor.canLaunch && actor.sizes.includes(size)));
-    const sizeCoverage = { launchable, gaps: sizeOrder.filter((size) => !launchable.includes(size)).map((size) => ({
+    const sizeCoverage = { launchable, gaps: sizeOrder.filter((size) => installed !== false && !launchable.includes(size)).map((size) => ({
       size, alternative: [...launchable].sort((a, b) => Math.abs(sizeOrder.indexOf(a) - sizeOrder.indexOf(size))
         - Math.abs(sizeOrder.indexOf(b) - sizeOrder.indexOf(size)))[0] ?? null,
     })) };
@@ -188,6 +213,7 @@ export async function environmentSnapshot(deps = {}) {
     for (const row of rows) await record(deps.root, 'quota.check', { client: row.client, state: row.quota.status });
   }
   return { now, inUse, config, detected, proposals: proposeProfiles(detected, config), clients: rows,
-    plugin: { ...deps.plugin, statePath: deps.root, configured, missing } };
+    plugin: { ...deps.plugin, statusline: await statuslineState(deps, config, command),
+      statePath: deps.root, configured, missing } };
 }
 

@@ -378,6 +378,9 @@ test('daemon status --table prints the quota table under the daemon lines', asyn
     env: clientEnv('claude-code', { HOME: root }),
     now: () => T0,
     quotaCache: new Map(),
+    plugin: {}, versions: { 'claude-code': { installed: true } },
+    detectClients: async () => ({ clients: [{ client: 'claude-code', installed: true,
+      source: 'listing', models: ['haiku', 'sonnet', 'opus'] }] }),
     readQuota: async (client) => {
       calls.push(client);
       return readings[client] ?? { source: 'off' };

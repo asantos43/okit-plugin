@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../src/cli.js';
 import { environmentReadings, environmentReport, formatEnvironmentReport } from '../src/env/report.js';
@@ -8,8 +9,309 @@ import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { environmentSnapshot } from '../src/env/snapshot.js';
 import { statusTable } from '../src/status.js';
 import { listActors } from '../src/actors.js';
+import { runSetup } from '../src/setup/setup.js';
+import { collectStatusline, collectorArgsValid } from '../src/quota/statusline-collector.js';
+import { readJson } from '../src/state.js';
+import claudeCode from '../adapters/claude-code/index.js';
+import codex from '../adapters/codex/index.js';
+import opencode from '../adapters/opencode/index.js';
+import { commandWords, planStatusline } from '../src/install/statusline.js';
+import { installConfig } from '../src/install/config.js';
 
 const clients = Object.keys(DEFAULT_CONFIG.install.clients);
+
+test('D95 R1: the same model never confirms a changed effort', async () => {
+  for (const source of ['catalog', 'listing']) {
+    const profiles = { codex: structuredClone(DEFAULT_CONFIG.profiles.codex) };
+    const config = { profiles, setup: { done: { profiles: structuredClone(profiles) } } };
+    profiles.codex.normal.effort = 'xhigh';
+    const deps = readings({ client: 'codex', config,
+      readQuota: async () => ({ source: 'manual', remainingPct: 80 }),
+      detectClients: async () => ({ clients: [{ client: 'codex', installed: true, source,
+        models: [profiles.codex.simple.model] }] }) });
+    const snapshot = await environmentSnapshot(deps);
+    const changed = snapshot.clients[0].candidates.find((actor) => actor.effort === 'xhigh');
+    assert.equal(changed.confirmed, false, source);
+    assert.equal(changed.canLaunch, false, source);
+    assert.ok(snapshot.clients[0].candidates.some((actor) => actor.confirmed && actor.canLaunch));
+    config.setup.done.profiles.codex.normal.effort = 'xhigh';
+    const approved = await environmentSnapshot(deps);
+    assert.equal(approved.clients[0].candidates.find((actor) => actor.effort === 'xhigh').canLaunch, true);
+    if (source === 'listing') {
+      delete config.setup;
+      const unsaved = await environmentSnapshot(deps);
+      assert.equal(unsaved.clients[0].candidates.find((actor) => actor.effort === 'xhigh').confirmed, false);
+    }
+  }
+});
+
+test('D95 R2: absent actors say optional without configuration instructions', async () => {
+  const snapshot = await environmentSnapshot(readings({ client: 'codex', versions: { codex: { installed: false } } }));
+  for (const locale of ['en', 'pt-BR']) {
+    const result = await listActors({ snapshot, client: 'codex', locale });
+    assert.deepEqual(result.notes, [locale === 'en' ? 'codex: not installed (optional).' : 'codex: não instalado (opcional).']);
+    assert.doesNotMatch(result.markdown, /Check the profiles|Confira os perfis|setup/);
+    assert.deepEqual(result.actors, []);
+  }
+});
+
+// | Command | Must pass | Must refuse |
+// | plugin executable + collector subcommand | active/idempotent | replacement |
+// | echo or collector mentioned in later arguments | activation + keep bar | active |
+test('D95 R3: echo statusline-collector is inactive and installation wraps it', async () => {
+  const settings = DEFAULT_CONFIG.statuslineRegistration;
+  for (const command of ['echo statusline-collector', 'echo okit-plugin statusline-collector',
+    'okit-plugin --previous echo statusline-collector']) {
+    const fs = { readFile: async () => Buffer.from(JSON.stringify({ statusLine: { type: 'command', command } })) };
+    const snapshot = await environmentSnapshot(readings({ fs }));
+    assert.equal(snapshot.plugin.statusline.active, false, command);
+    for (const locale of ['en', 'pt-BR']) {
+      assert.match(formatEnvironmentReport(snapshot, locale), /install --client claude-code --statusline/);
+    }
+    const plan = await planStatusline({ client: 'claude-code' }, { fs,
+      config: installConfig(), statuslineConfig: settings, env: {}, home: '.', platform: 'linux' });
+    assert.ok(plan, command);
+    assert.match(JSON.parse(plan.bytes).statusLine.command, /statusline-collector' '--previous'/);
+  }
+});
+
+test('D95 R4: absent clients contribute no launch capacity', async () => {
+  const snapshot = await environmentSnapshot(readings({ versions: { 'claude-code': { installed: true },
+    codex: { installed: false }, opencode: { installed: false } } }));
+  for (const locale of ['en', 'pt-BR']) {
+    const status = await statusTable(undefined, { snapshot, all: true, locale, demands: [] });
+    assert.doesNotMatch(status.capacityLine, /codex:|opencode:/);
+    assert.match(status.capacityLine, /claude-code: 0\/7/);
+    assert.ok(status.markdown.includes('codex |'));
+  }
+});
+
+test('D95 R5: the three review fragments include English and Portuguese on one line', async () => {
+  for (const name of ['d95-optional-clients.fixed.md', 'd95-collector-report.added.md', 'd95-daemon-table-test.fixed.md']) {
+    const line = (await readFile(new URL(`../changelog.d/${name}`, import.meta.url), 'utf8')).trim();
+    assert.equal(line.split('\n').length, 1);
+    const [en, pt] = line.split(' / ');
+    assert.ok(en && pt, name);
+    assert.match(en, /clients|collector|table/);
+    assert.match(pt, /clientes|coletor|tabela/);
+  }
+});
+
+for (const platform of ['linux', 'darwin', 'win32']) {
+  test(`${platform}: absent clients are optional across environment, status, actors and setup`, async (t) => {
+    const root = await mkdtemp('.delegate/optional-clients-');
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const env = platform === 'win32' ? { USERPROFILE: root, LOCALAPPDATA: root } : { HOME: root };
+    const deps = readings({ root, home: root, platform, env,
+      versions: { 'claude-code': { installed: true }, codex: { installed: false }, opencode: { installed: false } } });
+    const snapshot = await environmentSnapshot(deps);
+    assert.ok(snapshot.plugin.missing.every((entry) => !['codex', 'opencode'].includes(entry.client)));
+    for (const locale of ['en', 'pt-BR']) {
+      const optional = locale === 'en' ? 'not installed (optional)' : 'não instalado (opcional)';
+      const text = formatEnvironmentReport(snapshot, locale);
+      const status = await statusTable(undefined, { snapshot, all: true, locale, demands: [] });
+      const actors = await listActors({ snapshot, all: true, locale });
+      for (const client of ['codex', 'opencode']) {
+        assert.ok(text.includes(`${client}: ${optional}`));
+        assert.ok(status.markdown.includes(`| ${client} | - | - | - | ${optional} |`));
+        assert.ok(!actors.actors.some((actor) => actor.client === client));
+      }
+    }
+
+    const setup = await runSetup({ root, snapshot, defaults: true, locale: 'en' });
+    assert.ok(setup.changes.length > 0);
+    assert.ok(setup.changes.every((entry) => entry.client === 'claude-code'));
+    assert.ok(setup.messages.every((line) => !/codex|opencode/.test(line)));
+  });
+}
+
+// Must pass / must refuse:
+// | Evidence | Must pass | Must refuse |
+// | saved setup + failed/unconfigured listing | chosen models | implicit defaults, later model edits |
+// | live empty/hidden listing | explicit remedy | saved choices overriding the client |
+// | absent client, any platform | optional, no setup changes | missing models/quota or launch |
+// | registered status bar command | active | inactive from missing install record |
+// | missing/unreadable/unrelated status bar | inactive/unknown + install command | active |
+// | missing/invalid allowance | record command | invented allowance or launch permission |
+for (const platform of ['linux', 'darwin', 'win32']) {
+  for (const adapter of [claudeCode, codex, opencode]) {
+    test(`${platform}/${adapter.CLIENT}: fresh setup, listing corpus and first quota`, async (t) => {
+      const client = adapter.CLIENT;
+      const root = await mkdtemp('.delegate/ready-state-');
+      t.after(() => rm(root, { recursive: true, force: true }));
+      const env = platform === 'win32'
+        ? { USERPROFILE: String.raw`C:\Users\Fresh User`, LOCALAPPDATA: String.raw`C:\Users\Fresh User\AppData\Local`, PATH: String.raw`C:\Tools` }
+        : { HOME: root, PATH: '/fake/bin' };
+      env.CODEX_SESSIONS_DIR = join(root, 'sessions');
+      const command = platform === 'win32' ? String.raw`C:\Program Files\Client\models.cmd` : `/fake/bin/${client}`;
+      const models = [...new Set(Object.values(DEFAULT_CONFIG.profiles[client]).map((profile) => profile.model))];
+      let mode = 'failure';
+      const calls = [];
+      const run = async (request) => {
+        calls.push(request);
+        if (mode === 'throws') throw Object.assign(new Error('fixture failure'), { code: 'EINVAL' });
+        return { code: mode === 'failure' ? 1 : 0, stdout: mode === 'empty' ? (client === 'opencode' ? '' : '[]')
+          : client === 'opencode' ? models.join('\r\n') : JSON.stringify({ models: models.map((slug) => ({ slug, visibility: 'list' })) }) };
+      };
+      const config = { profiles: { [client]: DEFAULT_CONFIG.profiles[client] },
+        setup: { detect: { [client]: { command, args: ['models'],
+          parse: client === 'opencode' ? 'lines' : 'json-array' } } } };
+      const deps = { root, client, platform, env, run, adapters: [adapter], config,
+        plugin: { onPath: true }, versions: { [client]: { installed: true } } };
+      await writeFile(join(root, 'config.json'), JSON.stringify(config));
+      const before = await environmentSnapshot(deps);
+      assert.equal(before.clients[0].evidence.models, 'catalog');
+      assert.equal(before.clients[0].actors.length, 0);
+      assert.equal(before.clients[0].quota.status, 'off');
+      const setup = await runSetup({ ...deps, ask: async () => 'yes', locale: 'both' });
+      assert.ok(setup.changes.length > 0);
+      assert.ok(setup.messages.some((line) => line.includes(`quota set ${client} <pct>`) && line.includes('Registre')));
+      deps.config = await readJson(join(root, 'config.json'));
+      let ready = await environmentSnapshot(deps);
+      assert.ok(ready.clients[0].candidates.every((actor) => actor.confirmed && !actor.canLaunch));
+      for (const locale of ['en', 'pt-BR']) {
+        assert.match(formatEnvironmentReport(ready, locale), new RegExp(`quota set ${client} <pct>`));
+      }
+      for (const outcome of ['success', 'failure', 'throws', 'empty']) {
+        mode = outcome;
+        ready = await environmentSnapshot(deps);
+        const confirmed = outcome !== 'empty' || client === 'opencode';
+        assert.equal(ready.clients[0].candidates.every((actor) => actor.confirmed), confirmed, outcome);
+      }
+      assert.ok(calls.every((request) => request.command === command && request.env === env));
+      mode = 'failure';
+      deps.config.setup.detect[client].command = null;
+      ready = await environmentSnapshot(deps);
+      assert.ok(ready.clients[0].candidates.every((actor) => actor.confirmed));
+      const hidden = await environmentSnapshot({ ...deps, detectClients: async () => ({ clients: [{
+        client, installed: true, source: 'listing', models, hidden: models,
+      }] }) });
+      assert.ok(hidden.clients[0].candidates.every((actor) => !actor.confirmed));
+      const absent = await environmentSnapshot({ ...deps, versions: { [client]: { installed: false } } });
+      assert.ok(absent.clients[0].candidates.every((actor) => !actor.confirmed));
+      const edited = structuredClone(deps.config);
+      for (const profile of Object.values(edited.profiles[client])) profile.model = 'unreviewed-model';
+      const changed = await environmentSnapshot({ ...deps, config: edited });
+      assert.ok(changed.clients[0].candidates.every((actor) => !actor.confirmed));
+      assert.match(formatEnvironmentReport(changed), /setup --again/);
+      for (const locale of ['en', 'pt-BR']) {
+        const blockedStatus = await statusTable(undefined, { snapshot: changed, client, locale, demands: [] });
+        assert.match(blockedStatus.markdown, /okit-plugin setup --again/);
+        assert.match(blockedStatus.markdown, new RegExp(`quota set ${client} <pct>`));
+      }
+      assert.equal(await main(['quota', 'set', client, '80'], { ...deps, stdout: () => {} }), 0);
+      ready = await environmentSnapshot(deps);
+      assert.equal(ready.clients[0].quota.remainingPct, 80);
+      assert.ok(ready.clients[0].candidates.every((actor) => actor.canLaunch));
+      const status = await statusTable(undefined, { snapshot: ready, client, demands: [] });
+      assert.equal(status.rows[0].remainingPct, 80);
+      if (client === 'claude-code') {
+        await collectStatusline({ stateRoot: root, input: Buffer.from(JSON.stringify({
+          rate_limits: { five_hour: { used_percentage: 25, resets_at: Date.now() / 1000 + 3600 } },
+        })) });
+        const collected = await environmentSnapshot(deps);
+        assert.equal(collected.clients[0].quota.source, 'automatic');
+        assert.equal(collected.clients[0].quota.remainingPct, 75);
+      }
+    });
+  }
+}
+
+test('status bar registration is read from settings, with a command when inactive or unknown', async () => {
+  const corpus = [
+    [{ statusLine: { type: 'command', command: 'okit-plugin statusline-collector' } }, true],
+    [{ statusLine: { type: 'command', command: '"plugin path/okit" statusline-collector --previous echo hello' } }, true],
+    [{ statusLine: { type: 'command', command: String.raw`"C:\Program Files\okit-plugin.cmd" statusline-collector` } }, true],
+    [{ statusLine: { type: 'command', command: 'node src/cli.js statusline-collector' } }, true],
+    [{ statusLine: { type: 'command', command: 'node /old/plugin.js statusline-collector' } }, true],
+    [{ statusLine: { type: 'command', command: 'echo hello' } }, false],
+    [{ statusLine: { type: 'prompt', command: 'okit-plugin statusline-collector' } }, false],
+    [{}, false], [null, false], ['broken JSON', null], ['EACCES', null],
+  ];
+  for (const platform of ['linux', 'darwin', 'win32']) {
+    for (const [settings, expected] of corpus) {
+      const fs = { readFile: async (path) => {
+        assert.ok(path.endsWith('settings.json'));
+        if (settings === null || settings === 'EACCES') throw Object.assign(new Error(), { code: settings === null ? 'ENOENT' : 'EACCES' });
+        return typeof settings === 'string' ? settings : JSON.stringify(settings);
+      } };
+      const snapshot = await environmentSnapshot(readings({ platform, fs, home: '.delegate/collector-home' }));
+      assert.equal(snapshot.plugin.statusline.active, expected);
+      for (const locale of ['en', 'pt-BR']) {
+        const line = formatEnvironmentReport(snapshot, locale).split('\n').find((line) => line.includes('statusline-collector'));
+        assert.ok(line.includes(locale === 'en' ? expected === null ? 'unknown' : expected ? 'active' : 'inactive' : expected === null ? 'desconhecida' : expected ? 'ativo' : 'inativo'));
+        assert.equal(line.includes('okit-plugin install --client claude-code --statusline'), expected !== true);
+      }
+    }
+  }
+});
+
+test('D95 R6: a status bar command that is not text is not registered', async () => {
+  for (const command of [['okit-plugin', ' ', 'statusline-collector'], { run: 'okit-plugin statusline-collector' }, 7]) {
+    const fs = { readFile: async () => JSON.stringify({ statusLine: { type: 'command', command } }) };
+    const snapshot = await environmentSnapshot(readings({ fs }));
+    assert.equal(snapshot.plugin.statusline.active, false, JSON.stringify(command));
+    for (const locale of ['en', 'pt-BR']) {
+      assert.match(formatEnvironmentReport(snapshot, locale), /install --client claude-code --statusline/);
+    }
+  }
+});
+
+test('D95 R7: a command named like the subcommand is recognized at the subcommand position', async () => {
+  const settings = DEFAULT_CONFIG.statuslineRegistration;
+  const command = 'statusline-collector';
+  const registered = `${command} ${settings.subcommand}`;
+  const fs = { readFile: async () => Buffer.from(JSON.stringify({ statusLine: { type: 'command', command: registered } })) };
+  const snapshot = await environmentSnapshot(readings({ fs, command }));
+  assert.equal(snapshot.plugin.statusline.active, true);
+  const plan = await planStatusline({ client: 'claude-code' }, { fs,
+    config: installConfig({ command }), statuslineConfig: settings, env: {}, home: '.', platform: 'linux' });
+  assert.equal(plan, null);
+});
+
+test('D95 R10: arguments the collector refuses make the command not a registration', async () => {
+  const settings = DEFAULT_CONFIG.statuslineRegistration;
+  const cases = [
+    ['okit-plugin statusline-collector --previous', false], ['okit-plugin statusline-collector --help', false],
+    ['okit-plugin statusline-collector --typo', false], ['node src/cli.js statusline-collector --typo', false],
+    ['okit-plugin statusline-collector --previous echo hi', true], ['okit-plugin statusline-collector', true],
+    ['node src/cli.js statusline-collector --previous echo hi', true],
+  ];
+  for (const [command, active] of cases) {
+    const fs = { readFile: async () => JSON.stringify({ statusLine: { type: 'command', command } }) };
+    const snapshot = await environmentSnapshot(readings({ fs }));
+    assert.equal(snapshot.plugin.statusline.active, active, command);
+    for (const locale of ['en', 'pt-BR']) {
+      const line = formatEnvironmentReport(snapshot, locale).split('\n').find((text) => text.includes('(statusline-collector)'));
+      assert.equal(line.includes('okit-plugin install --client claude-code --statusline'), !active, `${locale}: ${command}`);
+    }
+    const deps = { fs, config: installConfig(), statuslineConfig: settings, env: {}, home: '.', platform: 'linux' };
+    const plan = await planStatusline({ client: 'claude-code' }, deps);
+    if (active) { assert.equal(plan, null, command); continue; }
+    // Wrapped like a third-party command: valid, restorable and idempotent.
+    const wrapped = JSON.parse(plan.bytes).statusLine.command;
+    assert.ok(collectorArgsValid(commandWords(wrapped).slice(2)), wrapped);
+    assert.deepEqual(plan.previous, { type: 'command', command });
+    const again = await planStatusline({ client: 'claude-code', statusline: { path: plan.path } },
+      { ...deps, fs: { readFile: async () => plan.bytes } });
+    assert.equal(again, null, wrapped);
+  }
+});
+
+test('D95 R8: models and actors of a client are confirmed by the choices setup saved', async () => {
+  const profiles = { codex: structuredClone(DEFAULT_CONFIG.profiles.codex) };
+  const detect = async () => ({ clients: [{ client: 'codex', installed: true, source: 'catalog',
+    models: Object.values(profiles.codex).map((profile) => profile.model) }] });
+  const base = readings({ client: 'codex', detectClients: detect });
+  const saved = await environmentSnapshot({ ...base, config: { profiles,
+    setup: { done: { profiles: structuredClone(profiles) } } } });
+  const expected = [...new Set(Object.values(profiles.codex).map((profile) => profile.model))];
+  assert.deepEqual(saved.clients[0].models, expected);
+  assert.ok(saved.clients[0].candidates.every((actor) => actor.confirmed));
+  const unsaved = await environmentSnapshot({ ...base, config: { profiles } });
+  assert.deepEqual(unsaved.clients[0].models, []);
+  assert.ok(unsaved.clients[0].candidates.every((actor) => !actor.confirmed));
+});
 
 test('one injected snapshot agrees across env, status and actors without rereading', async () => {
   let reads = 0;
@@ -143,7 +445,7 @@ for (const client of clients) {
     assert.equal(absent.clients[0].installed, false);
     assert.deepEqual(absent.clients[0].actors, []);
     assert.match(formatEnvironmentReport(absent), /not installed/);
-    assert.ok(absent.plugin.missing.some((item) => item.client === client && item.command === 'okit-plugin setup'));
+    assert.ok(!absent.plugin.missing.some((item) => item.client === client));
   });
 }
 
@@ -225,6 +527,31 @@ test('partially covered sizes have a remedy in the object and both languages', a
     /Missing: no model configured for sizes M, XL in codex\. Run chosen-command setup\./);
   assert.match(formatEnvironmentReport(report, 'pt-BR'),
     /Falta: nenhum modelo configurado para os tamanhos M, XL em codex\. Rode chosen-command setup\./);
+});
+
+test('D95 R9: a disabled (null) profile confirms nothing and never breaks env report or status', async () => {
+  const profiles = { codex: { simple: { model: 'model-a', effort: 'low' }, normal: null,
+    hard: { model: 'model-c', effort: 'high' } } };
+  const saved = { simple: profiles.codex.simple, normal: { model: 'model-b', effort: 'medium' }, hard: profiles.codex.hard };
+  const detect = async () => ({ clients: [{ client: 'codex', installed: true, source: 'catalog', models: [] }] });
+  const snapshot = await environmentSnapshot({ ...readings({ client: 'codex', detectClients: detect }),
+    config: { profiles, setup: { done: { profiles: { codex: saved } } } } });
+  assert.deepEqual(snapshot.clients[0].models, ['model-a', 'model-c']);
+  assert.ok(snapshot.clients[0].candidates.every((actor) => actor.model !== 'model-b' || !actor.confirmed));
+  const root = await mkdtemp(join(tmpdir(), 'okit-null-profile-'));
+  try {
+    await writeFile(join(root, 'config.json'), JSON.stringify({ profiles: { codex: { normal: null } } }));
+    for (const locale of ['en', 'pt-BR']) {
+      for (const argv of [['env', 'report'], ['status']]) {
+        const output = [];
+        const code = await main([...argv, '--client', 'codex', '--locale', locale], {
+          ...readings({ detectClients: detect }), config: undefined, root, home: root,
+          stdout: (text) => output.push(text), stderr: (text) => output.push(text) });
+        assert.equal(code, 0, `${argv} ${locale}: ${output.join('\n')}`);
+        assert.doesNotMatch(output.join('\n'), /Cannot read properties/);
+      }
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('catalog fallback never claims active models; saved setup and command are respected', async () => {

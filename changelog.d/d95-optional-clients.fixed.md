@@ -1,0 +1,1 @@
+Treat absent clients as optional in environment, status and actors reports, without setup remedies or launch capacity on Linux, macOS and Windows. / Trata clientes ausentes como opcionais nos relatórios de ambiente, status e atores, sem pendências de setup nem capacidade de execução no Linux, macOS e Windows.

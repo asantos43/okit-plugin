@@ -5,6 +5,7 @@ import { clientRoot } from './config.js';
 import { quote } from './link.js';
 import { saveRecord } from './place.js';
 import { presenterOf } from './present.js';
+import { collectorArgsValid } from '../quota/statusline-collector.js';
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const missing = (error) => { if (error.code !== 'ENOENT') throw error; return null; };
@@ -18,7 +19,9 @@ export function commandWords(command) {
     const char = command[i];
     if ((!quoted && /[|&;<>$`\n\r()*?{}\[\]~#%!^]/.test(char))
       || (quoted === '"' && /[$`]/.test(char))) return null;
-    if (char === '\\' && quoted !== "'") { if (++i === command.length) return null; word += command[i]; active = true; }
+    if (char === '\\' && quoted === '"' && command[i + 1] && !/["\\$`\n]/.test(command[i + 1])) {
+      word += char; active = true;
+    } else if (char === '\\' && quoted !== "'") { if (++i === command.length) return null; word += command[i]; active = true; }
     else if (char === quoted) quoted = null;
     else if (!quoted && (char === '"' || char === "'")) { quoted = char; active = true; }
     else if (!quoted && /\s/.test(char)) { if (active) words.push(word); word = ''; active = false; }
@@ -27,6 +30,26 @@ export function commandWords(command) {
   if (quoted) return null;
   if (active) words.push(word);
   return words;
+}
+
+// Recognize an invocation, not a mention in arguments to echo or another bar.
+export function collectorCommandIndex(command, settings, config = {}) {
+  const words = commandWords(command);
+  if (!words) return -1;
+  const name = (word = '') => word.replaceAll('\\', '/').split('/').at(-1)
+    .replace(/\.(exe|cmd|bat|ps1)$/i, '');
+  const executables = ['okit-plugin', 'okit', config.command, ...(config.legacyCommands ?? [])]
+    .filter(Boolean).map(name);
+  // Arguments the collector refuses make it exit before collecting: not a working registration.
+  if (words[1] === settings.subcommand && executables.includes(name(words[0]))) {
+    return collectorArgsValid(words.slice(2)) ? words.indexOf(settings.subcommand, 1) : -1;
+  }
+  const script = words[1]?.replaceAll('\\', '/');
+  if (name(words[0]) === 'node' && words[2] === settings.subcommand
+    && (script === 'src/cli.js' || script?.endsWith('/src/cli.js') || script?.split('/').at(-1) === 'plugin.js')) {
+    return collectorArgsValid(words.slice(3)) ? words.indexOf(settings.subcommand, 1) : -1;
+  }
+  return -1;
 }
 
 export async function planStatusline(record, deps) {
@@ -38,7 +61,7 @@ export async function planStatusline(record, deps) {
   const previous = value.statusLine;
   if (previous !== undefined && (!previous || previous.type !== 'command' || typeof previous.command !== 'string')) throw new Error(unreadable(deps));
   const words = commandWords(previous?.command ?? '');
-  const collectorIndex = words?.indexOf(settings.subcommand) ?? -1;
+  const collectorIndex = collectorCommandIndex(previous?.command ?? '', settings, deps.config);
   const owned = collectorIndex > 0;
   // A collector at another path is already registered; only update a command
   // whose original settings this installation can restore.
@@ -121,8 +144,7 @@ export async function undoStatusline(record, deps) {
       else await deps.fs.rm(saved.path);
     } else if (bytes) {
       const value = JSON.parse(bytes.toString('utf8'));
-      const words = commandWords(value.statusLine?.command ?? '');
-      if ((words?.indexOf(deps.statuslineConfig.subcommand) ?? -1) > 0) {
+      if (collectorCommandIndex(value.statusLine?.command ?? '', deps.statuslineConfig, deps.config) > 0) {
         if (saved.previous === undefined) delete value.statusLine;
         else value.statusLine = saved.previous;
         await writeBytes(saved.path, Buffer.from(`${JSON.stringify(value, null, 2)}\n`), deps.fs);

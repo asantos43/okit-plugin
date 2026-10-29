@@ -1,0 +1,1 @@
+Confirm actors by model and effort so an unchanged model cannot authorize an edited effort without evidence. / Confirma atores por modelo e esforço para que um modelo inalterado não autorize um esforço editado sem evidência.
