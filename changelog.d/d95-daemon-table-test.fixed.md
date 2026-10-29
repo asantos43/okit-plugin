@@ -1,0 +1,1 @@
+Give daemon and status quota table tests explicit installation/model observations so assertions remain independent of installed clients. / Fornece observações explícitas de instalação e modelos aos testes de tabela de cota do daemon e status para que independam dos clientes instalados.

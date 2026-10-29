@@ -60,10 +60,14 @@ export async function statusTable(root, deps = {}) {
   const note = !selected && !deps.all ? `\n\n${labels.unknownClient}` : '';
 
   const observations = snapshot.clients.filter((row) => clients.includes(row.client));
+  const remedies = snapshot.plugin.missing
+    .filter((entry) => entry.item === 'models' && clients.includes(entry.client))
+    .map((entry) => labels.modelsMissing(entry.client, entry.command));
   const rows = observations.map((row) => ({ ...row.quota,
     ...rowOf(row.client, readingOf(row.reading), row.quotaReadAt, snapshot.config,
-      labels, snapshot.now, deps.orders), models: row.models, actors: row.actors, slots: row.slots }));
-  const capacity = observations.map(({ client, slots, slotEvidence }) => labels.cap(client,
+      labels, snapshot.now, deps.orders), models: row.models, actors: row.actors, slots: row.slots,
+    ...(row.installed === false ? { cells: [row.client, '-', '-', '-', labels.optional, '-'] } : {}) }));
+  const capacity = observations.filter((row) => row.installed !== false).map(({ client, slots, slotEvidence }) => labels.cap(client,
     slotEvidence.running, slots.total, labels.capSource[slotEvidence.source], slots.available)).join('; ');
   const warnings = (deps.limits?.warnings ?? config.limitWarnings).map(labels.warning);
   const name = deps.demands?.length === 0 ? null : await projectName(root);
@@ -73,7 +77,8 @@ export async function statusTable(root, deps = {}) {
     demands.map((item) => ({ cells: [item.ref, item.status, item.title, holdText(item, config, deps.locale, now())] })),
   )}`;
   return {
-    markdown: markdownOf(labels.columns, rows) + demandTable + note + `\n\n${labels.views}`,
+    markdown: markdownOf(labels.columns, rows) + demandTable + note + `\n\n${labels.views}`
+      + (remedies.length ? `\n\n${remedies.join('\n')}` : ''),
     capacityLine: [labels.capacity(capacity, floor), ...warnings].join('\n'),
     rows,
     snapshot,

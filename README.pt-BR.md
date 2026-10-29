@@ -10,7 +10,7 @@ Funciona com Claude Code, Codex e opencode, usando os próprios assistentes do c
 
 1. Tenha Node.js 20 ou mais recente e um cliente de IA instalado. Siga [instalação](docs/guide/install.pt-BR.md) para baixar e ler o instalador da versão para seu sistema.
 2. Execute `sh install.sh --client codex` no Linux/macOS ou `./install.ps1 --client codex` no PowerShell do Windows, na pasta do download. Troque `codex` por `claude-code` ou `opencode` conforme necessário. Espere um resumo da versão, destino e registro do cliente; siga a mensagem de ativação e reinicie o cliente.
-3. Execute `okit-plugin setup`. Espere as escolhas de modelos detectadas; confirme-as para salvar a configuração.
+3. Execute `okit-plugin setup`. Confirme as escolhas de modelos; elas continuam confirmadas quando o cliente não consegue listar modelos. Sem leitura de cota, o setup mostra `okit-plugin quota set CLIENT <pct>`; informe a porcentagem mostrada pelo cliente.
 
 <a id="first-try"></a>
 ## Primeira coisa para tentar

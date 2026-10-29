@@ -93,6 +93,12 @@ diretamente.
 
 - A cota automática usa a barra do Claude Code, sessões locais do Codex e fontes
   `opencodeQuota.sources` configuradas. A leitura manual continua disponível; sem leitura, a cota é desconhecida.
+- O retrato do ambiente consulta os leitores de cota dos adaptadores por padrão.
+  Sem leitura, o setup pede o registro manual. As escolhas de modelo/esforço ficam
+  em `setup.done.profiles` e confirmam modelos configurados quando a descoberta
+  não está disponível. Listas válidas vazias, modelos ocultos e clientes ausentes
+  continuam prevalecendo. Marcadores antigos de setup não confirmam modelos;
+  `setup --again` registra as escolhas.
 - Os aplicativos de terminal e de desktop de cada cliente suportam plugins,
   hooks e servidores MCP? Ainda é preciso verificar.
 

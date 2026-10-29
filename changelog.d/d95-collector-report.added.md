@@ -1,0 +1,1 @@
+Report the actual statusline-collector invocation and the install command to enable it in English and Brazilian Portuguese, sharing recognition with the installer. / Informa a invocação real do coletor statusline-collector e o comando de instalação para ativá-lo em inglês e português brasileiro, compartilhando o reconhecimento com o instalador.

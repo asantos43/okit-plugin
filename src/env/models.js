@@ -74,6 +74,36 @@ export async function detectClients({ config, env = process.env, run, adapters }
   return { clients };
 }
 
+// A live answer is authoritative, including an empty list. Otherwise only
+// the exact choices saved by setup count; defaults and later edits do not.
+// A disabled class (`null` profile) confirms nothing.
+export function confirmedModels(config, client, reading, installed) {
+  if (installed === false) return [];
+  if (reading?.source === 'listing') return [...new Set(reading.models)];
+  const saved = config.setup?.done?.profiles?.[client] ?? {};
+  return [...new Set(Object.entries(config.profiles[client] ?? {})
+    .filter(([name, profile]) => profile && typeof profile === 'object'
+      && saved[name]?.model === profile.model
+      && saved[name]?.effort === profile.effort
+      && !reading?.hidden?.includes(profile.model))
+    .map(([, profile]) => profile.model))];
+}
+
+// Model-only listings cannot validate a changed effort. Keep the effort of
+// the saved choice (or reference profile) until setup records the new pair.
+export function confirmedActor(config, client, reading, installed, actor) {
+  if (installed === false || reading?.hidden?.includes(actor.model)) return false;
+  const saved = config.setup?.done?.profiles?.[client] ?? {};
+  return Object.entries(config.profiles[client] ?? {}).some(([name, profile]) => {
+    if (profile?.model !== actor.model || profile.effort !== actor.effort) return false;
+    if (reading?.source === 'listing') {
+      const evidence = saved[name] ?? DEFAULT_CONFIG.profiles[client]?.[name] ?? profile;
+      return reading.models.includes(actor.model) && evidence?.effort === actor.effort;
+    }
+    return saved[name]?.model === actor.model && saved[name]?.effort === actor.effort;
+  });
+}
+
 function commonPrefix(left, right) {
   let length = 0;
   while (length < left.length && length < right.length && left[length] === right[length]) {

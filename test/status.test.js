@@ -16,6 +16,8 @@ const main = (argv, io) => runMain(argv, { ...io, env: quotaEnv(io.root, io.env)
 const statusTable = (root, deps = {}) => buildStatusTable(root, {
   ...deps, env: quotaEnv(root, deps.env),
 });
+const installedVersions = Object.fromEntries(['claude-code', 'codex', 'opencode']
+  .map((client) => [client, { installed: true }]));
 
 // Scratch state lives inside the repository, never in the system temp folder.
 const TMP = fileURLToPath(new URL('../.delegate/tmp/', import.meta.url));
@@ -139,7 +141,7 @@ test('detected client filters both rows and capacity, including unconfigured cli
   const root = await tempRoot(t);
   for (const [env, client] of CLIENT_CASES) {
     const { readQuota, calls } = readerOf({});
-    const table = await statusTable(root, { env, readQuota, cache: new Map(),
+    const table = await statusTable(root, { env, readQuota, cache: new Map(), plugin: {}, versions: installedVersions,
       clients: ['claude-code'], limits: { byClient: { codex: 1, opencode: 2 } } });
     assert.deepEqual(table.rows.map((row) => row.client), [client]);
     assert.deepEqual(calls, [client]);
@@ -346,7 +348,7 @@ test('the capacity line counts the room the live runs leave, never below zero', 
 
 test('status translates client sources and legacy configuration warnings', async (t) => {
   const root = await tempRoot(t);
-  const deps = { clients: ['codex'], readQuota: async () => null, cache: new Map(),
+  const deps = { clients: ['codex'], readQuota: async () => null, cache: new Map(), plugin: {}, versions: installedVersions,
     config: { limits: { global: 4, perClient: 2, clients: { codex: 100, future: 1 } } } };
   const en = await statusTable(root, deps);
   assert.match(en.capacityLine, /codex: 0\/100 \(client\)/);
@@ -507,6 +509,9 @@ test('okit-plugin status outside a client explains how to select and record quot
     root,
     env: {},
     now: () => T0,
+    plugin: {},
+    versions: Object.fromEntries(['claude-code', 'codex', 'opencode']
+      .map((client) => [client, { installed: true }])),
     stdout: (line) => out.push(line),
     stderr: (line) => out.push(line),
   });
@@ -542,7 +547,7 @@ test('the MCP status tool answers the table and only adds showBefore when asked'
   await mkdir(join(root, 'quota'), { recursive: true });
   await writeFile(join(root, 'quota', 'claude-code.json'), JSON.stringify({ remainingPct: 41, windowMinutes: 300 }), 'utf8');
   await writeFile(join(root, 'config.json'), JSON.stringify({ lowQuotaPct: 15 }), 'utf8');
-  const server = harness({ root, now: () => T0 });
+  const server = harness({ root, now: () => T0, plugin: {}, versions: installedVersions });
 
   const plain = server.data(await server.call('status', {}));
   assert.equal(plain.rows[0].client, 'claude-code');

@@ -70,6 +70,11 @@ export async function collectStatusline({ input, previous, stateRoot, run = runP
   } catch { return Buffer.alloc(0); }
 }
 
+/** The collector runs bare or as `--previous <command> [args...]`; anything else exits before collecting. */
+export function collectorArgsValid(argv) {
+  return !argv.length || (argv[0] === '--previous' && argv.length >= 2);
+}
+
 /** Bounded stdin; oversized input is drained but never retained or forwarded partially. */
 export async function statuslineCommand(argv, io = {}) {
   try {
@@ -78,7 +83,7 @@ export async function statuslineCommand(argv, io = {}) {
     let settings;
     try { settings = configOf(config).statuslineCollector; }
     catch { settings = configOf().statuslineCollector; }
-    if (argv.length && (argv[0] !== '--previous' || argv.length < 2)) return 0;
+    if (!collectorArgsValid(argv)) return 0;
     const previous = argv.length ? argv.slice(1)
       : Array.isArray(config?.statuslineCollector?.previous)
         ? config.statuslineCollector.previous : settings.previous;

@@ -10,6 +10,7 @@ import { readJson, withLock, writeJsonAtomic } from '../state.js';
 import { paths } from '../store.js';
 import { environmentSnapshot } from '../env/snapshot.js';
 import { redactingStream } from '../install/present.js';
+import { labelsOf } from '../env/quota.js';
 
 /**
  * Whether the input already ended: a reader opened on it would wait for an
@@ -434,7 +435,12 @@ async function saveSetup(root, changes, write, locale, command) {
       }
       const setup = raw.setup && typeof raw.setup === 'object' && !Array.isArray(raw.setup)
         ? raw.setup : {};
-      raw.setup = { ...setup, done: { at: new Date().toISOString() } };
+      const confirmed = structuredClone(setup.done?.profiles ?? {});
+      for (const change of outcome.applied) {
+        confirmed[change.client] ??= {};
+        confirmed[change.client][change.class] = { model: change.model, effort: change.effort };
+      }
+      raw.setup = { ...setup, done: { at: new Date().toISOString(), profiles: confirmed } };
       try {
         await write(target.config, raw);
       } catch {
@@ -642,7 +648,7 @@ export async function runSetup({
     : {};
   const resolved = setupConfig({ ...stored, ...config, profiles, setup: { ...storedSetup, ...givenSetup } }, locale, command);
   const attempts = maxAttemptsOf(resolved);
-  const observation = await environmentSnapshot({ config: resolved, env, run, adapters, snapshot,
+  const observation = await environmentSnapshot({ root, config: resolved, env, run, adapters, snapshot,
     plugin: {}, versions: {} });
   const { detected, proposals } = observation;
   const clients = detectedByClient(detected);
@@ -770,6 +776,12 @@ export async function runSetup({
   const savedChanges = saved.applied;
   const kept = saved.kept;
   const names = [...new Set(savedChanges.map((change) => change.client))];
+  for (const client of new Set([...names, ...skipped.map((change) => change.client)])) {
+    if (observation.clients.find((row) => row.client === client)?.quota.status !== 'off') continue;
+    const locales = locale === 'both' ? ['en', 'pt-BR'] : [locale];
+    messages.push(locales.map((language) => labelsOf(language).noQuota(client)
+      .replace('okit-plugin quota', `${command} quota`)).join(' / '));
+  }
   if (savedChanges.length > 0) {
     // The presenter's Models row says what was saved.
     if (!ui) messages.push(format('summary', locale, { count: savedChanges.length, clients: names.join(', ') }));
