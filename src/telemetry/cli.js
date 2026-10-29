@@ -1,4 +1,5 @@
 import { status, configure, exportTelemetry, check } from './index.js';
+import { exitCodeFor, kindOf } from '../install/exit.js';
 
 export async function telemetryCommand(ctx, action, args) {
   try {
@@ -19,7 +20,9 @@ export async function telemetryCommand(ctx, action, args) {
     ctx.out(`${result.what}\nRecording / Gravação: ${enabled(result.enabled)}\nSending / Envio: ${enabled(result.network)}\nFolder / Pasta: ${result.where}\nSize in bytes / Tamanho em bytes: ${result.sizeBytes}\nLast export / Última exportação: ${result.lastExport?.at ?? 'none / nenhuma'}`);
   } else ctx.out(typeof result === 'string' ? result : JSON.stringify(result));
   return result.ok === false ? 1 : 0;
-  } catch {
+  } catch (error) {
+    // A flag that is not valid is a refusal of usage, told as it is; any other failure is the work's.
+    if (kindOf(error) === 'usage') { ctx.err(error.message); return exitCodeFor('usage'); }
     ctx.err('Could not save, export or check measurements / Não foi possível salvar, exportar ou conferir as medições');
     return 1;
   }

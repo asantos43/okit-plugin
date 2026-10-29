@@ -5,6 +5,7 @@ import { isAbsolute } from 'node:path';
 import { setupPending as environmentSetupPending } from './env/configuration.js';
 
 import { EFFORT_CLASSES } from './classify.js';
+import { UsageError } from './install/exit.js';
 
 export const PROFILE_EFFORTS = Object.freeze({
   simple: 'low',
@@ -579,19 +580,68 @@ export function configuredClientsOf(config) {
     .sort();
 }
 
+// Every refusal of the settings, once: a stable code, the parameters it names, and its text in each language. A
+// refusal is raised in English (the message of the error) and shown by `localizeReason` (src/install/present.js),
+// which reads this catalog; no refusal of a setting carries both languages in one line.
+export const CONFIG_MESSAGES = Object.freeze({
+  language: { kind: 'language', en: 'Choose a language: {languages}.', 'pt-BR': 'Escolha um idioma: {languages}.' },
+  limitsObject: { en: 'limits must be an object', 'pt-BR': 'limits deve ser um objeto' },
+  limitsClients: { en: 'limits.clients must be an object', 'pt-BR': 'limits.clients deve ser um objeto' },
+  limitsInteger: { en: 'limits.{name} must be an integer >= 1', 'pt-BR': 'limits.{name} deve ser um número inteiro >= 1' },
+  statusBarSetting: { en: 'Invalid status bar setting', 'pt-BR': 'Ajuste da barra de status inválido' },
+  clientFolderSetting: { en: 'Invalid Claude folder setting', 'pt-BR': 'Ajuste da pasta do Claude inválido' },
+  statusBarShell: { en: 'Invalid status bar shell', 'pt-BR': 'Shell da barra de status inválido' },
+  todoProjectsObject: { en: 'todo.projects: object', 'pt-BR': 'todo.projects: deve ser um objeto' },
+  todoProjectsAbsolute: { en: 'todo.projects: absolute project folders', 'pt-BR': 'todo.projects: use pastas de projeto absolutas' },
+  todoProjectSettings: { en: 'todo.projects: project settings', 'pt-BR': 'todo.projects: ajustes do projeto inválidos' },
+  todoEnabled: { en: 'todo.enabled: boolean', 'pt-BR': 'todo.enabled: deve ser verdadeiro ou falso' },
+  todoText: { en: 'todo.{key}: text', 'pt-BR': 'todo.{key}: deve ser um texto de uma linha' },
+  todoCheckboxCharacter: { en: 'todo.checkbox: one character', 'pt-BR': 'todo.checkbox: um só caractere' },
+  todoCheckboxObject: { en: 'todo.checkbox: object', 'pt-BR': 'todo.checkbox: deve ser um objeto' },
+  todoFile: { en: 'todo.file: non-empty text', 'pt-BR': 'todo.file: deve ser um texto não vazio' },
+  todoSection: { en: 'todo.section: non-empty text', 'pt-BR': 'todo.section: deve ser um texto não vazio' },
+  smokeDriversList: { en: 'Smoke driver settings must be a named list.', 'pt-BR': 'Os ajustes dos ajudantes precisam ser uma lista por nome.' },
+  smokeDriversKnown: { en: 'Choose a known helper for smoke settings.', 'pt-BR': 'Escolha um ajudante conhecido nos ajustes do smoke.' },
+  smokeDriverInvalid: { en: 'Smoke helper settings are invalid for {client}.', 'pt-BR': 'Os ajustes do ajudante {client} são inválidos.' },
+  smokeMaxTokens: { en: 'Use a positive whole number for the text allowance, or null for no ceiling.', 'pt-BR': 'Use um número inteiro positivo para o limite de texto, ou null para ficar sem teto.' },
+  demoLimits: { en: 'Invalid demo limits', 'pt-BR': 'Limites da demonstração inválidos' },
+  readingLimits: { en: 'Reading limits: use positive integers', 'pt-BR': 'Limites da leitura: use inteiros positivos' },
+  previousCommand: { en: 'Previous command: use a list of words', 'pt-BR': 'Comando anterior: use uma lista de palavras' },
+  quotaFields: { en: 'Quota fields and windows are invalid', 'pt-BR': 'Campos e períodos de cota inválidos' },
+  quotaReading: { en: 'Invalid quota reading settings', 'pt-BR': 'Ajustes de leitura de cota inválidos' },
+  quotaSource: { en: 'Quota source: use a file or command words', 'pt-BR': 'Fonte de cota: use arquivo ou palavras do comando' },
+  codexInteger: { en: 'codexQuota.{key} must be an integer >= 1', 'pt-BR': 'codexQuota.{key} deve ser um número inteiro >= 1' },
+  codexTail: { en: 'codexQuota.tailBytes must not exceed maxTailBytes', 'pt-BR': 'codexQuota.tailBytes não pode passar de maxTailBytes' },
+  codexText: { en: 'codexQuota.{key} must be non-empty text', 'pt-BR': 'codexQuota.{key} deve ser um texto não vazio' },
+  installSetting: { en: 'Invalid install.{key}: {rule}', 'pt-BR': 'install.{key} inválido: {rule}' },
+  installRoot: { en: 'Invalid install: {rule}', 'pt-BR': 'install inválido: {rule}' },
+  inboxInteger: { en: 'inbox.{key} must be an integer >= 1', 'pt-BR': 'inbox.{key} deve ser um número inteiro >= 1' },
+  limitWarnings: { en: 'limitWarnings must be a list of text', 'pt-BR': 'limitWarnings deve ser uma lista de textos' },
+});
+
+/** A setting that is not valid: a refusal (usage, or language for the language itself), raised with a code of CONFIG_MESSAGES. */
+export class ConfigError extends UsageError {
+  constructor(code, params = {}) {
+    super(fill(CONFIG_MESSAGES[code].en, params));
+    this.kind = CONFIG_MESSAGES[code].kind ?? 'usage';
+    this.reasonCode = code;
+    this.params = params;
+  }
+}
+
 function fill(text, values) {
   return text.replace(/\{(\w+)\}/g, (_, key) => values[key]);
 }
 
 export function normalizeLimits(limits = {}) {
   if (!limits || typeof limits !== 'object' || Array.isArray(limits)) {
-    throw new Error('limits must be an object');
+    throw new ConfigError('limitsObject');
   }
   const global = Object.hasOwn(limits, 'perClient') ? limits.perClient
     : Object.hasOwn(limits, 'global') ? limits.global : DEFAULT_CONFIG.limits.global;
   const clients = limits.clients === undefined ? {} : limits.clients;
   if (!clients || typeof clients !== 'object' || Array.isArray(clients)) {
-    throw new Error('limits.clients must be an object');
+    throw new ConfigError('limitsClients');
   }
   const configured = Object.fromEntries(['global', 'perClient'].filter(
     (name) => Object.hasOwn(limits, name),
@@ -601,7 +651,7 @@ export function normalizeLimits(limits = {}) {
     ...Object.entries(clients).map(([client, cap]) => [`clients.${client}`, cap]),
   ]) {
     if (!Number.isInteger(value) || value < 1) {
-      throw new Error(`limits.${name} must be an integer >= 1`);
+      throw new ConfigError('limitsInteger', { name });
     }
   }
   return { global, clients: { ...clients } };
@@ -613,9 +663,14 @@ export function localeOf(value, config) {
   if (value !== undefined && value !== null) return value;
   const language = config?.language === undefined ? DEFAULT_CONFIG.language : config.language;
   if (!LOCALES.includes(language)) {
-    throw new TypeError(`Choose a language: ${LOCALES.join(', ')}. / Escolha um idioma: ${LOCALES.join(', ')}.`);
+    throw new ConfigError('language', { languages: LOCALES.join(', ') });
   }
   return language;
+}
+
+/** The stored `config.json` as an object: a root that is not an object (null, number, text, list) is an empty configuration, as `configOf` reads it. */
+export function storedRootOf(raw) {
+  return raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
 }
 
 export function configOf(config) {
@@ -629,56 +684,59 @@ export function configOf(config) {
   for (const key of ['client', 'settingsFile', 'backupFile', 'subcommand']) {
     if (typeof statuslineRegistration[key] !== 'string' || !statuslineRegistration[key].trim()
       || /[\\/\r\n\0]/.test(statuslineRegistration[key]) || ['.', '..'].includes(statuslineRegistration[key])) {
-      throw new TypeError('Invalid status bar setting / Ajuste da barra de status inválido');
+      throw new ConfigError('statusBarSetting');
     }
   }
   const statuslineClient = { ...DEFAULT_CONFIG.install.clients[statuslineRegistration.client], ...config?.install?.clients?.[statuslineRegistration.client] };
   if (typeof statuslineClient.configEnv !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(statuslineClient.configEnv)
     || !Array.isArray(statuslineClient.rootParts) || !statuslineClient.rootParts.length
     || statuslineClient.rootParts.some((part) => typeof part !== 'string' || !part.trim() || /[\\/\r\n\0]/.test(part) || part === '..')) {
-    throw new TypeError('Invalid Claude folder setting / Ajuste da pasta do Claude inválido');
+    throw new ConfigError('clientFolderSetting');
   }
   for (const words of Object.values(statuslineRegistration.shell)) {
     if (!Array.isArray(words) || !words.length || words.some((word) => typeof word !== 'string' || !word.trim() || /[\r\n\0]/.test(word))) {
-      throw new TypeError('Invalid status bar shell / Shell da barra de status inválida');
+      throw new ConfigError('statusBarShell');
     }
   }
+  // A key that the code reads and the defaults do not hold is still in the schema (EXTRA_KEYS, src/config-schema.js).
+  if (config?.limitWarnings != null && (!Array.isArray(config.limitWarnings)
+    || config.limitWarnings.some((warning) => typeof warning !== 'string'))) throw new ConfigError('limitWarnings');
   const inbox = { ...DEFAULT_CONFIG.inbox, ...config?.inbox };
   const todo = { ...DEFAULT_CONFIG.todo, ...config?.todo,
     checkbox: { ...DEFAULT_CONFIG.todo.checkbox, ...config?.todo?.checkbox } };
-  if (!todo.projects || typeof todo.projects !== 'object' || Array.isArray(todo.projects)) throw new TypeError('todo.projects: object');
-  if (Object.keys(todo.projects).some(project => !isAbsolute(project))) throw new TypeError('todo.projects: absolute project folders');
+  if (!todo.projects || typeof todo.projects !== 'object' || Array.isArray(todo.projects)) throw new ConfigError('todoProjectsObject');
+  if (Object.keys(todo.projects).some(project => !isAbsolute(project))) throw new ConfigError('todoProjectsAbsolute');
   for (const settings of [todo, ...Object.values(todo.projects ?? {})]) {
-    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new TypeError('todo.projects: project settings');
-    if (settings.enabled !== undefined && typeof settings.enabled !== 'boolean') throw new TypeError('todo.enabled: boolean');
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new ConfigError('todoProjectSettings');
+    if (settings.enabled !== undefined && typeof settings.enabled !== 'boolean') throw new ConfigError('todoEnabled');
     for (const key of ['file', 'areaDir', 'section']) {
-      if (settings[key] !== undefined && (typeof settings[key] !== 'string' || /[\r\n]/.test(settings[key]))) throw new TypeError(`todo.${key}: text`);
+      if (settings[key] !== undefined && (typeof settings[key] !== 'string' || /[\r\n]/.test(settings[key]))) throw new ConfigError('todoText', { key });
     }
     for (const value of Object.values(settings.checkbox ?? {})) {
-      if (typeof value !== 'string' || value.length !== 1 || /[\]\r\n]/.test(value)) throw new TypeError('todo.checkbox: one character');
+      if (typeof value !== 'string' || value.length !== 1 || /[\]\r\n]/.test(value)) throw new ConfigError('todoCheckboxCharacter');
     }
-    if (settings.checkbox !== undefined && (!settings.checkbox || typeof settings.checkbox !== 'object' || Array.isArray(settings.checkbox))) throw new TypeError('todo.checkbox: object');
-    if (settings.file !== undefined && !settings.file.trim()) throw new TypeError('todo.file: non-empty text');
-    if (settings.section !== undefined && !settings.section.trim()) throw new TypeError('todo.section: non-empty text');
+    if (settings.checkbox !== undefined && (!settings.checkbox || typeof settings.checkbox !== 'object' || Array.isArray(settings.checkbox))) throw new ConfigError('todoCheckboxObject');
+    if (settings.file !== undefined && !settings.file.trim()) throw new ConfigError('todoFile');
+    if (settings.section !== undefined && !settings.section.trim()) throw new ConfigError('todoSection');
   }
   const daemon = { ...DEFAULT_CONFIG.daemon, ...config?.daemon };
   const smoke = { ...DEFAULT_CONFIG.smoke, ...config?.smoke };
   const smokeDriverOverrides = config?.smokeDrivers === undefined ? {} : config.smokeDrivers;
   if (!smokeDriverOverrides || typeof smokeDriverOverrides !== 'object' || Array.isArray(smokeDriverOverrides)) {
-    throw new TypeError('Smoke driver settings must be a named list. / Os ajustes dos ajudantes precisam ser uma lista por nome.');
+    throw new ConfigError('smokeDriversList');
   }
   const smokeDrivers = {};
   const driverKeys = ['command', 'helpArgs', 'args', 'requiredFlags', 'reportsCost', 'reportsInstallation'];
   for (const client of Object.keys(smokeDriverOverrides)) {
     if (!Object.hasOwn(DEFAULT_CONFIG.smokeDrivers, client)) {
-      throw new TypeError(`Choose a known helper for smoke settings. / Escolha um ajudante conhecido nos ajustes do smoke.`);
+      throw new ConfigError('smokeDriversKnown');
     }
   }
   for (const [client, defaults] of Object.entries(DEFAULT_CONFIG.smokeDrivers)) {
     const override = Object.hasOwn(smokeDriverOverrides, client) ? smokeDriverOverrides[client] : {};
     if (!override || typeof override !== 'object' || Array.isArray(override)
       || Object.keys(override).some((key) => !driverKeys.includes(key))) {
-      throw new TypeError(`Smoke helper settings are invalid for ${client}. / Os ajustes do ajudante ${client} são inválidos.`);
+      throw new ConfigError('smokeDriverInvalid', { client });
     }
     const settings = { ...defaults, ...override };
     const list = (value) => Array.isArray(value) && value.every((part) =>
@@ -686,37 +744,37 @@ export function configOf(config) {
     if (typeof settings.command !== 'string' || !settings.command.trim() || /[\r\n\0]/.test(settings.command)
       || !list(settings.helpArgs) || !list(settings.args) || !list(settings.requiredFlags)
       || typeof settings.reportsCost !== 'boolean' || typeof settings.reportsInstallation !== 'boolean') {
-      throw new TypeError(`Smoke helper settings are invalid for ${client}. / Os ajustes do ajudante ${client} são inválidos.`);
+      throw new ConfigError('smokeDriverInvalid', { client });
     }
     smokeDrivers[client] = settings;
   }
   if (smoke.maxTokens !== null && (!Number.isSafeInteger(smoke.maxTokens) || smoke.maxTokens <= 0)) {
-    throw new TypeError('Use a positive whole number for the text allowance, or null for no ceiling. / Use um número inteiro positivo para o limite de texto, ou null para ficar sem teto.');
+    throw new ConfigError('smokeMaxTokens');
   }
   if (!Number.isInteger(smoke.demoMaxReworkRounds) || smoke.demoMaxReworkRounds < 0
     || (smoke.demoDemandMaxUsd !== null && (!Number.isFinite(smoke.demoDemandMaxUsd)
       || smoke.demoDemandMaxUsd <= 0)) || typeof smoke.demoRequireQuotaConfirmation !== 'boolean') {
-    throw new TypeError('Invalid demo limits / Limites da demonstração inválidos');
+    throw new ConfigError('demoLimits');
   }
   const statuslineCollector = { ...DEFAULT_CONFIG.statuslineCollector, ...config?.statuslineCollector,
     fields: { ...DEFAULT_CONFIG.statuslineCollector.fields, ...config?.statuslineCollector?.fields },
     windows: config?.statuslineCollector?.windows ?? DEFAULT_CONFIG.statuslineCollector.windows };
   for (const key of ['timeoutMs', 'maxInputBytes', 'maxOutputBytes']) {
     if (!Number.isSafeInteger(statuslineCollector[key]) || statuslineCollector[key] < 1) {
-      throw new TypeError('Reading limits: use positive integers / Limites da leitura: use inteiros positivos');
+      throw new ConfigError('readingLimits');
     }
   }
   if (!Array.isArray(statuslineCollector.previous)
     || statuslineCollector.previous.some((part) => typeof part !== 'string')
     || (statuslineCollector.previous.length && !statuslineCollector.previous[0].trim())) {
-    throw new TypeError('Previous command: use a list of words / Comando anterior: use uma lista de palavras');
+    throw new ConfigError('previousCommand');
   }
   if (Object.values(statuslineCollector.fields).some((value) => typeof value !== 'string' || !value.trim())
     || !statuslineCollector.windows || Array.isArray(statuslineCollector.windows)
     || !Object.keys(statuslineCollector.windows).length
     || Object.entries(statuslineCollector.windows).some(([key, minutes]) => !key.trim()
       || !Number.isSafeInteger(minutes) || minutes < 1)) {
-    throw new TypeError('Quota fields and windows are invalid / Campos e períodos de cota inválidos');
+    throw new ConfigError('quotaFields');
   }
   const opencodeQuota = { ...DEFAULT_CONFIG.opencodeQuota, ...config?.opencodeQuota,
     fields: { ...DEFAULT_CONFIG.opencodeQuota.fields, ...config?.opencodeQuota?.fields } };
@@ -729,32 +787,32 @@ export function configOf(config) {
     || Object.entries(opencodeQuota.windows).some(([key, value]) => !word(key)
       || !Number.isSafeInteger(value) || value < 1)
     || Object.values(opencodeQuota.fields).some((value) => !word(value))) {
-    throw new TypeError('Invalid quota reading settings / Ajustes de leitura de cota inválidos');
+    throw new ConfigError('quotaReading');
   }
   for (const [provider, source] of Object.entries(opencodeQuota.sources)) {
     if (!word(provider) || !object(source) || Object.keys(source).length !== 1
       || !(word(source.file) || (Array.isArray(source.command) && source.command.length
         && source.command.every(word)))) {
-      throw new TypeError('Quota source: use a file or command words / Fonte de cota: use arquivo ou palavras do comando');
+      throw new ConfigError('quotaSource');
     }
   }
   const codexQuota = { ...DEFAULT_CONFIG.codexQuota, ...config?.codexQuota,
     fields: { ...DEFAULT_CONFIG.codexQuota.fields, ...config?.codexQuota?.fields } };
   for (const key of ['recentFiles', 'tailBytes', 'maxTailBytes', 'maxAgeMinutes']) {
     if (!Number.isSafeInteger(codexQuota[key]) || codexQuota[key] < 1) {
-      throw new TypeError(`codexQuota.${key} must be an integer >= 1`);
+      throw new ConfigError('codexInteger', { key });
     }
   }
   if (codexQuota.tailBytes > codexQuota.maxTailBytes) {
-    throw new TypeError('codexQuota.tailBytes must not exceed maxTailBytes');
+    throw new ConfigError('codexTail');
   }
   for (const [key, value] of Object.entries({ ...codexQuota, ...codexQuota.fields })) {
     if (['fields', 'recentFiles', 'tailBytes', 'maxTailBytes', 'maxAgeMinutes'].includes(key)) continue;
-    if (typeof value !== 'string' || !value.trim()) throw new TypeError(`codexQuota.${key} must be non-empty text`);
+    if (typeof value !== 'string' || !value.trim()) throw new ConfigError('codexText', { key });
   }
   for (const key of ['holdStaleMinutes', 'gitTimeoutMs']) {
     if (!Number.isInteger(inbox[key]) || inbox[key] < 1) {
-      throw new TypeError(`inbox.${key} must be an integer >= 1`);
+      throw new ConfigError('inboxInteger', { key });
     }
   }
   return {

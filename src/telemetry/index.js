@@ -6,7 +6,9 @@ import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { readJson, writeJsonAtomic, withLock } from '../state.js';
 import { paths } from '../store.js';
+import { storedRootOf } from '../profiles.js';
 import { settings } from './config.js';
+import { UsageError } from '../install/exit.js';
 import { projectHash, redact } from './catalog.js';
 
 export const explanation = 'Records only counts, durations, states, role, model and app names, effort settings and an anonymous project reference; no messages, files or work text. Sending requires separate consent. / Registra somente contagens, durações, estados, nomes de papel, modelo e aplicativo, ajustes de esforço e uma referência anônima ao projeto; sem mensagens, arquivos ou textos de trabalho. O envio exige uma escolha separada.';
@@ -133,7 +135,9 @@ export async function check(root) {
 
 export async function exportTelemetry(root, { since } = {}) {
   if (since !== undefined && (typeof since !== 'string' || !/^\d{4}-\d\d-\d\dT/.test(since)
-    || !Number.isFinite(Date.parse(since)))) throw error();
+    || !Number.isFinite(Date.parse(since)))) {
+    throw new UsageError('Use --since with an ISO date such as 2026-10-01T00:00:00Z / Use --since com uma data ISO como 2026-10-01T00:00:00Z');
+  }
   const config = await settings(root);
   if (config.enabled !== true) return { count: 0, resourceMetrics: [], network: { count: 0, statusCode: null } };
   await prune(config);
@@ -160,7 +164,7 @@ export async function configure(root, key, enabled) {
   await mkdir(paths(root).locks, { recursive: true });
   return withLock(join(paths(root).locks, 'config'), async () => {
   const file = paths(root).config;
-  const config = await readJson(file, {});
+  const config = storedRootOf(await readJson(file, {}));
   config.telemetry = { ...config.telemetry };
   if (key === 'network') config.telemetry.rede = { ...config.telemetry.rede, ligado: enabled };
   else config.telemetry.enabled = enabled;

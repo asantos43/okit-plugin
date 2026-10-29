@@ -1,7 +1,10 @@
+import { OperationalError, UsageError } from './exit.js';
+import { PATH_STATE_SCHEMA, problemOf } from '../config-schema.js';
 import { binInPath, commandInPath } from '../env/path.js';
 import { join, delimiter, dirname, resolve, relative, isAbsolute } from 'node:path';
 import { createRequire } from 'node:module';
 import { readRecords } from './place.js';
+import { presenterOf, pick } from './present.js';
 import { constants } from 'node:fs';
 import { basename } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -54,15 +57,16 @@ export function activationCommand(config, shell, profile, bin) {
  * @param {string} deps.platform the platform of the current terminal
  * @param {string|null} deps.profile the profile file that holds the block
  * @param {string} deps.bin the command link directory
- * @returns {string} the sentence for the user
+ * @param {string} [deps.locale] the language of the run (the configuration may carry both: one side is chosen)
+ * @returns {string} the sentence for the user, in one language
  */
-export function activationMessage(config, { env, platform, profile, bin }) {
+export function activationMessage(config, { env, platform, profile, bin, locale = 'en' }) {
   const settings = config.path;
   const shell = platform === config.windowsPlatform ? settings.windowsShell : currentShell(env, config);
   const command = activationCommand(config, shell, profile, bin);
   return command
-    ? settings.messages.activate.replaceAll('{value}', command)
-    : settings.messages.activateTerminal;
+    ? pick(settings.messages.activate, locale).replaceAll('{value}', command)
+    : pick(settings.messages.activateTerminal, locale);
 }
 
 /**
@@ -132,13 +136,27 @@ export { binInPath } from '../env/path.js';
  * @param {object} deps.config the install configuration
  * @param {string} deps.platform the platform of the current terminal
  * @param {string} deps.home the home folder of the current user
- * @returns {Promise<string|null>} the sentence for the user
+ * @param {string} [deps.locale] the language of the run
+ * @returns {Promise<string|null>} the sentence for the user, in one language
  */
 export async function activationWarning(deps) {
   const { config, env, platform } = deps;
   if (binInPath(deps)) return null;
   const profile = platform === config.windowsPlatform ? null : await managedProfile(deps, currentShell(env, config));
-  return activationMessage(config, { env, platform, profile, bin: deps.bin });
+  return activationMessage(config, { env, platform, profile, bin: deps.bin, locale: deps.locale });
+}
+
+/**
+ * The command that makes the command resolve in the current terminal, or null
+ * when bin is already in PATH or this shell has no such command.
+ */
+export async function activationHint(deps) {
+  const { config, env, platform } = deps;
+  if (binInPath(deps)) return null;
+  const windows = platform === config.windowsPlatform;
+  const shell = windows ? config.path.windowsShell : currentShell(env, config);
+  const profile = windows ? null : await managedProfile(deps, shell);
+  return activationCommand(config, shell, profile, deps.bin);
 }
 
 export async function chooseLinkDirectory(deps) {
@@ -174,12 +192,22 @@ function profileBlock(settings, bin, fish) {
   return `\n${settings.begin}\n${command}\n${settings.end}\n`;
 }
 
+// The state file of the PATH is written here and may have been edited: not JSON is unreadable (exit 1); JSON whose fields
+// are not the ones written (PATH_STATE_SCHEMA in src/config-schema.js) is a refusal of usage (exit 2), never a TypeError below.
+function pathState(text, file, command) {
+  let state;
+  try { state = JSON.parse(text); } catch { throw new OperationalError(`Cannot read PATH state: ${file}`); }
+  const found = problemOf(PATH_STATE_SCHEMA, state);
+  if (found) throw new UsageError(`Invalid PATH state: ${file} (${found.path || 'state'}); remove it and run ${command} install`);
+  return state;
+}
+
 export async function managePath(deps, remove = false) {
   const { fs, bin, config, env } = deps;
   const settings = config.path;
   const stateFile = join(deps.destination, settings.stateFile);
   const saved = await fs.readFile(stateFile, 'utf8').catch(missingFile);
-  const state = saved ? JSON.parse(saved) : { profiles: [], windows: null };
+  const state = saved ? pathState(saved, basename(stateFile), config.command) : { profiles: [], windows: null };
   if (remove) {
     for (const item of state.profiles) {
       const content = await fs.readFile(item.path, 'utf8').catch(missingFile);
@@ -189,16 +217,14 @@ export async function managePath(deps, remove = false) {
     await fs.rm(stateFile, { force: true });
     return;
   }
-  const say = (key, value) => deps.out(settings.messages[key].replaceAll('{value}', value));
   const windows = deps.platform === config.windowsPlatform;
   const separator = windows ? ';' : delimiter;
   const present = binInPath(deps);
-  say('link', join(bin, config.command));
   const enabled = settings.enabled && !deps.noPath;
   const changed = [];
   if (enabled && windows) {
     if (!state.windows && await windowsPath(deps, bin)) state.windows = bin;
-    if (state.windows) changed.push(settings.messages.user);
+    if (state.windows) changed.push(true);
   } else if (enabled && !present) {
     const shell = currentShell(env, config) ?? settings.fallbackShell;
     const paths = await shellProfiles(deps, shell);
@@ -206,7 +232,7 @@ export async function managePath(deps, remove = false) {
       const content = await fs.readFile(path, 'utf8').catch(missingFile) ?? '';
       const block = profileBlock(settings, bin, shell === 'fish');
       if (!content.includes(block)) {
-        if (content.includes(settings.begin)) throw new TypeError(settings.messages.edited.replaceAll('{value}', path));
+        if (content.includes(settings.begin)) throw new UsageError(pick(settings.messages.edited, presenterOf(deps).locale).replaceAll('{value}', path));
         state.profiles.push({ path, block });
         await fs.mkdir(dirname(path), { recursive: true });
         await fs.mkdir(deps.destination, { recursive: true });
@@ -220,13 +246,14 @@ export async function managePath(deps, remove = false) {
     await fs.mkdir(deps.destination, { recursive: true });
     await fs.writeFile(stateFile, JSON.stringify(state));
   }
-  say(changed.length ? 'changed' : present ? 'existing' : enabled && windows ? 'existing' : 'manual', changed.join(', ') || bin);
-  say('restart', '');
-  const warning = await activationWarning(deps);
-  if (warning) deps.out(warning);
   const newPath = present || !enabled ? env.PATH ?? '' : [bin, env.PATH].filter(Boolean).join(separator);
   const resolved = await commandInPath({ fs, config, windows, path: newPath, separator });
-  say('resolved', resolved ?? settings.messages.missing);
+  const how = changed.length ? 'changed' : present || (enabled && windows) ? 'existing' : 'manual';
+  const where = windows && changed.length ? null : changed.join(', ') || bin;
+  const ui = presenterOf(deps);
+  ui.detail(ui.global(`${ui.text('pathCheck')}: ${resolved ?? ui.text('pathMissing')}`));
+  return { how, where, user: windows && changed.length > 0, command: config.command, link: join(bin, config.command),
+    resolved, hint: await activationHint(deps) };
 }
 const inside = (root, path) => { const part = relative(root, path); return part !== '..' && !part.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(part); };
 
@@ -268,16 +295,36 @@ export function linkPlan(record, deps) {
   const target = join(record.path, record.bin);
   if (platform !== config.windowsPlatform) return [{ path: join(bin, config.command), target }];
   // Quote for each shell; no unquoted interpolated command or arguments.
-  if (/[\r\n"%]/.test(target + config.node)) throw new TypeError('Unsupported shim path');
-  return [
-    { path: join(bin, `${config.command}.cmd`), content: `@echo off\r\n"${config.node}" "${target}" %*\r\n` },
-    { path: join(bin, `${config.command}.ps1`), content: `& '${config.node.replaceAll("'", "''")}' '${target.replaceAll("'", "''")}' @args\n` },
-  ];
+  if (/[\r\n"%]/.test(target + config.node)) throw new UsageError('Unsupported shim path');
+  // Only the .cmd: PowerShell finds it too, and a .ps1 would need an execution policy that allows scripts.
+  return [{ path: join(bin, `${config.command}.cmd`), content: `@echo off\r\n"${config.node}" "${target}" %*\r\n` }];
+}
+
+// What an earlier version wrote as the .ps1 shim of a record.
+const scriptContent = (record, config) => `& '${config.node.replaceAll("'", "''")}' '${join(record.path, record.bin).replaceAll("'", "''")}' @args\n`;
+
+/** Removes the .ps1 shims this plugin wrote before the Windows command became a .cmd only; a file that is not ours stays. */
+async function removeOwnedScripts(record, previous, deps) {
+  const { fs, config, bin } = deps;
+  if (deps.platform !== config.windowsPlatform) return;
+  const known = new Set();
+  for (const start of [record, previous, ...Object.values(await readRecords(deps.destination ?? config.destination, fs, config))]) {
+    for (let item = start; item; item = item.previous) if (item.path && item.bin) known.add(scriptContent(item, config));
+  }
+  for (const command of [config.command, ...(config.legacyCommands ?? [])]) {
+    const path = join(bin, `${command}.ps1`);
+    const info = await fs.lstat(path).catch((error) => { if (error.code !== 'ENOENT') throw error; return null; });
+    if (!info?.isFile()) continue;
+    const content = await fs.readFile(path, 'utf8');
+    if (known.has(content) || await pluginExecutable(path, deps)) await fs.unlink(path);
+  }
 }
 
 export async function applyLink(record, deps, previous = null, remove = false) {
-  const { fs, out, env, bin, config, platform } = deps;
+  const { fs, env, bin, config, platform } = deps;
+  const ui = presenterOf(deps);
   const plan = linkPlan(record, deps);
+  await removeOwnedScripts(record, previous, deps);
   for (const command of config.legacyCommands ?? []) {
     if (command === config.command) continue;
     const legacyDeps = { ...deps, config: { ...config, command } };
@@ -303,15 +350,18 @@ export async function applyLink(record, deps, previous = null, remove = false) {
       for (let item = current; item; item = item.previous) owned.push(linkPlan(item, deps));
     }
   }
+  let conflict;
   for (const [index, item] of plan.entries()) {
     const info = await fs.lstat(item.path).catch((error) => { if (error.code === 'ENOENT') return null; throw error; });
     if (info) {
-      if (!info.isSymbolicLink() && !info.isFile()) { out(`Refused foreign link/shim: ${item.path}`); continue; }
+      if (!info.isSymbolicLink() && !info.isFile()) {
+        ui.warn(ui.text('foreignLink', { path: item.path })); conflict = item.path; continue;
+      }
       const actual = info.isSymbolicLink() ? await fs.readlink(item.path) : await fs.readFile(item.path, 'utf8');
       const expected = item.target ?? item.content;
       if (actual !== expected && actual !== (old[index]?.target ?? old[index]?.content)
         && !owned.some((items) => actual === (items[index]?.target ?? items[index]?.content))) {
-        out(`Refused foreign link/shim: ${item.path}`); continue;
+        ui.warn(ui.text('foreignLink', { path: item.path })); conflict = item.path; continue;
       }
       if (!remove && actual === expected) continue;
       await fs.unlink(item.path);
@@ -322,6 +372,8 @@ export async function applyLink(record, deps, previous = null, remove = false) {
       else await fs.writeFile(item.path, item.content, { flag: 'wx' });
     }
   }
-  if (deps.pathSetup) await managePath(deps, remove);
-  else if (!remove && !binInPath(deps)) out(config.path.messages.manual.replaceAll('{value}', bin));
+  if (conflict && !remove) return { how: 'conflict', where: conflict, command: config.command };
+  if (deps.pathSetup) return await managePath(deps, remove);
+  if (!remove && !binInPath(deps)) return { how: 'manual', where: bin, command: config.command, link: join(bin, config.command), hint: null };
+  return { how: 'existing', where: bin, command: config.command, link: join(bin, config.command), hint: null };
 }

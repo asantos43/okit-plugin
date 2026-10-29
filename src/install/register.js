@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { detect } from './menu.js';
 import { quote } from './link.js';
+import { presenterOf, pick } from './present.js';
 
 export function registrationPlan(record, deps, action = 'install') {
   const settings = deps.config.clients[record.client];
@@ -24,29 +25,35 @@ export async function loadAdapter(record) {
 
 export async function register(record, deps, action = 'install') {
   const settings = deps.config.clients[record.client];
+  const ui = presenterOf(deps);
   const commands = registrationPlan(record, deps, action);
   if (action === 'uninstall') await registerRole(record, deps, true);
   if (settings.strategy === 'module' && action === 'uninstall') {
-    await removeOwnedModule(record, deps); return;
+    await removeOwnedModule(record, deps); return { status: 'ok', detail: ui.text('registerModule') };
   }
   if (!await (deps.detect ?? detect)(settings.executable, deps)) {
-    deps.out(`Missing executable ${settings.executable}; registration skipped. Install it and run:`);
-    commands.forEach((item) => deps.out([item.command, ...item.args].join(' ')));
-    if (settings.strategy === 'module') deps.out(`Install the module ${join(record.path, settings.module)} and skills through the adapter.`);
-    return;
+    const notes = [ui.text('registerMissingNext'), ...commands.map((item) => `  ${[item.command, ...item.args].join(' ')}`)];
+    if (settings.strategy === 'module') notes.push(ui.text('registerModuleNext', { path: join(record.path, settings.module) }));
+    return { status: 'skipped', detail: ui.text('registerMissing', { executable: settings.executable }), notes };
   }
-  for (const command of commands) await deps.run(command);
+  for (const command of commands) {
+    ui.detail([command.command, ...command.args].join(' '));
+    await deps.run(command);
+  }
   if (action !== 'uninstall') await registerRole(record, deps);
-  if (settings.strategy === 'marketplace' && !settings[action] && action !== 'uninstall') deps.out('Open /plugins to install or update the registered plugin.');
-  if (settings.strategy !== 'module') return;
-  await registerModule(record, deps, settings);
+  if (settings.strategy === 'module') {
+    await registerModule(record, deps, settings);
+    return { status: 'ok', detail: ui.text('registerModule') };
+  }
+  const manual = settings.strategy === 'marketplace' && !settings[action] && action !== 'uninstall';
+  return { status: 'ok', detail: ui.text(manual ? 'registerMarketplaceManual' : action === 'uninstall' ? 'registerRemoved' : 'registerMarketplace') };
 }
 
 async function registerRole(record, deps, remove = false) {
   let adapter;
   try { adapter = await (deps.loadAdapter ?? loadAdapter)(record); }
   catch (error) {
-    deps.out(`Role delivery unsupported / Entrega de papel não suportada: ${error.message}`);
+    presenterOf(deps).detail(`${presenterOf(deps).text('roleUnsupported')}: ${error.message}`);
     return;
   }
   const command = `${quote(process.execPath)} ${quote(join(record.path, 'src/cli.js'))} hook session-start`;
@@ -57,7 +64,8 @@ async function registerRole(record, deps, remove = false) {
   }
   const operation = remove ? adapter.removeRole : adapter.installRole;
   const result = operation ? await operation(opts) : { status: 'unsupported', reason: 'Adapter has no native role delivery / Adaptador sem entrega nativa de papel' };
-  if (result.status !== 'ready') deps.out(`Role delivery / Entrega de papel: ${result.reason}`);
+  const ui = presenterOf(deps);
+  if (result.status !== 'ready') ui.detail(`${ui.text('roleUnsupported')}: ${pick(result.reason, ui.locale)}`);
 }
 
 async function registerModule(record, deps, settings) {
@@ -70,11 +78,11 @@ async function registerModule(record, deps, settings) {
     const content = `export { default } from ${JSON.stringify(pathToFileURL(join(record.path, settings.module)).href)};\n`;
     await deps.fs.writeFile(wrapper, content);
     const result = await adapter.installHooks(wrapper, opts);
-    if (result.reason === 'differs') deps.out(`Preserved edited module: ${result.path}`);
+    if (result.reason === 'differs') presenterOf(deps).warn(presenterOf(deps).text('keptModule', { path: result.path }));
     for (const item of await deps.fs.readdir(join(record.path, 'skills'), { withFileTypes: true })) {
       if (!item.isDirectory()) continue;
       const skill = await adapter.installSkill(item.name, join(record.path, 'skills', item.name), opts);
-      for (const skipped of skill.skipped ?? []) if (skipped.reason === 'differs') deps.out(`Preserved edited skill: ${skipped.path}`);
+      for (const skipped of skill.skipped ?? []) if (skipped.reason === 'differs') presenterOf(deps).warn(presenterOf(deps).text('keptSkill', { path: skipped.path }));
     }
   } finally { await deps.fs.rm(folder, { recursive: true, force: true }); }
 }

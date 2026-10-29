@@ -3,16 +3,19 @@ import { promisify } from 'node:util';
 import { resolve } from 'node:path';
 import { readJson } from '../state.js';
 import { paths } from '../store.js';
-import { DEFAULT_CONFIG } from '../profiles.js';
+import { DEFAULT_CONFIG, storedRootOf } from '../profiles.js';
+import { UsageError } from '../install/exit.js';
+import { assertSavedValues } from '../config-schema.js';
 
 export async function settings(root) {
-  const local = (await readJson(paths(root).config, {}).catch(() => {
+  const local = storedRootOf(await readJson(paths(root).config, {}).catch(() => {
     throw new Error('Cannot read measurement settings / Não foi possível ler os ajustes de medição');
   })).telemetry ?? {};
   const config = { ...DEFAULT_CONFIG.telemetry, ...local,
     rede: { ...DEFAULT_CONFIG.telemetry.rede, ...local.rede } };
-  if (config.destination !== 'file' || typeof config.dir !== 'string' || !config.dir.trim()) {
-    throw new Error('Choose a local measurement folder / Escolha uma pasta local para medições');
+  assertSavedValues(['telemetry.dir'], () => config.dir);
+  if (config.destination !== 'file') {
+    throw new UsageError('Choose a local measurement folder / Escolha uma pasta local para medições');
   }
   let kit = null;
   if (config.enabled === true) {
@@ -32,9 +35,7 @@ export async function settings(root) {
     }
   }
   config.dir = resolve(root, config.dir);
-  for (const key of ['retentionDays', 'maxBytes', 'maxFileBytes', 'batchSeconds', 'kitTimeoutMs']) {
-    if (!Number.isSafeInteger(config[key]) || config[key] <= 0) throw new Error('Invalid measurement setting / Ajuste de medição inválido');
-  }
-  if (!Number.isSafeInteger(config.rede.timeoutMs) || config.rede.timeoutMs <= 0) throw new Error('Invalid sending timeout / Prazo de envio inválido');
+  assertSavedValues(['retentionDays', 'maxBytes', 'maxFileBytes', 'batchSeconds', 'kitTimeoutMs', 'rede.timeoutMs']
+    .map((key) => `telemetry.${key}`), (path) => path.split('.').slice(1).reduce((value, key) => value[key], config));
   return config;
 }

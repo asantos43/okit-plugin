@@ -16,7 +16,7 @@ Install/update escolhem um candidato gravável já no PATH (`~/.local/bin`, depo
 
 Use `--no-path` em install/update (também nos scripts de instalação), ou `install.path.enabled: false`, para receber a instrução manual sem editar perfis/ambiente. `install.path` configura `candidates`, `shells`, `fallbackShell`, `begin`, `end`, `stateFile`, parâmetros Windows e `messages` bilíngues; `install.linkDirectory` sobrepõe a seleção. A mensagem final mostra o link, perfis alterados ou PATH existente e a resolução com o PATH resultante. Reinicie o cliente de IA para ele herdar o PATH. Se uma skill não encontrar o comando, execute o `src/cli.js` da instalação com Node e os mesmos argumentos.
 
-Quando o PATH do terminal atual não contém o diretório bin, install/update e `okit-plugin status` mostram uma dica bilíngue de ativação. Rode manualmente o comando informado: `. '<perfil>'` para bash/zsh, `source '<perfil>'` para fish ou `$env:Path = '<bin>' + ';' + $env:Path` para PowerShell no Windows. Os modelos vêm de `install.path.activate`; `shellVariable` usa `SHELL` por padrão. O comando é apenas exibido para execução manual. Para shell desconhecida ou perfil gerenciado ausente, abra um terminal novo. A dica desaparece quando o diretório bin já está no PATH.
+Quando o PATH do terminal atual não contém o diretório bin, install/update e `okit-plugin status` mostram uma dica de ativação no idioma da execução. Rode manualmente o comando informado: `. '<perfil>'` para bash/zsh, `source '<perfil>'` para fish ou `$env:Path = '<bin>' + ';' + $env:Path` para PowerShell no Windows. Os modelos vêm de `install.path.activate`; `shellVariable` usa `SHELL` por padrão. O comando é apenas exibido para execução manual. Para shell desconhecida ou perfil gerenciado ausente, abra um terminal novo. A dica desaparece quando o diretório bin já está no PATH.
 
 Leia o script antes de executá-lo. Node >=20 deve estar no PATH
 ([obter Node](https://nodejs.org/)). Só Linux foi exercitado pelo Diretor;
@@ -52,9 +52,67 @@ No Linux: `${XDG_DATA_HOME:-$HOME/.local/share}/okit-plugin`; macOS:
 `%LOCALAPPDATA%/okit-plugin` (alternativa `%USERPROFILE%/AppData/Local/okit-plugin`).
 
 Flags: `--client <nome>`, `--dest <pasta>`, `--prerelease`, `--dry-run`, `--yes`,
-`--no-link`, `--autostart`. Dry-run mostra release, arquivo e destino, sem baixar
-o pacote nem gravar no destino. Repetir o comando atualiza a instalação registrada;
-na mesma versão, informa “up to date”.
+`--no-link`, `--autostart`, `--locale <en|pt-BR>`, `--verbose` e, no Windows,
+`--set-execution-policy` / `--no-execution-policy`. Dry-run mostra release, arquivo
+e destino, sem baixar o pacote nem gravar no destino. O dry-run dos scripts baixados,
+antes de qualquer instalação, imprime o mesmo cabeçalho e os passos numerados que não
+dependem do pacote (baixar, instalar arquivos no `--dest` escolhido, registrar,
+comando) e termina com “Simulação: nada foi alterado.” Repetir o comando atualiza a
+instalação registrada; na mesma versão, informa “Em dia”.
+
+### O que o instalador imprime
+
+`install.sh`, `install.ps1` e `okit-plugin install|update|uninstall` imprimem por um
+único apresentador, então a saída tem as mesmas linhas no Linux, no macOS e no
+Windows. Ela sai em um idioma por execução: `--locale`, senão `OKIT_LANGUAGE`,
+senão o `language` salvo, senão inglês. Recusas antes da leitura da configuração
+usam `--locale` ou `OKIT_LANGUAGE`, inclusive para flags desconhecidas e JSON inválido.
+Os scripts de bootstrap também escolhem esse idioma antes de validar as flags. Um
+`--locale` que não é um idioma é recusado em um idioma só: o `--locale` válido, senão
+`OKIT_LANGUAGE`, senão inglês. A recusa “Node.js é necessário” do `install.sh` e do
+`install.ps1` é a única exceção à ordem acima, porque ainda não há Node para ler a configuração
+salva: `--locale` válido, senão `OKIT_LANGUAGE` válido, senão o idioma do sistema, senão inglês.
+Os scripts não leem configuração nem arquivo algum e nunca analisam JSON. Só `en` ou `pt-BR`
+exatos valem para a flag e a variável; o idioma do sistema é o primeiro valor não vazio entre
+`LC_ALL`, `LC_MESSAGES` e `LANG` (a cultura da interface no Windows), e `pt` seguido do fim, de
+`_`, `-` ou `.` (`pt_BR.UTF-8`, `pt-BR`, `pt`) é português, qualquer outra coisa é inglês. Quando o
+Node roda, o idioma salvo vale como em todo lugar. O `install.sh` faz isso só com recursos internos do
+shell, então funciona até quando o `PATH` não tem ferramentas. Os textos de erro mostram o endereço sem consulta,
+fragmento nem credenciais, e a pasta temporária como `<temp>`. Um cabeçalho nomeia o pacote,
+a versão, o cliente e o sistema; depois, passos numerados
+(`[1/5] Baixar e verificar ... ok`) mostram a release, o arquivo e o destino uma só
+vez, dentro dos passos; a nota do SHA-256 aparece uma vez; nenhuma pasta temporária é
+impressa. A linha final lista os próximos passos, com o comando exato (no Windows,
+inclusive a linha `$env:Path` para o terminal atual). Os comandos que o instalador
+executa só aparecem com `--verbose`.
+Em cada bloco numerado, os estados ficam alinhados após o maior rótulo traduzido,
+com pelo menos dois espaços entre o rótulo e seu estado.
+
+As perguntas trazem a explicação primeiro e a pergunta por último, com o padrão em
+maiúscula: `[s/N]` em português, `[y/N]` em inglês. `s` e `y` valem como sim nos dois
+idiomas.
+Cada passo imprime seu resultado uma vez. A escolha de modelos só é oferecida após
+instalação ou atualização bem-sucedida, nunca após falha, em `--dry-run` ou com `update --check`.
+
+### Comando do Windows e scripts do PowerShell
+
+No Windows o comando é só o atalho `okit-plugin.cmd`; o PowerShell também o encontra e
+não precisa de uma política de execução que permita scripts. Instalar e atualizar
+removem um `okit-plugin.ps1` que este plugin gravou numa versão anterior (um `.ps1`
+que não é nosso fica como está); desinstalar remove os dois.
+Um comando existente de terceiros é preservado e faz o passo do comando e a
+instalação falharem. Renomeie ou remova esse comando, ou escolha outra pasta em
+`install.linkDirectory` na configuração, e tente novamente.
+
+O instalador pode oferecer permitir scripts do PowerShell para o seu usuário
+(`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`). Ele só pergunta quando a
+política efetiva bloqueia scripts (Restricted, AllSigned ou Undefined), só num
+terminal, e o padrão é Não. Sob uma política de grupo, nada é alterado e ele avisa.
+Para desfazer: `Set-ExecutionPolicy -Scope CurrentUser Undefined`.
+`--set-execution-policy` responde sim (sem perguntar); `--no-execution-policy` pula o
+passo; as duas opções não podem ser combinadas, e a recusa explica isso no idioma
+escolhido. Ambas também funcionam com `install.sh update` e `install.ps1 update`,
+e são encaminhadas ao reinstalar a mesma versão por qualquer um dos scripts.
 
 ## Configuration
 
@@ -116,6 +174,8 @@ registrados por padrão; acrescente `--client <nome>` para selecionar um. Client
 registrado é recusado antes de alterações. Cada cliente tem versões retidas e smoke
 próprios; uma falha permite que os demais terminem. O resumo lista cada resultado
 (saída 0: todos passaram, 1: falha, 2: recusado antes de começar).
+
+Uma só política de saída serve o comando instalado e os dois scripts de instalação (`src/install/exit.js`, `exitCodeFor`): sucesso e simulação saem com 0; falha do trabalho (nenhuma versão publicada, arquivo ausente, soma de verificação errada, erro de rede) sai com 1; erro de uso, de opção ou de idioma sai com 2. O idioma da execução é decidido primeiro (`--locale`, `OKIT_LANGUAGE`, idioma salvo, inglês), antes de qualquer opção ser analisada; assim `--help`, `status` e toda recusa, inclusive as de `install.sh` e `install.ps1`, falam um só idioma; toda linha passa pela porta que oculta segredos, então uma dica do kit com credenciais, consulta ou fragmento aparece sem eles. Isso vale também para o texto de uso (`--version`, nenhum argumento, comando ou ação desconhecidos). A classe de um erro é decidida só pelo seu `kind`: um erro que não diz nada é falha do trabalho (saída 1), então uma versão ou um arquivo ausente nunca é tomado por erro de uso, no comando instalado ou nos scripts. Toda recusa dos ajustes de `config.json` tem um código estável e seus parâmetros e aparece no idioma da execução, a partir de um só catálogo (`CONFIG_MESSAGES`). Um teste gerado (`test/install-matrix.test.js`) executa cada comando da tabela de uso em cada fonte de idioma e verifica que nenhuma linha mistura idiomas, que nenhuma credencial chega à saída e que o código de saída tem a classe da política; Toda configuração passa pelo esquema único (`src/config-schema.js`): um ajuste de `config.json` que não é válido (`install.timeoutMs` como `0`, como texto ou acima de 2147483647, um shell nulo, uma versão que não é texto num pacote de `--from`) é uma só recusa de uso, saída 2, que nomeia a chave e a regra no idioma da execução, com o arquivo intacto, em `install`, `update`, `uninstall`, `setup`, `kit`, `status` e `config`; `config set` de um valor inválido e `config get|unset` de uma chave desconhecida também saem com 2. Um teste gerado (`test/install-config-fuzz.test.js`) prova isso para toda chave do esquema; os comandos que mantêm a própria convenção bilíngue (`config`, `quota`, `telemetry`, `trajectory`) e os protocolos de máquina (`hook`, `statusline-collector`) estão listados ali com o motivo.
 
 Os nomes dos registros vêm de `install.recordName`. O `install.json` antigo é lido
 como registro do seu cliente e migrado na primeira escrita, mantendo toda a cadeia

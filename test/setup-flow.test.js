@@ -19,6 +19,10 @@ test('the remaining install question recommends review in both languages', () =>
 
 const PENDING = /Setup is not done yet/;
 const PENDING_PT = /O setup ainda não foi feito/;
+// The installer shows the pending setup as one `Models` row, and the command-and-PATH row ends the files part.
+const MODELS_PENDING = (line) => /^\s*Models\s+-\s+not set yet\. Run: /.test(line);
+const LINK_ROW = /\bCommand and PATH\b/;
+const LINK_ROW_PT = /\bComando e PATH\b/;
 
 async function temporaryHome(t) {
   const home = await mkdtemp(join(tmpdir(), 'okit-setup-flow-'));
@@ -179,10 +183,10 @@ test('the pending setup line names the configured command', async (t) => {
 test('the end of an install offers the setup and never fails the installation', async (t) => {
   const f = await installation(t);
   assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.out.join(' / '));
-  const offer = f.out.filter((line) => /Setup is not done yet/.test(line));
+  const offer = f.out.filter(MODELS_PENDING);
   assert.equal(offer.length, 1, f.out.join(' / '));
-  assert.match(offer[0], /Rode okit-plugin setup| Run okit-plugin setup/);
-  assert.ok(!f.out.some((line) => /Configure now\?/.test(line)), 'no terminal, no question');
+  assert.match(offer[0], /^\s*Models\s+-\s+not set yet\. Run: okit-plugin setup$/);
+  assert.ok(!f.out.some((line) => /Choose the models now\?/.test(line)), 'no terminal, no question');
   const raw = JSON.parse(await readFile(join(f.root, 'config.json'), 'utf8'));
   assert.equal(raw.setup, undefined);
 });
@@ -195,7 +199,10 @@ test('an interactive install asks, runs the setup and keeps the installation suc
   });
   f.io.adapters = [fakeClient('claude-code', ['haiku', 'sonnet', 'opus'])];
   assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.out.join(' / '));
-  assert.ok(questions.some((question) => question.includes('Configurar agora? [S/n]')), questions.join(' / '));
+  assert.ok(questions.some((question) => question.includes('Choose the models now? [Y/n]')), questions.join(' / '));
+  // One question per prompt, the explanation before it and the question last.
+  assert.equal(questions.filter((question) => /\n/.test(question.trimEnd())).length, 0);
+  assert.ok(f.out.some((line) => /^\s*Models\s+ok\s+.*haiku.* saved$/.test(line)), f.out.join(' / '));
   const raw = JSON.parse(await readFile(join(f.root, 'config.json'), 'utf8'));
   assert.match(raw.setup.done.at, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(raw.profiles['claude-code'].simple.model, 'haiku');
@@ -219,7 +226,8 @@ test('a refused setup leaves the installation successful and the configuration u
     ask: async (question) => { questions.push(question); return 'n'; },
   });
   assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.out.join(' / '));
-  assert.ok(questions.some((question) => question.includes('Configurar agora? [S/n]')));
+  assert.ok(questions.some((question) => question.includes('Choose the models now? [Y/n]')));
+  assert.ok(f.out.some((line) => /^\s*Models\s+skipped\s+not set\. Run when you want: okit-plugin setup$/.test(line)), f.out.join(' / '));
   const raw = JSON.parse(await readFile(join(f.root, 'config.json'), 'utf8'));
   assert.equal(raw.setup, undefined);
 });
@@ -238,7 +246,7 @@ test('a corrupted configuration at the end of the install keeps the installation
   const original = f.io.stdout;
   f.io.stdout = (line) => {
     original(line);
-    if (line === 'codex: success') writeFileSync(join(f.root, 'config.json'), '{ broken');
+    if (LINK_ROW.test(line)) writeFileSync(join(f.root, 'config.json'), '{ broken');
   };
   assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.out.join(' / '));
   assert.ok(
@@ -252,17 +260,27 @@ test('a configuration without an object root at the end of the install keeps the
   const original = f.io.stdout;
   f.io.stdout = (line) => {
     original(line);
-    if (line === 'codex: success') writeFileSync(join(f.root, 'config.json'), 'null');
+    if (LINK_ROW.test(line)) writeFileSync(join(f.root, 'config.json'), 'null');
   };
   assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.out.join(' / '));
   assert.ok(
     f.out.some((line) => /Could not check the configuration/.test(line)),
     f.out.join(' / '),
   );
-  assert.ok(
-    f.out.some((line) => /não está legível/.test(line)),
-    f.out.join(' / '),
-  );
+  // One language per run: the Portuguese sentence belongs to --locale pt-BR.
+  assert.ok(!f.out.some((line) => /não está legível/.test(line)), f.out.join(' / '));
+});
+
+test('the unreadable configuration is reported in Portuguese with --locale pt-BR only', async (t) => {
+  const f = await installation(t);
+  const original = f.io.stdout;
+  f.io.stdout = (line) => {
+    original(line);
+    if (LINK_ROW_PT.test(line)) writeFileSync(join(f.root, 'config.json'), 'null');
+  };
+  assert.equal(await main(['install', '--client', 'codex', '--locale', 'pt-BR'], f.io), 0, f.out.join(' / '));
+  assert.ok(f.out.some((line) => /não está legível/.test(line)), f.out.join(' / '));
+  assert.ok(!f.out.some((line) => /Could not check/.test(line)), f.out.join(' / '));
 });
 
 test('the install setup reader with an input that already ended does not hang', { timeout: 5000 }, async (t) => {
@@ -289,7 +307,7 @@ test('the end of an update offers the setup as well', async (t) => {
   f.out.length = 0;
   f.setVersion('2.0.0');
   assert.equal(await main(['update', '--client', 'codex'], f.io), 0, f.out.join(' / '));
-  assert.equal(f.out.filter((line) => /Setup is not done yet/.test(line)).length, 1, f.out.join(' / '));
+  assert.equal(f.out.filter(MODELS_PENDING).length, 1, f.out.join(' / '));
 });
 
 test('the status keeps asking for the setup after a setup that found no client', async (t) => {

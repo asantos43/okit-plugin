@@ -16,7 +16,7 @@ The default root is ~/.okwork; OKWORK_HOME replaces the entire directory (it doe
 | `inbox.json` | Version, sequence and work items, status, ownership/history and metadata |
 | `orders.json` | Global/project instructions, expiry, revocation and history until retention |
 | `templates.json` | Recurring demands, schedules, rules and last run |
-| `quota/<client>.json` | Remaining percentage, source, timestamp and known windows; readers choose between automatic and manual |
+| `quota/<client>.json` | Remaining percentage, source, timestamp and known windows; readers choose between automatic and manual; valid JSON of another type is no reading, a file that is not JSON makes `status` fail (exit 1) |
 | `runs/<runId>.json` | Slot status, client and start/end times; process launches also record PID and outcome |
 | `runs/<runId>.out` | Process launcher stdout/stderr when no other log directory is supplied |
 | `locks/config.lock/owner.json`, `inbox.json.lock/owner.json`, `orders.json.lock/owner.json`, `templates.json.lock/owner.json`, `runs.lock/owner.json` | Writer lock owner, PID and timestamp; temporary claim files coordinate recovery |
@@ -31,7 +31,7 @@ The default root is ~/.okwork; OKWORK_HOME replaces the entire directory (it doe
 ## Outside the state root
 
 Default payload destination: XDG_DATA_HOME/okit-plugin or ~/.local/share/okit-plugin on Linux; ~/Library/Application Support/okit-plugin on macOS; LOCALAPPDATA/okit-plugin or ~/AppData/Local/okit-plugin on Windows. install.destination overrides it.
-There, install.<client>.json records current payload, checksum, previous version, link, autostart and status bar; install.json is the legacy record. <version>-<client>/ holds code; managed-path.json tracks only managed PATH changes. The default link directory is ~/.local/bin or ~/AppData/Local/bin on Windows; configuration can override it. Hooks, skills and role blocks live in [client roots](adapters.md).
+There, install.<client>.json records current payload, checksum, previous version, link, autostart and status bar; install.json is the legacy record. <version>-<client>/ holds code; managed-path.json tracks only managed PATH changes. A record or a PATH state with a field of the wrong type is refused (exit 2) with the way out: remove the file and run `okit-plugin install`. The default link directory is ~/.local/bin or ~/AppData/Local/bin on Windows; configuration can override it. Hooks, skills and role blocks live in [client roots](adapters.md).
 Autostart also registers ~/.config/systemd/user/okit-daemon.service, ~/Library/LaunchAgents/com.okit.daemon.plist or a Windows task, according to platform and plan.
 
 <a id="integrity"></a>
