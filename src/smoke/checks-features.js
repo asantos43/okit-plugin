@@ -471,6 +471,7 @@ const TOOL_ARGS = {
   release_slot: () => ({ runId: 'smoke-e14' }),
   limits_status: () => ({}),
   status: () => ({}),
+  quota_notice: () => ({ event: { type: 'quota.released', client: 'codex' }, locale: 'pt-BR' }),
   env_report: () => ({}),
   smoke_demo: () => ({ dryRun: true }),
   actors_list: () => ({}),
@@ -506,6 +507,12 @@ async function mcpTools(deps) {
     need(typeof text === 'string' && text !== '', `${tool.name} answered nothing`);
     need(answer.result.isError !== true, `${tool.name} refused: ${text}`);
     const parsed = JSON.parse(text);
+    if (tool.name === 'quota_notice') {
+      need(parsed.available === true && parsed.released === true,
+        'the simulated quota-back event must release the notice');
+      need(parsed.text.includes('cota da sua assinatura do Codex voltou'),
+        'the quota-back notice must use plain words in the requested language');
+    }
     if (tool.name === 'inbox_add') state.demand = parsed.id;
     if (tool.name === 'order_add') state.order = parsed.id;
   }

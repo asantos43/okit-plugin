@@ -17,7 +17,7 @@ Keeps enabled project tasks in step with saved work; asks before using a suggest
 
 | Skill | Use and instruction | Main resources |
 | :- | :- | :- |
-| `okit-director` | Orchestrates requested work; loaded when directing or delegating. Read orders and inbox, classify, choose actors, claim work, reserve/release slots, brief Executor and Critic, verify evidence and record transitions. | `order_list`, `inbox_list`, `inbox_claim`, `inbox_release`, `limits_status`, `status`, `actors_list`, `env_report`, `classify`, `profile_pick`, `acquire_slot`, `release_slot`, `inbox_add`, `inbox_set_status`, `order_add` |
+| `okit-director` | Orchestrates requested work; loaded when directing or delegating. Read orders and inbox, classify, choose actors, claim work, reserve/release slots, brief Executor and Critic, verify evidence and record transitions. When quota blocks a subscription, call `quota_notice` without an event before waiting. If the reply says the notice is unavailable, explain that the kit cannot yet notify when quota returns; reread quota with `okit-plugin quota show` or `okit-plugin daemon status`, without waiting for an event that will not arrive. Otherwise wait in the background, without polling, and relay the event with `quota_notice`. | `order_list`, `inbox_list`, `inbox_claim`, `inbox_release`, `limits_status`, `status`, `quota_notice`, `actors_list`, `env_report`, `classify`, `profile_pick`, `acquire_slot`, `release_slot`, `inbox_add`, `inbox_set_status`, `order_add` |
 
 <a id="okit-executor"></a>
 ## okit-executor

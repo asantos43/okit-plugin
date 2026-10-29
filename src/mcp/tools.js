@@ -10,6 +10,7 @@ import { configOf as normalizeConfig, DEFAULT_CONFIG, LOCALES, localeOf, profile
 import { listActors } from '../actors.js';
 import { environmentReport, formatEnvironmentReport } from '../env/report.js';
 import { adapterQuotaReader, clientsOf, shouldShowStatus, statusTable } from '../status.js';
+import { quotaReleasedNotice } from '../quota/released.js';
 import { CLIENTS } from '../spawn-process.js';
 import { readJson } from '../state.js';
 import { paths, stateRoot } from '../store.js';
@@ -297,6 +298,35 @@ const statusTool = {
     // the caller sent at least one of them.
     const asked = [size, slices, executors].some((value) => value !== undefined);
     return reply(asked ? { ...table, showBefore: shouldShowStatus({ size, slices, executors }) } : table);
+  },
+};
+
+// The notice for the kit's quota-released event, in plain words and in the
+// user's language. It reads nothing and changes nothing; without a recognised
+// event it says the notice is not available.
+const quotaNoticeTool = {
+  name: 'quota_notice',
+  description: 'Turns the kit\'s quota-back event into a plain sentence for the user, in their language. Without that event, says the notice is not available. / Transforma o evento de cota liberada do kit em uma frase simples para o usuário, no idioma dele. Sem esse evento, diz que o aviso não está disponível.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      locale: LOCALE_SCHEMA,
+      event: { type: 'object', description: 'The quota-back event the kit delivered. / O evento de cota liberada entregue pelo kit.' },
+    },
+    required: [],
+    additionalProperties: false,
+  },
+  handler: async (args, ctx) => {
+    const a = argsOf('quota_notice', args, ['locale', 'event']);
+    const config = await configOf(ctx);
+    const locale = optionalChoice('quota_notice', a, 'locale', LOCALES, config);
+    const event = a.event === null ? undefined : a.event;
+    if (event !== undefined && (typeof event !== 'object' || Array.isArray(event))) {
+      fail(locale === 'pt-BR'
+        ? 'quota_notice: o evento deve ser um objeto quando informado'
+        : 'quota_notice: event must be an object when given');
+    }
+    return reply(quotaReleasedNotice(event, locale));
   },
 };
 
@@ -602,6 +632,7 @@ export const TOOLS = [
   releaseSlotTool,
   limitsStatusTool,
   statusTool,
+  quotaNoticeTool,
   actorsTool,
   envReportTool,
   smokeDemoTool,
