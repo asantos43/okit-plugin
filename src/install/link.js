@@ -1,7 +1,7 @@
 import { OperationalError, UsageError } from './exit.js';
 import { PATH_STATE_SCHEMA, problemOf } from '../config-schema.js';
 import { binInPath, commandInPath } from '../env/path.js';
-import { join, delimiter, dirname, resolve, relative, isAbsolute, extname } from 'node:path';
+import { join, delimiter, dirname, resolve, relative, isAbsolute } from 'node:path';
 import { createRequire } from 'node:module';
 import { readRecords } from './place.js';
 import { presenterOf, pick } from './present.js';
@@ -304,8 +304,8 @@ export async function pluginExecutable(path, deps) {
     const target = content.match(/^@echo off\r?\n"[^"\r\n]+" "([^"\r\n]+)" %\*\r?\n?$/)?.[1]
       ?? content.match(/^& '[^'\r\n]+' '([^'\r\n]+)' @args\r?\n?$/)?.[1];
     if (target && resolve(target) !== actual) return pluginExecutable(target, deps);
-  } else if (!extname(actual)) {
-    // The extensionless shim of Git Bash: ours when it is exactly what shellShim writes.
+  } else {
+    // The shim of Git Bash (a command name may hold a dot): ours when it is exactly what shellShim writes.
     const info = await fs.stat(actual).catch((error) => {
       if (!['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes(error.code)) throw error;
       return null;

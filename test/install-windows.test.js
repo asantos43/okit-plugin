@@ -172,6 +172,33 @@ test('the extensionless shim is recognised as ours, and no other file is', async
   assert.equal(await pluginExecutable(join(f.home, 'missing'), f.deps), false);
 });
 
+test('the sh shim is ours, replaced and removed whatever the command name holds, a dot included', async (t) => {
+  const pkg = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  for (const command of ['okit-plugin', 'okit.v2']) {
+    const f = await fixture(t);
+    const config = installConfig({ repository: 'example/project', api: 'https://fake.invalid', destination: f.destination, linkDirectory: f.bin, command });
+    const deps = { ...f.deps, config };
+    await fs.mkdir(join(f.record.path, 'src'), { recursive: true });
+    await fs.writeFile(join(f.record.path, 'package.json'), JSON.stringify({ name: pkg.name, bin: { [command]: f.record.bin } }));
+    await fs.writeFile(join(f.record.path, f.record.bin), '');
+    const shim = join(f.bin, command);
+    // Ours: recognised, an old one replaced, uninstall removes it.
+    const old = { ...f.record, path: join(f.home, 'older') };
+    await fs.writeFile(shim, linkPlan(old, deps)[1].content);
+    await applyLink(f.record, deps, old);
+    assert.equal(await fs.readFile(shim, 'utf8'), linkPlan(f.record, deps)[1].content, command);
+    assert.equal(await pluginExecutable(shim, deps), true, command);
+    await applyLink(f.record, deps, null, true);
+    assert.deepEqual(await fs.readdir(f.bin), [], command);
+    // Not ours: kept, and not recognised.
+    await fs.writeFile(shim, '#!/bin/sh\necho someone else\n');
+    await applyLink(f.record, deps);
+    await applyLink(f.record, deps, null, true);
+    assert.equal(await fs.readFile(shim, 'utf8'), '#!/bin/sh\necho someone else\n', command);
+    assert.equal(await pluginExecutable(shim, deps), false, command);
+  }
+});
+
 test('the PATH check: a lone extensionless shim is not the Windows command, the .cmd is', async (t) => {
   const f = await fixture(t);
   await fs.writeFile(join(f.bin, 'okit-plugin'), linkPlan(f.record, f.deps)[1].content);
