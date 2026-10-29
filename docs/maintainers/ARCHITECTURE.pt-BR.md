@@ -136,7 +136,7 @@ Uma recusa é curta e bilíngue: um cliente desconhecido recebe os clientes conh
 
 ### 5.3 O esquema editável da configuração
 
-`src/config.js` guarda `CONFIG_SCHEMA.entries`, a tabela de toda chave que
+`src/config-schema.js` guarda `CONFIG_SCHEMA.entries` (`src/config.js` o reexporta e lê o texto de um valor), a tabela de toda chave que
 `okit-plugin config show|get|set|unset` aceita. Cada entrada informa o
 caminho pontilhado, o tipo, a faixa ou os valores permitidos, o caminho do
 padrão e uma descrição simples em inglês e português do efeito. As chaves
@@ -160,7 +160,7 @@ ou `user`) e efeito. `get` imprime uma. `set` converte o texto para o tipo
 do esquema, valida e muda só essa folha em `config.json`; usa a trava de
 configuração e `writeJsonAtomic`, então uma escrita falha deixa o arquivo
 antigo intacto. `unset` remove a folha, remove qualquer apelido legado da
-entrada e restaura o padrão. Valor inválido ou chave desconhecida sai com 1 e
+entrada e restaura o padrão. Valor inválido ou chave desconhecida sai com 2 e
 não grava nada.
 
 A chave de classe `profiles.<client>.<class>` aceita só `null`, o estado que
@@ -190,9 +190,46 @@ Os candidatos de um cliente são os modelos de todas as classes em `config.profi
 
 Para acrescentar um cliente, dê à sua função `listModels` no adaptador, acrescente suas classes de perfil e sua entrada `setup.detect.<cliente>` (`command`, `args`, `timeoutMs`, `parse`, `activeField`, `activeValues`, `family` e `candidates`) aos padrões e importe o adaptador na lista padrão de `src/setup/detect.js`. Usuários podem sobrescrever esses valores em `config.json`; a lógica de detecção não mantém campo de atividade, valor de atividade, candidato, cliente, classe, prazo, separador ou prefixo mínimo fixos.
 
-O setup deixa `setup.done` em `config.json`; enquanto esse registro não existe, `okit-plugin status` mostra uma linha que nomeia o passo que falta, o fim de uma instalação ou de uma atualização oferece o setup, e a skill `okit-setup` conduz o mesmo setup em uma conversa. O registro é gravado apenas quando o setup tem uma configuração de modelo para gravar, ou quando todas as classes dos clientes detectados já têm um modelo ativo. Um setup que não encontrou nenhum cliente com modelo ativo não grava nada, diz uma frase simples nas duas línguas, e deixa a configuração pendente.
+O setup deixa `setup.done` em `config.json`; enquanto esse registro não existe, `okit-plugin status` mostra uma linha que nomeia o passo que falta, o fim de uma instalação ou de uma atualização oferece o setup, e a skill `okit-setup` conduz o mesmo setup em uma conversa. O registro é gravado apenas quando o setup tem uma configuração de modelo para gravar, ou quando todas as classes dos clientes detectados já têm um modelo ativo. Um setup que não encontrou nenhum cliente com modelo ativo não grava nada, diz uma frase simples no idioma da execução (`--locale`, depois `OKIT_LANGUAGE`, depois o idioma salvo, depois inglês: a mesma função do instalador, sem exceção bilíngue), e deixa a configuração pendente.
 
-Um único leitor atende todas as perguntas do setup. Ele guarda as linhas recebidas em ordem, trata o fim da entrada como cancelamento e fecha no fim da execução. Uma entrada que já havia terminado não abre leitor nenhum: cada pergunta é respondida com nada, então o setup cancela em vez de esperar por uma linha que nunca chega. Antes de normalizar os perfis brutos, o setup confere os próprios nomes de cliente e classe com o esquema da configuração; um nome fora do esquema é recusado nas duas línguas e nenhum arquivo muda. Um arquivo de configuração que não pode ser lido, ou cuja raiz não é um objeto simples, é recusado antes de qualquer gravação e também na releitura sob a trava, com a mesma frase simples nas duas línguas; nada é gravado e o arquivo fica como está. Um `profiles` que não é um objeto simples, ou um cliente dentro dele que não é um objeto simples, é recusado do mesmo jeito, e nenhum erro técnico da linguagem chega ao usuário. A skill `okit-setup` nunca grava uma escolha isolada: o setup pergunta cada modelo e grava o conjunto completo uma única vez, depois da confirmação final.
+A saída do instalador tem um só caminho e uma só política de saída. `src/install/present.js` é o único lugar que imprime (`localizeReason`, depois `redact`, depois o escritor); `src/install/exit.js` dá o código de saída só a partir de `error.kind` (`kindOf`: `usage` e `language` são 2; qualquer outro, inclusive um erro sem `kind`, é falha do trabalho e vale 1). Toda recusa dos ajustes em `src/profiles.js` é um `ConfigError` com um código de `CONFIG_MESSAGES` (`en` e `pt-BR` por código, com os mesmos `{parâmetros}`) e é exibida por `localizeReason`. `src/cli.js` monta `COMMANDS` (grupos, ações e ações com valor) a partir de `USAGE_LINES`, e `test/install-matrix.test.js` gera seus casos dessa tabela; assim um comando novo entra na matriz por estar no texto de uso; as isenções são uma lista curta com o motivo (`hook` e `statusline-collector` são protocolos de máquina; `config`, `quota`, `telemetry` e `trajectory` são subsistemas com convenção bilíngue própria, ainda sujeitos às propriedades de nenhum segredo e de classe de saída). O idioma é resolvido por uma só função em todo código Node (`--locale`, depois `OKIT_LANGUAGE`, depois a configuração salva, depois inglês). A única exceção documentada e testada é o prelúdio de shell do `install.sh` e do `install.ps1` (`src/release/install-scripts.js`): ainda não há Node, então ele não lê configuração nem arquivo, não analisa JSON e usa a flag, depois `OKIT_LANGUAGE` (exatamente `en` ou `pt-BR` nos dois), depois o idioma do sistema (o primeiro valor não vazio entre `LC_ALL`, `LC_MESSAGES`, `LANG`, onde `pt` seguido do fim, `_`, `-` ou `.` é `pt-BR`; a cultura da interface no Windows), depois inglês, só com recursos internos do shell e nunca `eval`. Uma configuração ou um ajuste inválido é erro de uso (saída 2) em `install`, `update`, `uninstall` e `setup` por igual, seja um valor, um nome fora do esquema ou um modelo ou esforço (`SetupRefusal` leva `kind: usage`), e também as respostas digitadas que acabam sem uma válida; um `new Error` simples em `src/install/**` ou `src/setup/**` precisa estar nomeado, com o motivo, em `PLAIN_ERRORS` de `test/install-invariants.test.js` (falha do trabalho ou erro de quem chama); uma que não pode ser lida é falha do trabalho (1). Regere os dois scripts depois de mudar o apresentador ou o prelúdio (`writeInstallScripts`). Toda configuração passa pelo esquema único (`src/config-schema.js`): `INSTALL_SCHEMA` para os ajustes `install.*`, lidos por `installConfig` em `install`, `update`, `uninstall`, `setup`, `kit`, `status` e `config`, e `CONFIG_SCHEMA` para as chaves de `config set|get|unset`; um valor inválido é uma só recusa de uso (saída 2) que nomeia a chave e a regra, em inglês e em pt-BR a partir de `CONFIG_MESSAGES` e `RULES` (`src/install/rules.js`), nunca um `TypeError`, um `RangeError` ou uma saída 1. `test/install-config-fuzz.test.js` monta os valores inválidos a partir do esquema (toda chave, todo comando, os dois idiomas); assim uma chave acrescentada a `DEFAULT_CONFIG.install` sem um nó em `INSTALL_SCHEMA` o faz falhar.
+
+Um único leitor atende todas as perguntas do setup. Ele guarda as linhas recebidas em ordem, trata o fim da entrada como cancelamento e fecha no fim da execução. Uma entrada que já havia terminado não abre leitor nenhum: cada pergunta é respondida com nada, então o setup cancela em vez de esperar por uma linha que nunca chega. Antes de normalizar os perfis brutos, o setup confere os próprios nomes de cliente e classe com o esquema da configuração; um nome fora do esquema é recusado no idioma da execução e nenhum arquivo muda. Um arquivo de configuração que não pode ser lido, ou cuja raiz não é um objeto simples, é recusado antes de qualquer gravação e também na releitura sob a trava, com a mesma frase simples no idioma da execução; nada é gravado e o arquivo fica como está. Um `profiles` que não é um objeto simples, ou um cliente dentro dele que não é um objeto simples, é recusado do mesmo jeito, e nenhum erro técnico da linguagem chega ao usuário. A skill `okit-setup` nunca grava uma escolha isolada: o setup pergunta cada modelo e grava o conjunto completo uma única vez, depois da confirmação final.
+
+### 5.5 O inventário de entradas (invariante I9)
+
+Toda entrada que o instalador recebe está num inventário gerado, `test/helpers/input-inventory.js`, e
+`test/input-inventory.test.js` prova cada linha contra os comandos reais. Os varredores leem o código-fonte e falham
+quando uma chave de configuração, uma `--flag` ou uma variável `OKIT_*` é lida sem linha que a nomeie, então uma
+entrada nova não escapa da prova. Os arquivos são achados do mesmo jeito: `fileReads()` lista toda chamada em `src/` e em `adapters/`
+(uma varredura, uma tabela) que lê um arquivo ou interpreta texto (`readFile`, `readFileSync`, `readJson*`, `createReadStream`, `JSON.parse`,
+`createRequire`, um `import()` dinâmico) com o primeiro argumento, e cada uma precisa ser classificada em `READ_POINTS`
+por uma linha de `FILE_RULES` ou por uma exclusão nomeada que diga por que não é entrada de uma instalação. Uma leitura
+que ninguém classificou, uma classificação que não casa com leitura alguma, uma linha de `FILE_RULES` que nada usa e um
+leitor novo em `src/install/` sem linha fazem o teste falhar. Os leitores das configurações dos subsistemas
+(telemetria, cota, trajetória, daemon, todo) são cobrados contra o esquema do mesmo modo: uma checagem de valor salvo
+fora do `CONFIG_SCHEMA` falha, a menos que o arquivo esteja em `OWN_VALIDATORS` com o motivo (a telemetria não tem
+nenhuma; valida os números salvos com o esquema do `config set`, `assertSavedValues`). A regra é a mesma em toda linha: um valor fora do domínio é recusa de uso, saída 2,
+no idioma da execução; um arquivo que não pode ser lido é falha do trabalho, saída 1; um campo de tipo errado num
+arquivo lido é saída 2. Nunca um `TypeError`, um `RangeError` nem mistura de idiomas.
+
+| Entrada | Onde está listada | Domínio | Fora dele |
+| --- | --- | --- | --- |
+| Chaves de `config.json` | `TOP_LEVEL_KEYS` | tipo e faixa por chave; `install.*` pelo `INSTALL_SCHEMA`, chaves do `config set` pelo `CONFIG_SCHEMA` | saída 2 (um leitor que nunca para, como o das ordens, usa o padrão) |
+| Números | `INSTALL_NUMBERS`, `CONFIG_NUMBERS` | mínimo e máximo escritos à parte do esquema; o máximo passa, máximo + 1 e mínimo - 1 são recusados | saída 2 |
+| Flags | `FLAG_TABLE`, `POSITIONAL_NUMBERS` | uma linha por flag e comando: um valor, uma chave sem valor, `--flag=valor`, valor ausente, flag desconhecida | saída 2 |
+| Variáveis `OKIT_*` | `ENV_DOMAINS`, `ENV_OTHER` | as configurações dos scripts de instalação (mapas, endereço, repositório, nomes, linhas, números); `OKIT_LANGUAGE` que não é idioma é ignorada de propósito | saída 2 antes de `uname` e da rede, também em `install.sh` e `install.ps1` |
+| `config.json` | `FILE_RULES` | JSON; raiz que não é objeto (`null`, número, texto, lista) é configuração vazia em todo comando, inclusive nos de telemetria (`storedRootOf`; `telemetry on|off|rede` gravam um objeto no lugar); só o setup lê um `profiles` errado como arquivo ilegível | não é JSON, vazio ou pasta: saída 1 |
+| `quota/<client>.json` | `FILE_RULES`, lido pelos adaptadores | a leitura manual de um cliente (`remainingPct`, `windowMinutes`, `recordedAt`) | não é JSON, vazio ou pasta: saída 1; JSON válido de outro tipo, ou campo do tipo errado, não é leitura (o `status` segue e diz que não há valor registrado) |
+| `settings.json` do cliente (passo do papel) | `FILE_RULES` | o arquivo de outro programa em que o gancho do papel do Claude Code é mesclado | não é JSON: saída 1, arquivo intocado; outra forma: mantido como está, o passo diz que o papel não é suportado |
+| Sessões do Codex, fonte do opencode | `READ_POINTS` (exclusão) | fonte do cliente, não entrada da pessoa: interpretada dentro de um `try`/`catch` que devolve nenhuma leitura | nunca falha o `status` (provado com um caso de cada) |
+| `package.json` de `--from` | `FILE_RULES` | um pacote com nome, versão e o comando | saída 2 (argumento errado) |
+| `install.json` e `install.<cliente>.json` | `FILE_RULES`, `RECORD_FIELDS` | o registro que o instalador gravou, todo campo e os registros que ele substituiu (`previous`) | não é JSON: saída 1; campo de tipo errado: saída 2, com o nome do campo e a orientação de remover o arquivo e rodar `okit-plugin install` |
+| `managed-path.json` | `FILE_RULES`, `PATH_STATE_SCHEMA` | os blocos de perfil e a entrada do PATH do Windows que o instalador acrescentou | não é JSON: saída 1; tipo errado: saída 2, mesma saída |
+| Números salvos da telemetria (`retentionDays`, `maxBytes`, `maxFileBytes`, `batchSeconds`, `kitTimeoutMs`, `rede.timeoutMs`) | `CONFIG_SCHEMA` | os mesmos limites do `config set` | saída 2 em todo comando da telemetria |
+| Manifesto e metadados do release, configurações do cliente | `FILE_RULES` | o que o release e o programa do cliente gravaram | saída 1 (dado remoto ou arquivo de outro programa que não confere é falha do trabalho) |
+
+O que é lido e não está no inventário é uma demanda nova, não um defeito da rodada que o encontra.
 
 <a id="section-6"></a>
 ## 6. Windows rules

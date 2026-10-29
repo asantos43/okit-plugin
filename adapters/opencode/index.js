@@ -11,6 +11,7 @@ import { installSkillFiles } from '../../src/skills.js';
 import { configOf } from '../../src/profiles.js';
 import { listModelsOf, makeSpawner } from '../../src/spawn-process.js';
 import { readJson } from '../../src/state.js';
+import { timeOf } from '../../src/quota-fields.js';
 import { paths, stateRoot } from '../../src/store.js';
 import { readOpencodeSource } from './quota-source.js';
 
@@ -115,10 +116,10 @@ export async function readQuota({ stateRoot: root, env, now = Date.now, config }
   const stored = await readJson(join(paths(root ?? stateRoot(env)).quota, `${CLIENT}.json`), null);
   const finite = (value) => typeof value === 'number' && Number.isFinite(value);
   if (!finite(stored?.remainingPct)) return { source: 'user', ...fallback };
-  const recorded = Date.parse(stored.recordedAt);
+  const recorded = timeOf(stored.recordedAt);
   return { source: 'user', ...fallback, remainingPct: stored.remainingPct,
-    ...(Number.isFinite(recorded) ? { recordedAt: stored.recordedAt,
-      ageMinutes: Math.max(0, now() - recorded) / 60_000 } : {}),
+    ...(recorded ? { recordedAt: recorded.text,
+      ageMinutes: Math.max(0, now() - recorded.ms) / 60_000 } : {}),
     ...(finite(stored.windowMinutes) ? { windowMinutes: stored.windowMinutes } : {}) };
 }
 

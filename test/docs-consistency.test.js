@@ -117,7 +117,7 @@ test('English and Brazilian Portuguese keep the same ordered level-two headings'
 
 test('both language paths document every command and action from CLI USAGE', async () => {
   const cli = await read('src/cli.js');
-  const usage = cli.match(/const USAGE = \[([\s\S]*?)\]\.join/)[1].replaceAll('{command}', DEFAULT_CONFIG.install.command);
+  const usage = cli.match(/const USAGE_LINES = \[([\s\S]*?)\]\.map/)[1].replaceAll('{command}', DEFAULT_CONFIG.install.command);
   const commands = [...usage.matchAll(/okit-plugin ([a-z-]+)(?: ([a-z-]+(?:\|[a-z-]+)*))?/g)]
     .flatMap(([, group, actions]) => actions
       ? actions.split('|').map((action) => `okit-plugin ${group} ${action}`) : [`okit-plugin ${group}`]);

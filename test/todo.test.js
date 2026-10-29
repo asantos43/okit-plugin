@@ -250,6 +250,6 @@ test('configuration accepts project settings and custom checkbox characters', as
   const ctx = { root, out() {}, err() {}, unknown: () => 2 };
   assert.equal(await configCommand(ctx, 'set', ['todo.enabled', 'true']), 0);
   assert.equal(await configCommand(ctx, 'set', ['todo.checkbox.open', ' ']), 0);
-  assert.equal(await configCommand(ctx, 'set', ['todo.checkbox.done', 'bad']), 1);
-  assert.equal(await configCommand(ctx, 'set', ['todo.projects', '{"relative":{"enabled":true}}']), 1);
+  assert.equal(await configCommand(ctx, 'set', ['todo.checkbox.done', 'bad']), 2);
+  assert.equal(await configCommand(ctx, 'set', ['todo.projects', '{"relative":{"enabled":true}}']), 2);
 });

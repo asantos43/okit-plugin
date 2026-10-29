@@ -9,6 +9,7 @@ import { configOf, DEFAULT_CONFIG, PROFILE_EFFORTS } from '../profiles.js';
 import { readJson, withLock, writeJsonAtomic } from '../state.js';
 import { paths } from '../store.js';
 import { environmentSnapshot } from '../env/snapshot.js';
+import { redactingStream } from '../install/present.js';
 
 /**
  * Whether the input already ended: a reader opened on it would wait for an
@@ -25,7 +26,8 @@ export function setupReader({ stdin = process.stdin, output = process.stdout } =
   if (inputEnded(stdin)) {
     return { ask: async () => undefined, close: () => {} };
   }
-  const reader = createInterface({ input: stdin, output });
+  // The prompt goes out the same door as every other line: readline writes straight to its output.
+  const reader = createInterface({ input: stdin, output: redactingStream(output) });
   const lines = reader[Symbol.asyncIterator]();
   let closed = false;
   reader.on('close', () => { closed = true; });
@@ -70,18 +72,25 @@ export class SetupSaveError extends Error {
   constructor(message) {
     super(message);
     this.name = 'SetupSaveError';
+    // The failure of the work, told as one plain sentence: the program prints it without its own prefix.
+    this.kind = 'operational';
+    this.plain = true;
   }
 }
 
 /**
- * A refusal of the setup itself: an unreadable configuration or a name
- * outside the schema. It keeps its own sentence and never becomes the
+ * A refusal of the setup itself: an unreadable configuration (a failure of the work) or a setting that is not valid
+ * (usage). It keeps its own sentence and never becomes the
  * sentence of a failed write.
  */
 class SetupRefusal extends Error {
-  constructor(message) {
+  constructor(message, kind = 'operational') {
     super(message);
     this.name = 'SetupRefusal';
+    // The setup stops with a plain sentence. A configuration it cannot read is a failure of the work (1); a
+    // configuration or a setting that is not valid (a value, a name outside the schema, a model or an effort) is a
+    // usage error (2), the class `install` gives the same file.
+    this.kind = kind;
   }
 }
 
@@ -248,7 +257,7 @@ function setupConfig(raw, locale, command) {
   try {
     return configOf(raw);
   } catch {
-    throw new SetupRefusal(format('invalidConfigValue', locale, { command }));
+    throw new SetupRefusal(format('invalidConfigValue', locale, { command }), 'usage');
   }
 }
 
@@ -273,7 +282,7 @@ function invalidRawProfiles(raw) {
 }
 
 function assertValidRawProfiles(raw, locale) {
-  if (invalidRawProfiles(raw)) throw new SetupRefusal(format('invalidProfiles', locale));
+  if (invalidRawProfiles(raw)) throw new SetupRefusal(format('invalidProfiles', locale), 'usage');
 }
 
 function reasonParts(reason) {
@@ -481,15 +490,21 @@ async function askModel({ ask, locale, client, className, proposal, candidates, 
   return { invalid: true };
 }
 
-async function confirmSetup({ ask, locale, attempts, changes }) {
-  let question = formatConfirmation(locale, changes);
+async function confirmSetup({ ask, locale, attempts, changes, ui }) {
+  // With a presenter the reason is said once, the choices are listed, and the question comes last.
+  let question = ui ? ui.question(ui.text('modelsSave')) : formatConfirmation(locale, changes);
+  if (ui) {
+    const reasons = [...new Set(changes.map((change) => reasonParts(change.reason)[ui.locale] || reasonParts(change.reason).en).filter(Boolean))];
+    ui.explain([...reasons, ui.text('modelsPlan'), ...changes.map((change) => `  ${change.client} (${change.class}): ${change.model}`)]);
+  }
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const answer = await askValue(ask, question, undefined);
     if (answer === undefined || answer === null) return { cancelled: true };
     const clean = String(answer).trim();
     if (clean === '' || negative(clean)) return { cancelled: true };
     if (affirmative(clean)) return { confirmed: true };
-    question = `${format('invalidConfirmation', locale)} ${question}`;
+    if (ui) ui.explain([format('invalidConfirmation', locale)]);
+    else question = `${format('invalidConfirmation', locale)} ${question}`;
   }
   return { invalid: true };
 }
@@ -592,10 +607,15 @@ export async function runSetup({
   locale = 'both',
   again = false,
   command = DEFAULT_CONFIG.install.command,
+  ui,
 } = {}) {
   if (!root) throw new TypeError('root is required');
+  // With a presenter (the installer) the language is the presenter's and the plan is shown once, at the question.
+  if (ui) locale = ui.locale;
   if (!defaults && typeof ask !== 'function') {
-    throw new Error(format('askUnavailable', locale));
+    // Asked for something impossible in this mode (an interactive setup with no reader): usage (2), not a failure of
+    // the environment; the command always hands a reader, so only a caller of runSetup can reach it.
+    throw new SetupRefusal(format('askUnavailable', locale), 'usage');
   }
   // A file that cannot be read, or whose root is not a configuration, stops
   // the setup before anything is asked or written.
@@ -665,7 +685,7 @@ export async function runSetup({
         proposal.effort,
       );
       if (valid.error) {
-        throw new Error(refusalText(locale, clientProposal.client, className, valid.error));
+        throw new SetupRefusal(refusalText(locale, clientProposal.client, className, valid.error), 'usage');
       }
       changes.push({
         client: clientProposal.client,
@@ -674,12 +694,14 @@ export async function runSetup({
         previous: profileValue(resolved.profiles, clientProposal.client, className),
         reason: proposal.reason,
       });
-      messages.push(formatWithReason('plan', locale, {
-        client: clientProposal.client,
-        class: className,
-        classe: className,
-        model: valid.value.model,
-      }, proposal.reason));
+      if (!ui) {
+        messages.push(formatWithReason('plan', locale, {
+          client: clientProposal.client,
+          class: className,
+          classe: className,
+          model: valid.value.model,
+        }, proposal.reason));
+      }
     }
   }
 
@@ -703,7 +725,8 @@ export async function runSetup({
       if (answer.cancelled) {
         return { code: 0, cancelled: true, changes: [], skipped, omitted, messages: [format('cancelled', locale)] };
       }
-      if (answer.invalid) throw new Error(format('invalidAnswer', locale));
+      // Every answer was invalid until the attempts ran out: input the command does not accept, usage (2).
+      if (answer.invalid) throw new SetupRefusal(format('invalidAnswer', locale), 'usage');
       const valid = validateProfile(
         resolved,
         clientProposal.client,
@@ -712,7 +735,7 @@ export async function runSetup({
         proposal.effort,
       );
       if (valid.error) {
-        throw new Error(refusalText(locale, clientProposal.client, className, valid.error));
+        throw new SetupRefusal(refusalText(locale, clientProposal.client, className, valid.error), 'usage');
       }
       changes.push({
         client: clientProposal.client,
@@ -730,24 +753,26 @@ export async function runSetup({
   }
 
   if (!defaults) {
-    const confirmation = await confirmSetup({ ask, locale, attempts, changes });
+    const confirmation = await confirmSetup({ ask, locale, attempts, changes, ui });
     if (confirmation.cancelled) {
       return { code: 0, cancelled: true, changes: [], skipped, omitted, messages: [format('cancelled', locale)] };
     }
-    if (confirmation.invalid) throw new Error(format('invalidAnswer', locale));
+    // Same rule: the confirmations ran out of valid answers, usage (2).
+    if (confirmation.invalid) throw new SetupRefusal(format('invalidAnswer', locale), 'usage');
   }
 
   const saved = await saveSetup(root, changes, write, locale, command);
   if (saved.error) {
-    throw new Error(format('invalidSetting', locale, {
+    throw new SetupRefusal(format('invalidSetting', locale, {
       client: saved.error.client, class: saved.error.class, classe: saved.error.class,
-    }));
+    }), 'usage');
   }
   const savedChanges = saved.applied;
   const kept = saved.kept;
   const names = [...new Set(savedChanges.map((change) => change.client))];
   if (savedChanges.length > 0) {
-    messages.push(format('summary', locale, { count: savedChanges.length, clients: names.join(', ') }));
+    // The presenter's Models row says what was saved.
+    if (!ui) messages.push(format('summary', locale, { count: savedChanges.length, clients: names.join(', ') }));
   } else if (kept.length === 0) {
     messages.push(format('none', locale));
   }

@@ -1,50 +1,39 @@
+import { UsageError } from './exit.js';
 import { DEFAULT_CONFIG } from '../profiles.js';
+import { assertInstallSettings } from '../config-schema.js';
 import { join, resolve } from 'node:path';
 
-export function installConfig(user = {}) {
+const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+// The defaults under what the user wrote, key by key down to the first list or value: a key the user did not write is
+// the default, at any depth (a list, a text or a number written by the user replaces the default whole).
+function merge(base, user) {
+  if (!plain(base) || !plain(user)) return user;
+  const keys = new Set([...Object.keys(base), ...Object.keys(user)]);
+  return Object.fromEntries([...keys].map((key) => [key, Object.hasOwn(user, key) && user[key] !== undefined ? merge(base[key], user[key]) : base[key]]));
+}
+
+/**
+ * The installer's settings: the defaults with what the user wrote over them. What the user wrote is read first, key by
+ * key (a wrong type is refused, a missing key is fine); the merged settings are read in full (INSTALL_SCHEMA in
+ * src/config-schema.js is the one place that knows what a setting may be), so nothing invalid reaches the installer.
+ *
+ * @param {object} [user] the `install` of config.json
+ * @param {object} [overrides] settings of this run (a flag) that go over both
+ * @returns {object} the settings
+ */
+export function installConfig(user = {}, overrides = {}) {
   const base = DEFAULT_CONFIG.install;
-  const value = { ...base, ...user };
-  for (const key of ['clients', 'headers', 'systems', 'architectures', 'dataRoots', 'kit', 'path']) {
-    value[key] = { ...base[key], ...user[key] };
-  }
-  value.path.messages = { ...base.path.messages, ...user.path?.messages };
-  value.path.shells = { ...base.path.shells, ...user.path?.shells };
-  const path = value.path;
-  if (typeof path.enabled !== 'boolean' || !Array.isArray(path.candidates) || !path.candidates.length
-    || path.candidates.some((parts) => !Array.isArray(parts) || !parts.length || parts.some((part) => typeof part !== 'string' || !part || /[\r\n\0]/.test(part)))) throw new TypeError('Invalid install.path candidates/enabled');
-  for (const key of ['begin', 'end', 'stateFile', 'fallbackShell', 'windowsExecutable', 'windowsVariable']) {
-    if (typeof path[key] !== 'string' || !path[key].trim() || /[\r\n\0]/.test(path[key])) throw new TypeError(`Invalid install.path.${key}`);
-  }
-  if (path.begin === path.end || /[\\/]/.test(path.stateFile) || !path.shells[path.fallbackShell]) throw new TypeError('Invalid install.path markers/state/fallback');
-  for (const shell of Object.values(path.shells)) {
-    if (!Array.isArray(shell.files) || !shell.files.length || [...shell.files, shell.login].some((name) => typeof name !== 'string' || !name.trim() || /[\r\n\0]/.test(name))) throw new TypeError('Invalid install.path.shells');
-  }
-  for (const message of Object.values(path.messages)) {
-    if (typeof message !== 'string' || !message.trim()) throw new TypeError('Invalid install.path.messages');
-  }
-  const kit = value.kit;
-  const strings = (items) => Array.isArray(items) && items.every((item) => typeof item === 'string' && item.trim() && !/[\r\n\0]/.test(item));
-  if (!strings(kit.executables) || !kit.executables.length || kit.executables.some((name) => /[\\/]/.test(name))) throw new TypeError('Invalid install.kit.executables');
-  if (kit.path !== null && (typeof kit.path !== 'string' || !kit.path.trim() || /[\r\n\0]/.test(kit.path))) throw new TypeError('Invalid install.kit.path');
-  if (!strings(kit.versionArgs)) throw new TypeError('Invalid install.kit.versionArgs');
-  if (!Number.isSafeInteger(kit.timeoutMs) || kit.timeoutMs <= 0) throw new TypeError('Invalid install.kit.timeoutMs');
-  if (typeof kit.require !== 'boolean') throw new TypeError('Invalid install.kit.require');
-  for (const key of ['hint', 'overlap']) {
-    if (typeof kit[key] !== 'string' || !kit[key].trim() || /[\r\n\0]/.test(kit[key])) throw new TypeError(`Invalid install.kit.${key}`);
-  }
-  for (const [name, settings] of Object.entries(value.clients)) value.clients[name] = { ...base.clients[name], ...settings };
-  for (const key of ['timeoutMs', 'maxDownloadBytes', 'maxExtractBytes']) {
-    if (!Number.isSafeInteger(value[key]) || value[key] <= 0) throw new TypeError(`Invalid install.${key}`);
-  }
-  if (typeof value.recordName !== 'string' || !value.recordName.includes('{client}') || /[\\/]/.test(value.recordName)) {
-    throw new TypeError('install.recordName must be a filename containing {client}');
-  }
+  if (user === null) user = {};
+  assertInstallSettings(user, { partial: true });
+  const value = merge(base, { ...user, ...overrides });
+  assertInstallSettings(value);
   return value;
 }
 
 export function installPaths(config, { env, platform, home }) {
   const parts = config.dataRoots[platform];
-  if (!parts) throw new TypeError(`Unsupported platform: ${platform}`);
+  if (!parts) throw new UsageError(`Unsupported platform: ${platform}`);
   const data = env[parts[0]] || join(home, ...parts.slice(1));
   return {
     destination: resolve(config.destination || join(data, config.directory)),

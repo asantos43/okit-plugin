@@ -9,6 +9,7 @@ import { tick } from '../src/daemon.js';
 import { loadConfig, TOOLS, TOOL_NAMES } from '../src/mcp/tools.js';
 import { readJson, writeJsonAtomic } from '../src/state.js';
 import { clientRequest, invokeClient, invokeCodex, invokeOpenCode, runClientSmoke, smokePreflight } from '../src/smoke/client.js';
+import { localizeReason } from '../src/install/present.js';
 import { smokeDemo } from '../src/smoke/demo/entry.js';
 import { clientEnv } from './helpers/env.js';
 import { collectStatusline } from '../src/quota/statusline-collector.js';
@@ -1046,15 +1047,19 @@ test('text allowance accepts null or positive whole numbers and refuses invalid 
     assert.equal(configOf({ smoke: { maxTokens } }).smoke.maxTokens, maxTokens);
   }
   for (const maxTokens of [0, -1, 1.5, '100', NaN, Infinity]) {
-    assert.throws(() => configOf({ smoke: { maxTokens } }), /positive whole number.*inteiro positivo/);
+    // One catalog, one language per line: the error says it in English and `localizeReason` says it in Portuguese.
+    assert.throws(() => configOf({ smoke: { maxTokens } }), (error) => error.reasonCode === 'smokeMaxTokens' && error.kind === 'usage'
+      && /^Use a positive whole number/.test(error.message) && !/ \/ /.test(error.message)
+      && /^Use um número inteiro positivo/.test(localizeReason(error.message, 'pt-BR')));
   }
 });
 
-test('smoke helper overrides are validated with a plain bilingual refusal', () => {
+test('smoke helper overrides are validated with a plain refusal, one language per line', () => {
   for (const smokeDrivers of [null, [], { unknown: {} }, { codex: null }, { codex: [] },
     { codex: { args: '-p' } }, { opencode: { requiredFlags: [1] } },
     { codex: { reportsCost: 'yes' } }, { codex: { unsupported: true } }]) {
-    assert.throws(() => configOf({ smokeDrivers }), /Smoke.*\/.*ajustes|Ajustes.*\/|Escolha um ajudante/);
+    assert.throws(() => configOf({ smokeDrivers }), (error) => error.kind === 'usage' && /^(Smoke|Choose)/.test(error.message) && !/ \/ /.test(error.message)
+      && /^(Os ajustes|Escolha um ajudante)/.test(localizeReason(error.message, 'pt-BR')));
   }
   assert.deepEqual(configOf({ smokeDrivers: { codex: { args: ['exec', '{briefing}'] } } })
     .smokeDrivers.codex.args, ['exec', '{briefing}']);

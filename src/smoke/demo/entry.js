@@ -76,6 +76,9 @@ export async function smokeDemo(args = {}, deps = {}) {
     confirmed: false, planHash, plan, reasons: reason ? [reason] : [], text: text.join('\n') };
 }
 
+// The refusals of the command are in the one language of the run (the program decided it), or the one --locale names.
+const inPortuguese = (deps, args) => (deps.locale ?? args.locale) === 'pt-BR';
+
 export async function smokeDemoCommand(flags, deps) {
   const args = {};
   let json = false;
@@ -85,11 +88,11 @@ export async function smokeDemoCommand(flags, deps) {
     else if (flag === '--json') json = true;
     else if (['--client', '--locale', '--confirm'].includes(flag) && flags[i + 1]?.startsWith('--') === false) {
       args[flag.slice(2)] = flags[++i];
-    } else { deps.err('Use smoke-demo --dry-run [--client <client>] [--locale en|pt-BR] [--json]; --confirm <preview>.'); return 2; }
+    } else { deps.err(inPortuguese(deps, args) ? 'Use smoke-demo --dry-run [--client <cliente>] [--locale en|pt-BR] [--json]; --confirm <prévia>.' : 'Use smoke-demo --dry-run [--client <client>] [--locale en|pt-BR] [--json]; --confirm <preview>.'); return 2; }
   }
   if ((args.locale && !['en', 'pt-BR'].includes(args.locale))
     || (args.client && !Object.hasOwn(configOf().install.clients, args.client))) {
-    deps.err('Choose a listed helper and language. / Escolha um ajudante e idioma da lista.'); return 2;
+    deps.err(inPortuguese(deps, args) ? 'Escolha um ajudante e idioma da lista.' : 'Choose a listed helper and language.'); return 2;
   }
   const result = await smokeDemo(args, deps);
   deps.out(json ? JSON.stringify(result) : result.text);

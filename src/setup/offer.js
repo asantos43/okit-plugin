@@ -117,14 +117,62 @@ async function runOffer({
   }
 }
 
+/**
+ * The same offer through the installer's presenter: one `Models` row at the
+ * end of the run, the explanation first and the question last.
+ */
+async function runOfferRow({
+  ui,
+  root,
+  command = DEFAULT_CONFIG.install.command,
+  tty = process.stdin.isTTY,
+  ask,
+  run,
+  env = process.env,
+  adapters,
+  snapshot,
+  write,
+} = {}) {
+  const row = (status, detail) => ui.row(ui.text('models'), status, detail);
+  const stored = await readJson(paths(root).config, {});
+  if (!isReadableConfig(stored)) {
+    row('skipped', formatUnreadable(ui.locale, command));
+    return { pending: true, offered: false, ran: false, failed: true };
+  }
+  if (!setupPending(stored)) return { pending: false, offered: false, ran: false };
+  // Without a terminal there is nobody to answer, so the row says how to do it later.
+  if (!tty || typeof ask !== 'function') {
+    row('info', ui.text('modelsPending', { command }));
+    return { pending: true, offered: true, ran: false };
+  }
+  try {
+    const accepted = await ui.confirm(ask, { explain: [ui.text('modelsExplain', { command })], question: ui.text('modelsAsk'), defaultYes: true });
+    if (!accepted) {
+      row('skipped', ui.text('modelsDeclined', { command }));
+      return { pending: true, offered: true, ran: false, declined: true };
+    }
+    const result = await runSetup({ root, config: stored, env, run, ask, adapters, snapshot, write, command, ui });
+    const models = [...new Set(result.changes.map((change) => change.model))];
+    if (result.cancelled || !models.length) row(result.cancelled ? 'skipped' : 'info', result.messages[0] ?? '');
+    else row('ok', ui.text('modelsSaved', { models: models.join(', ') }));
+    for (const message of result.messages.slice(result.cancelled || !models.length ? 1 : 0)) ui.note(message);
+    return { pending: true, offered: true, ran: true, code: result.code };
+  } catch (error) {
+    row('skipped', formatOffer('failed', ui.locale, { command, reason: error.message }));
+    return { pending: true, offered: true, ran: false, failed: true };
+  }
+}
+
 export async function offerSetup(input = {}) {
   const locale = input.locale ?? 'both';
   const command = input.command ?? DEFAULT_CONFIG.install.command;
   const out = input.out ?? (() => {});
   try {
-    return await runOffer(input);
+    return await (input.ui ? runOfferRow(input) : runOffer(input));
   } catch {
-    out(formatOffer('unreadable', locale, { command }));
+    const message = formatOffer('unreadable', input.ui?.locale ?? locale, { command });
+    if (input.ui) input.ui.row(input.ui.text('models'), 'skipped', message);
+    else out(message);
     return { pending: true, offered: false, ran: false, failed: true };
   }
 }

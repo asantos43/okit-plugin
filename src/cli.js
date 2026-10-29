@@ -11,7 +11,7 @@ import { join, resolve, basename } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 
 const collectorEntry = process.argv[2] === 'statusline-collector';
 const { AUTOSTART_KINDS, applyAutostart, autostartPlan, detectAutostart } = collectorEntry
@@ -37,12 +37,14 @@ const { adapterQuotaReader, clientsOf, LABELS, quotaOrigin, setupPendingLine, st
   ? {} : await import('./status.js');
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
-const { installerCommand } = collectorEntry ? {} : await import('./install/index.js');
+const { installerCommand, kitLine } = collectorEntry ? {} : await import('./install/index.js');
+const { createPresenter, localizeReason, redactingWriter, resolveLocale } = collectorEntry ? {} : await import('./install/present.js');
+const { exitCodeFor, kindOf } = collectorEntry ? {} : await import('./install/exit.js');
 const { installConfig, installPaths } = collectorEntry ? {} : await import('./install/config.js');
 const { detectKit } = collectorEntry ? {} : await import('./install/kit.js');
 const { activationWarning } = collectorEntry ? {} : await import('./install/link.js');
 const { readRecords } = collectorEntry ? {} : await import('./install/place.js');
-const { runSetup, setupReader, formatUnreadable, isReadableConfig, SetupSaveError } = collectorEntry
+const { runSetup, setupReader, formatUnreadable, isReadableConfig } = collectorEntry
   ? {} : await import('./setup/setup.js');
 
 async function confirmTake(io, out) {
@@ -135,12 +137,12 @@ const STOP_FILE = 'daemon.stop';
 const DAEMON_ACTIONS = ['start', 'stop', 'status', 'pause', 'resume', 'run-once'];
 const AUTOSTART_ACTIONS = ['install', 'uninstall', 'show'];
 
-const USAGE = [
+const USAGE_LINES = [
   'usage: {command} daemon start|stop|status|pause|resume|run-once',
   '       {command} install [--from <dir>] [--client <c>|all] [--prerelease] [--repo <o/r>] [--dest <dir>] [--no-link] [--autostart] [--dry-run] [--yes] [--statusline|--no-statusline]',
   '       {command} update [--client <c>] [--check] [--rollback] [--dry-run] [--statusline|--no-statusline]',
   '       {command} uninstall [--client <c>] [--purge] [--yes] [--dry-run]',
-  '       {command} setup [--defaults] [--again]',
+  '       {command} setup [--defaults] [--again] [--locale en|pt-BR]',
   '       {command} daemon status [--table [--locale en|pt-BR]]',
   '       {command} autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       {command} status [--all] [--client <name>] [--locale en|pt-BR]',
@@ -160,17 +162,67 @@ const USAGE = [
   '       {command} todo check [--project <path>]',
   '       {command} inbox take <id> [--producer-takeover] [--client <c>] [--session <s>] [--worktree <path>] [--yes]',
   '       {command} inbox release <id> [--client <c>] [--session <s>]',
-  '       {command} kit [--require]',
+  '       {command} kit [--require] [--locale en|pt-BR]',
   '       {command} hook post-compact',
   '       {command} smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]',
   '       {command} smoke|client-smoke --client claude-code|codex|opencode [--headless|--demo|--dry-run|--rehearsal]',
   '       {command} smoke-demo [--dry-run] [--client <client>] [--locale en|pt-BR] [--confirm <preview>] [--json]',
   '         [--only <C ids>] [--keep] [--allow-unknown-quota]',
   '         [--max-usd [n]] [--max-turns [n]] [--max-minutes [n]] [--quota-floor [pct]] [--timeout [ms]]',
-  `OKWORK_HOME names the state root; --kind defaults to ${AUTOSTART_KINDS?.join(', ') ?? ''} by platform.`,
-  'Choose the language once / Escolha o idioma uma vez: {command} config set language pt-BR.',
-].map((line) => line.includes('--locale en|pt-BR')
-  ? `${line} — default / padrão: language (${DEFAULT_CONFIG.language})` : line).join('\n');
+].map((line) => (line.includes('--locale en|pt-BR') ? `${line} {default}` : line));
+
+/**
+ * The commands of the table above, read from it and not written again: one entry per group (`smoke|client-smoke` is
+ * two groups), with the actions it names and those that take a value (`config get <key>`). A new line in the table is
+ * a new entry here, which is what the generated test of the installer's output runs every command through.
+ */
+export const COMMANDS = (() => {
+  const groups = new Map();
+  for (const line of USAGE_LINES) {
+    const match = /^(?:usage:|\s+)\s*\{command\} (\S+)(.*)$/.exec(line);
+    if (!match) continue; // a continuation of the line above
+    let rest = match[2].replace('{default}', '');
+    const valued = [...rest.matchAll(/(?<![-\w])([a-z][a-z-]*) <[^>]*>/g)].map((found) => found[1]);
+    for (let before = ''; before !== rest;) { before = rest; rest = rest.replace(/\[[^[\]]*\]|<[^>]*>/g, ''); }
+    const words = rest.trim().split(/[\s|]+/).filter(Boolean);
+    const actions = words.slice(0, words.findIndex((word) => word.startsWith('-')) < 0 ? undefined : words.findIndex((word) => word.startsWith('-')));
+    for (const group of match[1].split('|')) {
+      const entry = groups.get(group) ?? { group, actions: new Set(), valued: new Set() };
+      for (const action of actions) entry.actions.add(action);
+      for (const action of valued) entry.valued.add(action);
+      groups.set(group, entry);
+    }
+  }
+  return [...groups.values()].map((entry) => ({ group: entry.group, actions: [...entry.actions], valued: [...entry.valued] }));
+})();
+
+// The text around the command lines, once per language: the help of any command is built from here, after the
+// language of the run is resolved, so it never carries both.
+const USAGE_TEXT = {
+  en: {
+    head: 'usage:',
+    default: (language) => `— default: language (${language})`,
+    state: (kinds) => `OKWORK_HOME names the state root; --kind defaults to ${kinds} by platform.`,
+    language: 'Choose the language once: {command} config set language pt-BR.',
+  },
+  'pt-BR': {
+    head: 'uso:',
+    default: (language) => `— padrão: language (${language})`,
+    state: (kinds) => `OKWORK_HOME indica a pasta de estado; --kind assume ${kinds} conforme a plataforma.`,
+    language: 'Escolha o idioma uma vez: {command} config set language pt-BR.',
+  },
+};
+
+/** The usage text of the program in one language (`locale` is the one `resolveLocale` chose). */
+function usageOf(locale, command) {
+  const words = USAGE_TEXT[locale] ?? USAGE_TEXT.en;
+  const lines = USAGE_LINES.map((line) => line.replace('{default}', words.default(DEFAULT_CONFIG.language))
+    .replace(/^usage:/, words.head)
+    // The command lines are aligned under the first one: the heading is shorter in Portuguese.
+    .replace(/^ {7}(?=\S)/, ' '.repeat(words.head.length + 1)));
+  return [...lines, words.state(AUTOSTART_KINDS?.join(', ') ?? ''), words.language].join('\n').replaceAll('{command}', command);
+}
+
 
 const execFileAsync = promisify(execFile);
 
@@ -195,7 +247,7 @@ function readKind(args) {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === '--kind') {
-      kind = args[index + 1] ?? null;
+      kind = args[index + 1] ?? '';
       index += 1;
     } else if (arg.startsWith('--kind=')) kind = arg.slice('--kind='.length);
     else rest.push(arg);
@@ -273,31 +325,69 @@ async function readConfig(root) {
   return configOf(stored);
 }
 
-async function setupCommand(ctx, flags, io) {
-  if (flags.some((flag) => flag === '--help' || flag === '-h')) {
-    ctx.out(USAGE.replaceAll('{command}', ctx.command));
-    return 0;
-  }
-  let defaults = false;
-  let again = false;
-  for (const flag of flags) {
-    if (flag === '--defaults') defaults = true;
-    else if (flag === '--again') again = true;
-    else return ctx.unknown();
-  }
-  const locale = io.locale ?? 'both';
-  // A configuration that cannot be read stops the command here: the same
-  // simple sentence everywhere, the file untouched and nothing written.
+/**
+ * The refusal of a command that is not the installer's own (`setup`, `kit`) in the one language of the run, as the
+ * installer says its refusals; the exit code is the usage one.
+ */
+function refuse(ctx, locale, reason) {
+  const ui = createPresenter({ locale, write: ctx.out });
+  ui.failure({ reason, next: ui.text('nextCheck') }).forEach((item) => ctx.err(item));
+  return exitCodeFor('usage');
+}
+
+/**
+ * The entry of `setup` and `kit`, in the installer's order: read the configuration, decide the language with the
+ * installer's one function (a valid --locale, then OKIT_LANGUAGE, then the saved language, then English), and only
+ * then read the flags. `parse` reads them (`{ found }`, or `{ unknown }` with the reason it refuses a flag);
+ * `then` receives what was read. A configuration that cannot be read is told in the language the flags and the
+ * environment give, because the saved one cannot be known.
+ */
+async function enter(ctx, flags, parse, then) {
+  const early = resolveLocale({ args: flags, env: ctx.env }).locale;
   let stored;
   try {
     stored = await readJson(paths(ctx.root).config, {});
   } catch {
-    ctx.err(formatUnreadable(locale, ctx.command));
-    return 1;
+    ctx.err(formatUnreadable(early, ctx.command));
+    return exitCodeFor('operational');
   }
+  const chosen = resolveLocale({ args: flags, env: ctx.env, saved: stored?.language });
+  if (chosen.invalid) return refuse(ctx, chosen.locale, 'Choose a language: en, pt-BR.');
+  const parsed = parse(flags);
+  if (parsed.unknown !== undefined) return refuse(ctx, chosen.locale, parsed.unknown);
+  // The installer's settings are read once, through the one schema, before any command works on them: an invalid
+  // one is a refusal of usage (exit 2) that names the key and the rule, never a crash.
+  const install = installConfig(stored?.install);
+  return then({ stored, install, locale: chosen.locale, ...parsed });
+}
+
+/** Flags of `setup` and `kit`: the booleans they know, and `--locale <value>` (its value is read by `resolveLocale`). */
+function flagsParser(known) {
+  return (flags) => {
+    const found = {};
+    for (let index = 0; index < flags.length; index += 1) {
+      if (flags[index] === '--locale') {
+        if (flags[index + 1] === undefined || flags[index + 1].startsWith('--')) return { unknown: 'Missing value for --locale' };
+        index += 1;
+      } else if (known.includes(flags[index])) found[flags[index]] = true;
+      else return { unknown: `Unknown flag: ${flags[index]}` };
+    }
+    return { found };
+  };
+}
+
+async function setupCommand(ctx, flags, io) {
+  return enter(ctx, flags, flagsParser(['--defaults', '--again']), (entry) => runSetupCommand(ctx, entry, io));
+}
+
+async function runSetupCommand(ctx, { stored, locale, found }, io) {
+  const defaults = Boolean(found['--defaults']);
+  const again = Boolean(found['--again']);
+  // A configuration that cannot be read stops the command here: the same
+  // simple sentence everywhere, the file untouched and nothing written.
   if (!isReadableConfig(stored)) {
     ctx.err(formatUnreadable(locale, ctx.command));
-    return 1;
+    return exitCodeFor('operational');
   }
   const reader = io.ask
     ? { ask: io.ask, close: () => {} }
@@ -411,7 +501,7 @@ async function environmentCommand(ctx, args, io) {
   if (!Object.hasOwn(LABELS, locale) || parsed.rest.includes('--all')) return ctx.unknown();
   if (selection.client !== undefined && !CLIENTS.includes(selection.client)) {
     ctx.err(formatEnvironmentReport({ unknownClient: true }, locale));
-    return 1;
+    return exitCodeFor('operational');
   }
   if (selection.invalid || args.at(-1) === '--locale') return ctx.unknown();
   const deps = await tableDeps(ctx, locale);
@@ -433,33 +523,49 @@ async function actorsCommand(ctx, args) {
   return 0;
 }
 
-async function statusCommand(ctx, args) {
-  const { locale, rest } = await readLocale(args, ctx);
-  const selection = readStatusSelection(rest);
-  if (selection.invalid || (locale !== null && !Object.hasOwn(LABELS, locale))) return ctx.unknown();
-
-  const table = await statusTable(ctx.root, { ...await tableDeps(ctx, locale), ...selection });
-  for (const line of table.markdown.split('\n')) ctx.out(line);
-  ctx.out(table.capacityLine);
-  const stored = await readConfig(ctx.root);
-  const config = installConfig(stored.install);
-  // One line, only while the setup is pending: what is missing and the command
-  // that does it. It is gone once the setup was done.
-  const pending = setupPendingLine(stored, { locale, command: config.command });
-  if (pending) ctx.out(pending);
-  const home = ctx.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir();
-  const deps = { ...ctx, config, home, ...installPaths(config, { ...ctx, home }) };
-  const records = Object.values(await readRecords(deps.destination, ctx.fs, config));
-  deps.bin = records.find((record) => record.linkDirectory)?.linkDirectory ?? deps.bin;
-  const warning = await activationWarning(deps);
-  if (warning) ctx.out(warning);
-  ctx.out((await kitResult(ctx)).message);
-  return 0;
+/** Flags of `status`: `--all`, `--client <name>` or `--client=<name>`, and `--locale <value>` (read by `resolveLocale`). */
+function statusFlags(flags) {
+  const found = { all: false };
+  for (let index = 0; index < flags.length; index += 1) {
+    const flag = flags[index];
+    if (flag === '--locale') {
+      if (flags[index + 1] === undefined || flags[index + 1].startsWith('--')) return { unknown: 'Missing value for --locale' };
+      index += 1;
+    } else if (flag === '--all') found.all = true;
+    else if (flag === '--client' || flag.startsWith('--client=')) {
+      found.client = flag === '--client' ? flags[++index] ?? '' : flag.slice('--client='.length);
+      if (!CLIENTS.includes(found.client)) return { unknown: `Unknown flag: ${flag}` };
+    } else return { unknown: `Unknown flag: ${flag}` };
+  }
+  return { found };
 }
 
-async function kitResult(ctx) {
-  const config = installConfig((await readConfig(ctx.root)).install);
-  return detectKit({ ...ctx, config });
+/**
+ * `okit-plugin status`, in the installer's order (read the configuration, decide the language, then read the flags),
+ * so every line it prints, the refusals included, is in the one language of the run.
+ */
+async function statusCommand(ctx, rawArgs) {
+  const args = separateLocale(rawArgs);
+  return enter(ctx, args, statusFlags, async ({ locale, found, install: config }) => {
+    const selection = { all: found.all, client: found.client };
+    const table = await statusTable(ctx.root, { ...await tableDeps(ctx, locale), ...selection });
+    for (const line of table.markdown.split('\n')) ctx.out(line);
+    ctx.out(table.capacityLine);
+    const stored = await readConfig(ctx.root);
+    // One line, only while the setup is pending: what is missing and the command
+    // that does it. It is gone once the setup was done.
+    const pending = setupPendingLine(stored, { locale, command: config.command });
+    if (pending) ctx.out(pending);
+    const home = ctx.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir();
+    const deps = { ...ctx, config, home, locale, ...installPaths(config, { ...ctx, home }) };
+    const records = Object.values(await readRecords(deps.destination, ctx.fs, config));
+    deps.bin = records.find((record) => record.linkDirectory)?.linkDirectory ?? deps.bin;
+    const warning = await activationWarning(deps);
+    if (warning) ctx.out(warning);
+    // The probe's own `message` is an English sentence for the callers that assert it; the screen gets the localised line.
+    ctx.out(kitLine(await detectKit({ ...ctx, config }), config.kit, locale));
+    return exitCodeFor('ok');
+  });
 }
 
 // The daemon half runs with the process spawner, so a headless pass starts the
@@ -604,6 +710,18 @@ function installerLifecycle(ctx, io) {
   };
 }
 
+/** `--locale=pt-BR` as `--locale pt-BR`: resolveLocale reads the separate form only. */
+const separateLocale = (args) => args.flatMap((arg) => (arg.startsWith('--locale=') ? ['--locale', arg.slice('--locale='.length)] : [arg]));
+
+const HELP_FLAGS = ['--help', '-h'];
+const HELPED_GROUPS = ['setup', 'install', 'update', 'uninstall', 'kit', 'status'];
+
+/** Whether the line asks for the help text: a help flag where a group or an action would be, or anywhere after an installer's group. */
+function wantsHelp([group, action, ...rest]) {
+  if (HELP_FLAGS.includes(group) || HELP_FLAGS.includes(action)) return true;
+  return HELPED_GROUPS.includes(group) && rest.some((arg) => HELP_FLAGS.includes(arg));
+}
+
 /**
  * Runs one `okit` invocation and returns its exit code: 0 for a command that
  * did its work, 2 for an unknown command, flag or argument, 1 when the work
@@ -622,8 +740,15 @@ export async function main(argv = [], io = {}) {
     const { statuslineCommand } = await import('./quota/statusline-collector.js');
     return statuslineCommand(argv.slice(1), io);
   }
-  const out = io.stdout ?? ((text) => process.stdout.write(`${text}\n`));
-  const err = io.stderr ?? ((text) => process.stderr.write(`${text}\n`));
+  // Every line of every command prints through one door that redacts (credentials, query and fragment of an
+  // address), whoever writes it and whatever the command is, the usage text included. The commands that download
+  // also hide the temporary folder; the others hide only a scratch folder the caller names, never the system one,
+  // because the configuration folder they report is the user's own.
+  const helped = wantsHelp(argv);
+  const hidden = ['install', 'update', 'uninstall'].includes(argv[0]) ? [io.tmpdir ?? tmpdir()] : (io.tmpdir ? [io.tmpdir] : []);
+  const door = (write) => redactingWriter(write, hidden);
+  const out = door(io.stdout ?? ((text) => process.stdout.write(`${text}\n`)));
+  const err = door(io.stderr ?? ((text) => process.stderr.write(`${text}\n`)));
   const now = io.now ?? Date.now;
   const ctx = {
     detectClients: io.detectClients, snapshot: io.snapshot,
@@ -647,25 +772,33 @@ export async function main(argv = [], io = {}) {
     readQuota: io.readQuota,
     orders: io.orders,
     quotaCache: io.quotaCache,
+    // The language of the run: the usage and the refusals of any command are written in it, never in both.
+    locale: 'en',
     unknown() {
-      err(USAGE.replaceAll('{command}', ctx.command));
-      return 2;
+      err(usageOf(ctx.locale, ctx.command));
+      return exitCodeFor('usage');
     },
   };
 
   const [group, action, ...args] = argv;
   try {
-    ctx.command = io.command ?? (await readConfig(ctx.root).catch(() => DEFAULT_CONFIG)).install.command;
-    if (group === '--help' || group === '-h') {
-      out(USAGE.replaceAll('{command}', ctx.command));
-      return 0;
+    const stored = await readJson(paths(ctx.root).config, {}).catch(() => null);
+    // The name of the command in the messages: the configured one when the settings are valid (a refusal of the
+    // settings is raised by the command that uses them, and says so under the default name).
+    ctx.command = io.command ?? (() => { try { return installConfig(stored?.install).command; } catch { return DEFAULT_CONFIG.install.command; } })();
+    const chosen = resolveLocale({ args: separateLocale(argv), env: ctx.env, saved: ctx.snapshot?.config?.language ?? stored?.language });
+    ctx.locale = chosen.locale;
+    // The help of any command is built here, after the language is decided and through the door.
+    if (helped) {
+      if (resolveLocale({ args: separateLocale(argv), env: ctx.env }).invalid) return refuse(ctx, chosen.locale, 'Choose a language: en, pt-BR.');
+      out(usageOf(ctx.locale, ctx.command));
+      return exitCodeFor('ok');
     }
     if (group === 'setup') {
       const flags = action === undefined ? args : [action, ...args];
       return await setupCommand(ctx, flags, io);
     }
     if (group === 'config') {
-      if (action === '--help') { out(USAGE.replaceAll('{command}', ctx.command)); return 0; }
       return await configCommand(ctx, action, args, { write: ctx.writeConfig });
     }
     if (group === 'trajectory') {
@@ -681,12 +814,16 @@ export async function main(argv = [], io = {}) {
     if (group === 'env' && action === 'report') return await environmentCommand(ctx, args, io);
     if (group === 'quota') return await quotaCommand(ctx, action, args);
     if (group === 'kit') {
-      const flags = argv.slice(1);
-      if (flags.some((flag) => flag !== '--require')) return ctx.unknown();
-      const config = installConfig((await readConfig(ctx.root)).install);
-      const result = await detectKit({ ...ctx, config });
-      out(result.message);
-      return (flags.includes('--require') || config.kit.require) && result.state !== 'installed' ? 1 : 0;
+      return await enter(ctx, argv.slice(1), flagsParser(['--require']), async ({ stored, locale, found, install: config }) => {
+        // `kit` reads the whole configuration (`configOf` is the one reader of every other key): an invalid one is a refusal.
+        try { configOf(stored); } catch (error) {
+          if (kindOf(error) === 'usage') return refuse(ctx, locale, error.message);
+          throw error;
+        }
+        const result = await detectKit({ ...ctx, config });
+        out(kitLine(result, config.kit, locale));
+        return exitCodeFor((found['--require'] || config.kit.require) && result.state !== 'installed' ? 'operational' : 'ok');
+      });
     }
     if (['install', 'update', 'uninstall'].includes(group)) {
       const flags = action === undefined ? args : [action, ...args];
@@ -722,15 +859,20 @@ export async function main(argv = [], io = {}) {
     if (group === 'client-smoke') {
       const { runClientSmoke } = await import('./smoke/client.js');
       const flags = action === undefined ? args : [action, ...args];
-      if (flags.length === 1 && ['--help', '-h'].includes(flags[0])) { out(USAGE.replaceAll('{command}', ctx.command)); return 0; }
       return (await runClientSmoke(flags, { ...ctx, ...io, run: io.run, out, err })).code;
     }
     return ctx.unknown();
   } catch (error) {
     // A configuration that could not be saved says its own simple sentence,
     // without the technical text of the system.
-    err(error instanceof SetupSaveError ? error.message : `${ctx.command}: ${error.message}`);
-    return 1;
+    if (error.plain) {
+      err(error.message);
+      return exitCodeFor(kindOf(error));
+    }
+    // The text of a refusal is in the language of the run (one catalog, `localizeReason`); the class of the
+    // error, and only that, decides the exit code: usage and language are 2, anything else is operational.
+    err(`${ctx.command ?? DEFAULT_CONFIG.install.command}: ${localizeReason(error.message, ctx.locale)}`);
+    return exitCodeFor(kindOf(error));
   }
 }
 

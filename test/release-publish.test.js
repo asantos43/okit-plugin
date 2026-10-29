@@ -66,6 +66,9 @@ test('bootstrap scripts and bilingual guides are attached and checksummed outsid
   await writeFile(join(options.root, 'package.json'), JSON.stringify({ ...pkg, engines: { node: '>=20' } }));
   await mkdir(join(options.root, 'src/install'), { recursive: true });
   await writeFile(join(options.root, 'src/install/bootstrap.js'), await readFile('src/install/bootstrap.js'));
+  await writeFile(join(options.root, 'src/install/present.js'), await readFile('src/install/present.js'));
+  await writeFile(join(options.root, 'src/install/rules.js'), await readFile('src/install/rules.js'));
+  await writeFile(join(options.root, 'src/install/exit.js'), await readFile('src/install/exit.js'));
   for (const file of ['install.sh', 'install.ps1', 'INSTALL.md', 'INSTALL.pt-BR.md']) {
     await writeFile(join(options.root, file), await readFile(file));
   }
