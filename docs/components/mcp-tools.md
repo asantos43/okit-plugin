@@ -9,7 +9,7 @@ Every `locale` field is optional and lists default `en` from the built-in `langu
 <a id="tools"></a>
 ## Tool contract
 
-The server exposes 22 tools. Inputs are JSON objects; ? marks an optional field. Replies are JSON text containing a result or refusal; invalid arguments raise an error. Writing state does not itself launch a model or spend allowance.
+The server exposes 23 tools. Inputs are JSON objects; ? marks an optional field. Replies are JSON text containing a result or refusal; invalid arguments raise an error. Writing state does not itself launch a model or spend allowance.
 
 | Name | Purpose and return | Inputs | Effect |
 | :- | :- | :- | :- |
@@ -28,6 +28,7 @@ The server exposes 22 tools. Inputs are JSON objects; ? marks an optional field.
 | `inbox_add` | Store work; confirmed link or suggested task awaiting confirmation | title, body?, kind?, accept?, effort?, client?, appliesTo?, todoLink? | write |
 | `todo_sync` | Synchronize tasks; changes/diffs and suggestions; link needs id and confirm | project?, dryRun?, id?, link?, confirm? | write; dryRun previews |
 | `todo_status` | Inspect links; demandsWithoutItem and itemsWithoutDemand | project? | read |
+| `quota_notice` | Turn the kit's quota-back event into a plain sentence; available, released and text; without the event, says the notice is not available | locale?, event? | read |
 | `inbox_list` | Inspect work; items with project reference and owner | status?, client?, appliesTo?, limit?, locale? | read |
 | `inbox_claim` | Claim work atomically; ownership result/refusal | id, client, session?, worktree? | write |
 | `inbox_release` | Release owned/stale hold; result/refusal | id, client, session? | write |

@@ -17,7 +17,7 @@ Mantém as tarefas dos projetos habilitados em dia; pergunta antes de usar uma s
 
 | Skill | Uso e instrução | Recursos principais |
 | :- | :- | :- |
-| `okit-director` | Orquestra trabalho solicitado; carregada ao dirigir ou delegar. Lê ordens e fila, classifica, escolhe atores, assume trabalho, reserva/libera vagas, orienta Executor e Critic, verifica provas e registra transições. | `order_list`, `inbox_list`, `inbox_claim`, `inbox_release`, `limits_status`, `status`, `actors_list`, `env_report`, `classify`, `profile_pick`, `acquire_slot`, `release_slot`, `inbox_add`, `inbox_set_status`, `order_add` |
+| `okit-director` | Orquestra trabalho solicitado; carregada ao dirigir ou delegar. Lê ordens e fila, classifica, escolhe atores, assume trabalho, reserva/libera vagas, orienta Executor e Critic, verifica provas e registra transições. Quando a cota bloqueia uma assinatura, chama `quota_notice` sem evento antes de esperar. Se a resposta disser que o aviso está indisponível, explica que o kit ainda não avisa quando a cota volta; relê a cota com `okit-plugin quota show` ou `okit-plugin daemon status`, sem esperar um evento que não virá. Caso contrário, espera em segundo plano, sem consultar a cada instante, e repassa o evento com `quota_notice`. | `order_list`, `inbox_list`, `inbox_claim`, `inbox_release`, `limits_status`, `status`, `quota_notice`, `actors_list`, `env_report`, `classify`, `profile_pick`, `acquire_slot`, `release_slot`, `inbox_add`, `inbox_set_status`, `order_add` |
 
 <a id="okit-executor"></a>
 ## okit-executor

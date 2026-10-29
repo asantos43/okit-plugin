@@ -9,7 +9,7 @@ As ferramentas MCP expõem operações validadas do núcleo ao assistente do cli
 <a id="tools"></a>
 ## Contrato das ferramentas
 
-O servidor expõe 22 ferramentas. Entradas são objetos JSON; ? indica campo opcional. Respostas são texto JSON com resultado ou recusa; argumentos inválidos geram erro. Escrita de estado não lança modelo nem gasta cota por si só.
+O servidor expõe 23 ferramentas. Entradas são objetos JSON; ? indica campo opcional. Respostas são texto JSON com resultado ou recusa; argumentos inválidos geram erro. Escrita de estado não lança modelo nem gasta cota por si só.
 
 | Nome | Propósito e retorno | Entradas | Efeito |
 | :- | :- | :- | :- |
@@ -20,6 +20,7 @@ O servidor expõe 22 ferramentas. Entradas são objetos JSON; ? indica campo opc
 | `release_slot` | Libera vaga; resultado da liberação | runId | escrita |
 | `limits_status` | Consulta limites; limites por cliente e execuções ativas | {} | leitura |
 | `status` | Consulta cota; linhas, markdown, capacityLine e showBefore opcional | locale?, all?, client?, size?, slices?, executors? | leitura |
+| `quota_notice` | Transforma o evento de cota liberada do kit em frase simples; available, released e text; sem o evento, diz que o aviso não está disponível | locale?, event? | leitura |
 | `actors_list` | Consulta atores; modelos, esforço, disponibilidade e soluções | locale?, all?, client? | leitura |
 | `env_report` | Consulta ambiente; observações e texto localizado | client?, locale? | leitura |
 | `smoke_demo` | Prévia/confirmação de exemplo; plano, eventos, totais medidos e código de saída | dryRun?, client?, locale?, confirm? | prévia lê; confirm válido executa o cliente real e gasta cota nos tetos mostrados; cliente sem dinheiro exige smoke.maxTokens |

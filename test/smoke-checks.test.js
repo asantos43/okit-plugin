@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { FEATURE_CHECKS } from '../src/smoke/checks-features.js';
 import { INSTALL_CHECKS } from '../src/smoke/checks-install.js';
 import { UNINSTALL_CHECKS } from '../src/smoke/checks-uninstall.js';
+import { TOOLS } from '../src/mcp/tools.js';
 
 // The checkout the run is about, the one the checks read the packaged files from.
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -168,6 +169,8 @@ async function runChecks(checks, deps) {
 // | an id repeated in the three tables          | -                               | 32 ids, one each             |
 // | a timeout that differs from the table       | -                               | refused                      |
 // | a scratch home left behind after a test     | -                               | removed with the test        |
+// | quota notice: both flags true, plain text  | E14 passes                      | -                           |
+// | quota notice: either flag false/wrong text | -                               | E14 fails with the reason   |
 
 test('the three tables carry the 32 ids of docs/maintainers/SMOKE.md, once each', () => {
   assert.equal(ALL.length, 32, 'the tables hold 32 checks');
@@ -210,6 +213,26 @@ test('the injected spawn and command runner were called without starting a real 
   assert.ok(deps.calls.some((call) => call.event === 'kill'), 'the injected child was the one killed');
   assert.ok(deps.calls.some((call) => call.event === 'run' && call.command.args.includes('--version')),
     'MCP environment reporting must use the injected command runner');
+});
+
+test('E14 accepts a released notice and refuses incorrect quota notice replies', async (t) => {
+  const good = { available: true, released: true, text: 'Boa notícia: a cota da sua assinatura do Codex voltou.' };
+  const cases = [
+    ['released notice', good, 'pass', ''],
+    ['unavailable', { ...good, available: false }, 'fail', 'must release the notice'],
+    ['not released', { ...good, released: false }, 'fail', 'must release the notice'],
+    ['wrong words', { ...good, text: 'quota.released' }, 'fail', 'must use plain words'],
+  ];
+  for (const [name, answer, status, reason] of cases) {
+    await t.test(name, async (inner) => {
+      const tool = TOOLS.find((entry) => entry.name === 'quota_notice');
+      inner.mock.method(tool, 'handler', async () => JSON.stringify(answer));
+      const record = await runOne(FEATURE_CHECKS.find((entry) => entry.id === 'E14'), await depsOf(inner));
+      assert.equal(record.status, status, `${name}: ${record.error}`);
+      assert.ok(record.error.includes(reason), record.error);
+      assert.equal(tool.handler.mock.callCount(), 1, 'E14 must call the quota notice tool');
+    });
+  }
 });
 
 test('a check whose module call throws is reported as a failure', async (t) => {

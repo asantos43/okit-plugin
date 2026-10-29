@@ -24,6 +24,7 @@ const TOOLS = new Set([
   'acquire_slot',
   'release_slot',
   'limits_status',
+  'quota_notice',
   'actors_list',
   'env_report',
   'smoke_demo',
