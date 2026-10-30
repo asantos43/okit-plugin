@@ -185,8 +185,8 @@ async function loginHasBlock(file, deps) {
  * install). A shell that reads `.profile` at login like `sh` does (dash, ash, ksh, mksh, pdksh, busybox) is the shell of the
  * person, and the `sh` entry is it; a shell outside that list (csh, nu, xonsh) reads no `.profile`, so it is not launched.
  * Any line the launch prints may be the resolution: a greeting printed before it, or a message printed after it (a trap on
- * EXIT), is not the answer. A line that names the command is the resolution; a line that names another program (of the link
- * folder or not) is not.
+ * EXIT), does not hide it. Only a line that names the command is the resolution; a line that names another program (of the
+ * link folder or not) is not, and when no printed line names the command, the launch found nothing at all.
  * Returns `undefined` when there is nothing to prove, `true` when the command is found in the link folder, else the failed
  * check.
  */
@@ -210,17 +210,19 @@ async function loginCheck(record, shell, executable, deps) {
   const printed = outcome.state === 'ok' ? printedLines(outcome.stdout) : [];
   const answers = printed.filter((line) => namesCommand(line, deps));
   if (answers.some((line) => inBin(line, deps))) return true;
-  const last = printed.at(-1) ?? '';
-  // The row names the last line that names the command; when there is none, the last line printed, unless that one is a
-  // program of the link folder (then the launch resolved nothing at all).
-  const found = answers.at(-1) ?? (inBin(last, deps) ? '' : last);
+  // The row names the last line that names the command (a program of the same name elsewhere is what it found); when no
+  // printed line names the command, the launch found nothing (a greeting or any other line it printed is not the answer).
+  const found = answers.at(-1) ?? '';
   const why = outcome.state === 'failed' ? outcome.why
     : found ? ui.text('selfcheckLoginOther', { found, bin: deps.bin }) : ui.text('selfcheckNothing');
   const { file, line } = await loginProfile(shell, deps);
-  const tail = String(outcome.output ?? '').trim().split('\n').slice(-3).join('\n').slice(-400);
-  // A file that reads at login and holds the block stops before it: the line goes before whatever stops it (a `return` or
-  // a failure; an `exit` ends the login shell itself, so the fix asks for it to go). A file without the block needs the line
-  // itself: the one the installer writes, or the installer's own.
+  // The raw output of the launch (what it printed and what it wrote on the error stream) stays in the check.
+  const raw = [outcome.stdout, outcome.output].filter(Boolean).join('\n');
+  const tail = String(raw).trim().split('\n').slice(-3).join('\n').slice(-400);
+  // A file that reads at login and holds the block stops before it: the line goes before whatever stops it (a `return`), the
+  // error of a command that fails (for example under `set -e`) is to be fixed and any `exit` of that file is to go (an `exit`
+  // ends the login shell itself). A file without the block needs the line itself: the one the installer writes, or the
+  // installer's own.
   const fix = await loginHasBlock(file, deps) ? ui.text('selfcheckFixLogin', { file, line, again: again(record, deps) })
     : ui.text('selfcheckFixLoginMissing', { file, shell: shell.name, line, again: again(record, deps) });
   return badCheck('command', ui.text('selfcheckLoginFail', { shell: shell.name, command: config.command, why }),

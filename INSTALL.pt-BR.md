@@ -126,7 +126,8 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    `~/.bash_profile`, `~/.bash_login`, `~/.profile` que existir; para o zsh, o `$ZDOTDIR/.zprofile` quando o `ZDOTDIR` está
    definido, senão o `~/.zprofile`; para o fish, o `$XDG_CONFIG_HOME/fish/config.fish` quando o `XDG_CONFIG_HOME` está
    definido, senão o `~/.config/fish/config.fish`) e a linha a pôr antes de qualquer coisa que pare esse arquivo com
-   `return` ou falhe (um `exit` encerra o próprio shell de login, então a correção pede que ele saia); quando esse
+   `return`, o erro de qualquer comando que falhe (por exemplo sob `set -e`) a ser corrigido e qualquer `exit` desse
+   arquivo a sair (um `exit` encerra o próprio shell de login); quando esse
    arquivo não guarda nenhum bloco de PATH, a correção pede a linha (ou pede para rodar o instalador de novo sem
    `--no-path`). Um limite: quando o seu `~/.zshenv` define ou sobrescreve o `ZDOTDIR`, a correção diz o arquivo do
    ambiente herdado pela verificação, que pode não ser o arquivo que o zsh realmente lê; a verificação em si está certa.
@@ -139,7 +140,8 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    nosso comando (a primeira linha nas partidas simples; na partida de login, qualquer linha que o shell imprimiu pode ser
    a resolução, então uma saudação do seu perfil impressa antes da resposta, ou uma mensagem impressa depois dela, não a
    esconde, desde que a linha nomeie `okit-plugin`: outro programa da pasta do link impresso pelo seu perfil não é a
-   resolução). Se outro programa com o mesmo nome vier antes, a linha falha e mostra o caminho
+   resolução, e quando nenhuma linha impressa nomeia `okit-plugin` a linha diz que nada foi encontrado). Se outro programa
+   com o mesmo nome vier antes, a linha falha e mostra o caminho
    encontrado, com uma linha de Correção (remova ou renomeie esse arquivo, ou ponha a pasta do link antes dele no PATH).
 3. **Barra de status e hook de sessão**: os comandos exatos que o instalador gravou nos ajustes do cliente são
    lidos de volta e executados no shell que o cliente usa (a barra de status recebe uma leitura de exemplo);

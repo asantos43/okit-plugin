@@ -1170,14 +1170,14 @@ test('R10: real run, installed with --no-link, a file at <bin>/<command> is not 
 const LOGIN_TEXTS = {
   en: {
     row: (shell, why) => `Command (${shell})  failed  a new ${shell} terminal will not find okit-plugin (${why})`,
-    fix: (file) => `Fix: In ${file}, put this line before anything that stops the file with \`return\` or fails, and remove any \`exit\` from that file (a login file must not exit), then run: okit-plugin install --client claude-code (the line: export PATH='<bin>'\${PATH:+":$PATH"})`,
-    missing: (file, shell, line = `export PATH='<bin>'\${PATH:+":$PATH"}`) => `Fix: Put this line in ${file}, the file ${shell} reads at login, before anything that stops the file with \`return\` or fails, and remove any \`exit\` from that file (a login file must not exit), then run: okit-plugin install --client claude-code (the line: ${line}; or run the installer again without --no-path)`,
+    fix: (file) => `Fix: In ${file}, put this line before anything that stops the file with \`return\`, fix the error of any command that fails (for example under \`set -e\`), and remove any \`exit\` from that file (a login file must not exit), then run: okit-plugin install --client claude-code (the line: export PATH='<bin>'\${PATH:+":$PATH"})`,
+    missing: (file, shell, line = `export PATH='<bin>'\${PATH:+":$PATH"}`) => `Fix: Put this line in ${file}, the file ${shell} reads at login, before anything that stops the file with \`return\`, fix the error of any command that fails (for example under \`set -e\`), and remove any \`exit\` from that file (a login file must not exit), then run: okit-plugin install --client claude-code (the line: ${line}; or run the installer again without --no-path)`,
     found: '  Command (bash)  ok  found, also at login',
   },
   'pt-BR': {
     row: (shell, why) => `Comando (${shell})  falhou  um terminal novo do ${shell} não achará okit-plugin (${why})`,
-    fix: (file) => `Correção: Em ${file}, ponha esta linha antes de qualquer coisa que pare esse arquivo com \`return\` ou falhe, e remova qualquer \`exit\` desse arquivo (um arquivo de login não pode sair), e rode: okit-plugin install --client claude-code (a linha: export PATH='<bin>'\${PATH:+":$PATH"})`,
-    missing: (file, shell, line = `export PATH='<bin>'\${PATH:+":$PATH"}`) => `Correção: Ponha esta linha em ${file}, o arquivo que o ${shell} lê no login, antes de qualquer coisa que pare esse arquivo com \`return\` ou falhe, e remova qualquer \`exit\` desse arquivo (um arquivo de login não pode sair), e rode: okit-plugin install --client claude-code (a linha: ${line}; ou rode o instalador de novo sem --no-path)`,
+    fix: (file) => `Correção: Em ${file}, ponha esta linha antes de qualquer coisa que pare esse arquivo com \`return\`, corrija o erro de qualquer comando que falhe (por exemplo sob \`set -e\`), e remova qualquer \`exit\` desse arquivo (um arquivo de login não pode sair), e rode: okit-plugin install --client claude-code (a linha: export PATH='<bin>'\${PATH:+":$PATH"})`,
+    missing: (file, shell, line = `export PATH='<bin>'\${PATH:+":$PATH"}`) => `Correção: Ponha esta linha em ${file}, o arquivo que o ${shell} lê no login, antes de qualquer coisa que pare esse arquivo com \`return\`, corrija o erro de qualquer comando que falhe (por exemplo sob \`set -e\`), e remova qualquer \`exit\` desse arquivo (um arquivo de login não pode sair), e rode: okit-plugin install --client claude-code (a linha: ${line}; ou rode o instalador de novo sem --no-path)`,
     found: '  Comando (bash)  ok  encontrado, também no login',
   },
 };
@@ -1349,7 +1349,7 @@ test('D103: real bash, a profile that exits before the PATH block: the check fai
   const w = await loginWorld(t, '# the person\'s own start\nexit 0\n');
   assert.equal(w.code, OPERATIONAL, w.text);
   assert.ok(w.lines().includes('  Command (bash)  failed  a new bash terminal will not find okit-plugin ((nothing))'), w.text);
-  assert.ok(w.lines().some((line) => line.startsWith('  Fix: In <home>/.profile, put this line before anything that stops the file with `return` or fails')), w.text);
+  assert.ok(w.lines().some((line) => line.startsWith('  Fix: In <home>/.profile, put this line before anything that stops the file with `return`')), w.text);
   assert.match(w.text, /installed but not working/);
 });
 
@@ -1426,11 +1426,13 @@ test('D103: any line the login launch prints may be the resolution', async (t) =
   const after = await world(t, 'linux', { env: NOT_ON_PATH, hook: false,
     resolved: (spec) => (isLogin(spec) ? `${spec.env.HOME}/bin/okit-plugin\nsee you\n` : `${spec.env.PATH.split(':')[0]}/okit-plugin\n`) });
   assert.equal(after.code, 0, after.text);
-  // The greeting alone (no resolution) is all the launch printed: the row fails with it, and does not crash.
-  const alone = await world(t, 'linux', { env: NOT_ON_PATH, hook: false,
+  // The greeting alone (no resolution) is all the launch printed: the row says that nothing was found (the greeting is
+  // not the program), and the raw output keeps it.
+  const alone = await world(t, 'linux', { env: NOT_ON_PATH, hook: false, argv: ['install', '--client', CLIENT, '--verbose'],
     resolved: (spec) => (isLogin(spec) ? 'Welcome to this machine!\n' : `${spec.env.PATH.split(':')[0]}/okit-plugin\n`) });
   assert.equal(alone.code, OPERATIONAL, alone.text);
-  assert.ok(alone.lines().includes('  Command (bash)  failed  a new bash terminal will not find okit-plugin (it finds Welcome to this machine!, not a file of <bin>)'), alone.text);
+  assert.ok(alone.lines().includes('  Command (bash)  failed  a new bash terminal will not find okit-plugin ((nothing))'), alone.text);
+  assert.ok(alone.lines().some((line) => line.trim() === '> Welcome to this machine!'), alone.text);
 });
 
 // D103, round 5: only a line that names the command is the resolution; another program of the link folder is not.

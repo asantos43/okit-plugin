@@ -158,7 +158,7 @@ describe('install in containers', { skip: reason ?? false, timeout: 3600000 }, (
         // The login launch is made for the shell of the person only (here `sh`), and it fails the same way.
         assert.match(text, /installed but not working: \d+ of \d+ checks failed/, text);
         assert.match(text, /a new sh terminal will not find okit-plugin/, text);
-        assert.match(text, new RegExp(`Fix: In ${home}/\\.profile, put this line before anything that stops the file with \`return\` or fails`), text);
+        assert.match(text, new RegExp(`Fix: In ${home}/\\.profile, put this line before anything that stops the file with \`return\``), text);
         assert.equal((await exec(id, ['sh', '-c', `test -L ${home}/.local/bin/okit-plugin`])).code, 0, 'the installation was not left in place');
       });
 
