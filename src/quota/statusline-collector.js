@@ -4,6 +4,9 @@ import { configOf } from '../profiles.js';
 import { readJson, writeJsonAtomic } from '../state.js';
 import { paths, stateRoot as defaultRoot } from '../store.js';
 
+/** The quota file the collector writes under the state root; the environment report looks for this same name. */
+export const READING_FILE = 'claude-code.json';
+
 const finite = (value) => typeof value === 'number' && Number.isFinite(value);
 
 export function runPrevious({ command, args, input, timeoutMs, maxOutputBytes }) {
@@ -59,7 +62,7 @@ export async function collectStatusline({ input, previous, stateRoot, run = runP
   try {
     if (Buffer.byteLength(input) <= settings.maxInputBytes) {
       const value = reading(input, settings, now);
-      if (value) await writeJsonAtomic(join(paths(stateRoot).quota, 'claude-code.json'), value);
+      if (value) await writeJsonAtomic(join(paths(stateRoot).quota, READING_FILE), value);
     }
   } catch { /* An optional reading must not break the bar. */ }
   try {
