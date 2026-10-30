@@ -299,21 +299,16 @@ export async function pluginExecutable(path, deps) {
       for (let item = record; item; item = item.previous) if (inside(item.path, actual)) return true;
     }
   }
-  if (/\.(cmd|ps1)$/i.test(actual)) {
-    const content = await fs.readFile(actual, 'utf8');
-    const target = content.match(/^@echo off\r?\n"[^"\r\n]+" "([^"\r\n]+)" %\*\r?\n?$/)?.[1]
-      ?? content.match(/^& '[^'\r\n]+' '([^'\r\n]+)' @args\r?\n?$/)?.[1];
-    if (target && resolve(target) !== actual) return pluginExecutable(target, deps);
-  } else {
-    // The shim of Git Bash (a command name may hold a dot): ours when it is exactly what shellShim writes.
-    const info = await fs.stat(actual).catch((error) => {
-      if (!['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes(error.code)) throw error;
-      return null;
-    });
-    const content = info?.isFile() && info.size <= SHIM_MAX_BYTES ? await fs.readFile(actual, 'utf8') : '';
-    const target = shimTarget(content);
-    if (target && resolve(target) !== actual) return pluginExecutable(target, deps);
-  }
+  // A shim of ours is recognised by what it says, never by its name (a command name may end in .cmd or .ps1, or hold a dot).
+  const info = await fs.stat(actual).catch((error) => {
+    if (!['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes(error.code)) throw error;
+    return null;
+  });
+  const content = info?.isFile() && info.size <= SHIM_MAX_BYTES ? await fs.readFile(actual, 'utf8') : '';
+  const target = content.match(/^@echo off\r?\n"[^"\r\n]+" "([^"\r\n]+)" %\*\r?\n?$/)?.[1]
+    ?? content.match(/^& '[^'\r\n]+' '([^'\r\n]+)' @args\r?\n?$/)?.[1]
+    ?? shimTarget(content);
+  if (target && resolve(target) !== actual) return pluginExecutable(target, deps);
   for (let folder = dirname(actual); dirname(folder) !== folder; folder = dirname(folder)) {
     const metadata = await fs.readFile(join(folder, 'package.json'), 'utf8').catch(() => null);
     if (!metadata) continue;
