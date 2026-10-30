@@ -94,6 +94,39 @@ either language.
 Each step prints its result once. Model setup is offered only after a successful
 install or update, never after failure, during `--dry-run` or with `update --check`.
 
+### The self-check after install and update
+
+An install is only done when it works on this machine. After `install` and `update` (not after
+`--dry-run`, `--check`, `--rollback` or `uninstall`) the installer checks every client it just
+registered, in this order, and prints one row, `Self-check (Claude Code)`:
+
+1. **Version**: the install record and the installed `package.json` have the version that was installed.
+2. **Command**: each shell of your system finds `okit-plugin` when it starts without a profile, as a script
+   would: bash, zsh, sh and fish on Linux; zsh, bash, sh and a plain `sh -c` on macOS; PowerShell, cmd and Git Bash
+   on Windows. A shell that is not installed shows `skipped` (`Command (fish)  skipped  fish is not installed`)
+   and never fails the run. If no shell could run the check, the check fails and asks for a POSIX shell.
+3. **Status bar and session hook**: the exact commands the installer wrote into the client's settings file are
+   read back and run in the shell the client uses (a sample reading is sent to the status bar); both must exit 0.
+4. **Quota reading**: the status bar leaves its reading. It runs with a temporary state folder that is removed
+   afterwards, so your own quota state is never written by the check.
+5. **PATH**: if the link folder is not on the PATH of this terminal and no profile adds it, the check fails and
+   gives the line to add. When a profile adds it, the closing steps already tell you to open a new terminal.
+
+All passed: `Self-check (Claude Code)  ok  6 checks passed`; the list of the shells is shown with `--verbose`.
+Any failure: the install stays in place, the row says `installed but not working: 1 of 6 checks failed`, each
+failed check has its own row followed by a line `Fix: ...` with the exact command or edit, and the exit code is
+1. Example:
+
+```
+Self-check (Claude Code)  failed  installed but not working: 1 of 6 checks failed
+Command (zsh)             failed  zsh does not find okit-plugin (exit code 1)
+Fix: Add /home/you/.local/bin to the PATH of zsh, then run: okit-plugin install --client claude-code
+```
+
+Do what the Fix line says (it is the one command or edit for that row) and run the installer again; skipped
+rows need nothing. The shells, the time limit of each process (`install.selfcheck.timeoutMs`) and the sample
+sent to the status bar are in the `install.selfcheck` part of the configuration.
+
 ### Windows command and PowerShell scripts
 
 On Windows the command is two shims in the link directory. PowerShell and cmd.exe use

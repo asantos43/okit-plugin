@@ -222,6 +222,12 @@ const CLIENT = record({
     ? { at: client.xdgEnv === undefined ? 'xdgEnv' : 'xdgParts', rule: 'xdgPair' } : null),
 });
 
+// A shell of the check after an install: how it is started, how it finds the command, and (when it runs a string) how.
+const SELFCHECK_SHELL = record({
+  name: word, executable: word, candidates: optional(filled(word)), resolve: filled(word), run: optional(filled(word)),
+  quote: { kind: 'choice', values: ['posix', 'powershell', 'none'] },
+});
+
 /** The installer's settings (`install.*` of config.json): one node for every key of DEFAULT_CONFIG.install. */
 export const INSTALL_SCHEMA = Object.freeze(record({
   kit: record({ executables: filled(plain), path: nullable(word), versionArgs: list(word), timeoutMs: timer, require: flag, hint: word, overlap: word }),
@@ -261,6 +267,10 @@ export const INSTALL_SCHEMA = Object.freeze(record({
   manifest: word,
   clients: table(CLIENT),
   pathExtensions: list(text({ empty: true })),
+  selfcheck: record({
+    timeoutMs: timer, shells: table(filled(SELFCHECK_SHELL)), runner: table(word),
+    sample: record({ usedPercentage: size, resetsInSeconds: size, hookInput: table(word) }),
+  }),
 }));
 
 // ---------------------------------------------------------------------------------------------------------------

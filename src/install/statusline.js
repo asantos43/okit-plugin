@@ -59,9 +59,13 @@ function collectorExecutable(deps) {
   return platform === config.windowsPlatform && bin ? join(bin, config.command).replaceAll('\\', '/') : config.command;
 }
 
+/** The client's settings file that holds the status bar: the one the record names, else the client's own. */
+export const settingsPath = (record, deps) => record.statusline?.path
+  ?? join(clientRoot(record.client, deps), deps.statuslineConfig.settingsFile);
+
 export async function planStatusline(record, deps) {
   const settings = deps.statuslineConfig;
-  const path = record.statusline?.path ?? join(clientRoot(record.client, deps), settings.settingsFile);
+  const path = settingsPath(record, deps);
   const original = await deps.fs.readFile(path).catch(missing);
   const value = original === null ? {} : JSON.parse(original.toString('utf8'));
   if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error(unreadable(deps));

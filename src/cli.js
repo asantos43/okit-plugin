@@ -4,6 +4,7 @@
 // client, a daemon or a `systemctl`.
 
 import { execFile, spawn } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { rm, stat } from 'node:fs/promises';
 import * as filesystem from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
@@ -227,10 +228,16 @@ function usageOf(locale, command) {
 const execFileAsync = promisify(execFile);
 
 /** Runs one command object: an argument array and no shell, like every spawn. */
-async function runCommand({ command, args = [], cwd, timeout, signal, timeoutMs, env }) {
+export async function runCommand({ command, args = [], cwd, timeout, signal, timeoutMs, env, input }) {
   const pending = execFileAsync(command, args, {
     windowsHide: true, cwd, timeout: timeoutMs ?? timeout, killSignal: 'SIGKILL', env,
   });
+  // The text a command reads on its standard input (a status bar and a hook read their JSON there); a command that
+  // exits without reading it is not an error of ours.
+  if (input !== undefined) {
+    pending.child.stdin?.on('error', () => {});
+    pending.child.stdin?.end(input);
+  }
   const kill = () => pending.child.kill('SIGKILL');
   signal?.addEventListener('abort', kill, { once: true });
   if (signal?.aborted) kill();
@@ -898,7 +905,9 @@ export async function runCli(argv = process.argv.slice(2), io = {}) {
 }
 
 const entry = fileURLToPath(import.meta.url);
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === entry) {
+// The command is a symlink to this file on POSIX: `import.meta.url` is the real path, `argv[1]` is the link, so compare real paths.
+const invoked = (path) => { try { return realpathSync(path); } catch { return resolve(path); } };
+if (process.argv[1] !== undefined && invoked(process.argv[1]) === entry) {
   // Let module evaluation finish before smoke checks import this CLI again.
   runCli().then((code) => { process.exitCode = code; });
 }

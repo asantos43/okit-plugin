@@ -1,0 +1,547 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { main, runCommand } from '../src/cli.js';
+import { exitCodeFor } from '../src/install/exit.js';
+import { HOME_ENV } from '../src/store.js';
+import { DEFAULT_CONFIG } from '../src/profiles.js';
+import { readRecord, saveRecord } from '../src/install/place.js';
+import { hookCommand } from '../src/install/register.js';
+import { fixture } from './helpers/install-fixture.js';
+
+// The check after an install or an update: the installation only counts when it works on this machine.
+//
+// | case | must pass | must refuse |
+// | every check id, every shell of every platform, made to fail (S1) | exit 1, the failed row, a Fix line, one language | a success, no fix, a mixed language |
+// | a shell that is not installed (S2) | a visible skipped row, exit 0 | a failure, a silent pass |
+// | every shell missing (S2) | a failed command check that says to install a POSIX shell | a pass |
+// | the status bar and hook strings (S3) | the ones in the settings file, changed or not | a string worked out again |
+// | the state root (S4) | a temporary folder, removed afterwards, even on a failure | a write into the real state |
+// | dry-run, --check, --rollback, uninstall (S5) | no process of the check | a check |
+// | linux, macOS, Windows (S7) | the shell list and the form of each launch | another list |
+// | this machine (S7) | a real shim, the real status bar and hook | skipped by a missing sh only |
+
+const PLATFORMS = ['linux', 'darwin', 'win32'];
+const LOCALES = ['en', 'pt-BR'];
+const CLIENT = 'claude-code';
+const OPERATIONAL = exitCodeFor('operational');
+const SHELLS = (platform) => DEFAULT_CONFIG.install.selfcheck.shells[platform].map(({ name }) => name);
+const RUNNER = (platform) => DEFAULT_CONFIG.install.selfcheck.runner[platform];
+
+// Words of one language that the other must never show inside the block of the check.
+const ENGLISH = /\b(failed|Fix:|does not find|is not installed|installed but not working|checks passed|not registered|Install again|Add .* to the PATH|Write the|Run the installer|Install a POSIX)\b/;
+const PORTUGUESE = /(falhou|Correção:|não encontra|não está instalado|instalado, mas não funciona|verificações|Instale de novo|Coloque|Grave|Rode o instalador|Instale um shell)/;
+
+const SELF_ROW = { en: /^ {2}Self-check \(Claude Code\)/, 'pt-BR': /^ {2}Autoverificação \(Claude Code\)/ };
+const AFTER_BLOCK = /^ {2}(Models|Modelos|Kit)\b/;
+
+/** The lines of the check, from its summary row to the line before the models. */
+function blockOf(lines, locale) {
+  const start = lines.findIndex((line) => SELF_ROW[locale].test(line));
+  assert.ok(start >= 0, `no self-check block in\n${lines.join('\n')}`);
+  const end = lines.findIndex((line, index) => index > start && AFTER_BLOCK.test(line));
+  return lines.slice(start, end < 0 ? undefined : end);
+}
+
+/** A process of the check, as opposed to the client's own registration command. */
+const isCheck = (spec) => spec.timeoutMs !== undefined;
+const isResolve = (spec) => isCheck(spec) && (/command -v|Get-Command/.test(spec.args.at(-1) ?? '') || spec.args.at(-2) === 'where');
+const barText = (spec) => spec.args.at(-1) ?? '';
+const isBar = (spec) => isCheck(spec) && barText(spec).includes('statusline-collector');
+const isHook = (spec) => isCheck(spec) && barText(spec).includes('hook session-start');
+
+/**
+ * The installer in a temporary world. `fail(spec)` decides the outcome of a process of the check: 'missing' (no such
+ * executable), 'timeout', a number (an exit code) or nothing; `meddle(moment)` changes the world at 'register' (the files
+ * are in place) or 'check' (the first process of the check); `noReading` stops the fake status bar from leaving a reading.
+ */
+async function world(t, platform, { argv = ['install', '--client', CLIENT, '--statusline'], locale = 'en', fail, meddle, noReading,
+  hook = platform !== 'win32', config, env, update } = {}) {
+  const f = await fixture(t, platform);
+  if (platform === 'win32') {
+    // The Git Bash of the Windows list is found by its candidate paths: put one in a made-up Program Files.
+    f.io.env.ProgramFiles = join(f.home, 'Program Files');
+    await fs.mkdir(join(f.io.env.ProgramFiles, 'Git/bin'), { recursive: true });
+    await fs.writeFile(join(f.io.env.ProgramFiles, 'Git/bin/bash.exe'), '');
+  }
+  Object.assign(f.io.env, env);
+  if (config) {
+    const file = join(f.root, 'config.json');
+    const stored = JSON.parse(await fs.readFile(file, 'utf8'));
+    config(stored.install);
+    await fs.writeFile(file, JSON.stringify(stored));
+  }
+  if (hook) f.io.loadAdapter = () => import('../adapters/claude-code/index.js');
+  const checks = [], inner = f.io.run;
+  let registered = false, checked = false;
+  f.io.run = async (spec) => {
+    if (!isCheck(spec)) {
+      if (!registered) { registered = true; await meddle?.('register', f); }
+      return inner(spec);
+    }
+    if (!checked) { checked = true; await meddle?.('check', f); }
+    checks.push(spec);
+    const outcome = fail?.(spec);
+    if (outcome === 'missing') throw Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
+    if (outcome === 'timeout') throw Object.assign(new Error('timed out'), { killed: true, signal: 'SIGKILL' });
+    if (typeof outcome === 'number') throw Object.assign(new Error('failed'), { code: outcome, stderr: 'boom' });
+    if (noReading) return {};
+    return inner(spec);
+  };
+  if (update) {
+    // A first install that works, then an update whose proof step (`smoke`, after every write) leaves the world as `update` says.
+    assert.equal(await main([...argv, '--locale', locale], f.io), 0, f.output.join('\n'));
+    f.setVersion('2.0.0');
+    f.clear();
+    checks.length = 0;
+    f.io.smoke = async (record) => { await update(record, f); return { code: 0 }; };
+    argv = ['update'];
+  }
+  const code = await main([...argv, '--locale', locale], f.io);
+  return { ...f, code, checks, text: f.output.join('\n') };
+}
+
+/** Whether a process of the check is the launch of that shell (a Git Bash is found by its candidate paths). */
+const launchedBy = (shell, spec) => (shell === 'git-bash' ? spec.command.endsWith('/Git/bin/bash.exe')
+  : spec.command === { bash: 'bash', zsh: 'zsh', sh: 'sh', fish: 'fish', 'sh -c': '/bin/sh', powershell: 'powershell.exe', cmd: 'cmd.exe' }[shell]);
+
+const TEXTS = {
+  en: {
+    recordVersion: 'Version  failed  the install record says 1.0.0, expected 2.0.0',
+    packageVersion: 'Version  failed  the installed package.json says 1.0.0, expected 2.0.0',
+    fixVersion: 'Fix: Install again: okit-plugin install --client claude-code',
+    command: (shell) => `Command (${shell})  failed  ${shell} does not find okit-plugin (exit code 1)`,
+    fixCommand: (shell) => `Fix: Add <bin> to the PATH of ${shell}, then run: okit-plugin install --client claude-code`,
+    bar: (shell) => `Status bar (${shell})  failed  the status bar command failed (exit code 1)`,
+    fixBar: (path) => `Fix: Write the status bar command again: okit-plugin install --client claude-code --statusline (settings file: ${path})`,
+    hook: (shell) => `Session hook (${shell})  failed  the session hook failed (exit code 1)`,
+    fixHook: (path) => `Fix: Write the hook again: okit-plugin install --client claude-code (settings file: ${path})`,
+    collector: 'Quota reading  failed  the status bar ran but wrote no reading',
+    path: 'Command on PATH  failed  <bin> is not on your PATH and no profile adds it, so a new terminal will not find okit-plugin',
+    fixPath: "Fix: Add this line to your shell profile, then open a new terminal: export PATH='<bin>':\"$PATH\"",
+    summary: /^ {2}Self-check \(Claude Code\) {2}failed {2}installed but not working: 1 of \d+ checks failed$/,
+    missing: (shell) => `Command (${shell})  skipped  ${shell} is not installed`,
+    noShell: (shells) => `Command  failed  no shell could run the check (${shells})`,
+    fixNoShell: 'Fix: Install a POSIX shell (sh or bash; on Windows, Git for Windows), then run: okit-plugin install --client claude-code',
+  },
+  'pt-BR': {
+    recordVersion: 'Versão  falhou  o registro da instalação diz 1.0.0, esperado 2.0.0',
+    packageVersion: 'Versão  falhou  o package.json instalado diz 1.0.0, esperado 2.0.0',
+    fixVersion: 'Correção: Instale de novo: okit-plugin install --client claude-code',
+    command: (shell) => `Comando (${shell})  falhou  o ${shell} não encontra okit-plugin (código de saída 1)`,
+    fixCommand: (shell) => `Correção: Coloque <bin> no PATH do ${shell} e rode: okit-plugin install --client claude-code`,
+    bar: (shell) => `Barra de status (${shell})  falhou  o comando da barra de status falhou (código de saída 1)`,
+    fixBar: (path) => `Correção: Grave o comando da barra de status de novo: okit-plugin install --client claude-code --statusline (arquivo de ajustes: ${path})`,
+    hook: (shell) => `Hook de sessão (${shell})  falhou  o hook de sessão falhou (código de saída 1)`,
+    fixHook: (path) => `Correção: Grave o hook de novo: okit-plugin install --client claude-code (arquivo de ajustes: ${path})`,
+    collector: 'Leitura de cota  falhou  a barra de status rodou, mas não gravou leitura',
+    path: 'Comando no PATH  falhou  <bin> não está no seu PATH e nenhum perfil o adiciona, então um terminal novo não achará okit-plugin',
+    fixPath: "Correção: Adicione esta linha ao perfil do seu shell e abra um terminal novo: export PATH='<bin>':\"$PATH\"",
+    summary: /^ {2}Autoverificação \(Claude Code\) {2}falhou {2}instalado, mas não funciona: 1 de \d+ verificações falharam$/,
+    missing: (shell) => `Comando (${shell})  pulado  ${shell} não está instalado`,
+    noShell: (shells) => `Comando  falhou  nenhum shell pôde fazer a verificação (${shells})`,
+    fixNoShell: 'Correção: Instale um shell POSIX (sh ou bash; no Windows, o Git for Windows) e rode: okit-plugin install --client claude-code',
+  },
+};
+
+/** What each check, made to fail, must say: the failed row and its fix, in the words of the language. */
+function cases(platform) {
+  const bar = RUNNER(platform);
+  const barFile = '<home>/.claude/settings.json', hookFile = '<home>/client/settings.json';
+  const list = [
+    { name: 'version (the record)', id: 'version',
+      update: async (record, w) => {
+        await saveRecord(w.destination, { ...record, version: '1.0.0' }, { fs, config: w.io.config });
+      },
+      say: (t) => [t.recordVersion, t.fixVersion] },
+    { name: 'version (the installed package)', id: 'version',
+      update: async (record) => {
+        const file = join(record.path, 'package.json');
+        await fs.writeFile(file, JSON.stringify({ ...JSON.parse(await fs.readFile(file, 'utf8')), version: '1.0.0' }));
+      },
+      say: (t) => [t.packageVersion, t.fixVersion] },
+    ...SHELLS(platform).map((shell) => ({ name: `command in ${shell}`, id: 'command', shell,
+      fail: (spec) => (isResolve(spec) && launchedBy(shell, spec) ? 1 : undefined),
+      say: (t) => [t.command(shell), t.fixCommand(shell)] })),
+    { name: 'statusline', id: 'statusline', fail: (spec) => (isBar(spec) ? 1 : undefined),
+      say: (t) => [t.bar(bar), t.fixBar(barFile)] },
+    ...(platform === 'win32' ? [] : [{ name: 'hook', id: 'hook', fail: (spec) => (isHook(spec) ? 1 : undefined),
+      say: (t) => [t.hook(bar), t.fixHook(hookFile)] }]),
+    { name: 'collector', id: 'collector', noReading: true, say: (t) => [t.collector, t.fixBar(barFile)] },
+    ...(platform === 'win32' ? [] : [{ name: 'path', id: 'path',
+      env: { PATH: '/usr/bin' },
+      // The profile block that put the folder on the PATH of new terminals is gone.
+      meddle: async (moment, w) => {
+        if (moment !== 'check') return;
+        for (const name of ['.bashrc', '.zshrc', '.profile', '.bash_profile', '.config/fish/conf.d/okit-plugin.fish', '.config/fish/config.fish']) {
+          await fs.rm(join(w.home, name), { force: true });
+        }
+      },
+      say: (t) => [t.path, t.fixPath] }]),
+  ];
+  return list;
+}
+
+// S1: every check id, every shell of the list of every platform, in both languages.
+for (const platform of PLATFORMS) {
+  for (const locale of LOCALES) {
+    test(`S1: each check, made to fail, fails the run with its fix in ${locale} on ${platform}`, async (t) => {
+      const names = cases(platform).map(({ name }) => name);
+      // two for the version, one per shell, the bar, its reading, and on a POSIX system the hook and the PATH
+      assert.equal(names.length, 2 + SHELLS(platform).length + 2 + (platform === 'win32' ? 0 : 2), names.join(', '));
+      for (const name of names) {
+        const one = cases(platform).find((item) => item.name === name);
+        const w = await world(t, platform, { locale, fail: one.fail, meddle: one.meddle, noReading: one.noReading, env: one.env, update: one.update });
+        const context = `${name}\n${w.text}`;
+        const want = TEXTS[locale];
+        assert.equal(w.code, OPERATIONAL, context);
+        const lines = w.lines();
+        const block = blockOf(lines, locale);
+        assert.match(block[0], want.summary, context);
+        for (const expected of one.say(want)) assert.ok(block.includes(`  ${expected}`), `missing "${expected}" in\n${block.join('\n')}`);
+        // The fix comes right after the row it is for.
+        const [row, fix] = one.say(want);
+        assert.equal(block.indexOf(`  ${fix}`), block.indexOf(`  ${row}`) + 1, context);
+        // One language, and no raw key or placeholder.
+        assert.doesNotMatch(block.join('\n'), locale === 'en' ? PORTUGUESE : ENGLISH, context);
+        assert.doesNotMatch(block.join('\n'), /\{[a-z]+\}|selfcheck[A-Z]/, context);
+        // The installation is left in place, and the run says nothing of success.
+        assert.ok((await readRecord(w.destination, CLIENT, fs, w.io.config)).version, context);
+        assert.doesNotMatch(w.text, /Done\. Next:|Pronto\. Próximo:/, context);
+      }
+    });
+  }
+}
+
+test('S1: a timeout and a result with a non-zero code fail like a thrown exit code', async (t) => {
+  const timeout = await world(t, 'linux', { fail: (spec) => (isResolve(spec) && spec.command === 'bash' ? 'timeout' : undefined) });
+  assert.equal(timeout.code, OPERATIONAL, timeout.text);
+  assert.ok(timeout.lines().includes('  Command (bash)  failed  bash does not find okit-plugin (no answer in 10000 ms)'), timeout.text);
+  const f = await fixture(t, 'linux');
+  const run = f.io.run;
+  f.io.run = async (spec) => (isCheck(spec) && isResolve(spec) && spec.command === 'zsh' ? { code: 3, stderr: '' } : run(spec));
+  assert.equal(await main(['install', '--client', CLIENT], f.io), OPERATIONAL, f.output.join('\n'));
+  assert.ok(f.lines().includes('  Command (zsh)  failed  zsh does not find okit-plugin (exit code 3)'), f.output.join('\n'));
+});
+
+test('S1: a failure is told on the update too, and the fix is the installer again', async (t) => {
+  const f = await fixture(t, 'linux');
+  assert.equal(await main(['install', '--client', CLIENT], f.io), 0, f.output.join('\n'));
+  f.setVersion('2.0.0');
+  f.clear();
+  const run = f.io.run;
+  f.io.run = async (spec) => (isCheck(spec) && isResolve(spec) && spec.command === 'sh' ? Promise.reject(Object.assign(new Error('x'), { code: 1 })) : run(spec));
+  assert.equal(await main(['update'], f.io), OPERATIONAL, f.output.join('\n'));
+  assert.ok(f.lines().includes('  Command (sh)  failed  sh does not find okit-plugin (exit code 1)'), f.output.join('\n'));
+  assert.ok(f.lines().includes('  Fix: Add <bin> to the PATH of sh, then run: okit-plugin install --client claude-code'), f.output.join('\n'));
+  assert.equal((await readRecord(f.destination, CLIENT, fs, f.io.config)).version, '2.0.0');
+});
+
+test('S1: the same version again is checked as well', async (t) => {
+  const f = await fixture(t, 'linux');
+  assert.equal(await main(['install', '--client', CLIENT], f.io), 0, f.output.join('\n'));
+  f.clear();
+  f.commands.length = 0;
+  const run = f.io.run;
+  f.io.run = async (spec) => (isCheck(spec) && isResolve(spec) && spec.command === 'zsh' ? Promise.reject(Object.assign(new Error('x'), { code: 1 })) : run(spec));
+  assert.equal(await main(['update'], f.io), OPERATIONAL, f.output.join('\n'));
+  assert.ok(f.commands.some(isCheck), 'the up-to-date update ran no check');
+  assert.ok(f.lines().includes('  Command (zsh)  failed  zsh does not find okit-plugin (exit code 1)'), f.output.join('\n'));
+});
+
+// S2: a shell that is not installed is skipped, visibly.
+for (const platform of PLATFORMS) {
+  for (const locale of LOCALES) {
+    test(`S2: a missing shell is a visible skip, never a failure (${locale}, ${platform})`, async (t) => {
+      for (const shell of SHELLS(platform)) {
+        const w = await world(t, platform, { locale, fail: (spec) => (isResolve(spec) && launchedBy(shell, spec) ? 'missing' : undefined),
+          hook: false });
+        const context = `${shell}\n${w.text}`;
+        assert.equal(w.code, 0, context);
+        assert.ok(w.lines().includes(`  ${TEXTS[locale].missing(shell)}`), context);
+        assert.match(blockOf(w.lines(), locale)[0], locale === 'en' ? /ok {2}\d+ checks passed$/ : /ok {2}\d+ verificações passaram$/, context);
+      }
+    });
+
+    test(`S2: with every shell missing the command check fails and says to install a POSIX shell (${locale}, ${platform})`, async (t) => {
+      const w = await world(t, platform, { locale, hook: false, fail: (spec) => (isResolve(spec) ? 'missing' : undefined) });
+      const names = SHELLS(platform).join(', ');
+      assert.equal(w.code, OPERATIONAL, w.text);
+      const block = blockOf(w.lines(), locale);
+      assert.ok(block.includes(`  ${TEXTS[locale].noShell(names)}`), block.join('\n'));
+      assert.equal(block.indexOf(`  ${TEXTS[locale].fixNoShell}`), block.indexOf(`  ${TEXTS[locale].noShell(names)}`) + 1, block.join('\n'));
+      for (const shell of SHELLS(platform)) assert.ok(block.includes(`  ${TEXTS[locale].missing(shell)}`), block.join('\n'));
+    });
+  }
+}
+
+test('S2: a Git Bash that is nowhere on the machine is a skip too', async (t) => {
+  const f = await fixture(t, 'win32');
+  assert.equal(await main(['install', '--client', CLIENT], f.io), 0, f.output.join('\n'));
+  assert.ok(f.lines().includes('  Command (git-bash)  skipped  git-bash is not installed'), f.output.join('\n'));
+});
+
+// S3: the strings come from the settings file the installer wrote.
+test('S3: the status bar and hook strings run are the ones in the settings file, as they were written', async (t) => {
+  const w = await world(t, 'linux');
+  assert.equal(w.code, 0, w.text);
+  const bar = JSON.parse(await fs.readFile(join(w.home, '.claude/settings.json'), 'utf8')).statusLine.command;
+  const hooks = JSON.parse(await fs.readFile(join(w.io.clientRoot, 'settings.json'), 'utf8')).hooks.SessionStart.flatMap((entry) => entry.hooks.map((item) => item.command));
+  assert.equal(hooks.length, 1);
+  assert.deepEqual(w.checks.filter(isBar).map(barText), [bar]);
+  assert.deepEqual(w.checks.filter(isHook).map(barText), hooks);
+  // The hook is the one the registration writes: one source for the writer and the reader.
+  const record = await readRecord(w.destination, CLIENT, fs, w.io.config);
+  assert.equal(hooks[0], hookCommand(record.path));
+});
+
+test('S3: a string changed after it was written is the string that runs', async (t) => {
+  const changedBar = "'okit-plugin' 'statusline-collector' --previous 'echo' 'changed'";
+  const w = await world(t, 'linux', {
+    meddle: async (moment, f) => {
+      if (moment !== 'check') return;
+      const file = join(f.home, '.claude/settings.json');
+      const settings = JSON.parse(await fs.readFile(file, 'utf8'));
+      settings.statusLine.command = changedBar;
+      await fs.writeFile(file, JSON.stringify(settings));
+      const hookFile = join(f.io.clientRoot, 'settings.json');
+      const hooks = JSON.parse(await fs.readFile(hookFile, 'utf8'));
+      hooks.hooks.SessionStart[0].hooks[0].command += ' --changed';
+      await fs.writeFile(hookFile, JSON.stringify(hooks));
+    },
+  });
+  assert.equal(w.code, 0, w.text);
+  assert.deepEqual(w.checks.filter(isBar).map(barText), [changedBar]);
+  const hook = w.checks.filter(isHook).map(barText);
+  assert.equal(hook.length, 1);
+  assert.ok(hook[0].endsWith('hook session-start --changed'), hook[0]);
+});
+
+test('S3: a changed string that fails is what fails the run', async (t) => {
+  const w = await world(t, 'linux', {
+    fail: (spec) => (isBar(spec) && barText(spec).includes('changed') ? 7 : undefined),
+    meddle: async (moment, f) => {
+      if (moment !== 'check') return;
+      const file = join(f.home, '.claude/settings.json');
+      const settings = JSON.parse(await fs.readFile(file, 'utf8'));
+      settings.statusLine.command = "'okit-plugin' 'statusline-collector' --previous 'echo' 'changed'";
+      await fs.writeFile(file, JSON.stringify(settings));
+    },
+  });
+  assert.equal(w.code, OPERATIONAL, w.text);
+  assert.ok(w.lines().includes('  Status bar (sh)  failed  the status bar command failed (exit code 7)'), w.text);
+});
+
+test('S3: a status bar that is not ours is not run', async (t) => {
+  const w = await world(t, 'linux', {
+    argv: ['install', '--client', CLIENT],
+    meddle: async (moment, f) => {
+      if (moment !== 'check') return;
+      await fs.mkdir(join(f.home, '.claude'), { recursive: true });
+      await fs.writeFile(join(f.home, '.claude/settings.json'), JSON.stringify({ statusLine: { type: 'command', command: 'my-own-bar' } }));
+    },
+  });
+  assert.equal(w.code, 0, w.text);
+  assert.equal(w.checks.filter(isBar).length, 0);
+  assert.ok(!w.checks.some((spec) => barText(spec).includes('my-own-bar')));
+});
+
+// S4: the person's own state is never written.
+for (const outcome of ['passes', 'fails']) {
+  test(`S4: the real state root is untouched and the temporary folder is removed when the check ${outcome}`, async (t) => {
+    const seen = [];
+    const fail = outcome === 'fails' ? (spec) => (isBar(spec) || isHook(spec) ? 1 : undefined) : undefined;
+    const f = await fixture(t, 'linux');
+    f.io.loadAdapter = () => import('../adapters/claude-code/index.js');
+    const sentinel = join(f.root, 'quota', 'sentinel.txt');
+    await fs.mkdir(join(f.root, 'quota'), { recursive: true });
+    await fs.writeFile(sentinel, 'mine');
+    const before = (await fs.readdir(join(f.root, 'quota'))).sort();
+    const run = f.io.run;
+    f.io.run = async (spec) => {
+      if (isBar(spec) || isHook(spec)) {
+        seen.push(spec.env[HOME_ENV]);
+        // The temporary folder exists while the string runs.
+        assert.ok((await fs.stat(spec.env[HOME_ENV])).isDirectory());
+      }
+      return fail?.(spec) ? Promise.reject(Object.assign(new Error('x'), { code: 1 })) : run(spec);
+    };
+    const code = await main(['install', '--client', CLIENT, '--statusline'], f.io);
+    assert.equal(code, outcome === 'fails' ? OPERATIONAL : 0, f.output.join('\n'));
+    assert.ok(seen.length >= 2, `the strings ran with ${seen.length} state folders`);
+    for (const folder of seen) {
+      assert.ok(folder && folder !== f.root && !folder.startsWith(`${f.root}/`), `${folder} is inside the real state ${f.root}`);
+      assert.ok(folder.startsWith(f.scratch), `${folder} is not in the temporary area`);
+      await assert.rejects(fs.stat(folder), { code: 'ENOENT' }, `${folder} was left behind`);
+    }
+    assert.equal(await fs.readFile(sentinel, 'utf8'), 'mine');
+    assert.deepEqual((await fs.readdir(join(f.root, 'quota'))).sort(), before);
+    assert.deepEqual(await fs.readdir(f.scratch), [], 'the scratch area is not empty');
+  });
+}
+
+test('S4: a check that cannot run at all still removes its folder', async (t) => {
+  const f = await fixture(t, 'linux');
+  const seen = [];
+  const run = f.io.run;
+  f.io.run = async (spec) => {
+    if (isBar(spec)) { seen.push(spec.env[HOME_ENV]); throw Object.assign(new Error('x'), { killed: true }); }
+    return run(spec);
+  };
+  assert.equal(await main(['install', '--client', CLIENT, '--statusline'], f.io), OPERATIONAL, f.output.join('\n'));
+  assert.equal(seen.length, 1);
+  await assert.rejects(fs.stat(seen[0]), { code: 'ENOENT' });
+});
+
+// S5: only the install and the update run the check.
+test('S5: dry-run, --check, --rollback and uninstall run no process of the check', async (t) => {
+  const dry = await fixture(t, 'linux');
+  assert.equal(await main(['install', '--client', CLIENT, '--statusline', '--dry-run'], dry.io), 0, dry.output.join('\n'));
+  assert.equal(dry.commands.filter(isCheck).length, 0, 'install --dry-run');
+  assert.doesNotMatch(dry.output.join('\n'), /Self-check/);
+
+  const f = await fixture(t, 'linux');
+  f.io.loadAdapter = () => import('../adapters/claude-code/index.js');
+  assert.equal(await main(['install', '--client', CLIENT, '--statusline'], f.io), 0, f.output.join('\n'));
+  assert.ok(f.commands.filter(isCheck).length > 0, 'the install itself runs the check');
+  f.setVersion('2.0.0');
+  f.commands.length = 0;
+  assert.equal(await main(['update'], f.io), 0, f.output.join('\n'));
+  assert.ok(f.commands.filter(isCheck).length > 0, 'the update itself runs the check');
+  f.setVersion('3.0.0');
+  for (const argv of [['update', '--check'], ['update', '--dry-run'], ['update', '--rollback'], ['uninstall']]) {
+    f.clear();
+    f.commands.length = 0;
+    const code = await main(argv, f.io);
+    assert.equal(code, 0, `${argv.join(' ')}\n${f.output.join('\n')}`);
+    assert.ok(f.output.length > 0, `${argv.join(' ')} printed nothing`);
+    assert.equal(f.commands.filter(isCheck).length, 0, `${argv.join(' ')} ran a process of the check`);
+    assert.doesNotMatch(f.output.join('\n'), /Self-check|Autoverificação/, argv.join(' '));
+  }
+});
+
+test('S5: an up-to-date install under --dry-run or --check runs no process of the check', async (t) => {
+  const f = await fixture(t, 'linux');
+  f.io.loadAdapter = () => import('../adapters/claude-code/index.js');
+  assert.equal(await main(['install', '--client', CLIENT, '--statusline'], f.io), 0, f.output.join('\n'));
+  for (const argv of [['install', '--client', CLIENT, '--dry-run'], ['update', '--dry-run'], ['update', '--check']]) {
+    f.clear();
+    f.commands.length = 0;
+    assert.equal(await main(argv, f.io), 0, `${argv.join(' ')}\n${f.output.join('\n')}`);
+    assert.match(f.output.join('\n'), /up to date|Up to date/i, `${argv.join(' ')} took the same-version path`);
+    assert.equal(f.commands.filter(isCheck).length, 0, `${argv.join(' ')} ran a process of the check`);
+    assert.doesNotMatch(f.output.join('\n'), /Self-check|Autoverificação/, argv.join(' '));
+  }
+});
+
+test('S5: the check does not run on an install that is itself refused', async (t) => {
+  const f = await fixture(t, 'linux');
+  assert.equal(await main(['install', '--client', CLIENT, '--check'], f.io), 2, f.output.join('\n'));
+  assert.equal(f.commands.filter(isCheck).length, 0);
+});
+
+// S7: the shell list and the form of each launch, by platform.
+const FORMS = {
+  linux: [['bash', ['-c', "command -v 'okit-plugin'"]], ['zsh', ['-c', "command -v 'okit-plugin'"]], ['sh', ['-c', "command -v 'okit-plugin'"]], ['fish', ['-c', "command -v 'okit-plugin'"]]],
+  darwin: [['zsh', ['-c', "command -v 'okit-plugin'"]], ['bash', ['-c', "command -v 'okit-plugin'"]], ['sh', ['-c', "command -v 'okit-plugin'"]], ['/bin/sh', ['-c', "command -v 'okit-plugin'"]]],
+  win32: [['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "if (-not (Get-Command 'okit-plugin' -ErrorAction SilentlyContinue)) { exit 1 }"]],
+    ['cmd.exe', ['/d', '/s', '/c', 'where', 'okit-plugin']], ['<program-files>/Git/bin/bash.exe', ['-c', "command -v 'okit-plugin'"]]],
+};
+for (const platform of PLATFORMS) {
+  test(`S7: ${platform} checks its own shells, each launched non-interactively with the configured timeout`, async (t) => {
+    const w = await world(t, platform);
+    assert.equal(w.code, 0, w.text);
+    const resolves = w.checks.filter(isResolve).map((spec) => [spec.command.replace(w.io.env.ProgramFiles ?? '\0', '<program-files>'), spec.args]);
+    assert.deepEqual(resolves, FORMS[platform]);
+    for (const spec of w.checks) {
+      assert.equal(spec.timeoutMs, DEFAULT_CONFIG.install.selfcheck.timeoutMs);
+      assert.ok(spec.env.PATH.startsWith(w.bin) || platform === 'win32', `the link folder is not first on ${spec.env.PATH}`);
+      // No login shell and no interactive shell: `-l` and `-i` are never an argument.
+      assert.ok(!spec.args.some((argument) => ['-l', '-i', '-il', '-li', '--login', '--interactive'].includes(argument)));
+    }
+    // The strings of the client run in the shell the client uses.
+    const runner = { linux: 'sh', darwin: '/bin/sh', win32: `${w.io.env.ProgramFiles}/Git/bin/bash.exe` }[platform];
+    for (const spec of w.checks.filter((item) => isBar(item) || isHook(item))) {
+      assert.equal(spec.command, runner);
+      assert.equal(spec.args[0], '-c');
+      assert.equal(spec.args.length, 2);
+    }
+    // The status bar gets the sample JSON of the rate limits; the hook, the SessionStart event.
+    for (const spec of w.checks.filter(isBar)) assert.ok(JSON.parse(spec.input).rate_limits, spec.input);
+    for (const spec of w.checks.filter(isHook)) assert.equal(JSON.parse(spec.input).hook_event_name, 'SessionStart');
+    // The platform of the run decides, not the machine's: the Windows list has no POSIX-only shell.
+    assert.deepEqual(w.checks.filter(isResolve).length, FORMS[platform].length);
+  });
+}
+
+test('S7: the shell list is the configuration, not the code', async (t) => {
+  const w = await world(t, 'linux', { hook: false, config: (install) => {
+    install.selfcheck = { shells: { linux: [{ name: 'dash', executable: 'dash', quote: 'posix', resolve: ['-c', 'command -v {command}'] }] } };
+  } });
+  assert.equal(w.code, 0, w.text);
+  assert.deepEqual(w.checks.filter(isResolve).map((spec) => spec.command), ['dash']);
+});
+
+// S7: one real run on this machine, with a real shim and the real strings.
+const realShell = spawnSync('sh', ['-c', 'exit 0']).status === 0 && process.platform !== 'win32';
+test('S7: real run, the shim resolves and the written status bar and hook exit 0', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
+  const f = await fixture(t, process.platform === 'darwin' ? 'darwin' : 'linux');
+  f.io.loadAdapter = () => import('../adapters/claude-code/index.js');
+  f.io.env.PATH = `${f.bin}:${process.env.PATH}`;
+  f.io.env.HOME = f.home;
+  const repo = new URL('../', import.meta.url).pathname;
+  const readings = [];
+  const fake = f.io.run;
+  f.io.run = async (spec) => {
+    if (!isCheck(spec)) {
+      // The client's own commands are not run; the files are in place now, and the shim must reach the real program.
+      const installed = join(f.destination, '1.0.0-claude-code');
+      await fs.rm(join(installed, 'src'), { recursive: true, force: true });
+      await fs.cp(join(repo, 'src'), join(installed, 'src'), { recursive: true });
+      await fs.cp(join(repo, 'adapters'), join(installed, 'adapters'), { recursive: true });
+      await fs.chmod(join(installed, 'src/cli.js'), 0o755);
+      const real = JSON.parse(await fs.readFile(join(repo, 'package.json'), 'utf8'));
+      await fs.writeFile(join(installed, 'package.json'), JSON.stringify({ ...real, version: '1.0.0' }));
+      return fake(spec);
+    }
+    const result = await runCommand(spec);
+    if (isBar(spec)) readings.push((await fs.readdir(join(spec.env[HOME_ENV], 'quota')).catch(() => [])));
+    return result;
+  };
+  const code = await main(['install', '--client', CLIENT, '--statusline'], f.io);
+  assert.equal(code, 0, f.output.join('\n'));
+  assert.deepEqual(readings, [['claude-code.json']], 'the real collector left its reading in the temporary root');
+  const block = blockOf(f.lines(), 'en');
+  assert.match(block[0], /ok {2}\d+ checks passed$/, block.join('\n'));
+  assert.ok(f.commands.length > 0);
+});
+
+test('S7: a real shim that does not resolve fails the real check', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
+  const f = await fixture(t, process.platform === 'darwin' ? 'darwin' : 'linux');
+  f.io.env.PATH = process.env.PATH;
+  f.io.bin = f.bin;
+  const fake = f.io.run;
+  f.io.run = async (spec) => {
+    if (!isCheck(spec)) return fake(spec);
+    // Take the shim away just before the first launch, as a broken install would leave it.
+    await fs.rm(join(f.bin, 'okit-plugin'), { force: true });
+    return runCommand({ ...spec, env: { ...spec.env, PATH: '/usr/bin:/bin' } });
+  };
+  const code = await main(['install', '--client', CLIENT], f.io);
+  assert.equal(code, OPERATIONAL, f.output.join('\n'));
+  assert.ok(f.lines().some((line) => /^ {2}Command \(sh\) {2}failed {2}sh does not find okit-plugin/.test(line)), f.output.join('\n'));
+});
+
+test('S7: the command, a link to cli.js on a POSIX system, runs the program when called through the link', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
+  const folder = await fs.mkdtemp(join(tmpdir(), 'selfcheck-link-'));
+  t.after(() => fs.rm(folder, { recursive: true, force: true }));
+  const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+  await fs.symlink(cli, join(folder, 'okit-plugin'));
+  const result = spawnSync(process.execPath, [join(folder, 'okit-plugin'), '--help'], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^usage: okit-plugin/, 'the link printed nothing: the entry check compares the link, not the file');
+});

@@ -115,6 +115,7 @@ const SIZE = [1, Number.MAX_SAFE_INTEGER];
 /** `install.*` numbers (installConfig). */
 export const INSTALL_NUMBERS = Object.freeze({
   'kit.timeoutMs': TIMER, timeoutMs: TIMER, daemonPollMs: TIMER, maxDownloadBytes: SIZE, maxExtractBytes: SIZE,
+  'selfcheck.timeoutMs': TIMER, 'selfcheck.sample.usedPercentage': SIZE, 'selfcheck.sample.resetsInSeconds': SIZE,
 });
 /** The numbers `config set` takes; `integer` or `number`. */
 export const CONFIG_NUMBERS = Object.freeze({
@@ -395,6 +396,8 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/install/statusline.js', arg: /^(path|original\.toString\('utf8'\))$/, rule: 'settings of the client (statusline)' },
   { file: 'src/install/statusline.js', arg: /^(saved\.path|bytes\.toString\('utf8'\))$/, rule: 'settings of the client (statusline)' },
   { file: 'src/env/snapshot.js', arg: /^path$/, rule: 'settings of the client (statusline state, read by status)' },
+  { file: 'src/install/selfcheck.js', arg: /^(file|text)$/, excluded: 'package.json of the package just installed (code of the program itself), read back only to compare its version; a file that cannot be read or is not JSON is a failed check (a row with its fix, exit 1), never a crash' },
+  { file: 'src/install/selfcheck.js', arg: /^path$/, excluded: 'the client\'s settings file, read back to run the status bar and hook strings the installer wrote; a file that cannot be read or is not JSON is a failed check with its fix (exit 1), JSON of another shape finds no status bar and is a skipped row; never a crash' },
   { file: 'src/install/statusline.js', arg: /^saved\.backup$/, excluded: 'the copy of the client\'s settings that okit made before it changed them; restored byte for byte, never parsed' },
   { file: 'src/install/index.js', arg: /^join\(ctx\.root, 'config\.json'\)$/, rule: CONFIG_JSON },
   { file: 'src/install/bootstrap.js', arg: /^(metadata)$/, rule: 'the release metadata (API)' },

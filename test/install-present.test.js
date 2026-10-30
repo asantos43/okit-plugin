@@ -55,6 +55,8 @@ test('a foreign .cmd fails install with an actionable link error in either langu
 /** The install of Claude Code as the installer prints it. */
 function installLines(locale, platform) {
   const windows = platform === 'win32';
+  // the checks that ran: version, the command in each shell found, the written status bar and its reading, the hook (not on Windows)
+  const checks = windows ? 4 : 6;
   const asset = `sample-1.0.0-claude-code-${SYSTEM[platform]}-x64.${FORMAT[platform]}`;
   const system = LABEL[platform];
   if (locale === 'en') {
@@ -66,6 +68,8 @@ function installLines(locale, platform) {
       '[3/5] Register in Claude Code  ok  marketplace and plugin',
       `[4/5] Command and PATH  ok  okit-plugin  (${windows ? 'added to your user PATH' : 'already on your PATH'})`,
       '[5/5] Quota recording  skipped  off. To turn it on: okit-plugin install --client claude-code --statusline',
+      `  Self-check (Claude Code)  ok  ${checks} checks passed`,
+      ...(windows ? ['  Command (git-bash)  skipped  git-bash is not installed'] : []),
       '  Models  -  not set yet. Run: okit-plugin setup',
       '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit',
       windows ? `Done. Next: 1. open a new terminal  2. in this terminal instead: ${HINT('<bin>')}  3. restart Claude Code  4. run: okit-plugin status`
@@ -80,6 +84,8 @@ function installLines(locale, platform) {
     '[3/5] Registrar no Claude Code  ok  marketplace e plugin',
     `[4/5] Comando e PATH  ok  okit-plugin  (${windows ? 'adicionado ao PATH do seu usuário' : 'já está no seu PATH'})`,
     '[5/5] Registro de cota  pulado  desligado. Para ligar: okit-plugin install --client claude-code --statusline',
+    `  Autoverificação (Claude Code)  ok  ${checks} verificações passaram`,
+    ...(windows ? ['  Comando (git-bash)  pulado  git-bash não está instalado'] : []),
     '  Modelos  -  ainda não definidos. Rode: okit-plugin setup',
     '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração',
     windows ? `Pronto. Próximo: 1. abra um terminal novo  2. neste terminal, rode antes: ${HINT('<bin>')}  3. reinicie o Claude Code  4. rode: okit-plugin status`
@@ -90,6 +96,8 @@ function installLines(locale, platform) {
 /** The update to 2.0.0; the backup line carries a folder, so it is matched, not spelled. */
 function updateLines(locale, platform) {
   const windows = platform === 'win32';
+  // the checks that ran: version, the command in each shell found, the written status bar and its reading, the hook (not on Windows)
+  const checks = windows ? 4 : 6;
   const asset = `sample-2.0.0-claude-code-${SYSTEM[platform]}-x64.${FORMAT[platform]}`;
   const system = LABEL[platform];
   const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -104,6 +112,8 @@ function updateLines(locale, platform) {
       `[5/7] Command and PATH  ok  okit-plugin  (${windows ? 'added to your user PATH' : 'already on your PATH'})`,
       '[6/7] Quota recording  skipped  off. To turn it on: okit-plugin install --client claude-code --statusline',
       '[7/7] Check the install  ok',
+      `  Self-check (Claude Code)  ok  ${checks} checks passed`,
+      ...(windows ? ['  Command (git-bash)  skipped  git-bash is not installed'] : []),
       '  Models  -  not set yet. Run: okit-plugin setup',
       '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit',
       new RegExp(`^Done\\. Next: 1\\. open a new terminal {2}${windows ? `2\\. in this terminal instead: ${escape(HINT('<bin>'))} {2}3\\. restart Claude Code {2}4` : '2\\. restart Claude Code {2}3'}\\. run: okit-plugin status$`),
@@ -119,6 +129,8 @@ function updateLines(locale, platform) {
     `[5/7] Comando e PATH  ok  okit-plugin  (${windows ? 'adicionado ao PATH do seu usuário' : 'já está no seu PATH'})`,
     '[6/7] Registro de cota  pulado  desligado. Para ligar: okit-plugin install --client claude-code --statusline',
     '[7/7] Verificar a instalação  ok',
+    `  Autoverificação (Claude Code)  ok  ${checks} verificações passaram`,
+    ...(windows ? ['  Comando (git-bash)  pulado  git-bash não está instalado'] : []),
     '  Modelos  -  ainda não definidos. Rode: okit-plugin setup',
     '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração',
     new RegExp(`^Pronto\\. Próximo: 1\\. abra um terminal novo {2}${windows ? `2\\. neste terminal, rode antes: ${escape(HINT('<bin>'))} {2}3\\. reinicie o Claude Code {2}4` : '2\\. reinicie o Claude Code {2}3'}\\. rode: okit-plugin status$`),
@@ -228,7 +240,8 @@ test('the line structure is the same on every system', async (t) => {
     const f = await fixture(t, platform);
     assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
     // Steps and rows: the label and the status; notes and the closing line: their kind.
-    shapes.push(f.lines().map((line) => (/^(\[\d\/\d\] |  )[^ ]/.test(line) ? line.split('  ').slice(0, 2).join('|') : line.slice(0, 5))).map((line, index) => (index === 0 ? 'header' : line)));
+    // A shell that is not on the machine is a skipped row of its own; which shells exist is the machine's, not the layout's.
+    shapes.push(f.lines().filter((line) => !/^  Command \(/.test(line)).map((line) => (/^(\[\d\/\d\] |  )[^ ]/.test(line) ? line.split('  ').slice(0, 2).join('|') : line.slice(0, 5))).map((line, index) => (index === 0 ? 'header' : line)));
   }
   // Windows adds the PATH hint to the closing line only; the lines before it are the same.
   assert.deepEqual(shapes[1].slice(0, -1).slice(1), shapes[0].slice(0, -1).slice(1));

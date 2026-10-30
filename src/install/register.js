@@ -4,6 +4,13 @@ import { detect } from './menu.js';
 import { quote } from './link.js';
 import { presenterOf, pick } from './present.js';
 
+/**
+ * The command of the SessionStart hook of an installation. The one source of the string: the installer writes it into the
+ * client's settings, and the post-install check recognises the hooks that are ours by the script this names.
+ */
+export const hookScript = (path) => quote(join(path, 'src/cli.js'));
+export const hookCommand = (path, node = process.execPath) => `${quote(node)} ${hookScript(path)} hook session-start`;
+
 export function registrationPlan(record, deps, action = 'install') {
   const settings = deps.config.clients[record.client];
   const identity = `${deps.config.entry}@${deps.config.marketplace}`;
@@ -56,11 +63,11 @@ async function registerRole(record, deps, remove = false) {
     presenterOf(deps).detail(`${presenterOf(deps).text('roleUnsupported')}: ${error.message}`);
     return;
   }
-  const command = `${quote(process.execPath)} ${quote(join(record.path, 'src/cli.js'))} hook session-start`;
+  const command = hookCommand(record.path);
   const opts = { env: deps.env, root: deps.clientRoot, command,
     nativeSupported: deps.platform !== 'win32' };
   if (record.previous && !remove && adapter.removeRole) {
-    await adapter.removeRole({ ...opts, command: `${quote(process.execPath)} ${quote(join(record.previous.path, 'src/cli.js'))} hook session-start` });
+    await adapter.removeRole({ ...opts, command: hookCommand(record.previous.path) });
   }
   const operation = remove ? adapter.removeRole : adapter.installRole;
   const result = operation ? await operation(opts) : { status: 'unsupported', reason: 'Adapter has no native role delivery / Adaptador sem entrega nativa de papel' };

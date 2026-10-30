@@ -94,6 +94,40 @@ idiomas.
 Cada passo imprime seu resultado uma vez. A escolha de modelos só é oferecida após
 instalação ou atualização bem-sucedida, nunca após falha, em `--dry-run` ou com `update --check`.
 
+### A autoverificação depois de instalar e atualizar
+
+Uma instalação só está pronta quando funciona nesta máquina. Depois de `install` e `update` (não depois de
+`--dry-run`, `--check`, `--rollback` ou `uninstall`) o instalador verifica cada cliente que acabou de
+registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
+
+1. **Versão**: o registro da instalação e o `package.json` instalado têm a versão que foi instalada.
+2. **Comando**: cada shell do seu sistema encontra `okit-plugin` ao iniciar sem perfil, como faria um script:
+   bash, zsh, sh e fish no Linux; zsh, bash, sh e um `sh -c` simples no macOS; PowerShell, cmd e Git Bash no
+   Windows. Um shell que não está instalado aparece como `pulado` (`Comando (fish)  pulado  fish não está instalado`)
+   e nunca faz a execução falhar. Se nenhum shell pôde fazer a verificação, ela falha e pede um shell POSIX.
+3. **Barra de status e hook de sessão**: os comandos exatos que o instalador gravou nos ajustes do cliente são
+   lidos de volta e executados no shell que o cliente usa (a barra de status recebe uma leitura de exemplo);
+   os dois devem terminar com código 0.
+4. **Leitura de cota**: a barra de status deixa sua leitura. Ela roda com uma pasta de estado temporária, removida
+   depois, então o seu estado de cota nunca é gravado pela verificação.
+5. **PATH**: se a pasta do link não está no PATH deste terminal e nenhum perfil a adiciona, a verificação falha
+   e dá a linha a adicionar. Quando um perfil a adiciona, os passos finais já dizem para abrir um terminal novo.
+
+Tudo certo: `Autoverificação (Claude Code)  ok  6 verificações passaram`; a lista dos shells aparece com
+`--verbose`. Qualquer falha: a instalação continua no lugar, a linha diz `instalado, mas não funciona: 1 de 6
+verificações falharam`, cada verificação que falhou tem sua linha seguida de `Correção: ...` com o comando ou a
+edição exata, e o código de saída é 1. Exemplo:
+
+```
+Autoverificação (Claude Code)  falhou  instalado, mas não funciona: 1 de 6 verificações falharam
+Comando (zsh)                  falhou  o zsh não encontra okit-plugin (código de saída 1)
+Correção: Coloque /home/voce/.local/bin no PATH do zsh e rode: okit-plugin install --client claude-code
+```
+
+Faça o que a linha de Correção diz (é o comando ou a edição para aquela linha) e rode o instalador de novo;
+as linhas puladas não pedem nada. Os shells, o limite de tempo de cada processo (`install.selfcheck.timeoutMs`)
+e o exemplo enviado à barra de status ficam na parte `install.selfcheck` da configuração.
+
 ### Comando do Windows e scripts do PowerShell
 
 No Windows o comando são dois atalhos na pasta do link. O PowerShell e o cmd.exe usam
