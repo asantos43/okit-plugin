@@ -1322,10 +1322,11 @@ test('D103: the fix names the file bash reads at login (the first of .bash_profi
 
 // D103, real shells: a profile that stops early, and one that does not.
 const realBash = process.platform !== 'win32' && spawnSync('bash', ['-c', 'exit 0']).status === 0;
-async function loginWorld(t, profile, flags = [], files = {}) {
+async function loginWorld(t, profile, flags = [], files = {}, env = {}) {
   const f = await fixture(t, process.platform === 'darwin' ? 'darwin' : 'linux');
   f.io.env.PATH = process.env.PATH.split(':').filter((folder) => folder !== f.bin).join(':');
   f.io.env.SHELL = 'bash';
+  Object.assign(f.io.env, env);
   // `.profile` is where the installer writes its block for bash when there is no `.bashrc`; real shells read it at login.
   await fs.writeFile(join(f.home, '.profile'), profile);
   for (const [name, content] of Object.entries(files)) await fs.writeFile(join(f.home, name), content);
@@ -1361,4 +1362,79 @@ test('D103: real bash, a .bash_profile that exits early and a fine .profile: the
   const w = await loginWorld(t, '# the person\'s own start\n', [], { '.bash_profile': '# the person\'s own start\nexit 0\n' });
   assert.equal(w.code, OPERATIONAL, w.text);
   assert.ok(w.lines().includes(`  ${LOGIN_TEXTS.en.missing('<home>/.bash_profile', 'bash')}`), w.text);
+});
+
+// D103, round 3: the shell of the person (a POSIX shell the configuration does not name is one), the file that shell really
+// reads at login, and the line the login launch prints last.
+test('D103: a POSIX shell the configuration does not name (dash) is the shell of the person: the `sh` entry is launched', async (t) => {
+  // `$SHELL` names dash: it is not one of the configured shells (bash, zsh, fish) and not `sh`, but it is a POSIX shell
+  // that reads `.profile`, so the `sh` entry is the shell of the person: a profile that stops early must not pass in silence.
+  const w = await world(t, 'linux', { env: { ...NOT_ON_PATH, SHELL: '/bin/dash' }, hook: false,
+    meddle: async (moment, f) => {
+      // The profile of the person holds no PATH block and stops early: the launch of the `sh` entry finds nothing.
+      if (moment === 'check') await fs.writeFile(join(f.home, '.profile'), '# the person\'s own start\nexit 0\n');
+    },
+    resolved: (spec) => (isLogin(spec) ? '' : `${spec.env.PATH.split(':')[0]}/okit-plugin\n`) });
+  assert.equal(w.code, OPERATIONAL, w.text);
+  assert.ok(w.checks.filter(isLogin).some((spec) => spec.command === 'sh'), 'the `sh` login launch was not made');
+  assert.ok(w.lines().includes('  Command (sh)  failed  a new sh terminal will not find okit-plugin ((nothing))'), w.text);
+});
+
+test('D103: the same POSIX shell with a profile that does not stop passes', async (t) => {
+  const w = await world(t, 'linux', { env: { ...NOT_ON_PATH, SHELL: '/bin/dash' }, hook: false });
+  assert.equal(w.code, 0, w.text);
+  assert.ok(w.checks.filter(isLogin).some((spec) => spec.command === 'sh'), 'the `sh` login launch was not made');
+});
+
+test('D103: another installed shell is launched only when the file it reads at login holds the PATH block', async (t) => {
+  // The person's shell is sh: its `.profile` holds the block, but bash reads `.bash_profile`, which has none: the bash
+  // login launch would prove nothing about the file bash really reads, so it is not made (the run passes).
+  const w = await world(t, 'linux', { env: { ...NOT_ON_PATH, SHELL: '/bin/sh' }, hook: false,
+    fail: (spec) => (isLogin(spec) && spec.command !== 'sh' ? 1 : undefined),
+    meddle: async (moment, f) => {
+      if (moment === 'check') await fs.writeFile(join(f.home, '.bash_profile'), '# the person\'s own start\nexit 0\n');
+    } });
+  assert.equal(w.code, 0, w.text);
+  assert.deepEqual(w.checks.filter(isLogin).map((spec) => spec.command), ['sh']);
+});
+
+test('D103: the login launch reads the last line it prints: a greeting before the resolution is ignored', async (t) => {
+  const greeting = await world(t, 'linux', { env: NOT_ON_PATH, hook: false,
+    resolved: (spec) => (isLogin(spec) ? `Welcome to this machine!\n${spec.env.HOME}/bin/okit-plugin\n` : `${spec.env.PATH.split(':')[0]}/okit-plugin\n`) });
+  assert.equal(greeting.code, 0, greeting.text);
+  // The greeting alone (no resolution) is all the launch printed: the row fails with it, and does not crash.
+  const alone = await world(t, 'linux', { env: NOT_ON_PATH, hook: false,
+    resolved: (spec) => (isLogin(spec) ? 'Welcome to this machine!\n' : `${spec.env.PATH.split(':')[0]}/okit-plugin\n`) });
+  assert.equal(alone.code, OPERATIONAL, alone.text);
+  assert.ok(alone.lines().includes('  Command (bash)  failed  a new bash terminal will not find okit-plugin (it finds Welcome to this machine!, not a file of <bin>)'), alone.text);
+});
+
+test('D103: a shell that reads no `.profile` (csh) is not the shell of the person: no login launch, no login failure', async (t) => {
+  // csh reads no `.profile`: the `sh` entry is not the shell of the person, so it is not launched (a file the person
+  // never reads must not fail the run). No other shell is launched either: the file it reads at login holds no block.
+  const w = await world(t, 'linux', { env: { ...NOT_ON_PATH, SHELL: '/bin/csh' }, hook: false,
+    meddle: async (moment, f) => {
+      // The profile of the person holds no PATH block and stops early: a launch that read it would fail.
+      if (moment === 'check') await fs.writeFile(join(f.home, '.profile'), '# the person\'s own start\nexit 0\n');
+    },
+    resolved: (spec) => (isLogin(spec) ? '' : `${spec.env.PATH.split(':')[0]}/okit-plugin\n`) });
+  assert.deepEqual(w.checks.filter(isLogin).map((spec) => spec.command), [], 'a login launch was made');
+  assert.ok(!w.lines().some((line) => /will not find okit-plugin \(/.test(line)), w.text);
+  // The PATH row is the only failure: the profile of the person holds no block.
+  assert.ok(w.lines().some((line) => line.startsWith('  Command on PATH  failed')), w.text);
+});
+
+// D103, round 3, real shells: the `sh` entry is the shell of a person whose `$SHELL` names a shell that reads `.profile`.
+const realSh = process.platform !== 'win32' && spawnSync('sh', ['-c', 'exit 0']).status === 0;
+
+test('D103: real sh, a profile that exits before the PATH block: the check of the person\'s POSIX shell fails the run', { skip: realSh ? false : 'no sh on this machine' }, async (t) => {
+  const w = await loginWorld(t, '# the person\'s own start\nexit 0\n', [], {}, { SHELL: '/bin/dash' });
+  assert.equal(w.code, OPERATIONAL, w.text);
+  assert.ok(w.lines().includes('  Command (sh)  failed  a new sh terminal will not find okit-plugin ((nothing))'), w.text);
+});
+
+test('D103: real sh, a profile that does not stop: the login launch of the person\'s POSIX shell finds the command', { skip: realSh ? false : 'no sh on this machine' }, async (t) => {
+  const w = await loginWorld(t, '# the person\'s own start\n', [], {}, { SHELL: '/bin/dash' });
+  assert.equal(w.code, 0, w.text);
+  assert.match(blockOf(w.lines(), 'en')[0], /ok {2}\d+ checks passed$/, w.text);
 });

@@ -115,21 +115,25 @@ registered, in this order, and prints one row, `Self-check (Claude Code)`:
    and never fails the run. If no shell could run the check, the check fails and asks for a POSIX shell.
    The check also starts your own shell the way a new terminal does, as a login shell (`bash -lc`,
    `zsh -lc`, `sh -lc`, `fish -l -c`), with the link folder taken off the PATH, so only your profile can add it: your
-   shell is the one `$SHELL` names (bash when the terminal names none). Another installed shell is started this way only
-   when its own profile holds the PATH block the installer wrote (`.bashrc`/`.profile`, `.zshrc`/`.zprofile`,
-   fish's `config.fish`), so a bash person with zsh installed never sees a failure about a profile they do not use. If the
-   plain launch finds the command but the login launch does not (a profile that exits early, fails, or never reaches the
-   PATH block), the row fails: `Command (bash)  failed  a new bash terminal will not find okit-plugin (...)`, with a
-   `Fix:` line that names the file the shell reads at login (for bash, the first of `~/.bash_profile`, `~/.bash_login`,
-   `~/.profile` that exists) and the line to put before whatever stops it; when that file holds no PATH block, the fix
-   asks for the line itself (or for the installer to be run again without `--no-path`). The shell's own error
+   shell is the one `$SHELL` names (bash when the terminal names none); a POSIX shell that reads `~/.profile` like `sh`
+   does (dash, ash, ksh, mksh, pdksh, busybox) is yours too, and is checked as the `sh` entry, which reads `~/.profile`;
+   a shell outside that list (csh, nu, xonsh) reads no `.profile`, so no login launch is made for it. Another installed shell is
+   started this way only when the file that shell really reads at login holds the PATH block the installer wrote (for bash,
+   the first of `~/.bash_profile`, `~/.bash_login`, `~/.profile` that exists; for zsh, `~/.zprofile`; for fish,
+   `~/.config/fish/config.fish`), so a bash person with zsh installed never sees a failure about a profile they do not
+   use. If the plain launch finds the command but the login launch does not (a profile that exits early, fails, or never
+   reaches the PATH block), the row fails: `Command (bash)  failed  a new bash terminal will not find okit-plugin (...)`,
+   with a `Fix:` line that names the file the shell reads at login (for bash, the first of `~/.bash_profile`,
+   `~/.bash_login`, `~/.profile` that exists) and the line to put before whatever stops it; when that file holds no PATH
+   block, the fix asks for the line itself (or for the installer to be run again without `--no-path`). The shell's own error
    lines show with `--verbose`. This launch reads your startup files by design; it resolves only the bare command and never
    runs text of yours. It is not made when the link folder was already on your PATH (the PATH that works may come from
    another source), with `--no-path` or `--no-link`, or on Windows.
-   The link folder is put in front of the PATH of the processes the check starts, and the first line each shell
-   prints for `okit-plugin` (`command -v`, `Get-Command` or `where`) must be a file in that folder: our command.
-   If another program with the same name comes first, the row fails and shows the path found, with a Fix line
-   (remove or rename that file, or put the link folder before it on the PATH).
+   The link folder is put in front of the PATH of the processes the check starts, and the line each shell
+   prints for `okit-plugin` (`command -v`, `Get-Command` or `where`) must be a file in that folder: our command (the
+   first line for the plain launches, the last line for the login launch: a greeting of your profile printed before the
+   answer is ignored). If another program with the same name comes first, the row fails and shows the path found, with a
+   Fix line (remove or rename that file, or put the link folder before it on the PATH).
 3. **Status bar and session hook**: the exact commands the installer wrote into the client's settings file are
    read back and run in the shell the client uses (a sample reading is sent to the status bar); both must exit 0.
    The check runs the hook and the status bar only when each is exactly what the installer wrote, byte for byte (it is

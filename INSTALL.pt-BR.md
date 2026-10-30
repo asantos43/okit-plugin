@@ -115,21 +115,26 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    e nunca faz a execução falhar. Se nenhum shell pôde fazer a verificação, ela falha e pede um shell POSIX.
    A verificação também inicia o seu próprio shell como um terminal novo o inicia, como shell de login
    (`bash -lc`, `zsh -lc`, `sh -lc`, `fish -l -c`), com a pasta do link fora do PATH, de modo que só o seu perfil pode
-   adicioná-la: o seu shell é o que o `$SHELL` nomeia (bash quando o terminal não nomeia nenhum). Outro shell instalado só
-   é iniciado assim quando o perfil dele guarda o bloco de PATH que o instalador escreveu (`.bashrc`/`.profile`,
-   `.zshrc`/`.zprofile`, `config.fish` do fish), então quem usa bash com zsh instalado nunca vê uma falha sobre um perfil
-   que não usa. Se a partida simples acha o comando e a de login não (um perfil que sai cedo, falha ou nunca chega ao
-   bloco de PATH), a linha falha: `Comando (bash)  falhou  um terminal novo do bash não achará okit-plugin (...)`, com
-   uma linha `Correção:` que diz o arquivo que o shell lê no login (para o bash, o primeiro de `~/.bash_profile`,
-   `~/.bash_login`, `~/.profile` que existir) e a linha a pôr antes do que o interrompe; quando esse arquivo não guarda
-   nenhum bloco de PATH, a correção pede a linha (ou pede para rodar o instalador de novo sem `--no-path`). As linhas de
-   erro do próprio shell aparecem com `--verbose`. Essa partida lê os seus arquivos de inicialização de propósito; ela resolve só o comando
-   simples e nunca roda texto seu. Ela não é feita quando a pasta do link já estava no seu PATH (o PATH que funciona pode
-   vir de outra fonte), com `--no-path` ou `--no-link`, nem no Windows.
-   A pasta do link é posta na frente do PATH dos processos que a verificação inicia, e a primeira linha que cada
+   adicioná-la: o seu shell é o que o `$SHELL` nomeia (bash quando o terminal não nomeia nenhum); um shell POSIX que lê o
+   `~/.profile` como o `sh` lê (dash, ash, ksh, mksh, pdksh, busybox) também é o seu, e é verificado como a entrada `sh`,
+   que lê o `~/.profile`; um shell fora dessa lista (csh, nu, xonsh) não lê `.profile`, então nenhuma partida de login é
+   feita para ele. Outro shell instalado só é iniciado assim quando o arquivo que ele realmente lê no login guarda o bloco de PATH que o
+   instalador escreveu (para o bash, o primeiro de `~/.bash_profile`, `~/.bash_login`, `~/.profile` que existir; para o
+   zsh, o `~/.zprofile`; para o fish, o `~/.config/fish/config.fish`), então quem usa bash com zsh instalado nunca vê uma
+   falha sobre um perfil que não usa. Se a partida simples acha o comando e a de login não (um perfil que sai cedo, falha
+   ou nunca chega ao bloco de PATH), a linha falha: `Comando (bash)  falhou  um terminal novo do bash não achará
+   okit-plugin (...)`, com uma linha `Correção:` que diz o arquivo que o shell lê no login (para o bash, o primeiro de
+   `~/.bash_profile`, `~/.bash_login`, `~/.profile` que existir) e a linha a pôr antes do que o interrompe; quando esse
+   arquivo não guarda nenhum bloco de PATH, a correção pede a linha (ou pede para rodar o instalador de novo sem
+   `--no-path`). As linhas de erro do próprio shell aparecem com `--verbose`. Essa partida lê os seus arquivos de
+   inicialização de propósito; ela resolve só o comando simples e nunca roda texto seu. Ela não é feita quando a pasta
+   do link já estava no seu PATH (o PATH que funciona pode vir de outra fonte), com `--no-path` ou `--no-link`, nem no
+   Windows.
+   A pasta do link é posta na frente do PATH dos processos que a verificação inicia, e a linha que cada
    shell imprime para `okit-plugin` (`command -v`, `Get-Command` ou `where`) deve ser um arquivo dessa pasta: o
-   nosso comando. Se outro programa com o mesmo nome vier antes, a linha falha e mostra o caminho encontrado, com
-   uma linha de Correção (remova ou renomeie esse arquivo, ou ponha a pasta do link antes dele no PATH).
+   nosso comando (a primeira linha nas partidas simples, a última na partida de login, onde uma saudação do seu perfil
+   impressa antes da resposta é ignorada). Se outro programa com o mesmo nome vier antes, a linha falha e mostra o caminho
+   encontrado, com uma linha de Correção (remova ou renomeie esse arquivo, ou ponha a pasta do link antes dele no PATH).
 3. **Barra de status e hook de sessão**: os comandos exatos que o instalador gravou nos ajustes do cliente são
    lidos de volta e executados no shell que o cliente usa (a barra de status recebe uma leitura de exemplo);
    os dois devem terminar com código 0. A verificação executa o hook e a barra de status só quando cada um é exatamente o que o instalador gravou, byte a byte

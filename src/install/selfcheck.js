@@ -59,6 +59,9 @@ function loginEnvironment(deps) {
 /** The first line the shell printed for the command: the path it resolves to (empty when it printed nothing). */
 const firstLine = (stdout) => String(stdout ?? '').split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? '';
 
+/** The last line the shell printed for the command: the path it resolves to (empty when it printed nothing). */
+const lastLine = (stdout) => String(stdout ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean).at(-1) ?? '';
+
 /** Whether that path is a file of the link directory: the shim is ours, not another program of the same name. */
 function inBin(found, deps) {
   const value = normal(found, deps), cut = value.lastIndexOf('/');
@@ -124,6 +127,10 @@ async function versionCheck(record, expected, deps) {
 // bash really reads, or the person would edit a file that is never read again.
 const BASH_LOGIN_FILES = ['.bash_profile', '.bash_login', '.profile'];
 
+// The POSIX shells that read `.profile` at login like `sh` does: when `$SHELL` names one of them, the `sh` entry of the
+// check is the shell of the person. A shell outside this list (csh, nu, xonsh) reads no `.profile`, so it is not launched.
+const POSIX_PROFILE_SHELLS = ['dash', 'ash', 'ksh', 'mksh', 'pdksh', 'busybox'];
+
 /**
  * The file a shell reads at login: bash reads the first of its own that exists (the configured one when none does); the
  * other shells read the file the installer writes (their configured login profile).
@@ -162,8 +169,12 @@ async function loginHasBlock(file, deps) {
  * Resolution shells read the person's own startup files BY DESIGN (the same as the non-login launch below reads what applies
  * to every start): a profile that exits early, fails or skips the PATH block is exactly what this finds. The shell of the
  * person's own terminal is always launched (a profile that never received the block, or lost it, must not pass in silence);
- * another installed shell is only launched when its own profile holds the installer's PATH block (the installer took the
- * PATH of that shell upon itself; a bash person with zsh installed must not see a failure about a profile they never use).
+ * a shell that reads `.profile` at login like `sh` does (dash, ash, ksh, mksh, pdksh, busybox) is the shell of the person,
+ * and the `sh` entry is it; a shell outside that list (csh, nu, xonsh) reads no `.profile`, so it is not launched. Another
+ * installed shell is only launched when the file it really reads at login holds the installer's PATH block (the installer
+ * took the PATH of that shell upon itself; a bash person with zsh installed must not see a failure about a profile they
+ * never use, and a bash that reads `.bash_profile` is not proved by a block in `.profile`). The
+ * resolution is the last thing the launch prints: a greeting printed before it is not the answer.
  * Returns `undefined` when there is nothing to prove, `true` when the command is found in the link folder, else the failed
  * check.
  */
@@ -171,18 +182,22 @@ async function loginCheck(record, shell, executable, deps) {
   const { ui, config } = deps;
   if (!shell.login || windowsOf(deps) || deps.noPath || config.path.enabled === false) return undefined;
   const own = currentShell(deps.env, config) ?? config.path.fallbackShell;
-  const key = shell.name === 'sh' ? (own === 'sh' ? 'sh' : null) : (Object.hasOwn(config.path.shells, shell.name) ? shell.name : null);
-  if (key === null) return undefined;
-  const ownShell = shell.name === own;
-  const managed = await managedProfile(deps, key);
-  if (!managed && !ownShell) return undefined;
+  const configured = Object.keys(config.path.shells);
+  // A shell that reads `.profile` at login like `sh` does (dash, ash, ksh) is the shell of the person, and the `sh`
+  // entry is it: the entry reads the very file that shell reads.
+  const posix = POSIX_PROFILE_SHELLS.includes(own);
+  const ownShell = shell.name === own || (posix && shell.name === 'sh');
+  if (!ownShell && !configured.includes(shell.name)) return undefined;
+  // Another installed shell: only when the file it really reads at login holds the installer's PATH block.
+  if (!ownShell && !await loginHasBlock(await loginFile(shell, deps), deps)) return undefined;
   // The link folder was already on the PATH of this terminal (the real one, before the login launch takes it off): the
   // PATH that works may come from another source, so a login launch would prove nothing about the profile.
   if (binInPath(deps)) return undefined;
   const outcome = await attempt(deps, { command: executable, env: loginEnvironment(deps),
     args: shell.login.map((argument) => argument.replaceAll('{command}', QUOTE[shell.quote](config.command))) });
   if (outcome.state === 'missing') return undefined;
-  const found = outcome.state === 'ok' ? firstLine(outcome.stdout) : '';
+  // The resolution is the last thing the launch prints: a greeting of the profile printed before it is not the answer.
+  const found = outcome.state === 'ok' ? lastLine(outcome.stdout) : '';
   if (outcome.state === 'ok' && inBin(found, deps)) return true;
   const why = outcome.state === 'failed' ? outcome.why
     : found ? ui.text('selfcheckLoginOther', { found, bin: deps.bin }) : ui.text('selfcheckNothing');
