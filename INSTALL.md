@@ -129,7 +129,8 @@ registered, in this order, and prints one row, `Self-check (Claude Code)`:
    (`'okit-plugin' 'statusline-collector'`, with `--previous` and its words when your own bar is kept, every word
    single-quoted; on Windows the absolute path of the shim in the link folder), and the shell must find the bare command in
    the link folder; any other bar, including one that runs our script with `node`, shows `skipped  the status bar is not
-   ours, so it was not run`. To find the command the way a new terminal would, the check starts your configured shell,
+   ours, so it was not run`. With `--no-link` there is no shim of ours to attest the bare name, so the status bar is not run (`skipped  installed
+   without a link, so the check cannot tell which command the status bar names; it was not run`). To find the command the way a new terminal would, the check starts your configured shell,
    which reads its usual startup files (for example `BASH_ENV`, `.bashrc`, `.zshenv`); what those files do is yours,
    exactly as when you open a terminal.
 4. **Quota reading**: the status bar leaves its reading. It runs with a temporary state folder, holding the

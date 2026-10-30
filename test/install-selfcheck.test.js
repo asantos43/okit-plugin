@@ -1118,3 +1118,28 @@ test('R5: real run, a preserved bar that is a foreign script called like ours is
   await assert.rejects(fs.stat(marker), { code: 'ENOENT' }, 'the check ran a status bar that is not this installation\'s');
   assert.match(w.text, /not ours/);
 });
+
+// R10: a bare shim name is attested only by a shim of ours; installed with --no-link there is none, so the bar is not run.
+test('R10: installed with --no-link, the bare bar is not run and the skip says why (en and pt-BR)', async (t) => {
+  const w = await world(t, 'linux', { argv: ['install', '--client', CLIENT, '--statusline', '--no-link'] });
+  assert.equal(w.code, 0, w.text);
+  assert.equal(w.checks.filter(isBar).length, 0, 'a bare status bar was run although no shim of ours exists');
+  assert.ok(w.lines().some((line) => /Status bar {2}skipped {2}installed without a link, so the check cannot tell which command the status bar names; it was not run/.test(line)), w.text);
+  assert.ok(!w.lines().some((line) => line.includes('is not ours')), w.text);
+  const x = await world(t, 'linux', { locale: 'pt-BR', argv: ['install', '--client', CLIENT, '--statusline', '--no-link'] });
+  assert.ok(x.lines().some((line) => /instalado sem link, então a verificação não sabe qual comando a barra de status nomeia/.test(line)), x.text);
+});
+
+test('R10: real run, installed with --no-link, a file at <bin>/<command> is not executed as the bar', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
+  let marker;
+  const w = await realWorld(t, { before: async (f) => {
+    marker = join(f.home, 'ran-by-the-check');
+    await fs.mkdir(f.bin, { recursive: true });
+    await fs.writeFile(join(f.bin, 'okit-plugin'), `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+  }, argv: ['install', '--client', CLIENT, '--statusline', '--no-link'] });
+  assert.equal(w.code, 0, w.text);
+  const written = JSON.parse(await fs.readFile(join(w.f.home, '.claude/settings.json'), 'utf8')).statusLine.command;
+  assert.equal(written, "'okit-plugin' 'statusline-collector'", 'the writer no longer writes the bare bar');
+  await assert.rejects(fs.stat(marker), { code: 'ENOENT' }, 'the check ran a file of the link folder that is not our shim');
+  assert.match(w.text, /installed without a link/);
+});

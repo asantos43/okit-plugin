@@ -208,6 +208,7 @@ const TEXTS = Object.freeze({
   selfcheckOff: { en: 'not registered', 'pt-BR': 'não registrado' },
   selfcheckHookForeign: { en: 'the session hook is not exactly ours (it has more in it), so it was not run', 'pt-BR': 'o hook de sessão não é exatamente o nosso (tem mais coisa nele), então não foi executado' },
   selfcheckHookNode: { en: 'the session hook was registered with another node (install again to refresh it), so it was not run', 'pt-BR': 'o hook de sessão foi registrado com outro node (instale de novo para atualizá-lo), então não foi executado' },
+  selfcheckUnlinked: { en: 'installed without a link, so the check cannot tell which command the status bar names; it was not run', 'pt-BR': 'instalado sem link, então a verificação não sabe qual comando a barra de status nomeia; ela não foi executada' },
   selfcheckForeign: { en: 'the status bar is not ours, so it was not run', 'pt-BR': 'a barra de status não é nossa, então não foi executada' },
   selfcheckNotUsed: { en: 'not used by this client', 'pt-BR': 'não usado por este cliente' },
   selfcheckRan: { en: 'ran, exit code 0', 'pt-BR': 'rodou, código de saída 0' },

@@ -129,7 +129,8 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    de atalho que o instalador grava (`'okit-plugin' 'statusline-collector'`, com `--previous` e as suas palavras quando
    a sua barra é mantida, cada palavra entre aspas simples; no Windows, o caminho absoluto do atalho na pasta do link), e
    o shell deve encontrar o comando puro nessa pasta; qualquer outra barra, inclusive uma que rode o nosso script com
-   `node`, aparece como `pulado  a barra de status não é nossa, então não foi executada`. Para achar o comando como um terminal novo faria, a verificação
+   `node`, aparece como `pulado  a barra de status não é nossa, então não foi executada`. Com `--no-link` não há atalho nosso que ateste o comando puro, então a barra de status não é executada (`pulado  instalado
+   sem link, então a verificação não sabe qual comando a barra de status nomeia; ela não foi executada`). Para achar o comando como um terminal novo faria, a verificação
    inicia o seu shell configurado, que lê seus arquivos de inicialização usuais (por exemplo `BASH_ENV`, `.bashrc`,
    `.zshenv`); o que esses arquivos fazem é seu, exatamente como ao abrir um terminal.
 4. **Leitura de cota**: a barra de status deixa sua leitura. Ela roda com uma pasta de estado temporária, só com a

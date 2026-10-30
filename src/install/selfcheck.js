@@ -180,9 +180,11 @@ async function writtenCommands(record, deps) {
  * for this installation: its words, each quoted by `quote`, joined by one space (`words.map(quote).join(' ')`), the first
  * the collector's executable (`collectorExecutable`), then the subcommand, then nothing or `--previous` and its words. Anything
  * the writer would not have written (a double-quoted word, an unquoted one, a character the shell and `commandWords` read
- * differently, another interpreter) is not run. The bare name of the shim must also resolve into the link folder (`inBin`).
+ * differently, another interpreter) is not run. The bare name of the shim is attested only by a shim of ours: the record must
+ * say a link was made (with `--no-link` nothing of ours is in the link folder, and a file of that name there is not ours),
+ * and the name must also resolve into the link folder (`inBin`). Returns `true`, `false`, or `'unlinked'` (a bare name, no link).
  */
-async function isOurBar(command, deps, runner) {
+async function isOurBar(command, deps, runner, record) {
   if (command === null) return false;
   const words = commandWords(command);
   if (!words || words.map(quote).join(' ') !== command) return false;
@@ -190,6 +192,7 @@ async function isOurBar(command, deps, runner) {
   const rest = words.slice(2);
   if ((rest.length && rest[0] !== '--previous') || !collectorArgsValid(rest)) return false;
   if (/[\\/]/.test(words[0])) return inBin(words[0], deps);
+  if (record.link === false) return 'unlinked';
   // A bare name: the first thing the runner's shell finds for it, with the link folder in front, must be in that folder.
   if (!runner) return false;
   const outcome = await attempt(deps, { command: runner.executable, env: environment(deps),
@@ -203,15 +206,17 @@ async function runWritten(record, deps) {
   const written = await writtenCommands(record, deps);
   const shell = shellNamed(deps, config.selfcheck.runner[deps.platform]);
   const executable = shell?.run ? await locate(shell, deps) : null;
-  const ours = written.statusline !== null
-    && await isOurBar(written.statusline, deps, executable === null ? null : { shell, executable });
+  const verdict = written.statusline !== null
+    && await isOurBar(written.statusline, deps, executable === null ? null : { shell, executable }, record);
+  const ours = verdict === true;
   const out = [];
   const reading = { status: 'skip', reason: ui.text('selfcheckOff'), quiet: true };
   const jobs = [
     ...(ours ? [{ id: 'statusline', text: written.statusline, fix: ui.text('selfcheckFixStatusline', { again: again(record, deps), path: written.bar }), failed: 'selfcheckStatuslineFailed' }] : []),
     ...written.hooks.map((text) => ({ id: 'hook', text, fix: ui.text('selfcheckFixHook', { again: again(record, deps), path: written.hookFile }), failed: 'selfcheckHookFailed' })),
   ];
-  if (!ours) {
+  if (verdict === 'unlinked') out.push(skipCheck('statusline', ui.text('selfcheckUnlinked'), { quiet: false }));
+  else if (!ours) {
     // A bar that is called like ours but is not this installation's is told; one that is plainly the person's own stays quiet.
     const alike = written.statusline !== null && collectorCommandIndex(written.statusline, deps.statuslineConfig, config) > 0;
     out.push(skipCheck('statusline', ui.text(written.present ? 'selfcheckForeign' : 'selfcheckOff'), { quiet: !alike }));
