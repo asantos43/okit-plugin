@@ -35,6 +35,12 @@ const LOOKUP = {
 };
 // `exec` returns code -1 and a stderr ending in `timed out` when its time ran out: a refusal must be a real exit.
 const timedOut = (result) => result.stderr.endsWith('timed out');
+// The `version` of the package.json beside the cli.js the login shell resolved (two folders up from src/cli.js).
+const RESOLVED_VERSION = {
+  fish: 'set d (dirname (dirname (readlink -f (command -v okit-plugin)))); node -p "require(\'$d/package.json\').version"',
+  posix: 'd="$(dirname "$(dirname "$(readlink -f "$(command -v okit-plugin)")")")"; node -p "require(\'$d/package.json\').version"',
+};
+const resolvedVersion = (shell) => RESOLVED_VERSION[shell === 'fish' ? 'fish' : 'posix'];
 const lookup = (shell) => LOOKUP[shell === 'fish' ? 'fish' : 'posix'];
 const loginPath = (shell) => (shell === 'fish' ? 'string join : $PATH' : 'printf %s "$PATH"');
 
@@ -82,6 +88,11 @@ describe('install in containers', { skip: reason ?? false, timeout: 3600000 }, (
           assert.equal(found.code, 0, `${shell} -lc exited ${found.code}\n${found.stdout}${found.stderr}`);
           const lines = found.stdout.trim().split('\n');
           assert.deepEqual(lines, [`${home}/.local/bin/okit-plugin`, `${installed}/src/cli.js`, 'exit=0'], `${shell} -lc:\n${found.stdout}${found.stderr}`);
+
+          // The folder name is the installer's own naming: the package.json the shell resolved says what runs.
+          const running = await login(resolvedVersion(shell));
+          assert.equal(running.code, 0, `${shell} -lc could not read the version\n${running.stdout}${running.stderr}`);
+          assert.equal(running.stdout.trim(), server.version, `${shell} -lc runs another version:\n${running.stdout}${running.stderr}`);
 
           // c. Quota recording is not offered by the downloaded script: the installed command writes the status bar.
           const bar = await login(`okit-plugin install --client claude-code --statusline --from ${installed}`);
