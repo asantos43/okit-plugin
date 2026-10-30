@@ -207,6 +207,7 @@ const TEXTS = Object.freeze({
   selfcheckFixNoShell: { en: 'Install a POSIX shell (sh or bash; on Windows, Git for Windows), then run: {again}', 'pt-BR': 'Instale um shell POSIX (sh ou bash; no Windows, o Git for Windows) e rode: {again}' },
   selfcheckOff: { en: 'not registered', 'pt-BR': 'não registrado' },
   selfcheckHookForeign: { en: 'the session hook is not exactly ours (it has more in it), so it was not run', 'pt-BR': 'o hook de sessão não é exatamente o nosso (tem mais coisa nele), então não foi executado' },
+  selfcheckHookNode: { en: 'the session hook was registered with another node (install again to refresh it), so it was not run', 'pt-BR': 'o hook de sessão foi registrado com outro node (instale de novo para atualizá-lo), então não foi executado' },
   selfcheckForeign: { en: 'the status bar is not ours, so it was not run', 'pt-BR': 'a barra de status não é nossa, então não foi executada' },
   selfcheckNotUsed: { en: 'not used by this client', 'pt-BR': 'não usado por este cliente' },
   selfcheckRan: { en: 'ran, exit code 0', 'pt-BR': 'rodou, código de saída 0' },

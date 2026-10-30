@@ -306,7 +306,7 @@ test('S3: the status bar and hook strings run are the ones in the settings file,
 });
 
 test('S3: a string changed after it was written is the string that runs', async (t) => {
-  const changedBar = "'okit-plugin' 'statusline-collector' --previous 'echo' 'changed'";
+  const changedBar = "'okit-plugin' 'statusline-collector' '--previous' 'echo' 'changed'";
   const w = await world(t, 'linux', {
     meddle: async (moment, f) => {
       if (moment !== 'check') return;
@@ -314,18 +314,12 @@ test('S3: a string changed after it was written is the string that runs', async 
       const settings = JSON.parse(await fs.readFile(file, 'utf8'));
       settings.statusLine.command = changedBar;
       await fs.writeFile(file, JSON.stringify(settings));
-      const hookFile = join(f.io.clientRoot, 'settings.json');
-      const hooks = JSON.parse(await fs.readFile(hookFile, 'utf8'));
-      // Still exactly ours (one quoted node path, our script, the subcommand), with another node: that is what runs.
-      hooks.hooks.SessionStart[0].hooks[0].command = hooks.hooks.SessionStart[0].hooks[0].command.replace(/^'[^']*'/, "'/changed/node'");
-      await fs.writeFile(hookFile, JSON.stringify(hooks));
     },
   });
   assert.equal(w.code, 0, w.text);
+  // Still exactly what the writer produces (every word quoted, `--previous` and its words): that is what runs.
   assert.deepEqual(w.checks.filter(isBar).map(barText), [changedBar]);
-  const hook = w.checks.filter(isHook).map(barText);
-  assert.equal(hook.length, 1);
-  assert.ok(hook[0].startsWith("'/changed/node' "), hook[0]);
+  assert.equal(w.checks.filter(isHook).length, 1);
 });
 
 test('S3: a changed string that fails is what fails the run', async (t) => {
@@ -335,7 +329,7 @@ test('S3: a changed string that fails is what fails the run', async (t) => {
       if (moment !== 'check') return;
       const file = join(f.home, '.claude/settings.json');
       const settings = JSON.parse(await fs.readFile(file, 'utf8'));
-      settings.statusLine.command = "'okit-plugin' 'statusline-collector' --previous 'echo' 'changed'";
+      settings.statusLine.command = "'okit-plugin' 'statusline-collector' '--previous' 'echo' 'changed'";
       await fs.writeFile(file, JSON.stringify(settings));
     },
   });
@@ -826,6 +820,39 @@ test('R7: (pt-BR) the skip of a hook with our script in double quotes is in Port
   assert.ok(w.lines().some((line) => /o hook de sessão não é exatamente o nosso/.test(line)), w.text);
 });
 
+// R8: the hook is run only when it is equal to the registrar's string, node path included.
+for (const [name, node] of [['the shell of a foreign program', '/bin/rm'], ['another node', '/foreign/node']]) {
+  test(`R8: ${name} in the node place: the hook is not run and the check says it was registered with another node`, async (t) => {
+    const w = await world(t, 'linux', { meddle: alterHook((command) => command.replace(/^'[^']*'/, `'${node}'`)) });
+    assert.equal(w.code, 0, w.text);
+    assert.equal(w.checks.filter(isHook).length, 0, 'a hook with another node was run');
+    assert.ok(w.lines().some((line) => /Session hook {2}skipped {2}the session hook was registered with another node \(install again to refresh it\)/.test(line)), w.text);
+    assert.ok(!w.lines().some((line) => line.includes('not exactly ours')), w.text);
+  });
+}
+
+test('R8: (pt-BR) the skip of a hook registered with another node is in Portuguese', async (t) => {
+  const w = await world(t, 'linux', { locale: 'pt-BR', meddle: alterHook((command) => command.replace(/^'[^']*'/, "'/foreign/node'")) });
+  assert.equal(w.code, 0, w.text);
+  assert.ok(w.lines().some((line) => /o hook de sessão foi registrado com outro node \(instale de novo para atualizá-lo\)/.test(line)), w.text);
+  assert.doesNotMatch(blockOf(w.lines(), 'pt-BR').join('\n'), ENGLISH);
+});
+
+test('R8: real run, a hook that runs a foreign program in the node place is not executed', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
+  let marker;
+  const w = await realWorld(t, { before: async (f) => {
+    marker = join(f.home, 'ran-by-the-check');
+    const foreign = join(f.home, 'foreign-node');
+    await fs.writeFile(foreign, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+    await fs.mkdir(f.io.clientRoot, { recursive: true });
+    await fs.writeFile(join(f.io.clientRoot, 'settings.json'), JSON.stringify({ hooks: { SessionStart: [
+      { hooks: [{ type: 'command', command: hookCommand(join(f.destination, '1.0.0-claude-code'), foreign) }] }] } }));
+  } });
+  assert.equal(w.code, 0, w.text);
+  await assert.rejects(fs.stat(marker), { code: 'ENOENT' }, 'the check ran a hook with a foreign node');
+  assert.match(w.text, /another node/);
+});
+
 test('R1: (pt-BR) the skip of a hook that is not ours is in Portuguese', async (t) => {
   const w = await world(t, 'linux', { locale: 'pt-BR', meddle: alterHook((command) => `${command} && touch /tmp/never`) });
   assert.equal(w.code, 0, w.text);
@@ -833,13 +860,15 @@ test('R1: (pt-BR) the skip of a hook that is not ours is in Portuguese', async (
   assert.doesNotMatch(blockOf(w.lines(), 'pt-BR').join('\n'), ENGLISH);
 });
 
-test('R1: the recognizer takes the exact command of the writer, with any node path, and nothing else', async () => {
-  const { isOurHook } = await import('../src/install/register.js');
+test('R8: the recognizer is equality with the registrar\'s own string, for the node it writes', async () => {
+  const { isOurHook, hookNode } = await import('../src/install/register.js');
   const path = "/opt/o'k/1.0.0-claude-code";
-  for (const node of ['/usr/bin/node', "/home/a b/it's/node", 'C:\\node.exe']) assert.equal(isOurHook(hookCommand(path, node), path), true, node);
+  assert.equal(isOurHook(hookCommand(path), path), true);
+  assert.equal(isOurHook(hookCommand(path, hookNode()), path, hookNode()), true);
   const ours = hookCommand(path);
   for (const bad of [`${ours} x`, `${ours}; x`, `x; ${ours}`, ours.replace(/^'[^']*'/, 'node'), ours.replace(/^'[^']*'/, ''),
-    ours.replace(/^'[^']*'/, "'a' 'b'"), ours.replace(/^'[^']*'/, "''"), ours.replace('session-start', 'x'), hookCommand('/other', 'node'), 7, null]) {
+    ours.replace(/^'[^']*'/, "'a' 'b'"), ours.replace(/^'[^']*'/, "''"), ours.replace(/^'[^']*'/, "'/foreign/node'"),
+    ours.replace(/^'[^']*'/, "'/bin/rm'"), ours.replace('session-start', 'x'), hookCommand('/other', 'node'), 7, null]) {
     assert.equal(isOurHook(bad, path), false, String(bad));
   }
 });
@@ -946,7 +975,8 @@ test('R4: with --verbose the new terminal is said exactly once', async (t) => {
   assert.equal(countOf(w.text, 'en'), 1, w.text);
 });
 
-// R5: the status bar is run only when it is this installation's (its script, or its shim), not when it is called like it.
+// R5, R9: the status bar is run only when it is byte-for-byte what the installer's writer produces (its shim, every word
+// quoted by `quote`), not when it is called like it.
 const setBar = (command) => async (moment, f) => {
   if (moment !== 'check') return;
   const file = join(f.home, '.claude/settings.json');
@@ -960,6 +990,16 @@ const FOREIGN_BARS = {
   'a shim-named executable by an absolute path elsewhere': () => "'/foreign/bin/okit-plugin' 'statusline-collector'",
   'the short name in another folder': (f) => `'${join(f.bin, '..', 'elsewhere', 'okit')}' 'statusline-collector'`,
   'a bare name that is not the command': () => "'okit' 'statusline-collector'",
+  // R9: nothing but the writer's own output is run.
+  'our own script by node (the installer never writes this form)': (f, record) => `'node' '${cliScript(record.path)}' 'statusline-collector'`,
+  'a foreign interpreter with our script': (f, record) => `'/foreign/node' '${cliScript(record.path)}' 'statusline-collector'`,
+  'the shim by the absolute path of the link folder on POSIX (the writer writes the bare name)': (f) => `'${join(f.bin, 'okit-plugin')}' 'statusline-collector'`,
+  'the shim with a VT character instead of a space': (f) => `'${join(f.bin, 'okit-plugin')}'\vstatusline-collector`,
+  'the bare shim with a VT character instead of a space': () => "'okit-plugin'\vstatusline-collector",
+  'the shim with double quotes': () => '"okit-plugin" "statusline-collector"',
+  'the shim unquoted': () => 'okit-plugin statusline-collector',
+  'the shim with one word unquoted': () => "'okit-plugin' statusline-collector",
+  'the shim with two spaces': () => "'okit-plugin'  'statusline-collector'",
   // R6: on POSIX a backslash is a character of a name, so these are other files than our script.
   'a script that differs from ours by a backslash, single-quoted': (f, record) => `node '${record.path}\\src/cli.js' statusline-collector`,
   'a script that differs from ours by a backslash, double-quoted': (f, record) => `node "${record.path}\\src/cli.js" statusline-collector`,
@@ -979,11 +1019,14 @@ test('R6: an unquoted script with a backslash is what the shell makes of it (the
   assert.equal(w.checks.filter(isBar).length, 0, 'a status bar whose unquoted script has a backslash was run');
 });
 
-test('R6: on Windows the same backslashes are separators, so our script written with them is still ours', async (t) => {
-  const w = await world(t, 'win32', { meddle: setBar((f, record) => `node '${cliScript(record.path).replaceAll('/', '\\')}' statusline-collector`) });
+test('R6, R9: on Windows the bar is the installer\'s own absolute shim path, and it runs; the node form with backslashes does not', async (t) => {
+  const w = await world(t, 'win32');
   assert.equal(w.code, 0, w.text);
   assert.equal(w.checks.filter(isBar).length, 1, w.text);
   assert.ok(!w.lines().some((line) => line.includes('is not ours')), w.text);
+  const x = await world(t, 'win32', { meddle: setBar((f, record) => `node '${cliScript(record.path).replaceAll('/', '\\')}' statusline-collector`) });
+  assert.equal(x.checks.filter(isBar).length, 0, x.text);
+  assert.ok(x.lines().some((line) => /Status bar {2}skipped {2}the status bar is not ours/.test(line)), x.text);
 });
 
 test('R6: the command check compares a backslash on POSIX as a character: a shim path with one is not in the link folder', async (t) => {
@@ -1024,17 +1067,40 @@ test('R5: (pt-BR) the skip of a status bar that is not ours is in Portuguese', a
 });
 
 for (const [name, bar] of Object.entries({
-  'its own script by node': (f, record) => `'node' '${cliScript(record.path)}' 'statusline-collector'`,
-  'its shim by the absolute path of the link folder': (f) => `'${join(f.bin, 'okit-plugin')}' 'statusline-collector'`,
-  'its shim by the bare command': () => "'okit-plugin' 'statusline-collector'",
+  'its shim by the bare command, as the writer writes it': () => "'okit-plugin' 'statusline-collector'",
+  'its shim chained with --previous, as the writer writes it': () => "'okit-plugin' 'statusline-collector' '--previous' 'echo' 'it'\\''s'",
 })) {
-  test(`R5: ${name}: the status bar is run and passes`, async (t) => {
+  test(`R5, R9: ${name}: the status bar is run and passes`, async (t) => {
     const w = await world(t, 'linux', { meddle: setBar(bar) });
     assert.equal(w.code, 0, w.text);
     assert.equal(w.checks.filter(isBar).length, 1, w.text);
     assert.ok(!w.lines().some((line) => line.includes('is not ours')), w.text);
   });
 }
+
+test('R9: the bar the installer itself writes is run', async (t) => {
+  const w = await world(t, 'linux');
+  assert.equal(w.checks.filter(isBar).length, 1, w.text);
+  assert.ok(!w.lines().some((line) => line.includes('is not ours')), w.text);
+  const record = await readRecord(w.destination, CLIENT, fs, w.io.config);
+  const written = JSON.parse(await fs.readFile(join(w.home, '.claude/settings.json'), 'utf8')).statusLine.command;
+  assert.equal(written, "'okit-plugin' 'statusline-collector'", record.path);
+});
+
+test('R9: real run, a bar with a VT between the shim and the subcommand is not executed (the shell reads one word)', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
+  let marker;
+  const w = await realWorld(t, { before: async (f) => {
+    marker = join(f.home, 'ran-by-the-check');
+    // `commandWords` reads the VT as a space; the shell reads `okit-plugin<VT>statusline-collector` as one name, found in the PATH.
+    await fs.mkdir(f.bin, { recursive: true });
+    await fs.writeFile(join(f.bin, 'okit-plugin\vstatusline-collector'), `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+    await fs.mkdir(join(f.home, '.claude'), { recursive: true });
+    await fs.writeFile(join(f.home, '.claude/settings.json'), JSON.stringify({ statusLine: { type: 'command', command: 'okit-plugin\vstatusline-collector' } }));
+  }, argv: ['install', '--client', CLIENT] });
+  assert.equal(w.code, 0, w.text);
+  await assert.rejects(fs.stat(marker), { code: 'ENOENT' }, 'the check ran the file the VT-joined name resolves to');
+  assert.match(w.text, /not ours/);
+});
 
 test('R5: real run, a preserved bar that is a foreign script called like ours is not executed', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
   let marker;

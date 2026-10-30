@@ -54,7 +54,7 @@ export function collectorCommandIndex(command, settings, config = {}) {
 
 // The executable the status bar command names. Claude Code runs it through Git Bash on Windows, which cannot run a .cmd
 // by bare name: there it is the absolute path of the extensionless shim (forward slashes, as Git Bash writes them).
-function collectorExecutable(deps) {
+export function collectorExecutable(deps) {
   const { config, bin, platform } = deps;
   return platform === config.windowsPlatform && bin ? join(bin, config.command).replaceAll('\\', '/') : config.command;
 }

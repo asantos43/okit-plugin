@@ -3,8 +3,9 @@ import { HOME_ENV, SELFCHECK_ENV, paths } from '../store.js';
 import { READING_FILE } from '../quota/statusline-collector.js';
 import { readRecord } from './place.js';
 import { quote, binInPath, activationWarning, managedProfile } from './link.js';
-import { collectorCommandIndex, commandWords, settingsPath } from './statusline.js';
-import { cliScript, hookScript, isOurHook } from './register.js';
+import { collectorCommandIndex, collectorExecutable, commandWords, settingsPath } from './statusline.js';
+import { collectorArgsValid } from '../quota/statusline-collector.js';
+import { cliScript, hookScript, hookNode, isAnotherNode, isOurHook } from './register.js';
 import { clientRoot } from './config.js';
 import { presenterOf, clientLabel } from './present.js';
 
@@ -161,30 +162,33 @@ async function writtenCommands(record, deps) {
   const line = barSettings?.statusLine;
   const statusline = line?.type === 'command' && typeof line.command === 'string' ? line.command : null;
   const script = cliScript(record.path), quoted = hookScript(record.path);
-  // A hook is run only when it is exactly ours (`isOurHook`); one that names our script, however quoted (single, double,
-  // none), is told and not run.
+  // A hook is run only when it is EQUAL to what the registrar writes (`isOurHook`); one that names our script, however
+  // quoted (single, double, none), is told and not run. `anotherNode`: the ones that differ only in the node path.
+  const node = hookNode();
   const named = (Array.isArray(hookSettings?.hooks?.SessionStart) ? hookSettings.hooks.SessionStart : [])
     .flatMap((entry) => (Array.isArray(entry?.hooks) ? entry.hooks : []))
     .filter((hook) => hook?.type === 'command' && typeof hook.command === 'string' && (hook.command.includes(script) || hook.command.includes(quoted)))
     .map((hook) => hook.command);
-  const hooks = named.filter((command) => isOurHook(command, record.path));
-  return { bar, hookFile, statusline, present: line !== undefined && line !== null, hooks, altered: named.length - hooks.length };
+  const hooks = named.filter((command) => isOurHook(command, record.path, node));
+  const altered = named.filter((command) => !isOurHook(command, record.path, node));
+  return { bar, hookFile, statusline, present: line !== undefined && line !== null, hooks, altered: altered.length,
+    anotherNode: altered.length > 0 && altered.every((command) => isAnotherNode(command, record.path)) };
 }
 
 /**
- * Whether a status bar string read back from the settings is THIS installation's collector, and not only called like it
- * (`collectorCommandIndex` recognises by file name, for the registrar). Ours is either `node <our script> statusline-collector`
- * (the script is `cliScript(record.path)`, the piece the hook recognizer uses) or the shim form (`<command> statusline-collector`,
- * bare or by the absolute path of the link folder) whose executable resolves into the link folder (`inBin`, as the command check).
+ * Whether a status bar string read back from the settings is EXACTLY what the installer's writer (`planStatusline`) produces
+ * for this installation: its words, each quoted by `quote`, joined by one space (`words.map(quote).join(' ')`), the first
+ * the collector's executable (`collectorExecutable`), then the subcommand, then nothing or `--previous` and its words. Anything
+ * the writer would not have written (a double-quoted word, an unquoted one, a character the shell and `commandWords` read
+ * differently, another interpreter) is not run. The bare name of the shim must also resolve into the link folder (`inBin`).
  */
-async function isOurBar(command, record, deps, runner) {
-  if (command === null || collectorCommandIndex(command, deps.statuslineConfig, deps.config) <= 0) return false;
+async function isOurBar(command, deps, runner) {
+  if (command === null) return false;
   const words = commandWords(command);
-  const name = (word) => String(word).replaceAll('\\', '/').split('/').at(-1).replace(/\.(exe|cmd|bat|ps1)$/i, '');
-  if (name(words[0]) === 'node' && words[2] === deps.statuslineConfig.subcommand) {
-    return normal(words[1], deps) === normal(cliScript(record.path), deps);
-  }
-  if (words[1] !== deps.statuslineConfig.subcommand || name(words[0]) !== deps.config.command) return false;
+  if (!words || words.map(quote).join(' ') !== command) return false;
+  if (words[0] !== collectorExecutable(deps) || words[1] !== deps.statuslineConfig.subcommand) return false;
+  const rest = words.slice(2);
+  if ((rest.length && rest[0] !== '--previous') || !collectorArgsValid(rest)) return false;
   if (/[\\/]/.test(words[0])) return inBin(words[0], deps);
   // A bare name: the first thing the runner's shell finds for it, with the link folder in front, must be in that folder.
   if (!runner) return false;
@@ -200,7 +204,7 @@ async function runWritten(record, deps) {
   const shell = shellNamed(deps, config.selfcheck.runner[deps.platform]);
   const executable = shell?.run ? await locate(shell, deps) : null;
   const ours = written.statusline !== null
-    && await isOurBar(written.statusline, record, deps, executable === null ? null : { shell, executable });
+    && await isOurBar(written.statusline, deps, executable === null ? null : { shell, executable });
   const out = [];
   const reading = { status: 'skip', reason: ui.text('selfcheckOff'), quiet: true };
   const jobs = [
@@ -212,7 +216,7 @@ async function runWritten(record, deps) {
     const alike = written.statusline !== null && collectorCommandIndex(written.statusline, deps.statuslineConfig, config) > 0;
     out.push(skipCheck('statusline', ui.text(written.present ? 'selfcheckForeign' : 'selfcheckOff'), { quiet: !alike }));
   }
-  if (written.altered) out.push(skipCheck('hook', ui.text('selfcheckHookForeign'), { quiet: false }));
+  if (written.altered) out.push(skipCheck('hook', ui.text(written.anotherNode ? 'selfcheckHookNode' : 'selfcheckHookForeign'), { quiet: false }));
   else if (!written.hooks.length) out.push(skipCheck('hook', ui.text('selfcheckOff'), { quiet: true }));
   if (!jobs.length) return [...out, { id: 'collector', ...reading }];
 

@@ -119,13 +119,16 @@ registered, in this order, and prints one row, `Self-check (Claude Code)`:
    (remove or rename that file, or put the link folder before it on the PATH).
 3. **Status bar and session hook**: the exact commands the installer wrote into the client's settings file are
    read back and run in the shell the client uses (a sample reading is sent to the status bar); both must exit 0.
-   The check runs only what is exactly ours. The session hook is run only when its string is exactly what the
-   installer writes (one quoted node path, our script, `hook session-start`); a hook that has anything more in it
-   (a command appended or put before it, another subcommand) shows `skipped  the session hook is not exactly ours`
-   and is not run. During the check the hook starts no process at all (no client probe, no quota command).
-   The status bar is run only when it names this installation's script (`node <install folder>/src/cli.js
-   statusline-collector`) or its shim (`okit-plugin statusline-collector`, bare or by the path of the link folder,
-   and the shell must find it in that folder); one that is only called like ours shows `skipped  the status bar is not
+   The check runs the hook and the status bar only when each is exactly what the installer wrote, byte for byte (it is
+   compared with the installer's own output, never parsed). The session hook is run only when its string equals the one
+   the installer writes (this node, our script, `hook session-start`); any other hook, such as one with a command
+   appended or put before it, another subcommand or another quoting, shows `skipped  the session hook is not exactly
+   ours` and is not run; one that differs only in the node path shows `skipped  the session hook was registered with
+   another node (install again to refresh it)`. During the check the hook starts no process at all (no client probe,
+   no quota command). The status bar is run only when it is the shim form the installer writes
+   (`'okit-plugin' 'statusline-collector'`, with `--previous` and its words when your own bar is kept, every word
+   single-quoted; on Windows the absolute path of the shim in the link folder), and the shell must find the bare command in
+   the link folder; any other bar, including one that runs our script with `node`, shows `skipped  the status bar is not
    ours, so it was not run`. To find the command the way a new terminal would, the check starts your configured shell,
    which reads its usual startup files (for example `BASH_ENV`, `.bashrc`, `.zshenv`); what those files do is yours,
    exactly as when you open a terminal.

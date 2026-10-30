@@ -119,15 +119,17 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    uma linha de Correção (remova ou renomeie esse arquivo, ou ponha a pasta do link antes dele no PATH).
 3. **Barra de status e hook de sessão**: os comandos exatos que o instalador gravou nos ajustes do cliente são
    lidos de volta e executados no shell que o cliente usa (a barra de status recebe uma leitura de exemplo);
-   os dois devem terminar com código 0. A verificação roda só o que é exatamente nosso. O hook de sessão só é
-   executado quando a sua string é exatamente a que o instalador grava (um caminho do node entre aspas, o nosso
-   script, `hook session-start`); um hook com qualquer coisa a mais (um comando acrescentado ou posto antes, outro
-   subcomando) aparece como `pulado  o hook de sessão não é exatamente o nosso` e não é executado. Durante a
-   verificação o hook não inicia nenhum processo (nenhuma sonda de cliente, nenhum comando de cota).
-   A barra de status só é executada quando nomeia o script desta instalação (`node <pasta da instalação>/src/cli.js
-   statusline-collector`) ou o seu atalho (`okit-plugin statusline-collector`, puro ou pelo caminho da pasta do link,
-   e o shell deve encontrá-lo nessa pasta); uma que apenas se chama como a nossa aparece como `pulado  a barra de
-   status não é nossa, então não foi executada`. Para achar o comando como um terminal novo faria, a verificação
+   os dois devem terminar com código 0. A verificação executa o hook e a barra de status só quando cada um é exatamente o que o instalador gravou, byte a byte
+   (é comparado com a saída do próprio instalador, nunca interpretado). O hook de sessão só é executado quando a sua
+   string é igual à que o instalador grava (este node, o nosso script, `hook session-start`); qualquer outro hook, como um
+   com comando acrescentado ou posto antes, outro subcomando ou outras aspas, aparece como `pulado  o hook de sessão
+   não é exatamente o nosso` e não é executado; um que difere só no caminho do node aparece como `pulado  o hook de
+   sessão foi registrado com outro node (instale de novo para atualizá-lo)`. Durante a verificação o hook não inicia
+   nenhum processo (nenhuma sonda de cliente, nenhum comando de cota). A barra de status só é executada quando é a forma
+   de atalho que o instalador grava (`'okit-plugin' 'statusline-collector'`, com `--previous` e as suas palavras quando
+   a sua barra é mantida, cada palavra entre aspas simples; no Windows, o caminho absoluto do atalho na pasta do link), e
+   o shell deve encontrar o comando puro nessa pasta; qualquer outra barra, inclusive uma que rode o nosso script com
+   `node`, aparece como `pulado  a barra de status não é nossa, então não foi executada`. Para achar o comando como um terminal novo faria, a verificação
    inicia o seu shell configurado, que lê seus arquivos de inicialização usuais (por exemplo `BASH_ENV`, `.bashrc`,
    `.zshenv`); o que esses arquivos fazem é seu, exatamente como ao abrir um terminal.
 4. **Leitura de cota**: a barra de status deixa sua leitura. Ela roda com uma pasta de estado temporária, só com a

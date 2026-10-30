@@ -6,24 +6,29 @@ import { presenterOf, pick } from './present.js';
 
 /**
  * The command of the SessionStart hook of an installation. The one source of the string: the installer writes it into the
- * client's settings, and the post-install check recognises what is ours by the script this names (`cliScript`, the same piece
- * the status bar's `node <script> statusline-collector` form is compared with).
+ * client's settings, and the post-install check runs a hook only when what it reads back is EQUAL to this string, byte for
+ * byte (`isOurHook`); it never parses a command to decide that it looks like ours.
  */
 export const cliScript = (path) => join(path, 'src/cli.js');
 export const hookScript = (path) => quote(cliScript(path));
 const HOOK_ARGUMENTS = 'hook session-start';
-export const hookCommand = (path, node = process.execPath) => `${quote(node)} ${hookScript(path)} ${HOOK_ARGUMENTS}`;
-// One word as `quote` writes it: single-quoted, any quote inside escaped.
-const QUOTED_WORD = /^'(?:[^']|'\\'')+'$/;
+/** The node the registrar writes into the hook: the one source for the writer (`hookCommand`) and for the check. */
+export const hookNode = () => process.execPath;
+export const hookCommand = (path, node = hookNode()) => `${quote(node)} ${hookScript(path)} ${HOOK_ARGUMENTS}`;
+
+/** Whether a hook string read back from the settings is exactly what the registrar writes: equality, nothing else. */
+export const isOurHook = (command, path, node = hookNode()) => typeof command === 'string' && command === hookCommand(path, node);
 
 /**
- * Whether a hook string read back from the settings is exactly the command of the installation at `path`: one quoted
- * node path, our script, the subcommand, nothing else. Built from the pieces `hookCommand` writes. The one recognizer:
- * the post-install check runs a hook only when this says so.
+ * Whether a hook string differs from the registrar's only in the node path (a node that was upgraded or moved): the
+ * script and the arguments are ours, one single-quoted word stands where the node goes. Used only to choose the sentence
+ * that tells why the hook was not run; a string is never run because of this.
  */
-export function isOurHook(command, path) {
+export function isAnotherNode(command, path) {
   const tail = ` ${hookScript(path)} ${HOOK_ARGUMENTS}`;
-  return typeof command === 'string' && command.endsWith(tail) && QUOTED_WORD.test(command.slice(0, -tail.length));
+  if (typeof command !== 'string' || !command.endsWith(tail)) return false;
+  const word = command.slice(0, -tail.length);
+  return word.length >= 2 && word.startsWith("'") && word.endsWith("'") && !word.slice(1, -1).split("'\\''").join('').includes("'");
 }
 
 export function registrationPlan(record, deps, action = 'install') {
