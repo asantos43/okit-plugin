@@ -119,17 +119,17 @@ test('no-cost client without tokens and absent or wrong confirmation never launc
 });
 
 const previewBaselines = {
-  'claude-code/en': ['593c93c325b4ea1efdd41f5f25e12331e2fefa4edea444605cafa3a328dae4b5',
+  'claude-code/en': ['15ad996f70c88b01f0dcbf9fc64f826330fb309c8ec9bae369346208788fbfba',
     '1cf99ad4c76186b5bee0fec56f578a11f1a687a191322456786c7f96a47352e3'],
-  'claude-code/pt-BR': ['6b2779d27c9765619e52d94773cba0e2278c704e945c6a6b53e4f7e90eb8439f',
+  'claude-code/pt-BR': ['29cdcef0a98917e33c3bf911be0597a9b5d78a6c55dfed8042d8cbff92365dd9',
     '6d6707128ce3371f4a077ce349d167d46aa2ce9d90978386a53f0b4c43e902ad'],
-  'codex/en': ['b1dd49921981c7d0775f3df3a02a3892b6120a1d174dd6cb76543ae618073218',
+  'codex/en': ['9f1439d2ac89c4293610a9674b3bba897bd8cd0cfc8e38dcd05db0f539531cf2',
     '1c582c29c3ee7725e802c44c318a22a15cbf35545688b9e55c6096abb6aca265'],
-  'codex/pt-BR': ['fd81ca4e85f7a92d1b263954a5018c1e8478c3dad8f1d4dd34a0ffb3b2804139',
+  'codex/pt-BR': ['0080f5e2c5426a7677a81b1b099f1ddb2da66bce0fbf855a84e58c1accee9fe1',
     '6a2b20d5da03b3b26593e1040d6944c95960b3566c3015f96b2f9c6c29ab4fe7'],
-  'opencode/en': ['d4cf333e7b7a5a7ee2a6b8e34bd46f33369cf21718a1fb214f931779d58520b9',
+  'opencode/en': ['ab63331d635f4c3d1788f72ed251f18690c0eb28f3b2080ced69568808e90aa4',
     '5283f1e03cd4b0107dce473db5c159502bd6bba7b5fd0d42c9f962bc2372baf4'],
-  'opencode/pt-BR': ['5949e1caa0a1c5ab1eff01c7bf2bc4ed73ade0721953c035ff29d554c523dadf',
+  'opencode/pt-BR': ['f0818fc38f1aec67e83be5dc59602dfe489061d55c4687cdcea5cde5c444c3f0',
     'a669aa1edf1fcd28201f78a933ed3b03b800b91d42724d6be8c88e78d41a3b52'],
 };
 
