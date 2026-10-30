@@ -125,9 +125,12 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    okit-plugin (...)`, com uma linha `Correção:` que diz o arquivo que o shell lê no login (para o bash, o primeiro de
    `~/.bash_profile`, `~/.bash_login`, `~/.profile` que existir; para o zsh, o `$ZDOTDIR/.zprofile` quando o `ZDOTDIR` está
    definido, senão o `~/.zprofile`; para o fish, o `$XDG_CONFIG_HOME/fish/config.fish` quando o `XDG_CONFIG_HOME` está
-   definido, senão o `~/.config/fish/config.fish`) e a linha a pôr antes do que o interrompe; quando esse
+   definido, senão o `~/.config/fish/config.fish`) e a linha a pôr antes de qualquer coisa que pare esse arquivo com
+   `return` ou falhe (um `exit` encerra o próprio shell de login, então a correção pede que ele saia); quando esse
    arquivo não guarda nenhum bloco de PATH, a correção pede a linha (ou pede para rodar o instalador de novo sem
-   `--no-path`). As linhas de erro do próprio shell aparecem com `--verbose`. Essa partida lê os seus arquivos de
+   `--no-path`). Um limite: quando o seu `~/.zshenv` define ou sobrescreve o `ZDOTDIR`, a correção diz o arquivo do
+   ambiente herdado pela verificação, que pode não ser o arquivo que o zsh realmente lê; a verificação em si está certa.
+   As linhas de erro do próprio shell aparecem com `--verbose`. Essa partida lê os seus arquivos de
    inicialização de propósito; ela resolve só o comando simples e nunca roda texto seu. Ela não é feita quando a pasta
    do link já estava no seu PATH (o PATH que funciona pode vir de outra fonte), com `--no-path` ou `--no-link`, nem no
    Windows.
@@ -135,7 +138,8 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    shell imprime para `okit-plugin` (`command -v`, `Get-Command` ou `where`) deve ser um arquivo dessa pasta: o
    nosso comando (a primeira linha nas partidas simples; na partida de login, qualquer linha que o shell imprimiu pode ser
    a resolução, então uma saudação do seu perfil impressa antes da resposta, ou uma mensagem impressa depois dela, não a
-   esconde). Se outro programa com o mesmo nome vier antes, a linha falha e mostra o caminho
+   esconde, desde que a linha nomeie `okit-plugin`: outro programa da pasta do link impresso pelo seu perfil não é a
+   resolução). Se outro programa com o mesmo nome vier antes, a linha falha e mostra o caminho
    encontrado, com uma linha de Correção (remova ou renomeie esse arquivo, ou ponha a pasta do link antes dele no PATH).
 3. **Barra de status e hook de sessão**: os comandos exatos que o instalador gravou nos ajustes do cliente são
    lidos de volta e executados no shell que o cliente usa (a barra de status recebe uma leitura de exemplo);

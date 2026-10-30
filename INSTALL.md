@@ -125,15 +125,19 @@ registered, in this order, and prints one row, `Self-check (Claude Code)`:
    with a `Fix:` line that names the file the shell reads at login (for bash, the first of `~/.bash_profile`,
    `~/.bash_login`, `~/.profile` that exists; for zsh, `$ZDOTDIR/.zprofile` when `ZDOTDIR` is set, else `~/.zprofile`; for
    fish, `$XDG_CONFIG_HOME/fish/config.fish` when `XDG_CONFIG_HOME` is set, else `~/.config/fish/config.fish`) and the
-   line to put before whatever stops it; when that file holds no PATH
-   block, the fix asks for the line itself (or for the installer to be run again without `--no-path`). The shell's own error
+   line to put before anything that stops that file with `return` or fails (an `exit` ends the login shell itself, so
+   the fix asks for it to go); when that file holds no PATH
+   block, the fix asks for the line itself (or for the installer to be run again without `--no-path`). One limit: when your
+   `~/.zshenv` sets or overrides `ZDOTDIR`, the fix names the file of the environment the check inherited, which may not
+   be the file zsh really reads; the check itself is right. The shell's own error
    lines show with `--verbose`. This launch reads your startup files by design; it resolves only the bare command and never
    runs text of yours. It is not made when the link folder was already on your PATH (the PATH that works may come from
    another source), with `--no-path` or `--no-link`, or on Windows.
    The link folder is put in front of the PATH of the processes the check starts, and the line each shell
    prints for `okit-plugin` (`command -v`, `Get-Command` or `where`) must be a file in that folder: our command (the
    first line for the plain launches; for the login launch, any line the shell printed may be the resolution, so a greeting
-   of your profile printed before the answer, or a message printed after it, does not hide it). If another program with the
+   of your profile printed before the answer, or a message printed after it, does not hide it, as long as the line names
+   `okit-plugin`: another program of the link folder printed by your profile is not the resolution). If another program with the
    same name comes first, the row fails and shows the path found, with a
    Fix line (remove or rename that file, or put the link folder before it on the PATH).
 3. **Status bar and session hook**: the exact commands the installer wrote into the client's settings file are

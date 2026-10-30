@@ -68,6 +68,12 @@ function inBin(found, deps) {
   return cut > 0 && value.slice(0, cut) === normal(deps.bin, deps);
 }
 
+/** Whether that path names the command: the file name (after the last `/`) is the command itself (the shim's name). */
+function namesCommand(found, deps) {
+  const value = normal(found, deps);
+  return value.slice(value.lastIndexOf('/') + 1) === deps.config.command;
+}
+
 /** `{NAME}` of a candidate path from the environment; null when a variable is not set. */
 function expand(template, deps) {
   let missing = false;
@@ -179,7 +185,8 @@ async function loginHasBlock(file, deps) {
  * install). A shell that reads `.profile` at login like `sh` does (dash, ash, ksh, mksh, pdksh, busybox) is the shell of the
  * person, and the `sh` entry is it; a shell outside that list (csh, nu, xonsh) reads no `.profile`, so it is not launched.
  * Any line the launch prints may be the resolution: a greeting printed before it, or a message printed after it (a trap on
- * EXIT), is not the answer.
+ * EXIT), is not the answer. A line that names the command is the resolution; a line that names another program (of the link
+ * folder or not) is not.
  * Returns `undefined` when there is nothing to prove, `true` when the command is found in the link folder, else the failed
  * check.
  */
@@ -197,17 +204,23 @@ async function loginCheck(record, shell, executable, deps) {
   const outcome = await attempt(deps, { command: executable, env: loginEnvironment(deps),
     args: shell.login.map((argument) => argument.replaceAll('{command}', QUOTE[shell.quote](config.command))) });
   if (outcome.state === 'missing') return undefined;
-  // Any line the launch printed may be the resolution; when none of them is a file of the link folder, the last one is
-  // what the launch found.
+  // Any line the launch printed may be the resolution, but only a line that names the command is one: a startup file that
+  // prints another program (of the link folder or elsewhere) is not the command. When none of them is a file of the link
+  // folder, the launch found no command.
   const printed = outcome.state === 'ok' ? printedLines(outcome.stdout) : [];
-  if (printed.some((line) => inBin(line, deps))) return true;
-  const found = printed.at(-1) ?? '';
+  const answers = printed.filter((line) => namesCommand(line, deps));
+  if (answers.some((line) => inBin(line, deps))) return true;
+  const last = printed.at(-1) ?? '';
+  // The row names the last line that names the command; when there is none, the last line printed, unless that one is a
+  // program of the link folder (then the launch resolved nothing at all).
+  const found = answers.at(-1) ?? (inBin(last, deps) ? '' : last);
   const why = outcome.state === 'failed' ? outcome.why
     : found ? ui.text('selfcheckLoginOther', { found, bin: deps.bin }) : ui.text('selfcheckNothing');
   const { file, line } = await loginProfile(shell, deps);
   const tail = String(outcome.output ?? '').trim().split('\n').slice(-3).join('\n').slice(-400);
-  // A file that reads at login and holds the block stops before it: the line goes before whatever stops it. A file without
-  // the block needs the line itself: the one the installer writes, or the installer's own.
+  // A file that reads at login and holds the block stops before it: the line goes before whatever stops it (a `return` or
+  // a failure; an `exit` ends the login shell itself, so the fix asks for it to go). A file without the block needs the line
+  // itself: the one the installer writes, or the installer's own.
   const fix = await loginHasBlock(file, deps) ? ui.text('selfcheckFixLogin', { file, line, again: again(record, deps) })
     : ui.text('selfcheckFixLoginMissing', { file, shell: shell.name, line, again: again(record, deps) });
   return badCheck('command', ui.text('selfcheckLoginFail', { shell: shell.name, command: config.command, why }),
