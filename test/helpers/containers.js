@@ -3,6 +3,7 @@
 
 import { execFile, spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -70,6 +71,8 @@ export function buildImage(name) {
  */
 export async function startReleaseServer() {
   const folder = await mkdtemp(join(tmpdir(), 'okit-container-'));
+  let server;
+  try {
   const { main } = await import(new URL('../../scripts/build-release.js', import.meta.url));
   const errors = [];
   const code = await main(['--out', join(folder, 'out'), '--pair', 'claude-code:linux', '--arch', 'x64'],
@@ -83,7 +86,7 @@ export async function startReleaseServer() {
   let base = '';
   const release = () => JSON.stringify({ tag_name: `v${version}`, prerelease: false, published_at: '2026-01-01', assets: [
     { name, browser_download_url: `${base}/package` }, { name: manifestName, browser_download_url: `${base}/manifest` }] });
-  const server = createServer((req, res) => {
+  server = createServer((req, res) => {
     if (req.url.endsWith('/latest')) res.end(release());
     else if (req.url.endsWith('/releases')) res.end(`[${release()}]`);
     else if (req.url === '/package') res.end(archive);
@@ -96,17 +99,26 @@ export async function startReleaseServer() {
     await new Promise((done) => { server.close(done); server.closeAllConnections(); });
     await rm(folder, { recursive: true, force: true });
   } };
+  } catch (error) {   // nothing is left behind when the build, the read or `listen` fails
+    if (server?.listening) await new Promise((done) => { server.close(done); server.closeAllConnections(); });
+    await rm(folder, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 /**
  * Starts a container of the image (host network, the install script mounted read-only, the release server's address) that
- * sleeps for a while; the test runs commands in it with `exec` and removes it with `stop`. `--rm` and the sleep bound it.
+ * sleeps for a while; the test runs commands in it with `exec` (by `name`) and removes it with `stop(name)`, which also cleans up a
+ * run that failed. `--rm` and the sleep bound it. Returns `{name, started}`: `started` settles when the run is done.
  */
-export async function startContainer(name, server) {
-  const { stdout } = await run('podman', ['run', '-d', '--rm', '--network=host', '--security-opt', 'label=disable',
+export function startContainer(name, server) {
+  // The helper picks the name BEFORE the run, so a run that times out after creating the container can still be removed.
+  const containerName = `okit-check-${process.pid}-${randomBytes(4).toString('hex')}`;
+  const started = run('podman', ['run', '-d', '--rm', '--name', containerName, '--network=host', '--security-opt', 'label=disable',
     '-v', `${join(ROOT, 'install.sh')}:/install.sh:ro`, '--user', USER,
-    '-e', `OKIT_API=${server.base}`, '-e', 'OKIT_REPO=fake/repo', imageTag(name), 'sleep', '900'], { timeout: 60000 });
-  return stdout.trim();
+    '-e', `OKIT_API=${server.base}`, '-e', 'OKIT_REPO=fake/repo', imageTag(name), 'sleep', '900'], { timeout: 60000 })
+    .then(() => undefined, async (error) => { await stop(containerName); throw error; });
+  return { name: containerName, started };
 }
 
 /**

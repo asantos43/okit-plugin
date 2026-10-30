@@ -33,6 +33,8 @@ const LOOKUP = {
   fish: 'command -v okit-plugin; readlink -f (command -v okit-plugin); okit-plugin status >/dev/null; echo "exit=$status"',
   posix: 'command -v okit-plugin; readlink -f "$(command -v okit-plugin)"; okit-plugin status >/dev/null; echo "exit=$?"',
 };
+// `exec` returns code -1 and a stderr ending in `timed out` when its time ran out: a refusal must be a real exit.
+const timedOut = (result) => result.stderr.endsWith('timed out');
 const lookup = (shell) => LOOKUP[shell === 'fish' ? 'fish' : 'posix'];
 const loginPath = (shell) => (shell === 'fish' ? 'string join : $PATH' : 'printf %s "$PATH"');
 
@@ -46,15 +48,16 @@ describe('install in containers', { skip: reason ?? false, timeout: 3600000 }, (
       before(() => buildImage(distro), { timeout: 900000 });
 
       async function fresh(t) {
-        const id = await startContainer(distro, server);
-        t.after(() => stop(id));
-        return id;
+        const container = startContainer(distro, server);
+        t.after(() => stop(container.name));
+        await container.started;
+        return container.name;
       }
 
       if (distro === 'alpine') {
         test('the image has no bash: busybox sh is the only shell', { timeout: 120000 }, async (t) => {
           const id = await fresh(t);
-          assert.notEqual((await exec(id, ['sh', '-c', 'command -v bash'])).code, 0, 'bash exists in the alpine image');
+          assert.ok((await exec(id, ['sh', '-c', 'command -v bash'])).code > 0, 'bash exists in the alpine image');
         });
       }
 
@@ -65,7 +68,7 @@ describe('install in containers', { skip: reason ?? false, timeout: 3600000 }, (
           const installed = `${home}/.local/share/okit-plugin/${server.version}-claude-code`;
 
           // Before the install the shell finds nothing: the image does not carry the command by itself.
-          assert.notEqual((await login('command -v okit-plugin')).code, 0, 'the image already has okit-plugin');
+          assert.ok((await login('command -v okit-plugin')).code > 0, 'the image already has okit-plugin');
 
           // a. install.sh, as the person would run it, in the shell that is theirs.
           const run = await exec(id, ['sh', '/install.sh', '--client', 'claude-code'], { env: { SHELL: PATHS[shell] } });
@@ -76,6 +79,7 @@ describe('install in containers', { skip: reason ?? false, timeout: 3600000 }, (
 
           // b. A fresh non-interactive login launch finds the command through the PATH block, and it is this version.
           const found = await login(lookup(shell));
+          assert.equal(found.code, 0, `${shell} -lc exited ${found.code}\n${found.stdout}${found.stderr}`);
           const lines = found.stdout.trim().split('\n');
           assert.deepEqual(lines, [`${home}/.local/bin/okit-plugin`, `${installed}/src/cli.js`, 'exit=0'], `${shell} -lc:\n${found.stdout}${found.stderr}`);
 
@@ -83,11 +87,15 @@ describe('install in containers', { skip: reason ?? false, timeout: 3600000 }, (
           const bar = await login(`okit-plugin install --client claude-code --statusline --from ${installed}`);
           assert.equal(bar.code, 0, `${bar.stdout}${bar.stderr}`);
           assert.match(bar.stdout, /Quota recording\s+ok\s+\S+settings\.json/, bar.stdout);
-          const settings = JSON.parse((await exec(id, ['cat', `${home}/.claude/settings.json`])).stdout);
+          const written = await exec(id, ['cat', `${home}/.claude/settings.json`]);
+          assert.equal(written.code, 0, `settings.json was not read\n${written.stderr}`);
+          const settings = JSON.parse(written.stdout);
           assert.equal(settings.statusLine?.type, 'command');
           const command = settings.statusLine.command;
           assert.equal(typeof command, 'string');
-          const path = (await login(loginPath(shell))).stdout.trim();
+          const loginEnv = await login(loginPath(shell));
+          assert.equal(loginEnv.code, 0, `the login PATH was not read\n${loginEnv.stderr}`);
+          const path = loginEnv.stdout.trim();
           assert.ok(path.split(':').includes(`${home}/.local/bin`), `the login PATH lacks the link folder: ${path}`);
           const state = '/tmp/okit-state';
           const resets = Math.floor(Date.now() / 1000) + 3600;
@@ -105,17 +113,21 @@ describe('install in containers', { skip: reason ?? false, timeout: 3600000 }, (
         const run = await exec(id, ['sh', '/install.sh', '--client', 'claude-code'], { env: { OKIT_MIN_NODE: '99', SHELL: PATHS.sh } });
         assert.equal(run.code, 2, `${run.stdout}${run.stderr}`);
         assert.match(run.stderr, /Node >=99 required/);
-        assert.equal((await exec(id, ['sh', '-c', `ls -A ${home}`])).stdout.trim(), '', 'the home folder is not empty');
+        const listing = await exec(id, ['sh', '-c', `ls -A ${home}`]);
+        assert.equal(listing.code, 0, `ls failed\n${listing.stderr}`);
+        assert.equal(listing.stdout.trim(), '', 'the home folder is not empty');
       });
 
       test(`${distro}: a shell that cannot run the check fails the run with the fix, and the install stays`, { timeout: 120000 }, async (t) => {
         const id = await fresh(t);
         // The self-check starts every shell of the machine; a zsh that exits 9 is a real failure it must report (a shim
         // ahead of the real one, or in place of it on alpine, which has no zsh).
-        await exec(id, ['sh', '-c', "printf '#!/bin/sh\\nexit 9\\n' > /usr/local/bin/zsh && chmod 755 /usr/local/bin/zsh"], { user: 'root' });
+        const shim = await exec(id, ['sh', '-c', "printf '#!/bin/sh\\nexit 9\\n' > /usr/local/bin/zsh && chmod 755 /usr/local/bin/zsh"], { user: 'root' });
+        assert.equal(shim.code, 0, `the zsh shim was not written\n${shim.stderr}`);
         const run = await exec(id, ['sh', '/install.sh', '--client', 'claude-code'], { env: { SHELL: PATHS.sh } });
         const text = run.stdout + run.stderr;
-        assert.notEqual(run.code, 0, `the install said success\n${text}`);
+        assert.ok(run.code > 0, `the install did not fail with a real exit code (${run.code})\n${text}`);
+        assert.ok(!timedOut(run), `the install hung\n${text}`);
         assert.match(text, /installed but not working: 1 of \d+ checks failed/, text);
         assert.match(text, /zsh does not find okit-plugin \(exit code 9\)/, text);
         assert.match(text, /Fix: /, text);
@@ -124,11 +136,15 @@ describe('install in containers', { skip: reason ?? false, timeout: 3600000 }, (
 
       test(`${distro}: a command of the same name that is not ours is left alone and the run fails in plain words`, { timeout: 120000 }, async (t) => {
         const id = await fresh(t);
-        await exec(id, ['sh', '-c', `mkdir -p ${home}/.local/bin && printf '#!/bin/sh\\necho foreign\\n' > ${home}/.local/bin/okit-plugin && chmod 755 ${home}/.local/bin/okit-plugin`]);
+        const planted = await exec(id, ['sh', '-c', `mkdir -p ${home}/.local/bin && printf '#!/bin/sh\\necho foreign\\n' > ${home}/.local/bin/okit-plugin && chmod 755 ${home}/.local/bin/okit-plugin`]);
+        assert.equal(planted.code, 0, `the foreign command was not planted\n${planted.stderr}`);
         const run = await exec(id, ['sh', '/install.sh', '--client', 'claude-code'], { env: { SHELL: PATHS.sh } });
-        assert.notEqual(run.code, 0, `${run.stdout}${run.stderr}`);
+        assert.ok(run.code > 0, `the install did not fail with a real exit code (${run.code})\n${run.stdout}${run.stderr}`);
+        assert.ok(!timedOut(run), `the install hung\n${run.stdout}${run.stderr}`);
         assert.match(run.stderr, /is not the plugin command\. Rename or remove it/, run.stderr);
-        assert.equal((await exec(id, [`${home}/.local/bin/okit-plugin`])).stdout.trim(), 'foreign', 'the foreign command was overwritten');
+        const still = await exec(id, [`${home}/.local/bin/okit-plugin`]);
+        assert.equal(still.code, 0, `the foreign command did not run\n${still.stderr}`);
+        assert.equal(still.stdout.trim(), 'foreign', 'the foreign command was overwritten');
       });
     });
   }
