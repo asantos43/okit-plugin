@@ -7,7 +7,8 @@ import { after, test } from 'node:test';
 import { artifactName } from '../src/release/build.js';
 import { manifestFileName } from '../src/release/checksums.js';
 import { planPairs, releaseConfig } from '../src/release/config.js';
-import { buildNotes, parseUnreleased } from '../src/release/notes.js';
+import { buildNotes, parseUnreleased, planFiles, renderNotes } from '../src/release/notes.js';
+import { renderChecklist } from '../src/release/checklist.js';
 import { main, readArgs } from '../scripts/release-notes.js';
 
 const roots = [];
@@ -179,4 +180,68 @@ test('the proof table says the arm64 assets stand on the x64 payload and were no
   const other = await fixture();
   other.config = releaseConfig({ architectures: ['riscv64'] });
   assert.ok((await buildNotes(other)).notes.includes('| payload identical to x64; not run on this architecture |'));
+});
+
+// Every map of `notes` that releaseConfig merges: a partial override keeps the other defaults and reaches
+// the text. The texts are English only in the repository (there is no pt-BR text of the proof or its basis),
+// so a Portuguese override stands for a translation and must render as given.
+const NOTE_MAPS = [
+  { map: 'proofBy', override: { linux: 'Revisora' }, kept: { windows: 'Producer', macos: 'Producer' },
+    notes: ['| Revisora |', '| Producer |'], checklist: ['| Proof owner | Revisora |', '| Proof owner | Producer |'] },
+  { map: 'status', override: { partial: 'Prova parcial' }, kept: { unproven: 'not proven', proven: 'proven' },
+    proof: { 'codex:macos': 'Prova parcial' },
+    notes: ['| Prova parcial |', '| not proven |'], checklist: ['| Proof | Prova parcial |', '| Proof | not proven |'] },
+  { map: 'basis', override: { arm64: 'carga idêntica à x64; não executada em arm64 real' },
+    kept: { x64: 'proof recorded for this payload' },
+    notes: ['| carga idêntica à x64; não executada em arm64 real |', '| proof recorded for this payload |'],
+    checklist: ['| Proof basis | carga idêntica à x64; não executada em arm64 real |',
+      '| Proof basis | proof recorded for this payload |'] },
+  { map: 'basis', override: { x64: 'prova gravada para esta carga' },
+    kept: { arm64: 'payload identical to x64; not run on real arm64 hardware' },
+    notes: ['| prova gravada para esta carga |', '| payload identical to x64; not run on real arm64 hardware |'],
+    checklist: ['| Proof basis | prova gravada para esta carga |',
+      '| Proof basis | payload identical to x64; not run on real arm64 hardware |'] },
+  { map: 'headings', override: { gaps: 'Lacunas', proof: 'Prova por par' },
+    kept: { version: 'Version', install: 'Installation and update' },
+    notes: ['## Lacunas', '## Prova por par', '## Installation and update'], checklist: [] },
+  { map: 'labels', override: { basis: 'Base', state: 'Prova' }, kept: { pair: 'Pair', signer: 'Proof owner' },
+    notes: ['| Pair | Prova | Proof owner | Base |'], checklist: ['| Prova | not proven |', '| Base | ', '| Proof owner | '] },
+];
+
+for (const { map, override, kept, proof = {}, notes, checklist } of NOTE_MAPS) {
+  test(`a partial override of notes.${map} (${Object.keys(override)}) keeps the other defaults and is rendered`, () => {
+    const config = releaseConfig({ notes: { [map]: override } });
+    for (const [key, value] of Object.entries({ ...releaseConfig().notes[map], ...override })) {
+      assert.equal(config.notes[map][key], value, `${map}.${key}`);
+    }
+    for (const [key, value] of Object.entries(kept)) assert.equal(config.notes[map][key], value, `${map}.${key} kept`);
+    assert.deepEqual(Object.keys(config.notes[map]).sort(), Object.keys({ ...releaseConfig().notes[map], ...override }).sort());
+    const { pairs } = planFiles({ config, packageJson });
+    const text = renderNotes({ config, packageJson, pairs, lines: ['- change'], proof });
+    for (const needle of notes) assert.ok(text.includes(needle), `notes: ${needle}`);
+    const record = renderChecklist({ config, packageJson, pairs, proof });
+    for (const needle of checklist) assert.ok(record.includes(needle), `checklist: ${needle}`);
+  });
+}
+
+test('notes.basis for an architecture the defaults do not know: the override is used, basisOther is the fallback', () => {
+  const unknown = releaseConfig({ architectures: ['x64', 'riscv64'] });
+  const render = (config) => {
+    const { pairs } = planFiles({ config, packageJson });
+    return { notes: renderNotes({ config, packageJson, pairs, lines: ['- change'] }), record: renderChecklist({ config, packageJson, pairs }) };
+  };
+  const fallback = render(unknown);
+  for (const text of [fallback.notes, fallback.record]) {
+    assert.ok(text.includes('payload identical to x64; not run on this architecture'));
+    assert.ok(text.includes('proof recorded for this payload'));
+  }
+  const given = releaseConfig({ architectures: ['x64', 'riscv64'],
+    notes: { basis: { riscv64: 'emulada, não executada' }, basisOther: 'sem prova nesta arquitetura' } });
+  assert.equal(given.notes.basis.x64, 'proof recorded for this payload');
+  assert.equal(given.notes.basis.arm64, 'payload identical to x64; not run on real arm64 hardware');
+  const own = render(given);
+  for (const text of [own.notes, own.record]) assert.ok(text.includes('emulada, não executada'));
+  assert.ok(!own.notes.includes('sem prova nesta arquitetura'));
+  const other = render(releaseConfig({ architectures: ['riscv64'], notes: { basisOther: 'sem prova nesta arquitetura' } }));
+  for (const text of [other.notes, other.record]) assert.ok(text.includes('sem prova nesta arquitetura'));
 });

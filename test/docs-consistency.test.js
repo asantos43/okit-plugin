@@ -55,6 +55,21 @@ test('documented tool, check and pair counts match the source', async () => {
     * DEFAULT_CONFIG.release.architectures.length, 18);
 });
 
+test('every file name template in the docs carries the architecture', async () => {
+  const entries = await readdir(resolve(root, 'docs'), { withFileTypes: true, recursive: true });
+  const files = ['README.md', 'README.pt-BR.md', 'INSTALL.md', 'INSTALL.pt-BR.md',
+    ...entries.filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+      .map((entry) => resolve(entry.parentPath, entry.name))];
+  let seen = 0;
+  for (const file of files) {
+    for (const match of (await readFile(resolve(root, file), 'utf8')).matchAll(/<P>-<V>-<C>-<S>(-<A>)?/g)) {
+      seen += 1;
+      assert.ok(match[1], `${file}: "${match[0]}" lacks -<A>`);
+    }
+  }
+  assert.ok(seen >= 6, 'the templates of both RELEASING files were found');
+});
+
 test('the six supported system/architecture pairs are listed in the install and release docs, in both languages', async () => {
   const pairs = ['linux/x64', 'linux/arm64', 'macos/x64', 'macos/arm64', 'windows/x64', 'windows/arm64'];
   for (const suffix of ['', '.pt-BR']) {
