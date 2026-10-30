@@ -498,7 +498,7 @@ async function fixture(t) {
   deps.fetch = fetch;
   const io = { ...deps, pkg, arch: 'x64', tmpdir: home, tty: false, stdout: deps.out, stderr: deps.out,
     adapters: [], readQuota: async () => ({ source: 'off' }),
-    run: async (command) => { commands.push(command); return answerCheck(command); },
+    run: async (command) => { commands.push(command); return answerCheck(command, { bin }); },
     stopDaemon: async () => { events.push('stop'); return true; },
     startDaemon: async () => { events.push('start'); }, autostart: async () => { events.push('autostart'); },
     smoke: async () => { events.push('smoke'); return { code: 0 }; } };

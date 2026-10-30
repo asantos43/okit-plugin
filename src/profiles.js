@@ -20,7 +20,10 @@ const PROFILE_MAX_TURNS = Object.freeze({
 });
 
 // A shell of the post-install check that reads `-c <string>`: it finds the command with `command -v`, and it runs a string.
-const posixShell = (name, executable = name) => ({ name, executable, quote: 'posix', resolve: ['-c', 'command -v {command}'], run: ['-c'] });
+// `login` is the same resolution as the next terminal does it (a login launch, which reads the profile that holds the PATH
+// block); fish takes its flag apart (`-l -c`). Without it (`login: false`) the shell is only started without a profile.
+const posixShell = (name, executable = name, { login = true } = {}) => ({ name, executable, quote: 'posix', resolve: ['-c', 'command -v {command}'], run: ['-c'],
+  ...(login ? { login: name === 'fish' ? ['-l', '-c', 'command -v {command}'] : ['-lc', 'command -v {command}'] } : {}) });
 
 export const DEFAULT_CONFIG = {
   trajectory: {
@@ -129,6 +132,8 @@ export const DEFAULT_CONFIG = {
     // samples those strings get on stdin. `{command}` in `resolve` is the command, written for the shell's own quoting;
     // `candidates` are the places of an executable that is not on the PATH (`{NAME}` is an environment variable, and a
     // candidate whose variable is not set is dropped); `{temp}` in `hookInput` is the temporary state root of the check.
+    // `login`, where a shell has it, is the launch the next terminal makes: it reads the person's own startup files (that is
+    // the point of it, as the profile may stop early), with the link folder taken off the PATH so only a profile can add it.
     selfcheck: {
       timeoutMs: 10000,
       // The keys of config.json copied into the temporary state root: the ones the checked scripts need (the status bar's
@@ -136,12 +141,12 @@ export const DEFAULT_CONFIG = {
       stateKeys: ['statuslineCollector', 'limits', 'staleMinutes'],
       shells: {
         linux: [posixShell('bash'), posixShell('zsh'), posixShell('sh'), posixShell('fish')],
-        darwin: [posixShell('zsh'), posixShell('bash'), posixShell('sh'), posixShell('sh -c', '/bin/sh')],
+        darwin: [posixShell('zsh'), posixShell('bash'), posixShell('sh'), posixShell('sh -c', '/bin/sh', { login: false })],
         win32: [
           { name: 'powershell', executable: 'powershell.exe', quote: 'powershell',
             resolve: ['-NoProfile', '-NonInteractive', '-Command', '$c = Get-Command {command} -ErrorAction SilentlyContinue; if (-not $c) { exit 1 }; $c.Source'] },
           { name: 'cmd', executable: 'cmd.exe', quote: 'none', resolve: ['/d', '/s', '/c', 'where', '{command}'] },
-          { ...posixShell('git-bash', 'bash.exe'),
+          { ...posixShell('git-bash', 'bash.exe', { login: false }),
             candidates: ['{CLAUDE_CODE_GIT_BASH_PATH}', '{ProgramFiles}/Git/bin/bash.exe', '{ProgramFiles(x86)}/Git/bin/bash.exe', '{LOCALAPPDATA}/Programs/Git/bin/bash.exe'] },
         ],
       },

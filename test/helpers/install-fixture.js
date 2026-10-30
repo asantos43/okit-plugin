@@ -17,7 +17,7 @@ export const FORMAT = { linux: 'tar.gz', darwin: 'tar.gz', win32: 'zip' };
  * reading there, as the real collector does, and a shell asked for the command prints the first folder of its PATH. A fake
  * `run` returns this with the command object it was given.
  */
-export async function answerCheck({ command = '', env, args = [] }) {
+export async function answerCheck({ command = '', env, args = [] }, { bin } = {}) {
   const folder = env?.[HOME_ENV];
   const text = args.map(String);
   if (folder && text.some((item) => item.includes('statusline-collector'))) {
@@ -28,7 +28,10 @@ export async function answerCheck({ command = '', env, args = [] }) {
   // A shell asked where the command is says the first folder of the PATH it was given (the way a real shell finds it).
   if (/command -v|Get-Command/.test(text.at(-1) ?? '') || text.at(-2) === 'where') {
     const windows = command.toLowerCase().endsWith('.exe');
-    const first = String(env?.[Object.keys(env ?? {}).find((name) => name.toLowerCase() === 'path')] ?? '').split(windows ? ';' : ':')[0];
+    // A login launch gets a PATH without the link folder: the fake profile puts it back (by default `<HOME>/bin`, the fixtures' own).
+    const login = ['-lc', '-l'].includes(text[0]);
+    const first = login ? (bin ?? join(env?.HOME ?? '', 'bin'))
+      : String(env?.[Object.keys(env ?? {}).find((name) => name.toLowerCase() === 'path')] ?? '').split(windows ? ';' : ':')[0];
     return { stdout: `${first}${windows ? '\\' : '/'}okit-plugin${text.at(-2) === 'where' || text.at(-1).includes('Get-Command') ? '.cmd' : ''}\n` };
   }
   return {};
@@ -69,7 +72,7 @@ export async function fixture(t, platform = 'linux', { tty = false, ask, read } 
     env: { HOME: home, PATH: platform === 'win32' ? '' : bin },
     pkg, arch: 'x64', tmpdir: scratch, tty, ask, read, outTty: false, clientRoot: join(home, 'client'),
     stdout: out, stderr: out, out, adapters: [], readQuota: async () => ({ source: 'off' }),
-    detect: async () => true, run: async (command) => { commands.push(command); return answerCheck(command); },
+    detect: async () => true, run: async (command) => { commands.push(command); return answerCheck(command, { bin }); },
     pathExecute: async () => ({ stdout: 'true\n' }),
     policyExecute: async () => ({ stdout: 'LocalMachine=RemoteSigned\n' }),
     stopDaemon: async () => true, startDaemon: async () => {}, autostart: async () => {}, smoke: async () => ({ code: 0 }) };

@@ -119,22 +119,22 @@ test('no-cost client without tokens and absent or wrong confirmation never launc
 });
 
 const previewBaselines = {
-  'claude-code/en': ['5a0a846959d0e4d2530d7faee2e861de83d3256cfcdc713a51c480baa1eae3a4',
+  'claude-code/en': ['a16e11a3043bf4303c793187aa784e74a33828e293a7d5a797c1fbc3768e2261',
     '1cf99ad4c76186b5bee0fec56f578a11f1a687a191322456786c7f96a47352e3'],
-  'claude-code/pt-BR': ['5e6213ffedcd1309413df56d86138f36ba01a0e403d469c196ae56318c752879',
+  'claude-code/pt-BR': ['711570f0bbb8c548d2aba3256c473bf34ab1692c49bd9ea988d5e4e9af8b8f1b',
     '6d6707128ce3371f4a077ce349d167d46aa2ce9d90978386a53f0b4c43e902ad'],
-  'codex/en': ['5e50dc00d1a8d1fd75349da042bc31930ff926bdb3cd15ee928562ef61c811e3',
+  'codex/en': ['e6bd6e0b4aaccc50e00e4eeb795c4b25c38ce105e2144192246bd6cc6ef6be50',
     '1c582c29c3ee7725e802c44c318a22a15cbf35545688b9e55c6096abb6aca265'],
-  'codex/pt-BR': ['aca5be468a4f6a33d77ee1844c32d698db15ce6914114f78c7007dfad446a28f',
+  'codex/pt-BR': ['c47ee83c5bb1ab8f840dd9209a8e6992c9e1168ee52f86b8b9afdd362505746a',
     '6a2b20d5da03b3b26593e1040d6944c95960b3566c3015f96b2f9c6c29ab4fe7'],
-  'opencode/en': ['d1ac481ac7d0aa7032b1ce80f89d14faae23608b6eed44c235d08616f9c63a0a',
+  'opencode/en': ['3e5e8fcffe4b0cca120f13b64822de400f66056474e318a93dd0e9ac02226525',
     '5283f1e03cd4b0107dce473db5c159502bd6bba7b5fd0d42c9f962bc2372baf4'],
-  'opencode/pt-BR': ['bbce555526b3f9ca7c55e6cebc18f2337442290d7c86f3ed9bd7206e9e2d0389',
+  'opencode/pt-BR': ['d5d81c031a9634b08edc161f1a2fed6d4799de5b6591382f0ce5139cd8695f3d',
     'a669aa1edf1fcd28201f78a933ed3b03b800b91d42724d6be8c88e78d41a3b52'],
 };
 
 test('dry-run hash and text match the committed entry without launching', async (t) => {
-  // SHA-256 of plan (it embeds the whole config, so it moves when a default does: D98 step 1 changed release.architectures, step 2 added install.selfcheck) and exact preview text from the pre-D84 entry,
+  // SHA-256 of plan (it embeds the whole config, so it moves when a default does: D98 step 1 changed release.architectures, step 2 added install.selfcheck, D103 added its `login` launch forms) and exact preview text from the pre-D84 entry,
   // with the confirmed fixture and a fixed quota timestamp. No git subprocess.
   const baseline = previewBaselines;
   for (const client of ['claude-code', 'codex', 'opencode']) {

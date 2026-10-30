@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { HOME_ENV, SELFCHECK_ENV, paths } from '../store.js';
 import { READING_FILE } from '../quota/statusline-collector.js';
 import { readRecord } from './place.js';
-import { quote, binInPath, activationWarning, managedProfile } from './link.js';
+import { quote, binInPath, activationWarning, managedProfile, currentShell } from './link.js';
 import { collectorCommandIndex, collectorExecutable, commandWords, settingsPath } from './statusline.js';
 import { collectorArgsValid } from '../quota/statusline-collector.js';
 import { cliScript, hookScript, hookNode, isAnotherNode, isOurHook } from './register.js';
@@ -47,6 +47,13 @@ function normal(path, deps) {
   let value = String(path);
   if (windowsOf(deps)) value = value.replaceAll('\\', '/').replace(/^\/([a-z])\//i, '$1:/').toLowerCase();
   return value.replace(/\/+$/, '');
+}
+
+/** The environment of a login launch: the link folder is taken OFF the PATH, so only a startup file of the shell can add it. */
+function loginEnvironment(deps) {
+  const key = Object.keys(deps.env).find((name) => name === 'PATH') ?? 'PATH';
+  const kept = String(deps.env[key] ?? '').split(':').filter((folder) => folder && normal(folder, deps) !== normal(deps.bin, deps));
+  return { ...deps.env, [key]: kept.join(':') };
 }
 
 /** The first line the shell printed for the command: the path it resolves to (empty when it printed nothing). */
@@ -113,6 +120,41 @@ async function versionCheck(record, expected, deps) {
   return okCheck('version', expected);
 }
 
+/** The login profile of a shell and the line the installer writes in it (its own PATH block holds the same words). */
+function loginProfile(shell, deps) {
+  const shells = deps.config.path.shells;
+  const file = (shells[shell.name] ?? shells[deps.config.path.fallbackShell]).login;
+  const bin = quote(deps.bin);
+  return { file: join(deps.home, file), line: shell.name === 'fish' ? `set -gx PATH ${bin} $PATH` : `export PATH=${bin}\${PATH:+":$PATH"}` };
+}
+
+/**
+ * The launch the next terminal makes: the shell as a login shell, resolving only the bare command (never text of the person).
+ * Resolution shells read the person's own startup files BY DESIGN (the same as the non-login launch below reads what applies
+ * to every start): a profile that exits early, fails or skips the PATH block is exactly what this finds. It is made only for
+ * a shell whose profile holds the installer's PATH block (the installer took the PATH of that shell upon itself; a PATH that
+ * the terminal already had by other means, or `--no-path`, is the person's). Returns `undefined` when there is nothing to
+ * prove, `true` when the command is found in the link folder, else the failed check.
+ */
+async function loginCheck(record, shell, executable, deps) {
+  const { ui, config } = deps;
+  if (!shell.login || windowsOf(deps) || deps.noPath || config.path.enabled === false) return undefined;
+  const own = currentShell(deps.env, config) ?? config.path.fallbackShell;
+  const key = shell.name === 'sh' ? (own === 'sh' ? 'sh' : null) : (Object.hasOwn(config.path.shells, shell.name) ? shell.name : null);
+  if (key === null || !await managedProfile(deps, key)) return undefined;
+  const outcome = await attempt(deps, { command: executable, env: loginEnvironment(deps),
+    args: shell.login.map((argument) => argument.replaceAll('{command}', QUOTE[shell.quote](config.command))) });
+  if (outcome.state === 'missing') return undefined;
+  const found = outcome.state === 'ok' ? firstLine(outcome.stdout) : '';
+  if (outcome.state === 'ok' && inBin(found, deps)) return true;
+  const why = outcome.state === 'failed' ? outcome.why
+    : found ? ui.text('selfcheckLoginOther', { found, bin: deps.bin }) : ui.text('selfcheckNothing');
+  const { file, line } = loginProfile(shell, deps);
+  const tail = String(outcome.output ?? '').trim().split('\n').slice(-3).join('\n').slice(-400);
+  return badCheck('command', ui.text('selfcheckLoginFail', { shell: shell.name, command: config.command, why }),
+    ui.text('selfcheckFixLogin', { file, line, again: again(record, deps) }), { shell: shell.name, output: tail });
+}
+
 /** 2. A non-interactive launch of each shell of the platform finds the command; a shell that is not installed is skipped. */
 async function commandChecks(record, deps) {
   const { ui, config } = deps;
@@ -135,8 +177,14 @@ async function commandChecks(record, deps) {
         ui.text('selfcheckFixElsewhere', { found: found || ui.text('selfcheckNothing'), bin: deps.bin, shell: shell.name, again: again(record, deps) }), { shell: shell.name }));
       continue;
     }
-    results.push(outcome.state === 'ok' ? okCheck('command', ui.text('selfcheckFound'), { shell: shell.name })
-      : badCheck('command', ui.text('selfcheckNotFound', { shell: shell.name, command: config.command, why: outcome.why }),
+    if (outcome.state === 'ok') {
+      // Found without a profile; the next terminal reads one, so the login launch must find it too.
+      const login = await loginCheck(record, shell, executable, deps);
+      if (login?.status === 'fail') { results.push(login); continue; }
+      results.push(okCheck('command', ui.text(login === true ? 'selfcheckFoundLogin' : 'selfcheckFound'), { shell: shell.name }));
+      continue;
+    }
+    results.push(badCheck('command', ui.text('selfcheckNotFound', { shell: shell.name, command: config.command, why: outcome.why }),
         ui.text('selfcheckFixCommand', { bin: deps.bin, shell: shell.name, again: again(record, deps) }),
         { shell: shell.name, output: outcome.output }));
   }
