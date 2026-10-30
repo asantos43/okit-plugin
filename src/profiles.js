@@ -305,8 +305,11 @@ export const DEFAULT_CONFIG = {
     outputDir: 'dist/release',
     clients: ['claude-code', 'codex', 'opencode'],
     systems: ['linux', 'windows', 'macos'],
-    // One payload per architecture; the architecture is part of the name.
-    architectures: [process.arch],
+    // One payload per architecture; the architecture is part of the name and only routes the asset:
+    // the package is plain Node (no native code, no bundled Node), so the x64 and arm64 payloads of a
+    // client and a system are byte-identical. Written out, never `process.arch`: a build gives the same
+    // set of assets on any machine.
+    architectures: ['x64', 'arm64'],
     formats: { linux: 'tar.gz', windows: 'zip', macos: 'tar.gz' },
     // The name model. `{package}`, `{version}`, `{client}`, `{system}`,
     // `{arch}` and `{ext}` are the values of the pair.
@@ -434,7 +437,16 @@ export const DEFAULT_CONFIG = {
         pair: 'Pair',
         state: 'Proof',
         signer: 'Proof owner',
+        basis: 'Proof basis',
       },
+      // What the proof of a pair stands on, by architecture. The proof record is by client and system: the
+      // payload of every architecture is the same bytes, so the label only routes the asset.
+      basis: {
+        x64: 'proof recorded for this payload',
+        arm64: 'payload identical to x64; not run on real arm64 hardware',
+      },
+      // The basis of an architecture the map above does not name.
+      basisOther: 'payload identical to x64; not run on this architecture',
       // The prerequisite of the version: the Node version of the package.
       prerequisites: 'Node {engines} is required (from `package.json.engines.node`).',
       // The prerequisite of a package that asks for no Node version.

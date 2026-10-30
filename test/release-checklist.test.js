@@ -26,30 +26,30 @@ async function fixture(user = {}) {
 }
 after(async () => { for (const root of roots) await rm(root, { recursive: true, force: true }); });
 
-// Corpus: must pass — nine build pairs, matching version, absent/present manifest,
+// Corpus: must pass — eighteen build pairs (nine client and system pairs, two architectures), matching version, absent/present manifest,
 // repeated identical generation and configured labels/signers/proof states.
 // Must refuse — mismatched version, invalid pairs/proof/manifest, filled record,
 // unknown flags (including --force), and missing argument values.
-test('nine unchecked build pairs carry every field, both layers and system signers', async () => {
+test('eighteen unchecked build pairs carry every field, both layers and system signers', async () => {
   const options = await fixture();
   const result = await buildChecklist(options);
   assert.equal(result.refusal, null);
-  assert.equal(result.pairs.length, 9);
+  assert.equal(result.pairs.length, 18);
   assert.ok(result.file.endsWith('example-release-2.3.4-release-checklist.md'));
-  assert.equal((result.checklist.match(/^## \[ \]/gm) ?? []).length, 9);
+  assert.equal((result.checklist.match(/^## \[ \]/gm) ?? []).length, 18);
   for (const pair of planFiles(options).pairs) {
     assert.ok(result.checklist.includes(`## [ ] ${pair.client} × ${pair.system} (${pair.arch})`));
     assert.ok(result.checklist.includes(`| Payload filename | ${pair.file} |`));
   }
   for (const label of Object.values(options.config.checklist.labels)) {
-    assert.equal(result.checklist.split(`| ${label} |`).length - 1, 9);
+    assert.equal(result.checklist.split(`| ${label} |`).length - 1, 18);
   }
-  assert.equal(result.checklist.split('### In-process smoke').length - 1, 9);
-  assert.equal(result.checklist.split('### D25 real-client scenario').length - 1, 9);
-  assert.equal(result.checklist.split('| Skip / absent driver |  |').length - 1, 18);
-  assert.equal(result.checklist.split('| Proof owner | Producer |').length - 1, 6);
-  assert.equal(result.checklist.split('| Proof owner | Director |').length - 1, 3);
-  assert.equal(result.checklist.split('| Source revision |  |').length - 1, 9);
+  assert.equal(result.checklist.split('### In-process smoke').length - 1, 18);
+  assert.equal(result.checklist.split('### D25 real-client scenario').length - 1, 18);
+  assert.equal(result.checklist.split('| Skip / absent driver |  |').length - 1, 36);
+  assert.equal(result.checklist.split('| Proof owner | Producer |').length - 1, 12);
+  assert.equal(result.checklist.split('| Proof owner | Director |').length - 1, 6);
+  assert.equal(result.checklist.split('| Source revision |  |').length - 1, 18);
   assert.ok(result.checklist.includes('`demo smoke`'));
   assert.ok(result.checklist.includes('`demo client-smoke`'));
   assert.ok(result.checklist.includes('Producer signature for Windows/macOS'));
@@ -58,15 +58,15 @@ test('nine unchecked build pairs carry every field, both layers and system signe
 test('manifest digests are read by exact payload name; absent manifest leaves blanks', async () => {
   const options = await fixture();
   const empty = await buildChecklist(options);
-  assert.equal(empty.checklist.split('| Payload SHA-256 |  |').length - 1, 9);
+  assert.equal(empty.checklist.split('| Payload SHA-256 |  |').length - 1, 18);
   const folder = join(options.root, options.config.outputDir);
   await mkdir(folder, { recursive: true });
   const pairs = planFiles(options).pairs;
-  const hashes = pairs.map((pair, index) => ({ name: pair.file, hash: String(index).repeat(64) }));
+  const hashes = pairs.map((pair, index) => ({ name: pair.file, hash: index.toString(16).padStart(2, '0').repeat(32) }));
   await writeFile(join(folder, manifestFileName(packageJson)), hashes.map(({ name, hash }) => `${hash}  ${name}\n`).join(''));
   const result = await buildChecklist({ ...options, revision: 'reviewed-commit' });
   for (const { hash } of hashes) assert.ok(result.checklist.includes(`| Payload SHA-256 | ${hash} |`));
-  assert.equal(result.checklist.split('| Source revision | reviewed-commit |').length - 1, 9);
+  assert.equal(result.checklist.split('| Source revision | reviewed-commit |').length - 1, 18);
   assert.equal((await readdir(folder)).length, 1); // No checklist/notes hashes or output writes.
 });
 
@@ -76,7 +76,7 @@ test('CLI dry-run, identical rerun and filled-record protection', async () => {
   const messages = [];
   const args = ['--out', out, '--version', packageJson.version, '--revision', 'abc123'];
   assert.equal(await main([...args, '--dry-run'], { ...io, stdout: (s) => messages.push(s) }), 0);
-  assert.equal(messages.filter((s) => s.startsWith('would list:')).length, 9);
+  assert.equal(messages.filter((s) => s.startsWith('would list:')).length, 18);
   assert.ok(messages[0].includes(out));
   assert.ok(!(await readdir(root)).includes('output'));
   assert.equal(await main(args, io), 0);
@@ -147,5 +147,19 @@ test('invalid configured proof and malformed or unsafe manifests refuse', async 
     await writeFile(join(folder, manifestFileName(packageJson)), raw);
     assert.match((await buildChecklist(options)).refusal, /invalid checksum manifest/);
     assert.deepEqual(await readdir(folder), [manifestFileName(packageJson)]);
+  }
+});
+
+// D98: every asset has its own record, and the record says what its proof stands on.
+test('each architecture has its own record with the basis of its proof', async () => {
+  const options = await fixture();
+  const result = await buildChecklist(options);
+  assert.equal(result.refusal, null);
+  assert.equal(result.checklist.split('| Proof basis | payload identical to x64; not run on real arm64 hardware |').length - 1, 9);
+  assert.equal(result.checklist.split('| Proof basis | proof recorded for this payload |').length - 1, 9);
+  for (const pair of planFiles(options).pairs) {
+    const record = result.checklist.split('## [ ] ').find((part) => part.startsWith(`${pair.client} × ${pair.system} (${pair.arch})\n`));
+    assert.ok(record.includes(`| OS / version / architecture | ${pair.system} / / ${pair.arch} |`), pair.file);
+    assert.ok(record.includes(`| Payload filename | ${pair.file} |`), pair.file);
   }
 });

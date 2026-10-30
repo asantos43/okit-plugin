@@ -50,7 +50,7 @@ test('CLI dry-run writes nothing and two actual runs write identical bytes', asy
   const messages = [];
   const args = ['--out', out, '--version', packageJson.version];
   assert.equal(await main([...args, '--dry-run'], { ...io, stdout: (s) => messages.push(s) }), 0);
-  assert.equal(messages.filter((s) => s.startsWith('would list:')).length, 9);
+  assert.equal(messages.filter((s) => s.startsWith('would list:')).length, 18);
   assert.ok(!(await readdir(root)).includes('output'));
   assert.equal(await main(args, io), 0);
   const file = join(out, 'example-release-2.3.4-release-notes.md');
@@ -81,14 +81,14 @@ test('release notes configuration merges texts and naming over the defaults', as
   assert.equal(result.file, join(options.root, 'candidate', '2.3.4-example-release.md'));
   assert.ok(result.notes.includes('## Remaining proof'));
   assert.ok(result.notes.includes('## Prerequisites'));
-  assert.equal((result.notes.match(/: não provado\./g) ?? []).length, 9);
+  assert.equal((result.notes.match(/: não provado\./g) ?? []).length, 18);
 });
 
 test('notes use the build names, package version, engines and checksum manifest', async () => {
   const options = await fixture();
   const result = await buildNotes(options);
   assert.equal(result.refusal, null);
-  assert.equal(result.pairs.length, 9);
+  assert.equal(result.pairs.length, 18);
   assert.ok(result.file.endsWith('example-release-2.3.4-release-notes.md'));
   for (const pair of planPairs(options).pairs) {
     assert.ok(result.notes.includes(artifactName({ ...options, pair })));
@@ -99,9 +99,9 @@ test('notes use the build names, package version, engines and checksum manifest'
   assert.ok(result.notes.includes('GitHub releases page'));
   assert.ok(result.notes.includes('SHA-256 of every file against the manifest before extracting'));
   assert.ok(result.notes.includes('Stop the old daemon'));
-  assert.equal((result.notes.match(/\| not proven \|/g) ?? []).length, 9);
-  assert.equal((result.notes.match(/: not proven\./g) ?? []).length, 9);
-  assert.equal((result.notes.match(/\| Producer \|/g) ?? []).length, 6);
+  assert.equal((result.notes.match(/\| not proven \|/g) ?? []).length, 18);
+  assert.equal((result.notes.match(/: not proven\./g) ?? []).length, 18);
+  assert.equal((result.notes.match(/\| Producer \|/g) ?? []).length, 12);
 });
 
 // Must pass: real changes, original whitespace, defaults and explicit matching version.
@@ -122,9 +122,11 @@ test('a recorded partial proof stays visible in the table and known gaps', async
   }));
   const result = await buildNotes(options);
   assert.equal(result.refusal, null);
-  assert.ok(result.notes.includes('| codex × windows | PARCIAL | Producer |'));
-  assert.ok(result.notes.includes('- codex × windows: PARCIAL.'));
-  assert.ok(!result.notes.includes('- codex × linux:'));
+  assert.ok(result.notes.includes('| codex × windows (x64) | PARCIAL | Producer | proof recorded for this payload |'));
+  assert.ok(result.notes.includes('| codex × windows (arm64) | PARCIAL | Producer | payload identical to x64; not run on real arm64 hardware |'));
+  assert.ok(result.notes.includes('- codex × windows (x64): PARCIAL.'));
+  assert.ok(result.notes.includes('- codex × windows (arm64): PARCIAL.'));
+  assert.ok(!result.notes.includes('- codex × linux'));
 });
 
 test('invalid or missing configured proof refuses instead of implying success', async () => {
@@ -158,3 +160,23 @@ for (const [name, raw, reason] of [
     assert.deepEqual(await readdir(options.root), before);
   });
 }
+
+// D98: the proof table has a row per asset, and says what each architecture's proof stands on.
+test('the proof table says the arm64 assets stand on the x64 payload and were not run on arm64 hardware', async () => {
+  const options = await fixture();
+  const result = await buildNotes(options);
+  assert.equal(result.refusal, null);
+  const arm = 'payload identical to x64; not run on real arm64 hardware';
+  const rows = result.notes.split('\n').filter((line) => /^\| \S+ × \S+ \((x64|arm64)\) \|/.test(line));
+  assert.equal(rows.length, 18);
+  assert.equal(rows.filter((line) => line.includes('(arm64)') && line.endsWith(`| ${arm} |`)).length, 9);
+  assert.equal(rows.filter((line) => line.includes('(x64)') && line.endsWith('| proof recorded for this payload |')).length, 9);
+  assert.ok(result.notes.includes('| Pair | Proof | Proof owner | Proof basis |'));
+  // The known gaps name the architecture too, so two lines are never the same.
+  const gaps = result.notes.split('\n').filter((line) => /^- \S+ × \S+ \((x64|arm64)\): not proven\.$/.test(line));
+  assert.equal(new Set(gaps).size, 18);
+  // An architecture the configuration does not describe still says it was not run there.
+  const other = await fixture();
+  other.config = releaseConfig({ architectures: ['riscv64'] });
+  assert.ok((await buildNotes(other)).notes.includes('| payload identical to x64; not run on this architecture |'));
+});

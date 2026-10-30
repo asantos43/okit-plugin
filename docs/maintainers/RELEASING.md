@@ -28,7 +28,9 @@ Extends [ARCHITECTURE.md](ARCHITECTURE.md) and [SMOKE.md](SMOKE.md), including t
 <a id="section-1"></a>
 ## What a release is
 
-One release candidate has nine separately identified client × system artifacts from the same source revision and package version. These are Node source bundles, not standalone executables: Node must satisfy `package.json.engines.node`. The package is ESM, dependency-free and private; npm registry publication is not the installation strategy.
+One release candidate has nine client × system payloads, each published for two architectures (x64 and arm64): eighteen separately identified artifacts from the same source revision and package version, plus the checksum manifest. The code is plain Node with no native part, so the x64 and arm64 archives of one client and system are byte-identical; the architecture in the name only routes the installer to an asset. The arm64 pairs are therefore "payload identical to x64; not run on real arm64 hardware".
+
+Supported system/architecture pairs (the installers refuse anything else and list these): linux/x64, linux/arm64, macos/x64, macos/arm64, windows/x64, windows/arm64. macOS under Rosetta reports x86_64 and gets the x64 asset; Windows arm64 reports arm64. These are Node source bundles, not standalone executables: Node must satisfy `package.json.engines.node`. The package is ESM, dependency-free and private; npm registry publication is not the installation strategy.
 
 The payload contains `src/`, `skills/`, the selected adapter and shared adapters from `release.sharedAdapters` (or `release.adapters` when absent). `release.clientFiles` defines generated manifests, MCP wiring and hooks per client. Codex receives marketplace registration and activation instructions for `/plugins`; opencode receives a global module and skills. Generated files are not tracked at the checkout root.
 
@@ -66,10 +68,10 @@ The implemented build uses the following filename templates. Let `P` be a filesy
 
 | Output | Derived filename | Contents |
 | :- | :- | :- |
-| Pair payload (nine) | `<P>-<V>-<C>-<S>-<A>.<E>` | Package metadata, license, required `src/`, skills and selected adapter, client manifests/wiring and installation instructions. Preserve referenced relative paths; exclude state, credentials and development-only material. |
+| Pair payload (nine pairs × two architectures) | `<P>-<V>-<C>-<S>-<A>.<E>` | Package metadata, license, required `src/`, skills and selected adapter, client manifests/wiring and installation instructions. Preserve referenced relative paths; exclude state, credentials and development-only material. |
 | Digest manifest | `<P>-<V>-checksums.sha256` | SHA-256 and exact filename for every payload and accompanying marketplace metadata, notes and checklist; excludes itself. Hash final bytes after packaging. |
 | Notes | `<P>-<V>-release-notes.md` | Root changelog's changes for this version, prerequisites, pair filenames, install/update instructions, proof status and known gaps. |
-| Proof checklist | `<P>-<V>-release-checklist.md` | Nine pair records with revision, digest, environment, commands, exit codes and evidence links. |
+| Proof checklist | `<P>-<V>-release-checklist.md` | One record per client × system × architecture (eighteen) with revision, digest, environment, commands, exit codes and evidence links. |
 
 Marketplace schema filenames stay as required by the clients, under configured output roots. Their entries must resolve to the exact pair payload/version; automatic OS selection is **unverified**, not assumed ([D-Q1 / D-Q2](#decisions)). All output identities and metadata must agree with `package.json`, including `license`, `repository`, `bin` and `engines`; no duplicated release-version constant. A new version is a Producer decision, not chosen by this document.
 
@@ -133,7 +135,7 @@ node scripts/release-notes.js [--out <dir>] [--version <version>] [--dry-run]
 | `--version <version>` | Must match `package.json.version`; defaults to that version. |
 | `--dry-run` | Lists the notes destination and every pair filename without writing. |
 
-The configured `release.notes` texts, filename template and history path combine with package metadata and the build's pair plan. Deterministic output includes Node engines, all nine payload filenames, the checksum manifest name, install/update instructions and every pair's proof and gaps. With no proof record, all pairs are `not proven`; Windows/macOS belong to the Producer. Optional `release.notes.proofFile` names a repository-relative JSON object keyed by `client:system`, with values `not proven`, `proven` or `PARCIAL` (or their configured labels). Partial proof always remains in known gaps.
+The configured `release.notes` texts, filename template and history path combine with package metadata and the build's pair plan. Deterministic output includes Node engines, all eighteen payload filenames (nine pairs × x64 and arm64), the checksum manifest name, install/update instructions and every pair's proof and gaps. With no proof record, all pairs are `not proven`; Windows/macOS belong to the Producer. Optional `release.notes.proofFile` names a repository-relative JSON object keyed by `client:system`, with values `not proven`, `proven` or `PARCIAL` (or their configured labels). Partial proof always remains in known gaps.
 
 Missing history, absent or empty `[Unreleased]` (headings/comments alone do not count), mismatched version or invalid proof refuses with a reason and writes no output. Source lines retain their text and whitespace. This command neither publishes nor hashes notes; hash notes/checklist only after their records are final, using the checksum command.
 
@@ -151,7 +153,7 @@ node scripts/release-checklist.js [--out <dir>] [--version <version>] [--revisio
 | `--out <dir>` | Writes the checklist here; defaults to the configured release output directory. |
 | `--version <version>` | Must match `package.json.version`; defaults to that version. |
 | `--revision <revision>` | Records the reviewed source revision; omitted means blank for manual completion. |
-| `--dry-run` | Lists the destination and nine configured pair filenames without writing. |
+| `--dry-run` | Lists the destination and the eighteen configured pair filenames without writing. |
 
 `release.checklist` configures the filename template, title, fields, layer texts and signature line. Pair signers inherit `release.notes.proofBy`, with optional `release.checklist.proofBy` overrides; the same optional proof JSON and status labels as notes are read. Each build pair gets an unchecked section with environment, installation/update, both smoke layers, explicit skip/absent-driver fields and evidence locations. Windows/macOS require the Producer signature. This command prepares evidence records; it runs no smoke and publishes nothing.
 
@@ -167,7 +169,7 @@ npm run release:publish -- --publish [--out <dir>]
 
 Dry-run is the default: it prepares local files and prints the title, tag, target SHA, pre-release status, exact attachments and full shell-quoted `gh` command; it creates no tag or release. Both modes require a clean tree, fetch `origin/main`, compare HEAD with it and refuse an existing local or remote tag. Fetch and remote tag lookup require network access; no publication happens without `--publish`. Run from a committed checkout.
 
-The command reuses the nine-pair build, writes a payload checksum manifest, generates notes and the checklist (including payload hashes and source SHA), then writes the final manifest covering payloads, notes and checklist and verifies it. Refused pairs/versions, invalid proofs, changed checklists and checksum failures stop publication. Only the generated allowlist is attached; unrelated output files fail checksum verification.
+The command reuses the eighteen-asset build, writes a payload checksum manifest, generates notes and the checklist (including payload hashes and source SHA), then writes the final manifest covering payloads, notes and checklist and verifies it. Refused pairs/versions, invalid proofs, changed checklists and checksum failures stop publication. Only the generated allowlist is attached; unrelated output files fail checksum verification.
 
 `release.publish` in `DEFAULT_CONFIG`, overridable through `config.json`, configures the GitHub executable (`executable: 'gh'`), git executable (`gitExecutable: 'git'`), remote (`remote: 'origin'`), branch (`branch: 'main'`), minimum client × system count (`requiredPairs: 9`), tag prefix, title template, output directory and attachment groups (`payloads`, `notes`, `checklist`, `checksums`). HTTPS remotes retain their URL with credentials removed; SSH/scp remotes such as `git@host:owner/repo.git` become `host/owner/repo`. Local paths and unsupported remote URLs refuse before building. Package name/version come from `package.json` (D-Q6: 0.1.0). Use a separate output folder per candidate; completed evidence stays in `docs/` per D-Q7.
 
@@ -210,7 +212,7 @@ In-process evidence requires exit 0 and every selected check passing; use the fu
 <a id="section-10"></a>
 ## Decisions
 
-1. Release separately for Claude Code, Codex and opencode, on Linux, Windows and macOS: all nine pairs remain in scope.
+1. Release separately for Claude Code, Codex and opencode, on Linux, Windows and macOS: all nine pairs remain in scope, each for x64 and arm64.
 2. Build locally. GitHub Actions does not run the release on its own.
 3. Only cut a tag or publish when the Producer explicitly requests it; preparing candidates is separate from cutting a release.
 4. Derive versions, names and paths from `package.json` and configuration; no fixed project constants in the release design or future implementation.

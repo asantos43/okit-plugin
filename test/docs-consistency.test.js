@@ -48,8 +48,21 @@ test('documented tool, check and pair counts match the source', async () => {
       INSTALL_CHECKS.length + FEATURE_CHECKS.length + UNINSTALL_CHECKS.length);
     assert.equal(Number(guide.match(/(?:has|tem) (\d+) (?:scenario checks|verificações de cenário)/)?.[1]), SCENARIO.length);
   }
-  assert.match(await read('docs/maintainers/RELEASING.md'), /nine separately identified client × system artifacts/);
+  assert.match(await read('docs/maintainers/RELEASING.md'), /nine client × system payloads.*eighteen separately identified artifacts/);
+  assert.match(await read('docs/maintainers/RELEASING.pt-BR.md'), /nove cargas cliente × sistema.*dezoito artefatos identificados separadamente/);
   assert.equal(DEFAULT_CONFIG.release.clients.length * DEFAULT_CONFIG.release.systems.length, 9);
+  assert.equal(DEFAULT_CONFIG.release.clients.length * DEFAULT_CONFIG.release.systems.length
+    * DEFAULT_CONFIG.release.architectures.length, 18);
+});
+
+test('the six supported system/architecture pairs are listed in the install and release docs, in both languages', async () => {
+  const pairs = ['linux/x64', 'linux/arm64', 'macos/x64', 'macos/arm64', 'windows/x64', 'windows/arm64'];
+  for (const suffix of ['', '.pt-BR']) {
+    for (const file of [`INSTALL${suffix}.md`, `docs/maintainers/RELEASING${suffix}.md`]) {
+      const text = await read(file);
+      for (const pair of pairs) assert.ok(text.includes(pair), `${file}: ${pair}`);
+    }
+  }
 });
 
 test('environment command, tool, skill and shared module are documented in both languages', async () => {

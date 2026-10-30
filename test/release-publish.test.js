@@ -49,9 +49,9 @@ test('dry-run never calls GitHub, verifies final files and repeats deterministic
   const first = await publishRelease(options);
   assert.equal(first.prerelease, false);
   assert.equal(first.tag, `v${pkg.version}`);
-  assert.equal(first.files.length, 12);
+  assert.equal(first.files.length, 21);
   assert.ok(!(await readdir(options.root)).includes('gh-args.json'));
-  assert.equal((await verifyManifest(join(first.outputDir, manifestFileName(pkg)))).checked, 11);
+  assert.equal((await verifyManifest(join(first.outputDir, manifestFileName(pkg)))).checked, 20);
   const bytes = await Promise.all(first.files.map((file) => readFile(file)));
   const second = await publishRelease(options);
   assert.deepEqual(second, first);
@@ -73,9 +73,9 @@ test('bootstrap scripts and bilingual guides are attached and checksummed outsid
     await writeFile(join(options.root, file), await readFile(file));
   }
   const result = await publishRelease(options);
-  assert.equal(result.files.length, 16);
+  assert.equal(result.files.length, 25);
   const manifest = join(result.outputDir, manifestFileName(pkg));
-  assert.equal((await verifyManifest(manifest)).checked, 15);
+  assert.equal((await verifyManifest(manifest)).checked, 24);
   for (const file of options.config.publish.bootstrapAttachments) {
     assert.ok(result.files.includes(join(result.outputDir, file)));
   }
@@ -89,8 +89,8 @@ test('explicit publication calls only fake gh with the exact generated argument 
   assert.deepEqual(JSON.parse(await readFile(options.log)), ['release', 'create', `v${pkg.version}`,
     '--repo', repository, '--target', sha, '--latest', '--title', `${pkg.name} ${pkg.version}`,
     '--notes-file', join(result.outputDir, options.config.publish.bodyDir, `${pkg.name}-${pkg.version}-release-body.md`), '--', ...result.files]);
-  assert.doesNotMatch(await readFile(result.files[9], 'utf8'), /Some client\/system pairs/);
-  assert.equal(result.files.filter((file) => /\.(tar\.gz|zip)$/.test(file)).length, 9);
+  assert.doesNotMatch(await readFile(result.files[18], 'utf8'), /Some client\/system pairs/);
+  assert.equal(result.files.filter((file) => /\.(tar\.gz|zip)$/.test(file)).length, 18);
 });
 
 for (const [name, respond, reason] of [
@@ -390,7 +390,7 @@ test('invalid generation and version refuse; CLI flags and dry-run output', asyn
     ...options, stdout: (line) => lines.push(line), stderr: assert.fail,
   }), 0);
   assert.match(lines[0], /dry-run:.*\ntag:.*\ntarget:.*\nprerelease: false/);
-  assert.equal(lines.filter((line) => line.startsWith('file:')).length, 12);
+  assert.equal(lines.filter((line) => line.startsWith('file:')).length, 21);
   assert.match(lines.at(-1), /'gh' 'release' 'create'/);
   for (const args of [['--unknown'], ['--out'], ['--publish', '--dry-run']]) assert.throws(() => readArgs(args));
   await writeFile(join(options.root, 'package.json'), JSON.stringify({ ...pkg, version: 'invalid' }));

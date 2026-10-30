@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { manifestFileName, parseManifest, unsafePathReason } from './checksums.js';
 import { packageName, renderName } from './config.js';
-import { fill, pairLabel, planFiles, proofStatus, readProof } from './notes.js';
+import { fill, pairLabel, planFiles, proofBasis, proofStatus, readProof } from './notes.js';
 import { loadAdapter } from './payload.js';
 
 /** Pure rendering: no clock, smoke, filesystem writes or hash calculation. */
@@ -21,6 +21,7 @@ export function renderChecklist({ config, packageJson, pairs, proof = {}, hashes
       sha256: hashes[pair.file] ?? '', environment: `${pair.system} / / ${pair.arch}` };
     for (const [key, label] of Object.entries(text.labels)) lines.push(row(label, filled[key] ?? ''));
     lines.push(row(config.notes.labels.state, proofStatus({ config, pair, proof }).state));
+    lines.push(row(config.notes.labels.basis, proofBasis({ config, pair })));
     lines.push(row(config.notes.labels.signer, text.proofBy[pair.system] ?? config.notes.proofByOther), '');
     for (const layer of Object.values(text.layers)) {
       lines.push(`### ${layer}`, '', row(text.headings.field, text.headings.value), '| :- | :- |');
