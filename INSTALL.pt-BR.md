@@ -113,13 +113,21 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    bash, zsh, sh e fish no Linux; zsh, bash, sh e um `sh -c` simples no macOS; PowerShell, cmd e Git Bash no
    Windows. Um shell que não está instalado aparece como `pulado` (`Comando (fish)  pulado  fish não está instalado`)
    e nunca faz a execução falhar. Se nenhum shell pôde fazer a verificação, ela falha e pede um shell POSIX.
+   A pasta do link é posta na frente do PATH dos processos que a verificação inicia, e a primeira linha que cada
+   shell imprime para `okit-plugin` (`command -v`, `Get-Command` ou `where`) deve ser um arquivo dessa pasta: o
+   nosso comando. Se outro programa com o mesmo nome vier antes, a linha falha e mostra o caminho encontrado, com
+   uma linha de Correção (remova ou renomeie esse arquivo, ou ponha a pasta do link antes dele no PATH).
 3. **Barra de status e hook de sessão**: os comandos exatos que o instalador gravou nos ajustes do cliente são
    lidos de volta e executados no shell que o cliente usa (a barra de status recebe uma leitura de exemplo);
    os dois devem terminar com código 0.
-4. **Leitura de cota**: a barra de status deixa sua leitura. Ela roda com uma pasta de estado temporária, removida
-   depois, então o seu estado de cota nunca é gravado pela verificação.
-5. **PATH**: se a pasta do link não está no PATH deste terminal e nenhum perfil a adiciona, a verificação falha
-   e dá a linha a adicionar. Quando um perfil a adiciona, os passos finais já dizem para abrir um terminal novo.
+4. **Leitura de cota**: a barra de status deixa sua leitura. Ela roda com uma pasta de estado temporária, com uma
+   cópia do seu `config.json` (o original só é lido), removida depois, então o seu estado de cota nunca é gravado
+   pela verificação. A verificação nunca roda um comando seu: uma barra de status que você encadeou com `--previous`
+   não é iniciada por ela (os processos da verificação levam `OKIT_SELFCHECK`, e o coletor então pula `--previous`).
+5. **PATH**: julgado à parte das verificações acima, que acrescentam a pasta do link ao PATH com que começam. Se a
+   pasta do link não está no PATH deste terminal e nenhum perfil a adiciona, a verificação falha e dá a linha a
+   adicionar. Quando um perfil gerenciado pelo instalador a adiciona, a verificação passa e a execução diz uma só
+   vez, nas linhas finais, que é preciso um terminal novo (também quando a versão já estava instalada).
 
 Tudo certo: `Autoverificação (Claude Code)  ok  6 verificações passaram`; a lista dos shells aparece com
 `--verbose`. Qualquer falha: a instalação continua no lugar, a linha diz `instalado, mas não funciona: 1 de 6
@@ -133,7 +141,13 @@ Correção: Coloque /home/voce/.local/bin no PATH do zsh e rode: okit-plugin ins
 ```
 
 Faça o que a linha de Correção diz (é o comando ou a edição para aquela linha) e rode o instalador de novo;
-as linhas puladas não pedem nada. Os shells, o limite de tempo de cada processo (`install.selfcheck.timeoutMs`)
+as linhas puladas não pedem nada.
+
+O que a verificação prova, e o que não prova. Os shells iniciam sem interação (nunca `-l` nem `-i`), mas um shell
+ainda pode ler arquivos de inicialização que valem para toda partida (por exemplo `BASH_ENV`, `ENV` ou `~/.zshenv`),
+então o resultado pode diferir de um terminal que você abre. No Windows, as formas de iniciar PowerShell, cmd e Git
+Bash são provadas por testes que simulam a plataforma; o que só uma máquina Windows real prova fica na lista de
+[provas da versão](docs/maintainers/RELEASING.pt-BR.md#proof-per-pair), e nada além disso é prometido aqui. Os shells, o limite de tempo de cada processo (`install.selfcheck.timeoutMs`)
 e o exemplo enviado à barra de status ficam na parte `install.selfcheck` da configuração.
 
 ### Comando do Windows e scripts do PowerShell

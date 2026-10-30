@@ -18,7 +18,7 @@ import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { pick } from '../src/install/present.js';
 import { register } from '../src/install/register.js';
 import { installerCommand } from '../src/install/index.js';
-import { collectReading } from './helpers/install-fixture.js';
+import { answerCheck } from './helpers/install-fixture.js';
 import { rollback } from '../src/install/update.js';
 import * as moduleAdapter from '../adapters/opencode/index.js';
 import { execFile } from 'node:child_process';
@@ -498,7 +498,7 @@ async function fixture(t) {
   deps.fetch = fetch;
   const io = { ...deps, pkg, arch: 'x64', tmpdir: home, tty: false, stdout: deps.out, stderr: deps.out,
     adapters: [], readQuota: async () => ({ source: 'off' }),
-    run: async (command) => { commands.push(command); await collectReading(command); return {}; },
+    run: async (command) => { commands.push(command); return answerCheck(command); },
     stopDaemon: async () => { events.push('stop'); return true; },
     startDaemon: async () => { events.push('start'); }, autostart: async () => { events.push('autostart'); },
     smoke: async () => { events.push('smoke'); return { code: 0 }; } };

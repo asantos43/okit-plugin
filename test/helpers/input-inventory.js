@@ -252,6 +252,7 @@ export const ENV_DOMAINS = Object.freeze({
 export const ENV_OTHER = Object.freeze({
   OKIT_CLIENT: { domain: 'a client of OKIT_CLIENTS', invalid: ['no-such-client'], note: 'refused with exit 2 after the settings and before the network' },
   OKIT_LANGUAGE: { domain: 'en | pt-BR', invalid: [], note: 'a value that is not a language is ignored by design: the order of resolveLocale then falls to the saved language, the system and English' },
+  OKIT_SELFCHECK: { domain: 'set (any non-empty value) or not set', invalid: [], note: 'set by the post-install check in the processes it starts, never by the person: the status bar collector then does not start the command of --previous; it is not an installer setting' },
 });
 
 export const envKeysOfTheScripts = () => Object.keys(scriptDefaults({ name: 'x', engines: { node: '>=22' } }));

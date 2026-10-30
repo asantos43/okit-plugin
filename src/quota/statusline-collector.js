@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { configOf } from '../profiles.js';
 import { readJson, writeJsonAtomic } from '../state.js';
-import { paths, stateRoot as defaultRoot } from '../store.js';
+import { paths, stateRoot as defaultRoot, SELFCHECK_ENV } from '../store.js';
 
 /** The quota file the collector writes under the state root; the environment report looks for this same name. */
 export const READING_FILE = 'claude-code.json';
@@ -87,7 +87,9 @@ export async function statuslineCommand(argv, io = {}) {
     try { settings = configOf(config).statuslineCollector; }
     catch { settings = configOf().statuslineCollector; }
     if (!collectorArgsValid(argv)) return 0;
-    const previous = argv.length ? argv.slice(1)
+    // A run of the post-install check records its reading and never starts a command that is not ours.
+    const verifying = Boolean((io.env ?? process.env)[SELFCHECK_ENV]);
+    const previous = verifying ? [] : argv.length ? argv.slice(1)
       : Array.isArray(config?.statuslineCollector?.previous)
         ? config.statuslineCollector.previous : settings.previous;
     const chunks = [];

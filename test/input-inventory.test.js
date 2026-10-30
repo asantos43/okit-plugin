@@ -463,7 +463,7 @@ test('input inventory: every row of the files table names the test that proves i
 // The variables of the environment: the generated install scripts (the part that runs before any Node code of the
 // installer) refuse an OKIT_<KEY> that is not valid with exit 2, in the language of the run, before uname and the network.
 
-test('input inventory: every OKIT_* variable in the source has a row, and the rows are the script settings plus the two others', () => {
+test('input inventory: every OKIT_* variable in the source has a row, and the rows are the script settings plus the others', () => {
   const keys = envKeysOfTheScripts().sort();
   assert.deepEqual(Object.keys(ENV_DOMAINS).sort(), keys, 'every setting of the scripts has a domain in the inventory');
   const known = new Set([...keys.map((key) => `OKIT_${key}`), ...Object.keys(ENV_OTHER)]);

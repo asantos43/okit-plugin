@@ -11,6 +11,7 @@ import { main } from '../src/cli.js';
 import { installConfig } from '../src/install/config.js';
 import { tarGz } from '../src/release/archive.js';
 import { formatOffer } from '../src/setup/offer.js';
+import { answerCheck } from './helpers/install-fixture.js';
 
 test('the remaining install question recommends review in both languages', () => {
   assert.match(formatOffer('question', 'en'), /Recommended: yes, review the detected choices together/);
@@ -56,7 +57,7 @@ async function statusOf(root, home, extra = {}, argv = ['status']) {
     home,
     env: { HOME: home, OKWORK_HOME: root },
     readQuota: async () => ({ source: 'off' }),
-    run: async () => ({}),
+    run: answerCheck,
     stdout: (line) => out.push(line),
     stderr: (line) => out.push(line),
     ...extra,
@@ -124,7 +125,7 @@ async function installation(t, { tty = false, ask } = {}) {
     pkg,
     fetch,
     detect: async () => false,
-    run: async () => ({}),
+    run: answerCheck,
     stopDaemon: async () => true,
     startDaemon: async () => {},
     autostart: async () => {},
@@ -159,7 +160,7 @@ test('status shows one pending setup line before the setup and none after it', a
     root,
     env: { HOME: home, OKWORK_HOME: root },
     adapters: [fakeClient('claude-code', ['haiku', 'sonnet', 'opus'])],
-    run: async () => ({}),
+    run: answerCheck,
     stdout: () => {},
     stderr: () => {},
   }), 0);
@@ -318,7 +319,7 @@ test('the status keeps asking for the setup after a setup that found no client',
     root,
     env: { HOME: home, OKWORK_HOME: root },
     adapters: [],
-    run: async () => ({}),
+    run: answerCheck,
     stdout: (line) => output.push(line),
     stderr: (line) => errors.push(line),
   });

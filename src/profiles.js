@@ -136,7 +136,7 @@ export const DEFAULT_CONFIG = {
         darwin: [posixShell('zsh'), posixShell('bash'), posixShell('sh'), posixShell('sh -c', '/bin/sh')],
         win32: [
           { name: 'powershell', executable: 'powershell.exe', quote: 'powershell',
-            resolve: ['-NoProfile', '-NonInteractive', '-Command', 'if (-not (Get-Command {command} -ErrorAction SilentlyContinue)) { exit 1 }'] },
+            resolve: ['-NoProfile', '-NonInteractive', '-Command', '$c = Get-Command {command} -ErrorAction SilentlyContinue; if (-not $c) { exit 1 }; $c.Source'] },
           { name: 'cmd', executable: 'cmd.exe', quote: 'none', resolve: ['/d', '/s', '/c', 'where', '{command}'] },
           { ...posixShell('git-bash', 'bash.exe'),
             candidates: ['{CLAUDE_CODE_GIT_BASH_PATH}', '{ProgramFiles}/Git/bin/bash.exe', '{ProgramFiles(x86)}/Git/bin/bash.exe', '{LOCALAPPDATA}/Programs/Git/bin/bash.exe'] },

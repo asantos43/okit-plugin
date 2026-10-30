@@ -101,7 +101,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
       unicode: supportsUnicode({ tty: io.outTty ?? Boolean(process.stdout.isTTY), env: ctx.env, platform: ctx.platform }), hide });
     const config = installConfig(user?.install, flags.dest ? { destination: flags.dest } : {});
     const locations = installPaths(config, { env: ctx.env, platform: ctx.platform, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir() });
-    const deps = { ...ctx, ...io, fs, config, ...locations, out: ctx.out, err: ctx.err, ui, hints: [],
+    const deps = { ...ctx, ...io, fs, config, ...locations, out: ctx.out, err: ctx.err, ui, hints: [], pathNotes: [],
       statuslineConfig: configOf(user).statuslineRegistration, collectorConfig: configOf(user).statuslineCollector,
       home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir(),
       temporary: io.tmpdir ?? tmpdir(), now: ctx.now, platform: ctx.platform, env: ctx.env,
@@ -173,6 +173,9 @@ export async function installerCommand(command, args, ctx, io = {}) {
     if (command !== 'uninstall' && deps.dryRun) ui.explain([ui.text('dryRunDone')]);
     else if (command !== 'uninstall' && succeeded && deps.hints.length) {
       ui.summary({ client: clientLabel(clients.at(-1)), command: deps.config.command, hint: deps.hints.find(Boolean) });
+    } else if (command !== 'uninstall' && deps.pathNotes.length) {
+      // No closing "Next" steps (the version was already installed, or a check failed): the new terminal is told here, once.
+      ui.row(ui.text('selfcheckPath'), 'info', deps.pathNotes[0]);
     }
     return exitCodeFor(succeeded ? 'ok' : results.every(({ code }) => code === exitCodeFor('usage')) ? 'usage' : 'operational');
   } catch (error) {

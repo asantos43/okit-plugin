@@ -113,12 +113,20 @@ registered, in this order, and prints one row, `Self-check (Claude Code)`:
    would: bash, zsh, sh and fish on Linux; zsh, bash, sh and a plain `sh -c` on macOS; PowerShell, cmd and Git Bash
    on Windows. A shell that is not installed shows `skipped` (`Command (fish)  skipped  fish is not installed`)
    and never fails the run. If no shell could run the check, the check fails and asks for a POSIX shell.
+   The link folder is put in front of the PATH of the processes the check starts, and the first line each shell
+   prints for `okit-plugin` (`command -v`, `Get-Command` or `where`) must be a file in that folder: our command.
+   If another program with the same name comes first, the row fails and shows the path found, with a Fix line
+   (remove or rename that file, or put the link folder before it on the PATH).
 3. **Status bar and session hook**: the exact commands the installer wrote into the client's settings file are
    read back and run in the shell the client uses (a sample reading is sent to the status bar); both must exit 0.
-4. **Quota reading**: the status bar leaves its reading. It runs with a temporary state folder that is removed
-   afterwards, so your own quota state is never written by the check.
-5. **PATH**: if the link folder is not on the PATH of this terminal and no profile adds it, the check fails and
-   gives the line to add. When a profile adds it, the closing steps already tell you to open a new terminal.
+4. **Quota reading**: the status bar leaves its reading. It runs with a temporary state folder, holding a copy of
+   your `config.json` (the original is only read), that is removed afterwards, so your own quota state is never
+   written by the check. The check never runs a command of yours: a status bar you chained with `--previous` is
+   not started by it (the processes of the check carry `OKIT_SELFCHECK`, and the collector then skips `--previous`).
+5. **PATH**: judged apart from the checks above, which add the link folder to the PATH they start with. If the link
+   folder is not on the PATH of this terminal and no profile adds it, the check fails and gives the line to add.
+   When a profile the installer manages adds it, the check passes and the run says once, in its closing lines,
+   that a new terminal is needed (also when the version was already installed).
 
 All passed: `Self-check (Claude Code)  ok  6 checks passed`; the list of the shells is shown with `--verbose`.
 Any failure: the install stays in place, the row says `installed but not working: 1 of 6 checks failed`, each
@@ -132,7 +140,13 @@ Fix: Add /home/you/.local/bin to the PATH of zsh, then run: okit-plugin install 
 ```
 
 Do what the Fix line says (it is the one command or edit for that row) and run the installer again; skipped
-rows need nothing. The shells, the time limit of each process (`install.selfcheck.timeoutMs`) and the sample
+rows need nothing.
+
+What the check proves, and what it does not. The shells start non-interactively (never `-l` or `-i`), but a shell
+may still read startup files that apply to every start (for example `BASH_ENV`, `ENV` or `~/.zshenv`), so a result
+can differ from a terminal you open yourself. On Windows, the forms of the PowerShell, cmd and Git Bash launches are
+proven by tests that simulate the platform; what only a real Windows machine proves stays on the list of
+[release evidence](docs/maintainers/RELEASING.md#proof-per-pair), and nothing beyond that is promised here. The shells, the time limit of each process (`install.selfcheck.timeoutMs`) and the sample
 sent to the status bar are in the `install.selfcheck` part of the configuration.
 
 ### Windows command and PowerShell scripts

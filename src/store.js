@@ -4,6 +4,11 @@ import process from 'node:process';
 
 export const ROOT_FOLDER = '.okwork';
 export const HOME_ENV = 'OKWORK_HOME';
+/**
+ * Set by the post-install check in the processes it starts, and read by the status bar collector: a verification run reads
+ * and writes its reading but never starts the person's own command that the bar chains (`--previous`), which is not ours.
+ */
+export const SELFCHECK_ENV = 'OKIT_SELFCHECK';
 
 /**
  * Resolves the state root: the override in the environment when it is set,

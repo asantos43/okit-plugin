@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { main, runCommand } from '../src/cli.js';
 import { exitCodeFor } from '../src/install/exit.js';
-import { HOME_ENV } from '../src/store.js';
+import { Readable } from 'node:stream';
+import { HOME_ENV, SELFCHECK_ENV } from '../src/store.js';
+import { statuslineCommand } from '../src/quota/statusline-collector.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { readRecord, saveRecord } from '../src/install/place.js';
 import { hookCommand } from '../src/install/register.js';
@@ -57,10 +59,11 @@ const isHook = (spec) => isCheck(spec) && barText(spec).includes('hook session-s
 /**
  * The installer in a temporary world. `fail(spec)` decides the outcome of a process of the check: 'missing' (no such
  * executable), 'timeout', a number (an exit code) or nothing; `meddle(moment)` changes the world at 'register' (the files
- * are in place) or 'check' (the first process of the check); `noReading` stops the fake status bar from leaving a reading.
+ * are in place) or 'check' (the first process of the check); `noReading` stops the fake status bar from leaving a reading;
+ * `resolved(spec)` is what a shell prints when asked where the command is.
  */
 async function world(t, platform, { argv = ['install', '--client', CLIENT, '--statusline'], locale = 'en', fail, meddle, noReading,
-  hook = platform !== 'win32', config, env, update } = {}) {
+  hook = platform !== 'win32', config, env, update, resolved } = {}) {
   const f = await fixture(t, platform);
   if (platform === 'win32') {
     // The Git Bash of the Windows list is found by its candidate paths: put one in a made-up Program Files.
@@ -89,7 +92,9 @@ async function world(t, platform, { argv = ['install', '--client', CLIENT, '--st
     if (outcome === 'missing') throw Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
     if (outcome === 'timeout') throw Object.assign(new Error('timed out'), { killed: true, signal: 'SIGKILL' });
     if (typeof outcome === 'number') throw Object.assign(new Error('failed'), { code: outcome, stderr: 'boom' });
-    if (noReading) return {};
+    if (noReading && isBar(spec)) return {};
+    // `resolved(spec)`: what the shell prints for the command (the path it resolves to), instead of the fake's own answer.
+    if (resolved && isResolve(spec)) return { stdout: resolved(spec) };
     return inner(spec);
   };
   if (update) {
@@ -448,7 +453,7 @@ test('S5: the check does not run on an install that is itself refused', async (t
 const FORMS = {
   linux: [['bash', ['-c', "command -v 'okit-plugin'"]], ['zsh', ['-c', "command -v 'okit-plugin'"]], ['sh', ['-c', "command -v 'okit-plugin'"]], ['fish', ['-c', "command -v 'okit-plugin'"]]],
   darwin: [['zsh', ['-c', "command -v 'okit-plugin'"]], ['bash', ['-c', "command -v 'okit-plugin'"]], ['sh', ['-c', "command -v 'okit-plugin'"]], ['/bin/sh', ['-c', "command -v 'okit-plugin'"]]],
-  win32: [['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "if (-not (Get-Command 'okit-plugin' -ErrorAction SilentlyContinue)) { exit 1 }"]],
+  win32: [['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "$c = Get-Command 'okit-plugin' -ErrorAction SilentlyContinue; if (-not $c) { exit 1 }; $c.Source"]],
     ['cmd.exe', ['/d', '/s', '/c', 'where', 'okit-plugin']], ['<program-files>/Git/bin/bash.exe', ['-c', "command -v 'okit-plugin'"]]],
 };
 for (const platform of PLATFORMS) {
@@ -544,4 +549,214 @@ test('S7: the command, a link to cli.js on a POSIX system, runs the program when
   const result = spawnSync(process.execPath, [join(folder, 'okit-plugin'), '--help'], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /^usage: okit-plugin/, 'the link printed nothing: the entry check compares the link, not the file');
+});
+
+// C1: the check never starts a command that is not ours.
+const repoRoot = new URL('../', import.meta.url).pathname;
+
+/**
+ * A real install in a temporary world, running the real shim, the real status bar and the real hook. `before(f)` prepares
+ * the person's files (a status bar of their own, the collector's configuration); `readings` is what each status bar run
+ * left in its temporary state root.
+ */
+async function realWorld(t, { before, argv = ['install', '--client', CLIENT, '--statusline'] } = {}) {
+  const f = await fixture(t, process.platform === 'darwin' ? 'darwin' : 'linux');
+  f.io.loadAdapter = () => import('../adapters/claude-code/index.js');
+  f.io.env.PATH = `${f.bin}:${process.env.PATH}`;
+  f.io.env.HOME = f.home;
+  await before?.(f);
+  const readings = [], fake = f.io.run;
+  f.io.run = async (spec) => {
+    if (!isCheck(spec)) {
+      const installed = join(f.destination, '1.0.0-claude-code');
+      await fs.rm(join(installed, 'src'), { recursive: true, force: true });
+      await fs.cp(join(repoRoot, 'src'), join(installed, 'src'), { recursive: true });
+      await fs.cp(join(repoRoot, 'adapters'), join(installed, 'adapters'), { recursive: true });
+      await fs.chmod(join(installed, 'src/cli.js'), 0o755);
+      const real = JSON.parse(await fs.readFile(join(repoRoot, 'package.json'), 'utf8'));
+      await fs.writeFile(join(installed, 'package.json'), JSON.stringify({ ...real, version: '1.0.0' }));
+      return fake(spec);
+    }
+    const result = await runCommand(spec);
+    if (isBar(spec)) readings.push(await fs.readdir(join(spec.env[HOME_ENV], 'quota')).catch(() => []));
+    return result;
+  };
+  const code = await main(argv, f.io);
+  return { f, code, readings, text: f.output.join('\n') };
+}
+
+test('C1: a status bar of the person, chained with --previous, is not run by the check; the reading is still written', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
+  let sentinel;
+  const w = await realWorld(t, { before: async (f) => {
+    sentinel = join(f.home, 'ran-by-the-check');
+    await fs.mkdir(join(f.home, '.claude'), { recursive: true });
+    await fs.writeFile(join(f.home, '.claude/settings.json'), JSON.stringify({ statusLine: { type: 'command', command: `touch ${sentinel}` } }));
+  } });
+  assert.equal(w.code, 0, w.text);
+  const written = JSON.parse(await fs.readFile(join(w.f.home, '.claude/settings.json'), 'utf8')).statusLine.command;
+  assert.match(written, /--previous/, `the written bar does not chain the person's command: ${written}`);
+  assert.deepEqual(w.readings, [['claude-code.json']], 'the reading is written in the temporary root');
+  await assert.rejects(fs.stat(sentinel), { code: 'ENOENT' }, 'the check ran a command that is not ours');
+});
+
+test('C1: every process of the written strings is started with the check variable, and no other process is', async (t) => {
+  const w = await world(t, 'linux');
+  assert.equal(w.code, 0, w.text);
+  const written = w.checks.filter((spec) => isBar(spec) || isHook(spec));
+  assert.ok(written.length >= 2);
+  for (const spec of written) assert.equal(spec.env[SELFCHECK_ENV], '1');
+  for (const spec of w.checks.filter(isResolve)) assert.equal(spec.env[SELFCHECK_ENV], undefined, 'a resolve carries the variable');
+  assert.equal(w.io.env[SELFCHECK_ENV], undefined, "the variable leaked into the installer's own environment");
+});
+
+test('C1: the collector chains --previous without the variable and never starts it with the variable', async (t) => {
+  const folder = await fs.mkdtemp(join(tmpdir(), 'selfcheck-previous-'));
+  t.after(() => fs.rm(folder, { recursive: true, force: true }));
+  const sentinel = join(folder, 'sentinel');
+  const previous = ['--previous', process.execPath, '-e', `require('node:fs').writeFileSync(${JSON.stringify(sentinel)}, 'x')`];
+  const sample = JSON.stringify({ rate_limits: { five_hour: { used_percentage: 1, resets_at: 1893456000 } } });
+  const call = (env) => statuslineCommand(previous, { root: join(folder, env ? 'a' : 'b'), env, stdin: Readable.from([sample]), stdout: () => {} });
+  assert.equal(await call({ [SELFCHECK_ENV]: '1' }), 0);
+  await assert.rejects(fs.stat(sentinel), { code: 'ENOENT' }, 'the collector chained the command under the check');
+  assert.deepEqual(await fs.readdir(join(folder, 'a', 'quota')), ['claude-code.json'], 'the reading is written under the check');
+  assert.equal(await call({}), 0);
+  assert.equal(await fs.readFile(sentinel, 'utf8'), 'x', 'without the variable the collector chains as before');
+});
+
+// C2: the command found is OUR shim.
+for (const platform of PLATFORMS) {
+  for (const locale of LOCALES) {
+    test(`C2: ${platform} (${locale}) a shell that resolves the command to another folder fails with the path found and a fix`, async (t) => {
+      const other = platform === 'win32' ? 'C:\\Tools\\okit-plugin.cmd' : '/opt/other/okit-plugin';
+      const w = await world(t, platform, { locale, resolved: () => `${other}\n` });
+      assert.equal(w.code, OPERATIONAL, w.text);
+      const names = SHELLS(platform);
+      const found = w.lines().filter((line) => /^ {2}(Command|Comando) \(/.test(line));
+      assert.equal(found.length, names.length, w.text);
+      const said = locale === 'en' ? /finds okit-plugin at .*, not in <bin>/ : /encontra okit-plugin em .*, não em <bin>/;
+      for (const line of found) assert.match(line, said);
+      assert.ok(found.every((line) => line.includes(other)), found.join('\n'));
+      const fix = w.lines().filter((line) => /^ {4}(Fix|Correção):/.test(line) || /^ {2}(Fix|Correção):/.test(line));
+      assert.ok(fix.some((line) => (locale === 'en' ? /Remove or rename .* or put <bin> before it on the PATH of/ : /Remova ou renomeie .* ou ponha <bin> antes dele no PATH do/).test(line)), w.text);
+      assert.doesNotMatch(w.text, locale === 'en' ? PORTUGUESE : ENGLISH, w.text);
+    });
+  }
+  test(`C2: ${platform} a shell that resolves the command into the link folder passes, whatever the slashes (and case on Windows)`, async (t) => {
+    const windows = platform === 'win32';
+    const shown = (bin) => (windows ? `${bin.replaceAll('/', '\\').toUpperCase()}\\OKIT-PLUGIN.CMD` : `${bin}/okit-plugin`);
+    const w = await world(t, platform, { resolved: (spec) => `\n${shown(spec.env[Object.keys(spec.env).find((name) => name.toLowerCase() === 'path')].split(windows ? ';' : ':')[0])}\r\n` });
+    assert.equal(w.code, 0, w.text);
+    assert.ok(w.checks.filter(isResolve).length > 0);
+  });
+}
+
+test('C2: on Linux the case of the folder counts; a path in another folder with the same tail still fails', async (t) => {
+  const w = await world(t, 'linux', { resolved: (spec) => `${spec.env.PATH.split(':')[0].toUpperCase()}/okit-plugin\n` });
+  assert.equal(w.code, OPERATIONAL, w.text);
+  const w2 = await world(t, 'linux', { resolved: (spec) => `${spec.env.PATH.split(':')[0]}/deeper/okit-plugin\n` });
+  assert.equal(w2.code, OPERATIONAL, w2.text);
+});
+
+test('C2: a shell that prints nothing for the command fails and says so', async (t) => {
+  const w = await world(t, 'linux', { resolved: () => '' });
+  assert.equal(w.code, OPERATIONAL, w.text);
+  assert.ok(w.lines().some((line) => /finds okit-plugin at \(nothing\), not in <bin>/.test(line)), w.text);
+});
+
+// C3: the collector of the check reads the same configuration as the real one.
+test('C3: custom field names of the collector pass the check; the real state stays as it was', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
+  let before;
+  const w = await realWorld(t, { before: async (f) => {
+    const file = join(f.root, 'config.json');
+    const stored = JSON.parse(await fs.readFile(file, 'utf8'));
+    stored.statuslineCollector = { fields: { rateLimits: 'limits', usedPercentage: 'used', resetsAt: 'reset' } };
+    await fs.writeFile(file, JSON.stringify(stored));
+    await fs.mkdir(join(f.root, 'quota'), { recursive: true });
+    await fs.writeFile(join(f.root, 'quota', 'mine.json'), 'mine');
+    before = { config: await fs.readFile(file, 'utf8'), quota: await fs.readdir(join(f.root, 'quota')) };
+  } });
+  assert.equal(w.code, 0, w.text);
+  assert.deepEqual(w.readings, [['claude-code.json']], 'the collector found no reading with the custom fields');
+  assert.equal(await fs.readFile(join(w.f.root, 'config.json'), 'utf8'), before.config, 'the real configuration was changed');
+  assert.deepEqual(await fs.readdir(join(w.f.root, 'quota')), before.quota, 'the real state root was written');
+  assert.deepEqual(await fs.readdir(w.f.scratch), [], 'the temporary copy was left behind');
+});
+
+test('C3: no configuration file in the real root means none in the temporary one, and the check still runs', async (t) => {
+  const f = await fixture(t, 'linux');
+  f.io.loadAdapter = () => import('../adapters/claude-code/index.js');
+  await fs.rm(join(f.root, 'config.json'));
+  const seen = [], run = f.io.run;
+  f.io.run = async (spec) => {
+    if (isBar(spec)) seen.push(await fs.readdir(spec.env[HOME_ENV]));
+    return run(spec);
+  };
+  assert.equal(await main(['install', '--client', CLIENT, '--statusline'], f.io), 0, f.output.join('\n'));
+  assert.deepEqual(seen, [[]], 'the temporary root should start empty');
+});
+
+test('C3: the temporary root starts with a copy of the real configuration', async (t) => {
+  const f = await fixture(t, 'linux');
+  f.io.loadAdapter = () => import('../adapters/claude-code/index.js');
+  const real = await fs.readFile(join(f.root, 'config.json'), 'utf8');
+  const copies = [], run = f.io.run;
+  f.io.run = async (spec) => {
+    if (isBar(spec) || isHook(spec)) copies.push(await fs.readFile(join(spec.env[HOME_ENV], 'config.json'), 'utf8'));
+    return run(spec);
+  };
+  assert.equal(await main(['install', '--client', CLIENT, '--statusline'], f.io), 0, f.output.join('\n'));
+  assert.ok(copies.length >= 2);
+  for (const copy of copies) assert.equal(copy, real);
+  assert.equal(await fs.readFile(join(f.root, 'config.json'), 'utf8'), real);
+});
+
+// C4: a new terminal, said once, on every way a run can end.
+const TERMINAL = { en: /new terminal/gi, 'pt-BR': /terminal novo/gi };
+const countOf = (text, locale) => (text.match(TERMINAL[locale]) ?? []).length;
+const EXPECTED_ROW = { en: 'Open a new terminal and the command will work there', 'pt-BR': 'Abra um terminal novo e o comando funcionará lá' };
+
+for (const locale of LOCALES) {
+  test(`C4: (${locale}) off this PATH with a managed profile, a fresh install, an update and an up-to-date install each say a new terminal once`, async (t) => {
+    const f = await fixture(t, 'linux');
+    f.io.env.PATH = '/usr/bin';
+    f.io.loadAdapter = () => import('../adapters/claude-code/index.js');
+    const run = async (argv) => { f.clear(); const code = await main([...argv, '--locale', locale], f.io); return { code, text: f.output.join('\n') }; };
+    const fresh = await run(['install', '--client', CLIENT, '--statusline']);
+    assert.equal(fresh.code, 0, fresh.text);
+    assert.equal(countOf(fresh.text, locale), 1, fresh.text);
+    assert.match(fresh.text, locale === 'en' ? /Done\. Next: 1\. open a new terminal/ : /Pronto\. Próximo: 1\. abra um terminal novo/, fresh.text);
+    const same = await run(['install', '--client', CLIENT, '--statusline']);
+    assert.equal(same.code, 0, same.text);
+    assert.equal(countOf(same.text, locale), 1, same.text);
+    assert.ok(same.text.includes(EXPECTED_ROW[locale]), same.text);
+    assert.doesNotMatch(same.text, /Done\. Next|Pronto\. Próximo/);
+    f.setVersion('2.0.0');
+    const update = await run(['update']);
+    assert.equal(update.code, 0, update.text);
+    assert.equal(countOf(update.text, locale), 1, update.text);
+    assert.match(update.text, locale === 'en' ? /Done\. Next: 1\. open a new terminal/ : /Pronto\. Próximo: 1\. abra um terminal novo/, update.text);
+    const current = await run(['update']);
+    assert.equal(current.code, 0, current.text);
+    assert.equal(countOf(current.text, locale), 1, current.text);
+    assert.ok(current.text.includes(EXPECTED_ROW[locale]), current.text);
+  });
+}
+
+test('C4: when a check fails, the new terminal is told once, in the row of the path', async (t) => {
+  const w = await world(t, 'linux', { env: { PATH: '/usr/bin' }, fail: (spec) => (isBar(spec) ? 1 : undefined) });
+  assert.equal(w.code, OPERATIONAL, w.text);
+  assert.equal(countOf(w.text, 'en'), 1, w.text);
+  assert.ok(w.lines().some((line) => line.includes('Command on PATH') && line.includes(EXPECTED_ROW.en)), w.text);
+  assert.doesNotMatch(w.text, /Done\. Next/);
+});
+
+test('C4: with the link folder already on the PATH of this process, the check adds no note of its own', async (t) => {
+  const f = await fixture(t, 'linux');
+  f.io.loadAdapter = () => import('../adapters/claude-code/index.js');
+  for (const argv of [['install', '--client', CLIENT, '--statusline'], ['install', '--client', CLIENT, '--statusline'], ['update']]) {
+    f.clear();
+    assert.equal(await main(argv, f.io), 0, f.output.join('\n'));
+    assert.ok(!f.output.join('\n').includes(EXPECTED_ROW.en), f.output.join('\n'));
+    assert.ok(!f.lines().some((line) => line.includes('Command on PATH')), f.output.join('\n'));
+  }
 });

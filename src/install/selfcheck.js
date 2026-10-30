@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { HOME_ENV, paths } from '../store.js';
+import { HOME_ENV, SELFCHECK_ENV, paths } from '../store.js';
 import { READING_FILE } from '../quota/statusline-collector.js';
 import { readRecord } from './place.js';
 import { quote, binInPath, activationWarning, managedProfile } from './link.js';
@@ -38,6 +38,22 @@ function environment(deps, extra = {}) {
   return { ...deps.env, [key]: [deps.bin, deps.env[key]].filter(Boolean).join(windows ? ';' : ':'), ...extra };
 }
 
+/** A path as it is compared: slashes, the drive of a Git Bash path, and (on Windows) the case; no trailing slash. */
+function normal(path, deps) {
+  let value = String(path).replaceAll('\\', '/');
+  if (windowsOf(deps)) value = value.replace(/^\/([a-z])\//i, '$1:/').toLowerCase();
+  return value.replace(/\/+$/, '');
+}
+
+/** The first line the shell printed for the command: the path it resolves to (empty when it printed nothing). */
+const firstLine = (stdout) => String(stdout ?? '').split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? '';
+
+/** Whether that path is a file of the link directory: the shim is ours, not another program of the same name. */
+function inBin(found, deps) {
+  const value = normal(found, deps), cut = value.lastIndexOf('/');
+  return cut > 0 && value.slice(0, cut) === normal(deps.bin, deps);
+}
+
 /** `{NAME}` of a candidate path from the environment; null when a variable is not set. */
 function expand(template, deps) {
   let missing = false;
@@ -66,7 +82,7 @@ async function attempt(deps, spec) {
   try {
     const result = await deps.run({ ...spec, timeoutMs });
     if (typeof result?.code === 'number' && result.code !== 0) return { state: 'failed', why: ui.text('selfcheckExit', { code: result.code }), output: result.stderr };
-    return { state: 'ok' };
+    return { state: 'ok', stdout: result?.stdout };
   } catch (error) {
     if (error?.code === 'ENOENT') return { state: 'missing' };
     const timedOut = error?.killed === true || Boolean(error?.signal) || error?.code === 'ETIMEDOUT';
@@ -108,6 +124,13 @@ async function commandChecks(record, deps) {
       args: shell.resolve.map((argument) => argument.replaceAll('{command}', word)) });
     if (outcome.state === 'missing') { results.push(missing()); continue; }
     ran += 1;
+    const found = firstLine(outcome.stdout);
+    if (outcome.state === 'ok' && !inBin(found, deps)) {
+      // Found, but not our shim: another program of the same name comes first, so the plugin's command is not what runs.
+      results.push(badCheck('command', ui.text('selfcheckElsewhere', { shell: shell.name, command: config.command, found: found || ui.text('selfcheckNothing'), bin: deps.bin }),
+        ui.text('selfcheckFixElsewhere', { found: found || ui.text('selfcheckNothing'), bin: deps.bin, shell: shell.name, again: again(record, deps) }), { shell: shell.name }));
+      continue;
+    }
     results.push(outcome.state === 'ok' ? okCheck('command', ui.text('selfcheckFound'), { shell: shell.name })
       : badCheck('command', ui.text('selfcheckNotFound', { shell: shell.name, command: config.command, why: outcome.why }),
         ui.text('selfcheckFixCommand', { bin: deps.bin, shell: shell.name, again: again(record, deps) }),
@@ -166,10 +189,15 @@ async function runWritten(record, deps) {
   const folder = executable === null || !shell?.run ? null
     : await deps.fs.mkdtemp(join(deps.temporary, 'selfcheck-'));
   try {
+    // The collector reads the same configuration as the real one (its field names): a copy, the original is only read.
+    if (folder !== null) {
+      const saved = await deps.fs.readFile(paths(deps.root).config).catch((error) => { if (error?.code === 'ENOENT') return null; throw error; });
+      if (saved !== null) await deps.fs.writeFile(paths(folder).config, saved);
+    }
     for (const job of jobs) {
       if (folder === null) { out.push(skipCheck(job.id, ui.text('selfcheckShellMissing', { shell: name }), { shell: name })); continue; }
       const outcome = await attempt(deps, { command: executable, args: [...shell.run, job.text],
-        env: environment(deps, { [HOME_ENV]: folder }), input: sampleOf(job.id, folder, deps) });
+        env: environment(deps, { [HOME_ENV]: folder, [SELFCHECK_ENV]: '1' }), input: sampleOf(job.id, folder, deps) });
       if (outcome.state === 'missing') out.push(skipCheck(job.id, ui.text('selfcheckShellMissing', { shell: name }), { shell: name }));
       else if (outcome.state === 'ok') out.push(okCheck(job.id, ui.text('selfcheckRan'), { shell: name }));
       else out.push(badCheck(job.id, ui.text(job.failed, { why: outcome.why }), job.fix, { shell: name, output: outcome.output }));
@@ -259,8 +287,6 @@ export function reportSelfCheck(ui, results, client, { several = false } = {}) {
     } else if (check.status === 'skip') {
       if (!check.quiet || ui.verbose) ui.row(label(check), 'skipped', said(check));
     } else if (ui.verbose) ui.row(label(check), 'ok', said(check));
-    // The closing "Next" steps already tell a new terminal is needed; the note stands in only when a failure suppresses them.
-    else if (failed.length && check.id === 'path' && !check.quiet && check.reason) ui.row(label(check), 'info', said(check));
   }
   return failed.length > 0;
 }
@@ -268,5 +294,9 @@ export function reportSelfCheck(ui, results, client, { several = false } = {}) {
 /** Runs the check of one client and tells it; true when the installation works. */
 export async function verifyInstall(record, expected, deps) {
   const results = await selfCheck(record, expected, deps);
+  // A new terminal is needed when the link directory is not on this process's PATH but a profile persists it: the run
+  // tells it once, at its end, whichever way it ends (the installer reads this list).
+  const note = results.find(({ id, status, quiet, reason }) => id === 'path' && status === 'pass' && !quiet && reason);
+  if (note) deps.pathNotes?.push(note.reason);
   return !reportSelfCheck(presenterOf(deps), results, clientLabel(record.client), { several: Boolean(deps.backupPerClient) });
 }
