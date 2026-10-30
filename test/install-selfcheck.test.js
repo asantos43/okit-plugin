@@ -1171,13 +1171,13 @@ const LOGIN_TEXTS = {
   en: {
     row: (shell, why) => `Command (${shell})  failed  a new ${shell} terminal will not find okit-plugin (${why})`,
     fix: (file) => `Fix: In ${file}, put this line before anything that stops the file with \`return\`, fix the error of any command that fails (for example under \`set -e\`), and remove any \`exit\` from that file (a login file must not exit), then run: okit-plugin install --client claude-code (the line: export PATH='<bin>'\${PATH:+":$PATH"})`,
-    missing: (file, shell, line = `export PATH='<bin>'\${PATH:+":$PATH"}`) => `Fix: Put this line in ${file}, the file ${shell} reads at login, before anything that stops the file with \`return\`, fix the error of any command that fails (for example under \`set -e\`), and remove any \`exit\` from that file (a login file must not exit), then run: okit-plugin install --client claude-code (the line: ${line}; or run the installer again without --no-path)`,
+    missing: (file, shell, line = `export PATH='<bin>'\${PATH:+":$PATH"}`) => `Fix: Put this line in ${file}, the file ${shell} reads at login, before anything that stops the file with \`return\`, fix the error of any command that fails (for example under \`set -e\`), and remove any \`exit\` from that file (a login file must not exit), then run: okit-plugin install --client claude-code (the line: ${line})`,
     found: '  Command (bash)  ok  found, also at login',
   },
   'pt-BR': {
     row: (shell, why) => `Comando (${shell})  falhou  um terminal novo do ${shell} não achará okit-plugin (${why})`,
     fix: (file) => `Correção: Em ${file}, ponha esta linha antes de qualquer coisa que pare esse arquivo com \`return\`, corrija o erro de qualquer comando que falhe (por exemplo sob \`set -e\`), e remova qualquer \`exit\` desse arquivo (um arquivo de login não pode sair), e rode: okit-plugin install --client claude-code (a linha: export PATH='<bin>'\${PATH:+":$PATH"})`,
-    missing: (file, shell, line = `export PATH='<bin>'\${PATH:+":$PATH"}`) => `Correção: Ponha esta linha em ${file}, o arquivo que o ${shell} lê no login, antes de qualquer coisa que pare esse arquivo com \`return\`, corrija o erro de qualquer comando que falhe (por exemplo sob \`set -e\`), e remova qualquer \`exit\` desse arquivo (um arquivo de login não pode sair), e rode: okit-plugin install --client claude-code (a linha: ${line}; ou rode o instalador de novo sem --no-path)`,
+    missing: (file, shell, line = `export PATH='<bin>'\${PATH:+":$PATH"}`) => `Correção: Ponha esta linha em ${file}, o arquivo que o ${shell} lê no login, antes de qualquer coisa que pare esse arquivo com \`return\`, corrija o erro de qualquer comando que falhe (por exemplo sob \`set -e\`), e remova qualquer \`exit\` desse arquivo (um arquivo de login não pode sair), e rode: okit-plugin install --client claude-code (a linha: ${line})`,
     found: '  Comando (bash)  ok  encontrado, também no login',
   },
 };

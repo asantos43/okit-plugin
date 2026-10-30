@@ -128,7 +128,7 @@ registered, in this order, and prints one row, `Self-check (Claude Code)`:
    line to put before anything that stops that file with `return`, the error of any command that fails (for example
    under `set -e`) to be fixed and any `exit` of that file to go (an `exit` ends the login shell itself); when that
    file holds no PATH
-   block, the fix asks for the line itself (or for the installer to be run again without `--no-path`). One limit: when your
+   block, the fix asks for the line itself. One limit: when your
    `~/.zshenv` sets or overrides `ZDOTDIR`, the fix names the file of the environment the check inherited, which may not
    be the file zsh really reads; the check itself is right. The shell's own error
    lines show with `--verbose`. This launch reads your startup files by design; it resolves only the bare command and never

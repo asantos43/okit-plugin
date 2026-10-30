@@ -128,9 +128,9 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    definido, senão o `~/.config/fish/config.fish`) e a linha a pôr antes de qualquer coisa que pare esse arquivo com
    `return`, o erro de qualquer comando que falhe (por exemplo sob `set -e`) a ser corrigido e qualquer `exit` desse
    arquivo a sair (um `exit` encerra o próprio shell de login); quando esse
-   arquivo não guarda nenhum bloco de PATH, a correção pede a linha (ou pede para rodar o instalador de novo sem
-   `--no-path`). Um limite: quando o seu `~/.zshenv` define ou sobrescreve o `ZDOTDIR`, a correção diz o arquivo do
-   ambiente herdado pela verificação, que pode não ser o arquivo que o zsh realmente lê; a verificação em si está certa.
+   arquivo não guarda nenhum bloco de PATH, a correção pede a linha. Um limite: quando o seu `~/.zshenv` define ou
+   sobrescreve o `ZDOTDIR`, a correção diz o arquivo do ambiente herdado pela verificação, que pode não ser o arquivo
+   que o zsh realmente lê; a verificação em si está certa.
    As linhas de erro do próprio shell aparecem com `--verbose`. Essa partida lê os seus arquivos de
    inicialização de propósito; ela resolve só o comando simples e nunca roda texto seu. Ela não é feita quando a pasta
    do link já estava no seu PATH (o PATH que funciona pode vir de outra fonte), com `--no-path` ou `--no-link`, nem no
