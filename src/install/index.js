@@ -184,6 +184,12 @@ export async function installerCommand(command, args, ctx, io = {}) {
   }
 }
 
+/** The line of `status` for each installation record that is not a JSON object and was left out, with its file path. */
+export function recordIgnoredLines(paths, locale) {
+  const lang = locale === 'pt-BR' ? 'pt-BR' : 'en';
+  return paths.map((path) => fill(pick(TEXTS.recordIgnored, lang), { path }));
+}
+
 /** What the `kit` command says, in the one language of the run: the probe's facts told by the presenter's own texts. */
 export function kitLine(result, kitConfig, locale) {
   const lang = locale === 'pt-BR' ? 'pt-BR' : 'en';

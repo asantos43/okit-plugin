@@ -105,11 +105,12 @@ export async function environmentReadings(deps) {
   const home = deps.home ?? env.HOME ?? env.USERPROFILE ?? homedir();
   const location = { ...deps, env, platform, fs: deps.fs ?? filesystem, config, home,
     ...installPaths(config, { ...deps, env, platform, home }) };
-  const records = Object.values(await readRecords(location.destination, location.fs, config));
+  const unreadable = [];
+  const records = Object.values(await readRecords(location.destination, location.fs, config, { unreadable }));
   location.bin = records.find((record) => record.linkDirectory)?.linkDirectory ?? location.bin;
   const plugin = deps.plugin ?? { path: records.find((record) => record.path)?.path
     ?? resolve(fileURLToPath(new URL('../..', import.meta.url))),
-  onPath: binInPath(location) };
+  onPath: binInPath(location), ...unreadable.length ? { unreadableRecords: unreadable } : {} };
   return { plugin, versions: deps.versions ?? await environmentVersions({ ...deps, env }, config) };
 }
 
