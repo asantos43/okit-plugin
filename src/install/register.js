@@ -9,7 +9,20 @@ import { presenterOf, pick } from './present.js';
  * client's settings, and the post-install check recognises the hooks that are ours by the script this names.
  */
 export const hookScript = (path) => quote(join(path, 'src/cli.js'));
-export const hookCommand = (path, node = process.execPath) => `${quote(node)} ${hookScript(path)} hook session-start`;
+const HOOK_ARGUMENTS = 'hook session-start';
+export const hookCommand = (path, node = process.execPath) => `${quote(node)} ${hookScript(path)} ${HOOK_ARGUMENTS}`;
+// One word as `quote` writes it: single-quoted, any quote inside escaped.
+const QUOTED_WORD = /^'(?:[^']|'\\'')+'$/;
+
+/**
+ * Whether a hook string read back from the settings is exactly the command of the installation at `path`: one quoted
+ * node path, our script, the subcommand, nothing else. Built from the pieces `hookCommand` writes. The one recognizer:
+ * the post-install check runs a hook only when this says so.
+ */
+export function isOurHook(command, path) {
+  const tail = ` ${hookScript(path)} ${HOOK_ARGUMENTS}`;
+  return typeof command === 'string' && command.endsWith(tail) && QUOTED_WORD.test(command.slice(0, -tail.length));
+}
 
 export function registrationPlan(record, deps, action = 'install') {
   const settings = deps.config.clients[record.client];

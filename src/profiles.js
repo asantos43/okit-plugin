@@ -131,6 +131,9 @@ export const DEFAULT_CONFIG = {
     // candidate whose variable is not set is dropped); `{temp}` in `hookInput` is the temporary state root of the check.
     selfcheck: {
       timeoutMs: 10000,
+      // The keys of config.json copied into the temporary state root: the ones the checked scripts need (the status bar's
+      // collector, the session hook's limits). Everything else is dropped, so a setting that runs or writes is never copied.
+      stateKeys: ['statuslineCollector', 'limits', 'staleMinutes'],
       shells: {
         linux: [posixShell('bash'), posixShell('zsh'), posixShell('sh'), posixShell('fish')],
         darwin: [posixShell('zsh'), posixShell('bash'), posixShell('sh'), posixShell('sh -c', '/bin/sh')],

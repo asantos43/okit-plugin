@@ -119,10 +119,16 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    uma linha de Correção (remova ou renomeie esse arquivo, ou ponha a pasta do link antes dele no PATH).
 3. **Barra de status e hook de sessão**: os comandos exatos que o instalador gravou nos ajustes do cliente são
    lidos de volta e executados no shell que o cliente usa (a barra de status recebe uma leitura de exemplo);
-   os dois devem terminar com código 0.
-4. **Leitura de cota**: a barra de status deixa sua leitura. Ela roda com uma pasta de estado temporária, com uma
-   cópia do seu `config.json` (o original só é lido), removida depois, então o seu estado de cota nunca é gravado
-   pela verificação. A verificação nunca roda um comando seu: uma barra de status que você encadeou com `--previous`
+   os dois devem terminar com código 0. A verificação roda só o que é exatamente nosso. O hook de sessão só é
+   executado quando a sua string é exatamente a que o instalador grava (um caminho do node entre aspas, o nosso
+   script, `hook session-start`); um hook com qualquer coisa a mais (um comando acrescentado ou posto antes, outro
+   subcomando) aparece como `pulado  o hook de sessão não é exatamente o nosso` e não é executado. Durante a
+   verificação o hook não inicia nenhum processo (nenhuma sonda de cliente, nenhum comando de cota).
+4. **Leitura de cota**: a barra de status deixa sua leitura. Ela roda com uma pasta de estado temporária, só com a
+   parte permitida do seu `config.json` (o original só é lido), removida depois, então o seu estado de cota nunca é gravado
+   pela verificação. A cópia tem só as chaves do `config.json` de que os scripts verificados precisam
+   (`install.selfcheck.stateKeys`: os campos do coletor da barra de status e os limites); qualquer outro ajuste, como
+   uma pasta de medições (`telemetry`) ou um comando de cota (`opencodeQuota.sources`), não é copiado. A verificação nunca roda um comando seu: uma barra de status que você encadeou com `--previous`
    não é iniciada por ela (os processos da verificação levam `OKIT_SELFCHECK`, e o coletor então pula `--previous`).
 5. **PATH**: julgado à parte das verificações acima, que acrescentam a pasta do link ao PATH com que começam. Se a
    pasta do link não está no PATH deste terminal e nenhum perfil a adiciona, a verificação falha e dá a linha a
@@ -148,7 +154,7 @@ ainda pode ler arquivos de inicialização que valem para toda partida (por exem
 então o resultado pode diferir de um terminal que você abre. No Windows, as formas de iniciar PowerShell, cmd e Git
 Bash são provadas por testes que simulam a plataforma; o que só uma máquina Windows real prova fica na lista de
 [provas da versão](docs/maintainers/RELEASING.pt-BR.md#proof-per-pair), e nada além disso é prometido aqui. Os shells, o limite de tempo de cada processo (`install.selfcheck.timeoutMs`)
-e o exemplo enviado à barra de status ficam na parte `install.selfcheck` da configuração.
+as chaves copiadas do `config.json` e o exemplo enviado à barra de status ficam na parte `install.selfcheck` da configuração.
 
 ### Comando do Windows e scripts do PowerShell
 

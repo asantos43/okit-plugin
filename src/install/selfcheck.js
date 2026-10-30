@@ -4,7 +4,7 @@ import { READING_FILE } from '../quota/statusline-collector.js';
 import { readRecord } from './place.js';
 import { quote, binInPath, activationWarning, managedProfile } from './link.js';
 import { collectorCommandIndex, settingsPath } from './statusline.js';
-import { hookScript } from './register.js';
+import { hookScript, isOurHook } from './register.js';
 import { clientRoot } from './config.js';
 import { presenterOf, clientLabel } from './present.js';
 
@@ -158,11 +158,13 @@ async function writtenCommands(record, deps) {
   const line = barSettings?.statusLine;
   const statusline = line?.type === 'command' && typeof line.command === 'string' ? line.command : null;
   const script = hookScript(record.path);
-  const hooks = (Array.isArray(hookSettings?.hooks?.SessionStart) ? hookSettings.hooks.SessionStart : [])
+  // A hook is run only when it is exactly ours (`isOurHook`); one that merely names our script is told and not run.
+  const named = (Array.isArray(hookSettings?.hooks?.SessionStart) ? hookSettings.hooks.SessionStart : [])
     .flatMap((entry) => (Array.isArray(entry?.hooks) ? entry.hooks : []))
     .filter((hook) => hook?.type === 'command' && typeof hook.command === 'string' && hook.command.includes(script))
     .map((hook) => hook.command);
-  return { bar, hookFile, statusline, present: line !== undefined && line !== null, hooks };
+  const hooks = named.filter((command) => isOurHook(command, record.path));
+  return { bar, hookFile, statusline, present: line !== undefined && line !== null, hooks, altered: named.length - hooks.length };
 }
 
 /** 3 and 4. The status bar and hook strings run in the client's shell, with a temporary state root; the bar leaves a reading. */
@@ -180,7 +182,8 @@ async function runWritten(record, deps) {
   if (!ours) {
     out.push(skipCheck('statusline', ui.text(written.present ? 'selfcheckForeign' : 'selfcheckOff'), { quiet: true }));
   }
-  if (!written.hooks.length) out.push(skipCheck('hook', ui.text('selfcheckOff'), { quiet: true }));
+  if (written.altered) out.push(skipCheck('hook', ui.text('selfcheckHookForeign'), { quiet: false }));
+  else if (!written.hooks.length) out.push(skipCheck('hook', ui.text('selfcheckOff'), { quiet: true }));
   if (!jobs.length) return [...out, { id: 'collector', ...reading }];
 
   const shell = shellNamed(deps, config.selfcheck.runner[deps.platform]);
@@ -189,10 +192,11 @@ async function runWritten(record, deps) {
   const folder = executable === null || !shell?.run ? null
     : await deps.fs.mkdtemp(join(deps.temporary, 'selfcheck-'));
   try {
-    // The collector reads the same configuration as the real one (its field names): a copy, the original is only read.
+    // The scripts read the same settings as the real ones, but only the keys they need (`install.selfcheck.stateKeys`):
+    // everything else (a measurement folder, a quota command, any new setting that runs or writes) never reaches the copy.
     if (folder !== null) {
-      const saved = await deps.fs.readFile(paths(deps.root).config).catch((error) => { if (error?.code === 'ENOENT') return null; throw error; });
-      if (saved !== null) await deps.fs.writeFile(paths(folder).config, saved);
+      const text = await allowed(deps);
+      if (text !== null) await deps.fs.writeFile(paths(folder).config, text);
     }
     for (const job of jobs) {
       if (folder === null) { out.push(skipCheck(job.id, ui.text('selfcheckShellMissing', { shell: name }), { shell: name })); continue; }
@@ -212,6 +216,16 @@ async function runWritten(record, deps) {
     else out.push({ id: 'collector', ...reading });
   } finally { if (folder !== null) await deps.fs.rm(folder, { recursive: true, force: true }); }
   return out;
+}
+
+/** The configuration of the temporary state root: the allowed keys of the real one, as JSON; null when the real one is not there. */
+async function allowed(deps) {
+  const saved = await deps.fs.readFile(paths(deps.root).config, 'utf8').catch((error) => { if (error?.code === 'ENOENT') return null; throw error; });
+  if (saved === null) return null;
+  let value = {};
+  try { value = JSON.parse(saved); } catch { value = {}; }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) value = {};
+  return `${JSON.stringify(Object.fromEntries(deps.config.selfcheck.stateKeys.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]])))}\n`;
 }
 
 /** What the client sends on standard input: the status bar's rate limits, or the SessionStart event. */
@@ -286,7 +300,7 @@ export function reportSelfCheck(ui, results, client, { several = false } = {}) {
       if (check.output) ui.detail(String(check.output).trim().split('\n').slice(-3).join(' | '));
     } else if (check.status === 'skip') {
       if (!check.quiet || ui.verbose) ui.row(label(check), 'skipped', said(check));
-    } else if (ui.verbose) ui.row(label(check), 'ok', said(check));
+    } else if (ui.verbose && !check.noted) ui.row(label(check), 'ok', said(check));
   }
   return failed.length > 0;
 }
@@ -297,6 +311,7 @@ export async function verifyInstall(record, expected, deps) {
   // A new terminal is needed when the link directory is not on this process's PATH but a profile persists it: the run
   // tells it once, at its end, whichever way it ends (the installer reads this list).
   const note = results.find(({ id, status, quiet, reason }) => id === 'path' && status === 'pass' && !quiet && reason);
-  if (note) deps.pathNotes?.push(note.reason);
+  // The run says it once, at its end: the row of the check then stays quiet, whatever the verbosity.
+  if (note && deps.pathNotes) { deps.pathNotes.push(note.reason); note.noted = true; }
   return !reportSelfCheck(presenterOf(deps), results, clientLabel(record.client), { several: Boolean(deps.backupPerClient) });
 }

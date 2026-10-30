@@ -119,9 +119,15 @@ registered, in this order, and prints one row, `Self-check (Claude Code)`:
    (remove or rename that file, or put the link folder before it on the PATH).
 3. **Status bar and session hook**: the exact commands the installer wrote into the client's settings file are
    read back and run in the shell the client uses (a sample reading is sent to the status bar); both must exit 0.
-4. **Quota reading**: the status bar leaves its reading. It runs with a temporary state folder, holding a copy of
-   your `config.json` (the original is only read), that is removed afterwards, so your own quota state is never
-   written by the check. The check never runs a command of yours: a status bar you chained with `--previous` is
+   The check runs only what is exactly ours. The session hook is run only when its string is exactly what the
+   installer writes (one quoted node path, our script, `hook session-start`); a hook that has anything more in it
+   (a command appended or put before it, another subcommand) shows `skipped  the session hook is not exactly ours`
+   and is not run. During the check the hook starts no process at all (no client probe, no quota command).
+4. **Quota reading**: the status bar leaves its reading. It runs with a temporary state folder, holding the
+   allowed part of your `config.json` (the original is only read), that is removed afterwards, so your own quota state is never
+   written by the check. The copy holds only the keys of `config.json` that the checked scripts need
+   (`install.selfcheck.stateKeys`: the status bar's collector fields and the limits); every other setting, such as a
+   measurement folder (`telemetry`) or a quota command (`opencodeQuota.sources`), is not copied. The check never runs a command of yours: a status bar you chained with `--previous` is
    not started by it (the processes of the check carry `OKIT_SELFCHECK`, and the collector then skips `--previous`).
 5. **PATH**: judged apart from the checks above, which add the link folder to the PATH they start with. If the link
    folder is not on the PATH of this terminal and no profile adds it, the check fails and gives the line to add.
@@ -146,7 +152,7 @@ What the check proves, and what it does not. The shells start non-interactively 
 may still read startup files that apply to every start (for example `BASH_ENV`, `ENV` or `~/.zshenv`), so a result
 can differ from a terminal you open yourself. On Windows, the forms of the PowerShell, cmd and Git Bash launches are
 proven by tests that simulate the platform; what only a real Windows machine proves stays on the list of
-[release evidence](docs/maintainers/RELEASING.md#proof-per-pair), and nothing beyond that is promised here. The shells, the time limit of each process (`install.selfcheck.timeoutMs`) and the sample
+[release evidence](docs/maintainers/RELEASING.md#proof-per-pair), and nothing beyond that is promised here. The shells, the time limit of each process (`install.selfcheck.timeoutMs`) and the keys copied from `config.json` and the sample
 sent to the status bar are in the `install.selfcheck` part of the configuration.
 
 ### Windows command and PowerShell scripts

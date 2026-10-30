@@ -10,6 +10,7 @@ import { exitCodeFor } from '../src/install/exit.js';
 import { Readable } from 'node:stream';
 import { HOME_ENV, SELFCHECK_ENV } from '../src/store.js';
 import { statuslineCommand } from '../src/quota/statusline-collector.js';
+import { runSessionStart } from '../src/hook-session-start.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { readRecord, saveRecord } from '../src/install/place.js';
 import { hookCommand } from '../src/install/register.js';
@@ -315,7 +316,8 @@ test('S3: a string changed after it was written is the string that runs', async 
       await fs.writeFile(file, JSON.stringify(settings));
       const hookFile = join(f.io.clientRoot, 'settings.json');
       const hooks = JSON.parse(await fs.readFile(hookFile, 'utf8'));
-      hooks.hooks.SessionStart[0].hooks[0].command += ' --changed';
+      // Still exactly ours (one quoted node path, our script, the subcommand), with another node: that is what runs.
+      hooks.hooks.SessionStart[0].hooks[0].command = hooks.hooks.SessionStart[0].hooks[0].command.replace(/^'[^']*'/, "'/changed/node'");
       await fs.writeFile(hookFile, JSON.stringify(hooks));
     },
   });
@@ -323,7 +325,7 @@ test('S3: a string changed after it was written is the string that runs', async 
   assert.deepEqual(w.checks.filter(isBar).map(barText), [changedBar]);
   const hook = w.checks.filter(isHook).map(barText);
   assert.equal(hook.length, 1);
-  assert.ok(hook[0].endsWith('hook session-start --changed'), hook[0]);
+  assert.ok(hook[0].startsWith("'/changed/node' "), hook[0]);
 });
 
 test('S3: a changed string that fails is what fails the run', async (t) => {
@@ -695,18 +697,26 @@ test('C3: no configuration file in the real root means none in the temporary one
   assert.deepEqual(seen, [[]], 'the temporary root should start empty');
 });
 
-test('C3: the temporary root starts with a copy of the real configuration', async (t) => {
+test('C3: the temporary root starts with the allowed keys of the real configuration, and no other', async (t) => {
   const f = await fixture(t, 'linux');
   f.io.loadAdapter = () => import('../adapters/claude-code/index.js');
+  const stored = JSON.parse(await fs.readFile(join(f.root, 'config.json'), 'utf8'));
+  stored.statuslineCollector = { fields: { rateLimits: 'limits' } };
+  stored.limits = { global: 2, clients: {} };
+  stored.language = 'pt-BR';
+  await fs.writeFile(join(f.root, 'config.json'), JSON.stringify(stored));
   const real = await fs.readFile(join(f.root, 'config.json'), 'utf8');
   const copies = [], run = f.io.run;
   f.io.run = async (spec) => {
     if (isBar(spec) || isHook(spec)) copies.push(await fs.readFile(join(spec.env[HOME_ENV], 'config.json'), 'utf8'));
     return run(spec);
   };
-  assert.equal(await main(['install', '--client', CLIENT, '--statusline'], f.io), 0, f.output.join('\n'));
+  assert.equal(await main(['install', '--client', CLIENT, '--statusline', '--locale', 'en'], f.io), 0, f.output.join('\n'));
   assert.ok(copies.length >= 2);
-  for (const copy of copies) assert.equal(copy, real);
+  const allowed = DEFAULT_CONFIG.install.selfcheck.stateKeys;
+  for (const copy of copies) {
+    assert.deepEqual(JSON.parse(copy), Object.fromEntries(allowed.filter((key) => key in stored).map((key) => [key, stored[key]])));
+  }
   assert.equal(await fs.readFile(join(f.root, 'config.json'), 'utf8'), real);
 });
 
@@ -759,4 +769,149 @@ test('C4: with the link folder already on the PATH of this process, the check ad
     assert.ok(!f.output.join('\n').includes(EXPECTED_ROW.en), f.output.join('\n'));
     assert.ok(!f.lines().some((line) => line.includes('Command on PATH')), f.output.join('\n'));
   }
+});
+
+// R1: a hook string is run only when it is exactly ours.
+const alterHook = (change) => async (moment, f) => {
+  if (moment !== 'check') return;
+  const file = join(f.io.clientRoot, 'settings.json');
+  const settings = JSON.parse(await fs.readFile(file, 'utf8'));
+  const hook = settings.hooks.SessionStart[0].hooks[0];
+  hook.command = change(hook.command);
+  await fs.writeFile(file, JSON.stringify(settings));
+};
+
+for (const [name, change] of [
+  ['commands appended after ours', (command) => `${command} && touch /tmp/never`],
+  ['a command before ours', (command) => `touch /tmp/never; ${command}`],
+  ['our script with another subcommand', (command) => command.replace('hook session-start', 'hook post-compact')],
+  ['two words before our script', (command) => `'node' '--inspect' ${command.replace(/^'[^']*' /, '')}`],
+]) {
+  test(`R1: ${name}: the hook is not run and the check says so`, async (t) => {
+    const w = await world(t, 'linux', { meddle: alterHook(change) });
+    assert.equal(w.code, 0, w.text);
+    assert.equal(w.checks.filter(isHook).length, 0, 'a hook that is not exactly ours was run');
+    assert.ok(w.lines().some((line) => /Session hook {2}skipped {2}the session hook is not exactly ours/.test(line)), w.text);
+    assert.ok(w.checks.some(isBar), 'the status bar should still run');
+  });
+}
+
+test('R1: (pt-BR) the skip of a hook that is not ours is in Portuguese', async (t) => {
+  const w = await world(t, 'linux', { locale: 'pt-BR', meddle: alterHook((command) => `${command} && touch /tmp/never`) });
+  assert.equal(w.code, 0, w.text);
+  assert.ok(w.lines().some((line) => /o hook de sessão não é exatamente o nosso/.test(line)), w.text);
+  assert.doesNotMatch(blockOf(w.lines(), 'pt-BR').join('\n'), ENGLISH);
+});
+
+test('R1: the recognizer takes the exact command of the writer, with any node path, and nothing else', async () => {
+  const { isOurHook } = await import('../src/install/register.js');
+  const path = "/opt/o'k/1.0.0-claude-code";
+  for (const node of ['/usr/bin/node', "/home/a b/it's/node", 'C:\\node.exe']) assert.equal(isOurHook(hookCommand(path, node), path), true, node);
+  const ours = hookCommand(path);
+  for (const bad of [`${ours} x`, `${ours}; x`, `x; ${ours}`, ours.replace(/^'[^']*'/, 'node'), ours.replace(/^'[^']*'/, ''),
+    ours.replace(/^'[^']*'/, "'a' 'b'"), ours.replace(/^'[^']*'/, "''"), ours.replace('session-start', 'x'), hookCommand('/other', 'node'), 7, null]) {
+    assert.equal(isOurHook(bad, path), false, String(bad));
+  }
+});
+
+test('R1: a hook that is exactly ours still runs and passes', async (t) => {
+  const w = await world(t, 'linux');
+  assert.equal(w.code, 0, w.text);
+  assert.equal(w.checks.filter(isHook).length, 1);
+  assert.ok(!w.lines().some((line) => line.includes('not exactly ours')), w.text);
+});
+
+test('R1: real run, a preserved hook with a command appended is not executed', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
+  let marker;
+  const w = await realWorld(t, { before: async (f) => {
+    marker = join(f.home, 'ran-by-the-check');
+    const script = join(f.destination, '1.0.0-claude-code', 'src/cli.js');
+    await fs.mkdir(f.io.clientRoot, { recursive: true });
+    await fs.writeFile(join(f.io.clientRoot, 'settings.json'), JSON.stringify({ hooks: { SessionStart: [
+      { hooks: [{ type: 'command', command: `${hookCommand(join(f.destination, '1.0.0-claude-code'))} && touch '${marker}'` }] }] } }));
+    assert.ok(script);
+  } });
+  assert.equal(w.code, 0, w.text);
+  await assert.rejects(fs.stat(marker), { code: 'ENOENT' }, 'the check ran a hook that is not exactly ours');
+  assert.match(w.text, /not exactly ours/);
+});
+
+// R2: the temporary configuration is built from an allowlist.
+test('R2: the allowlist is in the configuration and is the only thing that decides the keys', async (t) => {
+  assert.deepEqual(DEFAULT_CONFIG.install.selfcheck.stateKeys, ['statuslineCollector', 'limits', 'staleMinutes']);
+  const f = await fixture(t, 'linux');
+  f.io.loadAdapter = () => import('../adapters/claude-code/index.js');
+  const stored = JSON.parse(await fs.readFile(join(f.root, 'config.json'), 'utf8'));
+  stored.install.selfcheck = { stateKeys: ['language'] };
+  Object.assign(stored, { language: 'en', limits: { global: 2, clients: {} }, telemetry: { enabled: true, dir: '/never' } });
+  await fs.writeFile(join(f.root, 'config.json'), JSON.stringify(stored));
+  const copies = [], run = f.io.run;
+  f.io.run = async (spec) => { if (isBar(spec)) copies.push(JSON.parse(await fs.readFile(join(spec.env[HOME_ENV], 'config.json'), 'utf8'))); return run(spec); };
+  assert.equal(await main(['install', '--client', CLIENT, '--statusline'], f.io), 0, f.output.join('\n'));
+  assert.deepEqual(copies, [{ language: 'en' }]);
+});
+
+test('R2: a measurement folder and a quota command of the real configuration never reach the check', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
+  let outside, marker;
+  const w = await realWorld(t, { before: async (f) => {
+    outside = join(f.home, 'outside-measurements');
+    marker = join(f.home, 'quota-command-ran');
+    const file = join(f.root, 'config.json');
+    const stored = JSON.parse(await fs.readFile(file, 'utf8'));
+    stored.telemetry = { enabled: true, dir: outside };
+    stored.opencodeQuota = { sources: { demo: { command: [process.execPath, '-e', `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'x')`] } } };
+    stored.statuslineCollector = { fields: { rateLimits: 'limits', usedPercentage: 'used', resetsAt: 'reset' } };
+    await fs.writeFile(file, JSON.stringify(stored));
+  } });
+  assert.equal(w.code, 0, w.text);
+  // The installer itself measures into the real configuration's folder (its own models table); the hook of the check
+  // would add a role.choice event there, which is what must be absent.
+  const written = await Promise.all((await fs.readdir(outside).catch(() => [])).map((name) => fs.readFile(join(outside, name), 'utf8')));
+  assert.ok(!written.some((text) => text.includes('role.choice')), 'the hook of the check measured into the real configuration');
+  await assert.rejects(fs.stat(marker), { code: 'ENOENT' }, 'the check ran a quota command of the real configuration');
+  assert.deepEqual(w.readings, [['claude-code.json']], 'the allowed key (the collector fields) did not arrive');
+});
+
+// R3: under the check the hook starts nothing.
+async function hookWorld(t, { verifying }) {
+  const folder = await fs.mkdtemp(join(tmpdir(), 'selfcheck-hook-'));
+  t.after(() => fs.rm(folder, { recursive: true, force: true }));
+  const probe = join(folder, 'probe'), quota = join(folder, 'quota');
+  const fake = join(folder, 'bin');
+  await fs.mkdir(fake);
+  for (const client of ['claude', 'codex', 'opencode']) {
+    await fs.writeFile(join(fake, client), `#!/bin/sh\necho x >> '${probe}'\n`, { mode: 0o755 });
+  }
+  await fs.mkdir(join(folder, 'root'));
+  await fs.writeFile(join(folder, 'root', 'config.json'), JSON.stringify({
+    opencodeQuota: { sources: { demo: { command: [process.execPath, '-e', `require('node:fs').appendFileSync(${JSON.stringify(quota)}, 'x')`] } } } }));
+  const out = [];
+  const code = await runSessionStart({ root: join(folder, 'root'), stdin: JSON.stringify({ cwd: folder, hook_event_name: 'SessionStart' }),
+    stdout: (line) => out.push(line), env: { PATH: `${fake}:/usr/bin:/bin`, ...(verifying ? { [SELFCHECK_ENV]: '1' } : {}) } });
+  const started = async (file) => fs.stat(file).then(() => true, () => false);
+  return { code, out, probe: await started(probe), quota: await started(quota) };
+}
+
+test('R3: with the check variable set the hook starts no probe and no quota command, and still answers', { skip: process.platform === 'win32' ? 'no sh' : false }, async (t) => {
+  const w = await hookWorld(t, { verifying: true });
+  assert.equal(w.code, 0);
+  assert.equal(w.probe, false, 'a client probe was started under the check');
+  assert.equal(w.quota, false, 'a quota command was started under the check');
+  assert.equal(w.out.length, 1);
+  assert.doesNotMatch(w.out[0], /unavailable|indisponível/, w.out[0]);
+  assert.equal(JSON.parse(w.out[0]).hookSpecificOutput.hookEventName, 'SessionStart');
+});
+
+test('R3: without the check variable the hook is as before: it probes the clients and reads the quota commands', { skip: process.platform === 'win32' ? 'no sh' : false }, async (t) => {
+  const w = await hookWorld(t, { verifying: false });
+  assert.equal(w.code, 0);
+  assert.equal(w.probe, true, 'the real hook no longer probes the clients');
+  assert.equal(w.quota, true, 'the real hook no longer reads the quota commands');
+});
+
+// R4: the new terminal, said once, with --verbose too.
+test('R4: with --verbose the new terminal is said exactly once', async (t) => {
+  const w = await world(t, 'linux', { env: { PATH: '/usr/bin' }, argv: ['install', '--client', CLIENT, '--statusline', '--verbose'] });
+  assert.equal(w.code, 0, w.text);
+  assert.equal(countOf(w.text, 'en'), 1, w.text);
 });

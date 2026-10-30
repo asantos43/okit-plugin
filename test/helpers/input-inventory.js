@@ -398,6 +398,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/install/statusline.js', arg: /^(saved\.path|bytes\.toString\('utf8'\))$/, rule: 'settings of the client (statusline)' },
   { file: 'src/env/snapshot.js', arg: /^path$/, rule: 'settings of the client (statusline state, read by status)' },
   { file: 'src/install/selfcheck.js', arg: /^(file|text)$/, excluded: 'package.json of the package just installed (code of the program itself), read back only to compare its version; a file that cannot be read or is not JSON is a failed check (a row with its fix, exit 1), never a crash' },
+  { file: 'src/install/selfcheck.js', arg: /^saved$/, excluded: 'the person\'s config.json, read to copy only the allowed keys (install.selfcheck.stateKeys) into the temporary state root; a file that is not JSON, or whose root is not an object, copies nothing and the scripts use their defaults; never a crash, never a failed check' },
   { file: 'src/install/selfcheck.js', arg: /^path$/, excluded: 'the client\'s settings file, read back to run the status bar and hook strings the installer wrote; a file that cannot be read or is not JSON is a failed check with its fix (exit 1), JSON of another shape finds no status bar and is a skipped row; never a crash' },
   { file: 'src/install/statusline.js', arg: /^saved\.backup$/, excluded: 'the copy of the client\'s settings that okit made before it changed them; restored byte for byte, never parsed' },
   { file: 'src/install/index.js', arg: /^join\(ctx\.root, 'config\.json'\)$/, rule: CONFIG_JSON },
