@@ -798,6 +798,34 @@ for (const [name, change] of [
   });
 }
 
+// R7: a hook that names our script, however quoted, is told and not run.
+for (const [name, change] of [
+  ['our script in double quotes', (command, script) => `node "${script}" hook session-start`],
+  ['our script unquoted', (command, script) => `node ${script} hook session-start`],
+  ['our script in double quotes after another command', (command, script) => `touch /tmp/never; node "${script}" hook session-start`],
+]) {
+  test(`R7: ${name}: the hook is not run and the check says so`, async (t) => {
+    const w = await world(t, 'linux', { meddle: async (moment, f) => {
+      if (moment !== 'check') return;
+      const record = await readRecord(f.destination, CLIENT, fs, f.io.config);
+      await alterHook((command) => change(command, cliScript(record.path)))(moment, f);
+    } });
+    assert.equal(w.code, 0, w.text);
+    assert.equal(w.checks.filter(isHook).length, 0, 'a hook that names our script in another quoting was run');
+    assert.ok(w.lines().some((line) => /Session hook {2}skipped {2}the session hook is not exactly ours/.test(line)), w.text);
+  });
+}
+
+test('R7: (pt-BR) the skip of a hook with our script in double quotes is in Portuguese', async (t) => {
+  const w = await world(t, 'linux', { locale: 'pt-BR', meddle: async (moment, f) => {
+    if (moment !== 'check') return;
+    const record = await readRecord(f.destination, CLIENT, fs, f.io.config);
+    await alterHook(() => `node "${cliScript(record.path)}" hook session-start`)(moment, f);
+  } });
+  assert.equal(w.code, 0, w.text);
+  assert.ok(w.lines().some((line) => /o hook de sessão não é exatamente o nosso/.test(line)), w.text);
+});
+
 test('R1: (pt-BR) the skip of a hook that is not ours is in Portuguese', async (t) => {
   const w = await world(t, 'linux', { locale: 'pt-BR', meddle: alterHook((command) => `${command} && touch /tmp/never`) });
   assert.equal(w.code, 0, w.text);
@@ -932,6 +960,9 @@ const FOREIGN_BARS = {
   'a shim-named executable by an absolute path elsewhere': () => "'/foreign/bin/okit-plugin' 'statusline-collector'",
   'the short name in another folder': (f) => `'${join(f.bin, '..', 'elsewhere', 'okit')}' 'statusline-collector'`,
   'a bare name that is not the command': () => "'okit' 'statusline-collector'",
+  // R6: on POSIX a backslash is a character of a name, so these are other files than our script.
+  'a script that differs from ours by a backslash, single-quoted': (f, record) => `node '${record.path}\\src/cli.js' statusline-collector`,
+  'a script that differs from ours by a backslash, double-quoted': (f, record) => `node "${record.path}\\src/cli.js" statusline-collector`,
 };
 for (const [name, bar] of Object.entries(FOREIGN_BARS)) {
   test(`R5: ${name}: the status bar is not run and the check says so`, async (t) => {
@@ -942,6 +973,24 @@ for (const [name, bar] of Object.entries(FOREIGN_BARS)) {
   });
 }
 
+test('R6: an unquoted script with a backslash is what the shell makes of it (the backslash is dropped), another file than ours: not run', async (t) => {
+  const w = await world(t, 'linux', { meddle: setBar((f, record) => `node ${record.path}\\src/cli.js statusline-collector`) });
+  assert.equal(w.code, 0, w.text);
+  assert.equal(w.checks.filter(isBar).length, 0, 'a status bar whose unquoted script has a backslash was run');
+});
+
+test('R6: on Windows the same backslashes are separators, so our script written with them is still ours', async (t) => {
+  const w = await world(t, 'win32', { meddle: setBar((f, record) => `node '${cliScript(record.path).replaceAll('/', '\\')}' statusline-collector`) });
+  assert.equal(w.code, 0, w.text);
+  assert.equal(w.checks.filter(isBar).length, 1, w.text);
+  assert.ok(!w.lines().some((line) => line.includes('is not ours')), w.text);
+});
+
+test('R6: the command check compares a backslash on POSIX as a character: a shim path with one is not in the link folder', async (t) => {
+  const w = await world(t, 'linux', { resolved: (spec) => `${spec.env.PATH.split(':')[0]}\\okit-plugin\n` });
+  assert.equal(w.code, OPERATIONAL, w.text);
+});
+
 test('R5: a bare command that the shell finds outside the link folder is not run', async (t) => {
   let calls = 0;
   // The first four resolutions are the command check of the four shells; the fifth is the status bar's own executable.
@@ -949,6 +998,23 @@ test('R5: a bare command that the shell finds outside the link folder is not run
   assert.equal(w.code, 0, w.text);
   assert.equal(w.checks.filter(isBar).length, 0, 'a status bar that resolves outside the link folder was run');
   assert.ok(w.lines().some((line) => /Status bar {2}skipped {2}the status bar is not ours/.test(line)), w.text);
+});
+
+test('R6: real run, a bar whose script is in a folder named with a backslash is not executed', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
+  let marker;
+  const w = await realWorld(t, { before: async (f) => {
+    marker = join(f.home, 'ran-by-the-check');
+    const ours = join(f.destination, '1.0.0-claude-code');
+    // `<ours>\src/cli.js` is a folder named `1.0.0-claude-code\src` beside ours, not our `src`.
+    const other = `${ours}\\src`;
+    await fs.mkdir(other, { recursive: true });
+    await fs.writeFile(join(other, 'cli.js'), `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'x')\n`);
+    await fs.mkdir(join(f.home, '.claude'), { recursive: true });
+    await fs.writeFile(join(f.home, '.claude/settings.json'), JSON.stringify({ statusLine: { type: 'command', command: `node '${other}/cli.js' statusline-collector` } }));
+  }, argv: ['install', '--client', CLIENT] });
+  assert.equal(w.code, 0, w.text);
+  await assert.rejects(fs.stat(marker), { code: 'ENOENT' }, 'the check ran a script that only differs from ours by a backslash');
+  assert.match(w.text, /not ours/);
 });
 
 test('R5: (pt-BR) the skip of a status bar that is not ours is in Portuguese', async (t) => {

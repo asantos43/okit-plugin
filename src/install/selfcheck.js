@@ -38,10 +38,13 @@ function environment(deps, extra = {}) {
   return { ...deps.env, [key]: [deps.bin, deps.env[key]].filter(Boolean).join(windows ? ';' : ':'), ...extra };
 }
 
-/** A path as it is compared: slashes, the drive of a Git Bash path, and (on Windows) the case; no trailing slash. */
+/**
+ * A path as it is compared; no trailing slash. On Windows: slashes, the drive of a Git Bash path and the case. On POSIX a
+ * backslash is an ordinary character of a name, so it stays as it is and two different names never compare equal.
+ */
 function normal(path, deps) {
-  let value = String(path).replaceAll('\\', '/');
-  if (windowsOf(deps)) value = value.replace(/^\/([a-z])\//i, '$1:/').toLowerCase();
+  let value = String(path);
+  if (windowsOf(deps)) value = value.replaceAll('\\', '/').replace(/^\/([a-z])\//i, '$1:/').toLowerCase();
   return value.replace(/\/+$/, '');
 }
 
@@ -157,11 +160,12 @@ async function writtenCommands(record, deps) {
   const hookSettings = hookFile === bar ? barSettings : await readSettings(hookFile, deps);
   const line = barSettings?.statusLine;
   const statusline = line?.type === 'command' && typeof line.command === 'string' ? line.command : null;
-  const script = hookScript(record.path);
-  // A hook is run only when it is exactly ours (`isOurHook`); one that merely names our script is told and not run.
+  const script = cliScript(record.path), quoted = hookScript(record.path);
+  // A hook is run only when it is exactly ours (`isOurHook`); one that names our script, however quoted (single, double,
+  // none), is told and not run.
   const named = (Array.isArray(hookSettings?.hooks?.SessionStart) ? hookSettings.hooks.SessionStart : [])
     .flatMap((entry) => (Array.isArray(entry?.hooks) ? entry.hooks : []))
-    .filter((hook) => hook?.type === 'command' && typeof hook.command === 'string' && hook.command.includes(script))
+    .filter((hook) => hook?.type === 'command' && typeof hook.command === 'string' && (hook.command.includes(script) || hook.command.includes(quoted)))
     .map((hook) => hook.command);
   const hooks = named.filter((command) => isOurHook(command, record.path));
   return { bar, hookFile, statusline, present: line !== undefined && line !== null, hooks, altered: named.length - hooks.length };
