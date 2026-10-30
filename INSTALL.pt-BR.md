@@ -96,10 +96,17 @@ instalação ou atualização bem-sucedida, nunca após falha, em `--dry-run` ou
 
 ### Comando do Windows e scripts do PowerShell
 
-No Windows o comando é só o atalho `okit-plugin.cmd`; o PowerShell também o encontra e
-não precisa de uma política de execução que permita scripts. Instalar e atualizar
+No Windows o comando são dois atalhos na pasta do link. O PowerShell e o cmd.exe usam
+`okit-plugin.cmd` (não precisa de uma política de execução que permita scripts); o Git
+Bash usa o `okit-plugin` sem extensão, um pequeno script `sh` (fim de linha LF) que
+converte os caminhos do Windows com `cygpath`, quando existe, e roda o plugin. A barra de
+status do Claude Code executa o comando dela pelo Git Bash, então a entrada gravada por
+`--statusline` usa o caminho absoluto desse atalho sem extensão. Instalar e atualizar
 removem um `okit-plugin.ps1` que este plugin gravou numa versão anterior (um `.ps1`
-que não é nosso fica como está); desinstalar remove os dois.
+que não é nosso fica como está) e reescrevem uma entrada antiga da barra de status que
+usava o nome do comando solto; desinstalar remove os atalhos. Um arquivo com qualquer um
+dos dois nomes que não seja nosso é preservado como qualquer comando alheio.
+`okit-plugin env report` avisa quando o coletor está registrado mas ainda não recebeu nenhuma leitura.
 Um comando existente de terceiros é preservado e faz o passo do comando e a
 instalação falharem. Renomeie ou remova esse comando, ou escolha outra pasta em
 `install.linkDirectory` na configuração, e tente novamente.

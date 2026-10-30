@@ -96,10 +96,17 @@ install or update, never after failure, during `--dry-run` or with `update --che
 
 ### Windows command and PowerShell scripts
 
-On Windows the command is a `okit-plugin.cmd` shim only; PowerShell finds it too, and
-it needs no execution policy that allows scripts. Install and update remove an
-`okit-plugin.ps1` this plugin wrote in an earlier version (a `.ps1` that is not
-ours is left alone); uninstall removes both.
+On Windows the command is two shims in the link directory. PowerShell and cmd.exe use
+`okit-plugin.cmd` (it needs no execution policy that allows scripts); Git Bash uses the
+extensionless `okit-plugin`, a small `sh` script (LF line endings) that converts the
+Windows paths with `cygpath` when it exists and runs the plugin. The Claude Code status
+bar runs its command through Git Bash, so the status bar entry written by
+`--statusline` names the absolute path of that extensionless shim. Install and update
+remove an `okit-plugin.ps1` this plugin wrote in an earlier version (a `.ps1` that is not
+ours is left alone), and rewrite an older status bar entry that named the bare command;
+uninstall removes the shims. A file of either name that is not ours is preserved like any
+foreign command. `okit-plugin env report` says when the collector is registered but has
+received no reading yet.
 An existing command that belongs to someone else is preserved and fails the
 command step and installation. Rename or remove it, or choose another directory
 in `install.linkDirectory` in the configuration, then retry.

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { main } from '../src/cli.js';
 import { environmentReadings, environmentReport, formatEnvironmentReport } from '../src/env/report.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
@@ -10,7 +10,7 @@ import { environmentSnapshot } from '../src/env/snapshot.js';
 import { statusTable } from '../src/status.js';
 import { listActors } from '../src/actors.js';
 import { runSetup } from '../src/setup/setup.js';
-import { collectStatusline, collectorArgsValid } from '../src/quota/statusline-collector.js';
+import { collectStatusline, collectorArgsValid, READING_FILE } from '../src/quota/statusline-collector.js';
 import { readJson } from '../src/state.js';
 import claudeCode from '../adapters/claude-code/index.js';
 import codex from '../adapters/codex/index.js';
@@ -244,6 +244,58 @@ test('status bar registration is read from settings, with a command when inactiv
       }
     }
   }
+});
+
+test('D97: the report says when the active collector has received no reading yet', async () => {
+  const quotaFile = join(resolve('/state'), 'quota', 'claude-code.json');
+  const settings = (command) => JSON.stringify({ statusLine: { type: 'command', command } });
+  const cases = [
+    // [command, the reading file exists, expected phrase in the line]
+    ['okit-plugin statusline-collector', false, true],
+    ["'C:/bin/okit-plugin' 'statusline-collector'", false, true],
+    ['okit-plugin statusline-collector', true, false],
+    ['echo hello', false, false],
+  ];
+  for (const [command, exists, phrase] of cases) {
+    const fs = {
+      readFile: async () => settings(command),
+      stat: async (path) => {
+        assert.equal(path, quotaFile);
+        if (!exists) throw Object.assign(new Error(), { code: 'ENOENT' });
+        return { isFile: () => true };
+      },
+    };
+    const snapshot = await environmentSnapshot(readings({ fs, root: '/state' }));
+    assert.equal(snapshot.plugin.statusline.received, command === 'echo hello' ? null : !phrase, command);
+    for (const [locale, text] of [['en', 'no reading received yet'], ['pt-BR', 'nenhuma leitura recebida ainda']]) {
+      const line = formatEnvironmentReport(snapshot, locale).split('\n').find((item) => item.includes('(statusline-collector)'));
+      assert.equal(line.includes(text), phrase, `${locale}: ${command} ${exists}`);
+      assert.equal(formatEnvironmentReport(snapshot, locale).split(text).length - 1, phrase ? 1 : 0);
+    }
+  }
+  // A file system that cannot say (not a missing file) adds nothing; so does a collector that is not registered at all.
+  for (const code of ['EACCES', 'EIO']) {
+    const fs = { readFile: async () => settings('okit-plugin statusline-collector'), stat: async () => { throw Object.assign(new Error(), { code }); } };
+    const snapshot = await environmentSnapshot(readings({ fs, root: '/state' }));
+    assert.doesNotMatch(formatEnvironmentReport(snapshot, 'en'), /no reading received yet/);
+  }
+  const absent = { readFile: async () => { throw Object.assign(new Error(), { code: 'ENOENT' }); }, stat: async () => { throw Object.assign(new Error(), { code: 'ENOENT' }); } };
+  assert.doesNotMatch(formatEnvironmentReport(await environmentSnapshot(readings({ fs: absent, root: '/state' })), 'en'), /no reading received yet/);
+});
+
+test('D97 I10: the quota file the report looks for is the one the collector writes, whatever the registered client', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'collector-reading-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const settings = JSON.stringify({ statusLine: { type: 'command', command: 'okit-plugin statusline-collector' } });
+  const fs = { readFile: async () => settings, stat };
+  const received = async (client) => (await environmentSnapshot(readings({ fs, root,
+    config: { ...readings().config, statuslineRegistration: { client } } }))).plugin.statusline.received;
+  for (const client of ['claude-code', 'codex']) assert.equal(await received(client), false, `${client} before`);
+  // The real collector writes one file under quota/, and it is the one the report looks for.
+  await collectStatusline({ stateRoot: root, input: Buffer.from(JSON.stringify({
+    rate_limits: { five_hour: { used_percentage: 25, resets_at: Date.now() / 1000 + 3600 } } })) });
+  assert.deepEqual(await readdir(join(root, 'quota')), [READING_FILE]);
+  for (const client of ['claude-code', 'codex']) assert.equal(await received(client), true, `${client} after`);
 });
 
 test('D95 R6: a status bar command that is not text is not registered', async () => {
