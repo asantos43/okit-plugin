@@ -1130,6 +1130,23 @@ test('R10: installed with --no-link, the bare bar is not run and the skip says w
   assert.ok(x.lines().some((line) => /instalado sem link, então a verificação não sabe qual comando a barra de status nomeia/.test(line)), x.text);
 });
 
+// R11: the guard holds for the absolute form too (what Windows writes): a file at <bin>/<command> is not ours without a link.
+test('R11: on win32 installed with --no-link, the absolute bar is not run and the skip says why (en and pt-BR)', async (t) => {
+  const w = await world(t, 'win32', { argv: ['install', '--client', CLIENT, '--statusline', '--no-link'],
+    meddle: async (moment, f) => { if (moment !== 'register') return;
+      await fs.mkdir(f.bin, { recursive: true });
+      await fs.writeFile(join(f.bin, 'okit-plugin.cmd'), 'foreign');
+    } });
+  assert.equal(w.code, 0, w.text);
+  const written = JSON.parse(await fs.readFile(join(w.home, '.claude/settings.json'), 'utf8')).statusLine.command;
+  assert.match(written, /[\\/]/, `the writer no longer writes an absolute bar: ${written}`);
+  assert.equal(w.checks.filter(isBar).length, 0, 'an absolute bar in the link folder was run although no shim of ours exists');
+  assert.ok(w.lines().some((line) => /Status bar {2}skipped {2}installed without a link, so the check cannot tell which command the status bar names; it was not run/.test(line)), w.text);
+  const x = await world(t, 'win32', { locale: 'pt-BR', argv: ['install', '--client', CLIENT, '--statusline', '--no-link'] });
+  assert.equal(x.checks.filter(isBar).length, 0, x.text);
+  assert.ok(x.lines().some((line) => /instalado sem link, então a verificação não sabe qual comando a barra de status nomeia/.test(line)), x.text);
+});
+
 test('R10: real run, installed with --no-link, a file at <bin>/<command> is not executed as the bar', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
   let marker;
   const w = await realWorld(t, { before: async (f) => {

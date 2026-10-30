@@ -180,9 +180,9 @@ async function writtenCommands(record, deps) {
  * for this installation: its words, each quoted by `quote`, joined by one space (`words.map(quote).join(' ')`), the first
  * the collector's executable (`collectorExecutable`), then the subcommand, then nothing or `--previous` and its words. Anything
  * the writer would not have written (a double-quoted word, an unquoted one, a character the shell and `commandWords` read
- * differently, another interpreter) is not run. The bare name of the shim is attested only by a shim of ours: the record must
+ * differently, another interpreter) is not run. The shim (its bare name, or the absolute path Windows writes) is attested only by a shim of ours: the record must
  * say a link was made (with `--no-link` nothing of ours is in the link folder, and a file of that name there is not ours),
- * and the name must also resolve into the link folder (`inBin`). Returns `true`, `false`, or `'unlinked'` (a bare name, no link).
+ * and the name must also resolve into the link folder (`inBin`). Returns `true`, `false`, or `'unlinked'` (no link).
  */
 async function isOurBar(command, deps, runner, record) {
   if (command === null) return false;
@@ -191,8 +191,8 @@ async function isOurBar(command, deps, runner, record) {
   if (words[0] !== collectorExecutable(deps) || words[1] !== deps.statuslineConfig.subcommand) return false;
   const rest = words.slice(2);
   if ((rest.length && rest[0] !== '--previous') || !collectorArgsValid(rest)) return false;
-  if (/[\\/]/.test(words[0])) return inBin(words[0], deps);
   if (record.link === false) return 'unlinked';
+  if (/[\\/]/.test(words[0])) return inBin(words[0], deps);
   // A bare name: the first thing the runner's shell finds for it, with the link folder in front, must be in that folder.
   if (!runner) return false;
   const outcome = await attempt(deps, { command: runner.executable, env: environment(deps),
