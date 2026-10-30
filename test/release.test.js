@@ -415,9 +415,14 @@ test('the build writes one archive per pair, named from package.json', async () 
     env: { SOURCE_DATE_EPOCH: EPOCH },
   });
 
-  assert.equal(result.built.length, 1);
-  assert.equal(result.built[0].file, 'demo-pkg-9.9.9-claude-code-linux-x64.tar.gz');
-  assert.deepEqual(await tree(out), ['demo-pkg-9.9.9-claude-code-linux-x64.tar.gz']);
+  assert.deepEqual(result.built.map(({ file }) => file), [
+    'demo-pkg-9.9.9-claude-code-linux-x64.tar.gz',
+    'demo-pkg-9.9.9-claude-code-linux-arm64.tar.gz',
+  ]);
+  assert.deepEqual(await tree(out), [
+    'demo-pkg-9.9.9-claude-code-linux-arm64.tar.gz',
+    'demo-pkg-9.9.9-claude-code-linux-x64.tar.gz',
+  ]);
 });
 
 test('the build writes nothing outside the output folder', async () => {
@@ -483,13 +488,13 @@ test('static import scan corpus: must pass declarations / must refuse other text
   for (const [source, expected] of cases) assert.deepEqual(staticRelativeImports(source), expected);
 });
 
-test('all nine extracted payloads run status and resolve every static source import', async () => {
+test('all eighteen extracted payloads run status and resolve every static source import', async () => {
   const config = releaseConfig();
   const out = await temp('all-payloads');
   const result = await buildRelease({ root: REPO, out, env: { SOURCE_DATE_EPOCH: EPOCH } });
   assert.deepEqual(result.refused, []);
   const archives = result.built.filter((artifact) => !artifact.bootstrap);
-  assert.equal(archives.length, 9);
+  assert.equal(archives.length, 18);
   const sources = (await tree(join(REPO, 'src'))).map((path) => `src/${path}`)
     .filter((path) => path.endsWith('.js') && !isExcluded(path, config.exclude));
   for (const artifact of archives) {
@@ -657,6 +662,7 @@ test('a client with no adapter is refused with the reason, and no package is wri
     out,
     client: 'codex',
     system: 'linux',
+    arch: 'x64',
     env: { SOURCE_DATE_EPOCH: EPOCH },
   });
 
@@ -820,7 +826,7 @@ test('the script builds every pair whose adapter exists, against the real root',
 test('the script builds one pair and answers with zero', async () => {
   const out = await temp('script-out');
   const err = [];
-  const code = await main(['--out', out, '--pair', 'claude-code:linux'], {
+  const code = await main(['--out', out, '--pair', 'claude-code:linux', '--arch', 'x64'], {
     root: REPO,
     env: { SOURCE_DATE_EPOCH: EPOCH },
     stdout: () => {},
@@ -843,4 +849,68 @@ test('the script refuses an argument it does not know', async () => {
   const code = await main(['--nope'], { root: REPO, env: {}, stdout: () => {}, stderr: (line) => err.push(line) });
   assert.equal(code, 2);
   assert.ok(err.some((line) => /unknown argument/.test(line)));
+});
+
+// D98: the release is built for x64 and for arm64 on any machine, and the label only routes the asset.
+//
+// Must pass / must refuse:
+// | case | must pass | must refuse |
+// | the default architectures, with process.arch of a machine nobody builds on | ['x64', 'arm64'], written out | the architecture of the builder |
+// | a build of every pair | 18 archives with the exact names (3 clients x 3 systems x 2 architectures) | a pair missing, a name not made by the model |
+// | the arm64 and the x64 archive of one client and system | the same entries, the same bytes | an entry that names the architecture |
+const CLIENTS = ['claude-code', 'codex', 'opencode'];
+const SYSTEM_FORMAT = { linux: 'tar.gz', macos: 'tar.gz', windows: 'zip' };
+const pkgVersion = JSON.parse(await readFile(join(REPO, 'package.json'), 'utf8')).version;
+
+test('the default architectures are written out, never the architecture of the machine that builds', async () => {
+  const real = Object.getOwnPropertyDescriptor(process, 'arch');
+  try {
+    // Another module instance, evaluated while the builder is a machine nobody builds the release on.
+    Object.defineProperty(process, 'arch', { value: 'riscv64', configurable: true });
+    const { DEFAULT_CONFIG: shadowed } = await import('../src/profiles.js?d98-shadowed-arch');
+    assert.deepEqual(shadowed.release.architectures, ['x64', 'arm64']);
+    assert.deepEqual(releaseConfig({}).architectures, ['x64', 'arm64']);
+    const { pairs } = planPairs({ config: { ...releaseConfig({}), architectures: shadowed.release.architectures } });
+    assert.equal(pairs.length, 18);
+  } finally {
+    Object.defineProperty(process, 'arch', real);
+  }
+});
+
+test('a build of every pair writes the eighteen assets with the exact names', async () => {
+  const out = await temp('eighteen');
+  const result = await buildRelease({ root: REPO, out, env: { SOURCE_DATE_EPOCH: EPOCH } });
+  assert.deepEqual(result.refused, []);
+  const expected = [];
+  for (const client of CLIENTS) {
+    for (const [system, format] of Object.entries(SYSTEM_FORMAT)) {
+      for (const arch of ['x64', 'arm64']) expected.push(`okit-plugin-${pkgVersion}-${client}-${system}-${arch}.${format}`);
+    }
+  }
+  assert.equal(expected.length, 18);
+  assert.deepEqual(result.built.filter((item) => !item.bootstrap).map((item) => item.file).sort(), expected.toSorted());
+  assert.deepEqual((await readdir(out)).filter((file) => /\.(tar\.gz|zip)$/.test(file)).sort(), expected.toSorted());
+});
+
+test('the arm64 and the x64 archive of a client and system are the same entries with the same bytes', async () => {
+  const out = await temp('identical');
+  const result = await buildRelease({ root: REPO, out, env: { SOURCE_DATE_EPOCH: EPOCH } });
+  assert.deepEqual(result.refused, []);
+  for (const client of CLIENTS) {
+    for (const [system, format] of Object.entries(SYSTEM_FORMAT)) {
+      const read = async (arch) => {
+        const bytes = await readFile(join(out, `okit-plugin-${pkgVersion}-${client}-${system}-${arch}.${format}`));
+        const entries = format === 'zip' ? readZip(bytes) : readTar(untarSync(bytes));
+        return { bytes, entries };
+      };
+      const [x64, arm64] = [await read('x64'), await read('arm64')];
+      assert.ok(x64.entries.length > 5, `${client} ${system}: the payload has entries`);
+      assert.deepEqual(arm64.entries.map((entry) => entry.path), x64.entries.map((entry) => entry.path), `${client} ${system}: same entries`);
+      for (const [index, entry] of x64.entries.entries()) {
+        assert.ok(entry.data.equals(arm64.entries[index].data), `${client} ${system}: ${entry.path} has the same bytes`);
+        assert.equal(entry.mode, arm64.entries[index].mode, `${client} ${system}: ${entry.path} has the same mode`);
+      }
+      assert.ok(x64.bytes.equals(arm64.bytes), `${client} ${system}: the archives are the same file`);
+    }
+  }
 });

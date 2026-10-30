@@ -21,6 +21,14 @@ Read the script before executing it. Node >=20 must already be on PATH
 ([download Node](https://nodejs.org/)). Linux has been exercised by the Director;
 Windows and macOS await the Producer's real-machine checks.
 
+Supported system/architecture pairs: linux/x64, linux/arm64, macos/x64, macos/arm64,
+windows/x64, windows/arm64. The script picks the asset from `uname -s` / `uname -m`
+(on Windows from `process.arch`); macOS under Rosetta reports x86_64 and gets the
+x64 asset. Any other pair (for example Linux armv7l or i686, FreeBSD, Windows ia32)
+is refused before anything is downloaded, with the list above. The code is plain Node,
+so the x64 and arm64 assets are identical; the arm64 ones have not run on real arm64
+hardware.
+
 Linux and macOS (the same POSIX script):
 
 ```sh

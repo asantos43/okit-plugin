@@ -55,6 +55,7 @@ export function releaseConfig(user = {}) {
       ...(isPlainObject(given.notes) ? given.notes : {}),
       proofBy: map(DEFAULTS.notes.proofBy, isPlainObject(given.notes) ? given.notes.proofBy : {}),
       status: map(DEFAULTS.notes.status, isPlainObject(given.notes) ? given.notes.status : {}),
+      basis: map(DEFAULTS.notes.basis, isPlainObject(given.notes) ? given.notes.basis : {}),
       headings: map(DEFAULTS.notes.headings, isPlainObject(given.notes) ? given.notes.headings : {}),
       labels: map(DEFAULTS.notes.labels, isPlainObject(given.notes) ? given.notes.labels : {}),
     },

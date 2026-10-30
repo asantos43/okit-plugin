@@ -119,22 +119,22 @@ test('no-cost client without tokens and absent or wrong confirmation never launc
 });
 
 const previewBaselines = {
-  'claude-code/en': ['685cae7d56209ae144ea1b1ce25f345bb2e19be1f92bc82e4649bd9fcfcd6bb8',
+  'claude-code/en': ['ec9be70d353efb52ff741984a82b9f0a9c87b32beb9189f2364ab8fb0ca1e687',
     '1cf99ad4c76186b5bee0fec56f578a11f1a687a191322456786c7f96a47352e3'],
-  'claude-code/pt-BR': ['81dc2cffea11c40511bab16967f8209bfd7315bad652d3d5ee3d4f38e07c98ee',
+  'claude-code/pt-BR': ['27cabdd40248cb1f7cf836b29b581785351b12d07d8ff2405677d8656d76b4a5',
     '6d6707128ce3371f4a077ce349d167d46aa2ce9d90978386a53f0b4c43e902ad'],
-  'codex/en': ['b2d77551a56114f692ce38fe7cd056081e4b81a984c7cb596181465dfe600702',
+  'codex/en': ['8fcb4c0e806ac83b3c031a1b218e120bc1c662f8d15aac1348b462639f216e35',
     '1c582c29c3ee7725e802c44c318a22a15cbf35545688b9e55c6096abb6aca265'],
-  'codex/pt-BR': ['67c21d44f33991bcf65c6da00f815e677cddfe5cfb5fd3647b2dfa96df5a8732',
+  'codex/pt-BR': ['460114aae3c3894c41bf64a96ca59f29188e1bc3f588b56d47e7c71c4df907e7',
     '6a2b20d5da03b3b26593e1040d6944c95960b3566c3015f96b2f9c6c29ab4fe7'],
-  'opencode/en': ['8ba05743ac4041597094e52dfa2fd4a927125210ea35d9c8eb18d1cde8d1aeba',
+  'opencode/en': ['6786489b3f490a580785ec3a48590dcf7f3dbbad0f8329bb0dd570fe718654b2',
     '5283f1e03cd4b0107dce473db5c159502bd6bba7b5fd0d42c9f962bc2372baf4'],
-  'opencode/pt-BR': ['f7dec47eb92cff17a767402a96988a0ae139a9817b1a920a2a39872120aa3ccc',
+  'opencode/pt-BR': ['9a7f999e5a25bb4b150ead81b1838eca675ea54b52ca1edcfa581c7bdcf93ecc',
     'a669aa1edf1fcd28201f78a933ed3b03b800b91d42724d6be8c88e78d41a3b52'],
 };
 
 test('dry-run hash and text match the committed entry without launching', async (t) => {
-  // SHA-256 of plan and exact preview text from the pre-D84 entry at HEAD (plan hashes re-baselined when install.selfcheck joined the config, D98),
+  // SHA-256 of plan (it embeds the whole config, so it moves when a default does: D98 step 1 changed release.architectures, step 2 added install.selfcheck) and exact preview text from the pre-D84 entry,
   // with the confirmed fixture and a fixed quota timestamp. No git subprocess.
   const baseline = previewBaselines;
   for (const client of ['claude-code', 'codex', 'opencode']) {

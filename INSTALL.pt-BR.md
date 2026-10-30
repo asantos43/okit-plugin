@@ -22,6 +22,14 @@ Leia o script antes de executá-lo. Node >=20 deve estar no PATH
 ([obter Node](https://nodejs.org/)). Só Linux foi exercitado pelo Diretor;
 Windows e macOS aguardam as provas do Produtor em máquinas reais.
 
+Pares sistema/arquitetura com suporte: linux/x64, linux/arm64, macos/x64, macos/arm64,
+windows/x64, windows/arm64. O script escolhe o pacote por `uname -s` / `uname -m`
+(no Windows, por `process.arch`); o macOS sob Rosetta informa x86_64 e recebe o
+pacote x64. Qualquer outro par (por exemplo Linux armv7l ou i686, FreeBSD, Windows
+ia32) é recusado antes de baixar qualquer coisa, com a lista acima. O código é Node
+puro, então os pacotes x64 e arm64 são idênticos; os arm64 não foram executados em
+hardware arm64 real.
+
 Linux e macOS (um único script POSIX):
 
 ```sh
