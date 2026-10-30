@@ -56,11 +56,14 @@ export const imageTag = (name) => `okit-check-${name}`;
 /** Builds the image from the Containerfile text above (cached layers make a second call quick); a failure carries podman's words. */
 export function buildImage(name) {
   const context = mkdtempSync(join(tmpdir(), 'okit-context-'));   // holds only the Containerfile: nothing else is sent to the build
-  writeFileSync(join(context, 'Containerfile'), containerfile(name));
-  const result = spawnSync('podman', ['build', '--quiet', '-t', imageTag(name), context],
-    { encoding: 'utf8', timeout: 900000, maxBuffer: 1 << 24 });
-  rmSync(context, { recursive: true, force: true });
-  if (result.status !== 0) throw new Error(`podman build ${name} failed (${result.status}): ${result.stderr}${result.error?.message ?? ''}`);
+  try {
+    writeFileSync(join(context, 'Containerfile'), containerfile(name));
+    const result = spawnSync('podman', ['build', '--quiet', '-t', imageTag(name), context],
+      { encoding: 'utf8', timeout: 900000, maxBuffer: 1 << 24 });
+    if (result.status !== 0) throw new Error(`podman build ${name} failed (${result.status}): ${result.stderr}${result.error?.message ?? ''}`);
+  } finally {
+    rmSync(context, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -117,7 +120,14 @@ export function startContainer(name, server) {
   const started = run('podman', ['run', '-d', '--rm', '--name', containerName, '--network=host', '--security-opt', 'label=disable',
     '-v', `${join(ROOT, 'install.sh')}:/install.sh:ro`, '--user', USER,
     '-e', `OKIT_API=${server.base}`, '-e', 'OKIT_REPO=fake/repo', imageTag(name), 'sleep', '900'], { timeout: 60000 })
-    .then(() => undefined, async (error) => { await stop(containerName); throw error; });
+    .then(() => undefined, async (error) => {
+      // The original error stays the one thrown; a failed removal is told in its message and kept as `cause`.
+      await stop(containerName).catch((stopError) => {
+        error.message += `; and the cleanup failed too: ${stopError.message}`;
+        error.cause = stopError;
+      });
+      throw error;
+    });
   return { name: containerName, started };
 }
 
@@ -140,6 +150,17 @@ export function exec(id, argv, { env = {}, input, user = USER, timeout = 90000 }
   });
 }
 
+/**
+ * Removes the container and checks that it is gone: throws naming it when it still exists (or when that cannot be checked).
+ * A "no such container" from `rm` is not a failure: it is already gone.
+ */
 export async function stop(id) {
-  await run('podman', ['rm', '-f', '-t', '0', id], { timeout: 60000 }).catch(() => {});
+  const removal = await run('podman', ['rm', '-f', '-t', '0', id], { timeout: 60000 }).then(() => null, (error) => error);
+  let left;
+  try {
+    left = (await run('podman', ['ps', '-a', '--filter', `name=^${id}$`, '--format', '{{.Names}}'], { timeout: 60000 })).stdout.trim();
+  } catch (error) {
+    throw new Error(`could not check that container ${id} is gone: ${error.message}`, { cause: removal ?? error });
+  }
+  if (left) throw new Error(`container ${id} still exists after podman rm -f${removal ? `: ${removal.message}` : ''}`, { cause: removal ?? undefined });
 }
