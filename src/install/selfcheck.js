@@ -120,28 +120,65 @@ async function versionCheck(record, expected, deps) {
   return okCheck('version', expected);
 }
 
-/** The login profile of a shell and the line the installer writes in it (its own PATH block holds the same words). */
-function loginProfile(shell, deps) {
+// Bash reads at login the first of these files that exists (and only that one): the file the fix names must be the one
+// bash really reads, or the person would edit a file that is never read again.
+const BASH_LOGIN_FILES = ['.bash_profile', '.bash_login', '.profile'];
+
+/**
+ * The file a shell reads at login: bash reads the first of its own that exists (the configured one when none does); the
+ * other shells read the file the installer writes (their configured login profile).
+ *
+ * @param {object} shell the shell of the check
+ * @param {object} deps the installer's dependencies (fs, config, home)
+ * @returns {Promise<string>} the path of the file
+ */
+async function loginFile(shell, deps) {
   const shells = deps.config.path.shells;
-  const file = (shells[shell.name] ?? shells[deps.config.path.fallbackShell]).login;
+  const settings = shells[shell.name] ?? shells[deps.config.path.fallbackShell];
+  if (shell.name === 'bash') {
+    for (const name of BASH_LOGIN_FILES) {
+      const path = join(deps.home, name);
+      if (await deps.fs.access(path).then(() => true, () => false)) return path;
+    }
+  }
+  return join(deps.home, settings.login);
+}
+
+/** The login profile of a shell and the line the installer writes in it (its own PATH block holds the same words). */
+async function loginProfile(shell, deps) {
   const bin = quote(deps.bin);
-  return { file: join(deps.home, file), line: shell.name === 'fish' ? `set -gx PATH ${bin} $PATH` : `export PATH=${bin}\${PATH:+":$PATH"}` };
+  return { file: await loginFile(shell, deps),
+    line: shell.name === 'fish' ? `set -gx PATH ${bin} $PATH` : `export PATH=${bin}\${PATH:+":$PATH"}` };
+}
+
+/** Whether the file a shell reads at login holds the installer's PATH block (it is the line that file may be missing). */
+async function loginHasBlock(file, deps) {
+  const content = await deps.fs.readFile(file, 'utf8').catch(() => null);
+  return Boolean(content?.includes(deps.config.path.begin));
 }
 
 /**
  * The launch the next terminal makes: the shell as a login shell, resolving only the bare command (never text of the person).
  * Resolution shells read the person's own startup files BY DESIGN (the same as the non-login launch below reads what applies
- * to every start): a profile that exits early, fails or skips the PATH block is exactly what this finds. It is made only for
- * a shell whose profile holds the installer's PATH block (the installer took the PATH of that shell upon itself; a PATH that
- * the terminal already had by other means, or `--no-path`, is the person's). Returns `undefined` when there is nothing to
- * prove, `true` when the command is found in the link folder, else the failed check.
+ * to every start): a profile that exits early, fails or skips the PATH block is exactly what this finds. The shell of the
+ * person's own terminal is always launched (a profile that never received the block, or lost it, must not pass in silence);
+ * another installed shell is only launched when its own profile holds the installer's PATH block (the installer took the
+ * PATH of that shell upon itself; a bash person with zsh installed must not see a failure about a profile they never use).
+ * Returns `undefined` when there is nothing to prove, `true` when the command is found in the link folder, else the failed
+ * check.
  */
 async function loginCheck(record, shell, executable, deps) {
   const { ui, config } = deps;
   if (!shell.login || windowsOf(deps) || deps.noPath || config.path.enabled === false) return undefined;
   const own = currentShell(deps.env, config) ?? config.path.fallbackShell;
   const key = shell.name === 'sh' ? (own === 'sh' ? 'sh' : null) : (Object.hasOwn(config.path.shells, shell.name) ? shell.name : null);
-  if (key === null || !await managedProfile(deps, key)) return undefined;
+  if (key === null) return undefined;
+  const ownShell = shell.name === own;
+  const managed = await managedProfile(deps, key);
+  if (!managed && !ownShell) return undefined;
+  // The link folder was already on the PATH of this terminal (the real one, before the login launch takes it off): the
+  // PATH that works may come from another source, so a login launch would prove nothing about the profile.
+  if (binInPath(deps)) return undefined;
   const outcome = await attempt(deps, { command: executable, env: loginEnvironment(deps),
     args: shell.login.map((argument) => argument.replaceAll('{command}', QUOTE[shell.quote](config.command))) });
   if (outcome.state === 'missing') return undefined;
@@ -149,10 +186,14 @@ async function loginCheck(record, shell, executable, deps) {
   if (outcome.state === 'ok' && inBin(found, deps)) return true;
   const why = outcome.state === 'failed' ? outcome.why
     : found ? ui.text('selfcheckLoginOther', { found, bin: deps.bin }) : ui.text('selfcheckNothing');
-  const { file, line } = loginProfile(shell, deps);
+  const { file, line } = await loginProfile(shell, deps);
   const tail = String(outcome.output ?? '').trim().split('\n').slice(-3).join('\n').slice(-400);
+  // A file that reads at login and holds the block stops before it: the line goes before whatever stops it. A file without
+  // the block needs the line itself: the one the installer writes, or the installer's own.
+  const fix = await loginHasBlock(file, deps) ? ui.text('selfcheckFixLogin', { file, line, again: again(record, deps) })
+    : ui.text('selfcheckFixLoginMissing', { file, shell: shell.name, line, again: again(record, deps) });
   return badCheck('command', ui.text('selfcheckLoginFail', { shell: shell.name, command: config.command, why }),
-    ui.text('selfcheckFixLogin', { file, line, again: again(record, deps) }), { shell: shell.name, output: tail });
+    fix, { shell: shell.name, output: tail });
 }
 
 /** 2. A non-interactive launch of each shell of the platform finds the command; a shell that is not installed is skipped. */

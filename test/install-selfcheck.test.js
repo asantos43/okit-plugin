@@ -1164,17 +1164,20 @@ test('R10: real run, installed with --no-link, a file at <bin>/<command> is not 
   assert.match(w.text, /installed without a link/);
 });
 
-// D103: the shell is also started the way the next terminal starts it (a login launch), for the shell whose profile holds
-// the installer's PATH block. A profile that exits early or fails makes the check fail, with the fix.
+// D103: the shell is also started the way the next terminal starts it (a login launch), for the shell of the person and
+// for the other shells whose profile holds the installer's PATH block. A profile that exits early or fails makes the check
+// fail, with the fix.
 const LOGIN_TEXTS = {
   en: {
     row: (shell, why) => `Command (${shell})  failed  a new ${shell} terminal will not find okit-plugin (${why})`,
     fix: (file) => `Fix: In ${file}, put this line before anything that exits or fails, or fix the error that stops that file early, then run: okit-plugin install --client claude-code (the line: export PATH='<bin>'\${PATH:+":$PATH"})`,
+    missing: (file, shell) => `Fix: Put this line in ${file}, the file ${shell} reads at login, before anything that exits or fails, then run: okit-plugin install --client claude-code (the line: export PATH='<bin>'\${PATH:+":$PATH"}; or run the installer again without --no-path)`,
     found: '  Command (bash)  ok  found, also at login',
   },
   'pt-BR': {
     row: (shell, why) => `Comando (${shell})  falhou  um terminal novo do ${shell} não achará okit-plugin (${why})`,
     fix: (file) => `Correção: Em ${file}, ponha esta linha antes de qualquer coisa que saia ou falhe, ou corrija o erro que interrompe esse arquivo, e rode: okit-plugin install --client claude-code (a linha: export PATH='<bin>'\${PATH:+":$PATH"})`,
+    missing: (file, shell) => `Correção: Ponha esta linha em ${file}, o arquivo que o ${shell} lê no login, antes de qualquer coisa que saia ou falhe, e rode: okit-plugin install --client claude-code (a linha: export PATH='<bin>'\${PATH:+":$PATH"}; ou rode o instalador de novo sem --no-path)`,
     found: '  Comando (bash)  ok  encontrado, também no login',
   },
 };
@@ -1203,6 +1206,8 @@ test('D103: a login launch passes: the same checks, no link folder in front of i
   assert.ok(w.checks.filter((spec) => isResolve(spec) && !isLogin(spec)).every((spec) => spec.env.PATH.startsWith(w.bin)));
   const verbose = await world(t, 'linux', { env: NOT_ON_PATH, hook: false, argv: ['install', '--client', CLIENT, '--verbose'] });
   assert.ok(verbose.lines().includes(LOGIN_TEXTS.en.found), verbose.text);
+  const local = await world(t, 'linux', { env: NOT_ON_PATH, hook: false, locale: 'pt-BR', argv: ['install', '--client', CLIENT, '--verbose'] });
+  assert.ok(local.lines().includes(LOGIN_TEXTS['pt-BR'].found), local.text);
   assert.match(blockOf(w.lines(), 'en')[0], /ok {2}\d+ checks passed$/);
 });
 
@@ -1270,20 +1275,60 @@ test('D103: when the plain launch already fails, only that failure is told (no s
   assert.equal(w.lines().filter((line) => line.startsWith('  Command (bash)')).length, 1, w.text);
 });
 
-test('D103: a login launch of a shell without the installer\'s PATH block is not asked, whatever it would answer', async (t) => {
+test('D103: a login launch of another installed shell without the installer\'s PATH block is not asked, whatever it would answer', async (t) => {
+  // The person\'s shell is bash: the other shells (zsh, sh, fish) have no block of their own and are not launched.
   const w = await world(t, 'linux', { env: { ...NOT_ON_PATH, SHELL: '/bin/bash' }, hook: false, fail: (spec) => (isLogin(spec) && spec.command !== 'bash' ? 1 : undefined) });
   assert.equal(w.code, 0, w.text);
   assert.deepEqual(w.checks.filter(isLogin).map((spec) => spec.command), ['bash']);
 });
 
+test('D103: the login launch of the person\'s own shell happens even without the PATH block, and the fix names the login file', async (t) => {
+  const w = await world(t, 'linux', { env: { ...NOT_ON_PATH, SHELL: '/bin/bash' }, hook: false,
+    fail: (spec) => (isLogin(spec) ? 1 : undefined),
+    meddle: async (moment, f) => {
+      // The profile of the person lost the block the installer wrote: the launch must still happen (a profile that never
+      // received it, or lost it, must not pass in silence).
+      if (moment === 'check') await fs.writeFile(join(f.home, '.profile'), '# the person\'s own start\n');
+    } });
+  assert.equal(w.code, OPERATIONAL, w.text);
+  assert.deepEqual(w.checks.filter(isLogin).map((spec) => spec.command), ['bash'], 'only the shell of the person is launched');
+  const block = blockOf(w.lines(), 'en');
+  assert.ok(block.includes(`  ${LOGIN_TEXTS.en.missing('<home>/.profile', 'bash')}`), block.join('\n'));
+});
+
+test('D103: the login launch is skipped when the link folder is already on the PATH, even with a managed profile', async (t) => {
+  // The link folder is on the PATH of this terminal: the PATH that works may come from another source, so a login launch
+  // (which takes the folder off the PATH) would prove nothing about the profile.
+  const onPath = await world(t, 'linux', { hook: false, fail: (spec) => (isLogin(spec) ? 1 : undefined),
+    meddle: async (moment, f) => {
+      if (moment === 'check') await fs.writeFile(join(f.home, '.profile'), '# >>> okit-plugin PATH >>>\n# <<< okit-plugin PATH <<<\n');
+    } });
+  assert.equal(onPath.code, 0, onPath.text);
+  assert.equal(onPath.checks.filter(isLogin).length, 0, 'the launch must not be made when the link folder is already on the PATH');
+  // The same, without the link folder on the PATH: the launch runs and the profile that fails it fails the run.
+  const offPath = await world(t, 'linux', { env: NOT_ON_PATH, hook: false, fail: (spec) => (isLogin(spec) ? 1 : undefined) });
+  assert.equal(offPath.code, OPERATIONAL, offPath.text);
+  assert.deepEqual(offPath.checks.filter(isLogin).map((spec) => spec.command), ['bash']);
+});
+
+test('D103: the fix names the file bash reads at login (the first of .bash_profile, .bash_login, .profile that exists)', async (t) => {
+  const w = await world(t, 'linux', { env: NOT_ON_PATH, hook: false, fail: (spec) => (isLogin(spec) ? 1 : undefined),
+    meddle: async (moment, f) => {
+      if (moment === 'check') await fs.writeFile(join(f.home, '.bash_profile'), '# the person\'s own start\nexit 0\n');
+    } });
+  assert.equal(w.code, OPERATIONAL, w.text);
+  assert.ok(w.lines().includes(`  ${LOGIN_TEXTS.en.missing('<home>/.bash_profile', 'bash')}`), w.text);
+});
+
 // D103, real shells: a profile that stops early, and one that does not.
 const realBash = process.platform !== 'win32' && spawnSync('bash', ['-c', 'exit 0']).status === 0;
-async function loginWorld(t, profile, flags = []) {
+async function loginWorld(t, profile, flags = [], files = {}) {
   const f = await fixture(t, process.platform === 'darwin' ? 'darwin' : 'linux');
   f.io.env.PATH = process.env.PATH.split(':').filter((folder) => folder !== f.bin).join(':');
   f.io.env.SHELL = 'bash';
   // `.profile` is where the installer writes its block for bash when there is no `.bashrc`; real shells read it at login.
   await fs.writeFile(join(f.home, '.profile'), profile);
+  for (const [name, content] of Object.entries(files)) await fs.writeFile(join(f.home, name), content);
   const fake = f.io.run;
   f.io.run = async (spec) => (isCheck(spec) ? runCommand(spec) : fake(spec));
   const code = await main(['install', '--client', CLIENT, ...flags], f.io);
@@ -1309,4 +1354,11 @@ test('D103: real bash, a profile that does not stop: the login launch finds the 
   const w = await loginWorld(t, '# the person\'s own start\n');
   assert.equal(w.code, 0, w.text);
   assert.match(blockOf(w.lines(), 'en')[0], /ok {2}\d+ checks passed$/, w.text);
+});
+
+test('D103: real bash, a .bash_profile that exits early and a fine .profile: the fix names .bash_profile', { skip: realBash ? false : 'no bash on this machine' }, async (t) => {
+  // Bash reads at login the first of .bash_profile, .bash_login and .profile that exists: the fix must name that one.
+  const w = await loginWorld(t, '# the person\'s own start\n', [], { '.bash_profile': '# the person\'s own start\nexit 0\n' });
+  assert.equal(w.code, OPERATIONAL, w.text);
+  assert.ok(w.lines().includes(`  ${LOGIN_TEXTS.en.missing('<home>/.bash_profile', 'bash')}`), w.text);
 });

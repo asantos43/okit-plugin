@@ -201,6 +201,7 @@ const TEXTS = Object.freeze({
   selfcheckLoginFail: { en: 'a new {shell} terminal will not find {command} ({why})', 'pt-BR': 'um terminal novo do {shell} não achará {command} ({why})' },
   selfcheckLoginOther: { en: 'it finds {found}, not a file of {bin}', 'pt-BR': 'ele acha {found}, e não um arquivo de {bin}' },
   selfcheckFixLogin: { en: 'In {file}, put this line before anything that exits or fails, or fix the error that stops that file early, then run: {again} (the line: {line})', 'pt-BR': 'Em {file}, ponha esta linha antes de qualquer coisa que saia ou falhe, ou corrija o erro que interrompe esse arquivo, e rode: {again} (a linha: {line})' },
+  selfcheckFixLoginMissing: { en: 'Put this line in {file}, the file {shell} reads at login, before anything that exits or fails, then run: {again} (the line: {line}; or run the installer again without --no-path)', 'pt-BR': 'Ponha esta linha em {file}, o arquivo que o {shell} lê no login, antes de qualquer coisa que saia ou falhe, e rode: {again} (a linha: {line}; ou rode o instalador de novo sem --no-path)' },
   selfcheckShellMissing: { en: '{shell} is not installed', 'pt-BR': '{shell} não está instalado' },
   selfcheckNoShell: { en: 'no shell could run the check ({shells})', 'pt-BR': 'nenhum shell pôde fazer a verificação ({shells})' },
   selfcheckFixNoShell: { en: 'Install a POSIX shell (sh or bash; on Windows, Git for Windows), then run: {again}', 'pt-BR': 'Instale um shell POSIX (sh ou bash; no Windows, o Git for Windows) e rode: {again}' },

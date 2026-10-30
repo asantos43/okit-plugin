@@ -113,15 +113,19 @@ registered, in this order, and prints one row, `Self-check (Claude Code)`:
    would: bash, zsh, sh and fish on Linux; zsh, bash, sh and a plain `sh -c` on macOS; PowerShell, cmd and Git Bash
    on Windows. A shell that is not installed shows `skipped` (`Command (fish)  skipped  fish is not installed`)
    and never fails the run. If no shell could run the check, the check fails and asks for a POSIX shell.
-   For the shell whose profile holds the PATH block the installer wrote (`.bashrc`/`.profile`, `.zshrc`/`.zprofile`,
-   fish's `config.fish`), the check also starts that shell the way a new terminal does, as a login shell (`bash -lc`,
-   `zsh -lc`, `sh -lc`, `fish -l -c`), with the link folder taken off the PATH, so only your profile can add it. If the
+   The check also starts your own shell the way a new terminal does, as a login shell (`bash -lc`,
+   `zsh -lc`, `sh -lc`, `fish -l -c`), with the link folder taken off the PATH, so only your profile can add it: your
+   shell is the one `$SHELL` names (bash when the terminal names none). Another installed shell is started this way only
+   when its own profile holds the PATH block the installer wrote (`.bashrc`/`.profile`, `.zshrc`/`.zprofile`,
+   fish's `config.fish`), so a bash person with zsh installed never sees a failure about a profile they do not use. If the
    plain launch finds the command but the login launch does not (a profile that exits early, fails, or never reaches the
    PATH block), the row fails: `Command (bash)  failed  a new bash terminal will not find okit-plugin (...)`, with a
-   `Fix:` line that names the profile and the line to put before whatever stops it; the shell's own error lines show
-   with `--verbose`. This launch reads your startup files by design; it resolves only the bare command and never
-   runs text of yours. It is not made when the link folder was already on your PATH, with `--no-path` or `--no-link`,
-   or on Windows.
+   `Fix:` line that names the file the shell reads at login (for bash, the first of `~/.bash_profile`, `~/.bash_login`,
+   `~/.profile` that exists) and the line to put before whatever stops it; when that file holds no PATH block, the fix
+   asks for the line itself (or for the installer to be run again without `--no-path`). The shell's own error
+   lines show with `--verbose`. This launch reads your startup files by design; it resolves only the bare command and never
+   runs text of yours. It is not made when the link folder was already on your PATH (the PATH that works may come from
+   another source), with `--no-path` or `--no-link`, or on Windows.
    The link folder is put in front of the PATH of the processes the check starts, and the first line each shell
    prints for `okit-plugin` (`command -v`, `Get-Command` or `where`) must be a file in that folder: our command.
    If another program with the same name comes first, the row fails and shows the path found, with a Fix line
@@ -168,7 +172,7 @@ Do what the Fix line says (it is the one command or edit for that row) and run t
 rows need nothing.
 
 What the check proves, and what it does not. The plain launches start non-interactively (never `-l` or `-i`; the login launch above is the one exception, for the
-shell that holds the PATH block), but a shell
+shell of your own terminal), but a shell
 may still read startup files that apply to every start (for example `BASH_ENV`, `ENV` or `~/.zshenv`), so a result
 can differ from a terminal you open yourself. On Windows, the forms of the PowerShell, cmd and Git Bash launches are
 proven by tests that simulate the platform; what only a real Windows machine proves stays on the list of

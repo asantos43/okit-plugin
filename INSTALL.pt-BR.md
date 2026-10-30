@@ -113,15 +113,19 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    bash, zsh, sh e fish no Linux; zsh, bash, sh e um `sh -c` simples no macOS; PowerShell, cmd e Git Bash no
    Windows. Um shell que não está instalado aparece como `pulado` (`Comando (fish)  pulado  fish não está instalado`)
    e nunca faz a execução falhar. Se nenhum shell pôde fazer a verificação, ela falha e pede um shell POSIX.
-   Para o shell cujo perfil guarda o bloco de PATH que o instalador escreveu (`.bashrc`/`.profile`, `.zshrc`/`.zprofile`,
-   `config.fish` do fish), a verificação também inicia esse shell como um terminal novo o inicia, como shell de login
+   A verificação também inicia o seu próprio shell como um terminal novo o inicia, como shell de login
    (`bash -lc`, `zsh -lc`, `sh -lc`, `fish -l -c`), com a pasta do link fora do PATH, de modo que só o seu perfil pode
-   adicioná-la. Se a partida simples acha o comando e a de login não (um perfil que sai cedo, falha ou nunca chega ao
+   adicioná-la: o seu shell é o que o `$SHELL` nomeia (bash quando o terminal não nomeia nenhum). Outro shell instalado só
+   é iniciado assim quando o perfil dele guarda o bloco de PATH que o instalador escreveu (`.bashrc`/`.profile`,
+   `.zshrc`/`.zprofile`, `config.fish` do fish), então quem usa bash com zsh instalado nunca vê uma falha sobre um perfil
+   que não usa. Se a partida simples acha o comando e a de login não (um perfil que sai cedo, falha ou nunca chega ao
    bloco de PATH), a linha falha: `Comando (bash)  falhou  um terminal novo do bash não achará okit-plugin (...)`, com
-   uma linha `Correção:` que diz o perfil e a linha a pôr antes do que o interrompe; as linhas de erro do próprio shell
-   aparecem com `--verbose`. Essa partida lê os seus arquivos de inicialização de propósito; ela resolve só o comando
-   simples e nunca roda texto seu. Ela não é feita quando a pasta do link já estava no seu PATH, com `--no-path` ou
-   `--no-link`, nem no Windows.
+   uma linha `Correção:` que diz o arquivo que o shell lê no login (para o bash, o primeiro de `~/.bash_profile`,
+   `~/.bash_login`, `~/.profile` que existir) e a linha a pôr antes do que o interrompe; quando esse arquivo não guarda
+   nenhum bloco de PATH, a correção pede a linha (ou pede para rodar o instalador de novo sem `--no-path`). As linhas de
+   erro do próprio shell aparecem com `--verbose`. Essa partida lê os seus arquivos de inicialização de propósito; ela resolve só o comando
+   simples e nunca roda texto seu. Ela não é feita quando a pasta do link já estava no seu PATH (o PATH que funciona pode
+   vir de outra fonte), com `--no-path` ou `--no-link`, nem no Windows.
    A pasta do link é posta na frente do PATH dos processos que a verificação inicia, e a primeira linha que cada
    shell imprime para `okit-plugin` (`command -v`, `Get-Command` ou `where`) deve ser um arquivo dessa pasta: o
    nosso comando. Se outro programa com o mesmo nome vier antes, a linha falha e mostra o caminho encontrado, com
@@ -167,8 +171,8 @@ Correção: Coloque /home/voce/.local/bin no PATH do zsh e rode: okit-plugin ins
 Faça o que a linha de Correção diz (é o comando ou a edição para aquela linha) e rode o instalador de novo;
 as linhas puladas não pedem nada.
 
-O que a verificação prova, e o que não prova. As partidas simples são sem interação (nunca `-l` nem `-i`; a partida de login acima é a única exceção, para o shell que
-guarda o bloco de PATH), mas um shell
+O que a verificação prova, e o que não prova. As partidas simples são sem interação (nunca `-l` nem `-i`; a partida de login acima é a única exceção, para o shell do
+seu próprio terminal), mas um shell
 ainda pode ler arquivos de inicialização que valem para toda partida (por exemplo `BASH_ENV`, `ENV` ou `~/.zshenv`),
 então o resultado pode diferir de um terminal que você abre. No Windows, as formas de iniciar PowerShell, cmd e Git
 Bash são provadas por testes que simulam a plataforma; o que só uma máquina Windows real prova fica na lista de
