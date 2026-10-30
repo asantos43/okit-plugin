@@ -163,3 +163,143 @@ test('each architecture has its own record with the basis of its proof', async (
     assert.ok(record.includes(`| Payload filename | ${pair.file} |`), pair.file);
   }
 });
+
+// D98 step 4: the Extra layer is for the systems whose installer only real hardware can prove.
+const recordOf = (checklist, pair) => checklist.split('## [ ] ').find((part) => part.startsWith(`${pair.client} × ${pair.system} (${pair.arch})\n`));
+
+test('macOS and Windows pairs carry the Extra layer with every configured label; Linux pairs do not', async () => {
+  const options = await fixture();
+  const { extra } = options.config.checklist;
+  const result = await buildChecklist(options);
+  assert.equal(result.refusal, null);
+  assert.equal(result.checklist.split(`### ${extra.title}`).length - 1, 12);
+  for (const pair of planFiles(options).pairs) {
+    const record = recordOf(result.checklist, pair);
+    const has = record.includes(`### ${extra.title}`);
+    assert.equal(has, pair.system !== 'linux', `${pair.system} ${pair.arch}`);
+    if (!has) continue;
+    const section = record.slice(record.indexOf(`### ${extra.title}`));
+    for (const label of Object.values(extra.labels)) assert.ok(section.includes(`| ${label} |  |`), label);
+    assert.equal(section.split('\n').filter((line) => line.startsWith('| ')).length, Object.keys(extra.labels).length + 2);
+  }
+  assert.ok(result.checklist.includes('The Extra layer applies to macOS and Windows pairs only.'));
+  assert.ok(result.checklist.includes('a container, a mock or a simulated platform'));
+});
+
+// The claude-code x64 Linux record exactly as `main` rendered it before the Extra layer (no Extra section, no other byte).
+const LINUX_GOLDEN = `claude-code × linux (x64)
+
+| Field | Evidence / value |
+| :- | :- |
+| Tester / date |  |
+| Source revision |  |
+| Package version | 2.3.4 |
+| Payload filename | example-release-2.3.4-claude-code-linux-x64.tar.gz |
+| Payload SHA-256 |  |
+| OS / version / architecture | linux / / x64 |
+| Node version |  |
+| Client version |  |
+| Install scope |  |
+| Resolved plugin / config / state / bin paths |  |
+| Fresh installation steps / result |  |
+| Update from prior candidate / restart / preserved state |  |
+| PATH / permissions |  |
+| Autostart show / install / restart |  |
+| JSONL / log locations |  |
+| D25 scenario revision |  |
+| Written acceptance of skips / partial proof |  |
+| Proof | not proven |
+| Proof basis | proof recorded for this payload |
+| Proof owner | Director |
+
+### In-process smoke
+
+| Field | Evidence / value |
+| :- | :- |
+| Command / driver |  |
+| Exit code |  |
+| Totals (pass / fail / skip) |  |
+| Reasons |  |
+| Skip / absent driver |  |
+| JSONL / logs |  |
+
+### D25 real-client scenario
+
+| Field | Evidence / value |
+| :- | :- |
+| Command / driver |  |
+| Exit code |  |
+| Totals (pass / fail / skip) |  |
+| Reasons |  |
+| Skip / absent driver |  |
+| JSONL / logs |  |
+
+`;
+
+test('the Extra layer follows the section of the layers and changes no other byte of the checklist', async () => {
+  const options = await fixture();
+  const result = await buildChecklist(options);
+  const none = await buildChecklist(await fixture({ checklist: { extra: { systems: [] } } }));
+  const pairs = planFiles(options).pairs;
+  // (a) every Linux record (both architectures, all clients) is byte-identical.
+  const linuxPairs = pairs.filter((pair) => pair.system === 'linux');
+  assert.equal(linuxPairs.length, 6);
+  const x64Basis = '| Proof basis | proof recorded for this payload |';
+  const armBasis = '| Proof basis | payload identical to x64; not run on real arm64 hardware |';
+  for (const pair of linuxPairs) {
+    const linux = recordOf(result.checklist, pair);
+    assert.equal(linux, recordOf(none.checklist, pair), `${pair.client} ${pair.arch}`);
+    assert.ok(!linux.includes('Extra layer'));
+    // Compared with the record as main renders it, before the Extra layer existed.
+    const golden = LINUX_GOLDEN.replaceAll('claude-code', pair.client).replaceAll('linux-x64', `linux-${pair.arch}`)
+      .replace('linux / / x64', `linux / / ${pair.arch}`).replace('(x64)', `(${pair.arch})`)
+      .replace(x64Basis, pair.arch === 'x64' ? x64Basis : armBasis);
+    assert.equal(linux, golden, `${pair.client} ${pair.arch}`);
+  }
+  const mac = recordOf(result.checklist, pairs.find((pair) => pair.system === 'macos'));
+  assert.ok(mac.indexOf('### D25 real-client scenario') < mac.indexOf('### Extra layer'));
+  // (b) without the Extra sections (heading through the blank line after the last row) the default equals the empty-systems rendering.
+  const { title } = options.config.checklist.extra;
+  const kept = [];
+  let skipping = false;
+  let rows = false;
+  for (const line of result.checklist.split('\n')) {
+    if (line === `### ${title}`) { skipping = true; rows = false; continue; }
+    if (skipping) {
+      if (line.startsWith('| ')) rows = true;
+      else if (line === '' && rows) skipping = false;
+      continue;
+    }
+    kept.push(line);
+  }
+  const stripped = kept.join('\n');
+  assert.notEqual(stripped, result.checklist);
+  assert.equal(stripped, none.checklist);
+  // The one instruction line added by this step is present in both renderings.
+  for (const text of [result.checklist, none.checklist]) assert.equal(text.split('\n').filter((line) => line.startsWith('The Extra layer applies')).length, 1);
+});
+
+test('a user configuration overrides the Extra layer labels, title and systems', async () => {
+  const options = await fixture({ checklist: { extra: { systems: ['linux'], title: 'Own layer', labels: { installer: 'Own installer row' } } } });
+  const result = await buildChecklist(options);
+  assert.equal(result.refusal, null);
+  assert.equal(result.checklist.split('### Own layer').length - 1, 6);
+  assert.equal(result.checklist.split('| Own installer row |  |').length - 1, 6);
+  for (const pair of planFiles(options).pairs) {
+    assert.equal(recordOf(result.checklist, pair).includes('### Own layer'), pair.system === 'linux');
+  }
+  assert.ok(result.checklist.includes('| Self-check output (paste) |  |'));
+});
+
+test('an invalid systems list falls back to the default', async () => {
+  for (const systems of ['linux', [1], [null], {}]) {
+    const options = await fixture({ checklist: { extra: { systems } } });
+    assert.deepEqual(options.config.checklist.extra.systems, ['macos', 'windows']);
+  }
+  assert.deepEqual((await fixture({ checklist: { extra: { systems: [] } } })).config.checklist.extra.systems, []);
+});
+
+test('the Extra layer renders identically on every run', async () => {
+  const options = await fixture();
+  assert.equal((await buildChecklist(options)).checklist, (await buildChecklist(options)).checklist);
+});

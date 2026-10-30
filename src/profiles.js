@@ -412,6 +412,7 @@ export const DEFAULT_CONFIG = {
         'Run `{bin} client-smoke` for the D25 scenario inside the actual named client with its real installation, login and state. Record the exact command/driver; rehearsal, dry-run and mocked spawns are not proof.',
         'D25 requires C1–C5 passing, no failures and accounting for every later check. Exit 0 can still mean {partial}; missing hook proof blocks installation acceptance. Missing configuration means incomplete installation.',
         'Keep unresolved skips, absent drivers and {partial} records unchecked until written acceptance by the responsible Producer. Attach durable logs, never credentials; preserve user configuration/state across install, update and client restart.',
+        'The Extra layer applies to macOS and Windows pairs only. The Producer runs it on the real machine; nothing in it may be replaced by a container, a mock or a simulated platform. Unfilled rows stay unchecked until the Producer\'s written acceptance.',
         'Payload SHA-256 comes only from `{manifest}` when available. Hash notes and checklist only after their records are final.',
       ],
       headings: { field: 'Field', value: 'Evidence / value' },
@@ -426,6 +427,24 @@ export const DEFAULT_CONFIG = {
       },
       layers: { process: 'In-process smoke', client: 'D25 real-client scenario' },
       layerLabels: { command: 'Command / driver', exit: 'Exit code', totals: 'Totals (pass / fail / skip)', reasons: 'Reasons', missing: 'Skip / absent driver', logs: 'JSONL / logs' },
+      // A third section for the systems whose installer only real hardware can prove (Linux is covered by the container check).
+      extra: {
+        systems: ['macos', 'windows'],
+        title: 'Extra layer: installer on this system',
+        labels: {
+          installer: 'Installer command run (install.sh / install.ps1) / exit code',
+          selfcheck: 'Self-check output (paste)',
+          shellA: 'Shell 1 finds the command (macOS: zsh; Windows: PowerShell)',
+          shellB: 'Shell 2 finds the command (macOS: bash; Windows: cmd)',
+          shellC: 'Shell 3 finds the command (macOS: sh, non-login non-interactive launch; Windows: Git Bash)',
+          clientCommands: 'statusLine command string and every hook command string from the client settings, each run in the client shell and exited 0 / exit code of each',
+          reading: 'Collector wrote a reading',
+          path: 'PATH change persisted / new terminal needed (yes or no)',
+          gui: 'GUI-launched client finds the command (macOS Dock / Finder; Windows Start menu)',
+          asset: 'Asset picked for this CPU (arm64 / x64) / unsupported pair refused with the plain message',
+          uninstall: 'Uninstall leaves no link, PATH block or statusLine',
+        },
+      },
       producerSignature: 'Producer signature for Windows/macOS: ____________________',
     },
     // The release notes: naming, root history, proof states and shared owners.

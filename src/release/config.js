@@ -48,6 +48,13 @@ export function releaseConfig(user = {}) {
       ...Object.fromEntries(['headings', 'labels', 'layers', 'layerLabels'].map((key) => [
         key, map(DEFAULTS.checklist[key], given.checklist?.[key]),
       ])),
+      extra: {
+        ...DEFAULTS.checklist.extra,
+        ...(isPlainObject(given.checklist?.extra) ? given.checklist.extra : {}),
+        labels: map(DEFAULTS.checklist.extra.labels, given.checklist?.extra?.labels),
+        systems: Array.isArray(given.checklist?.extra?.systems) && given.checklist.extra.systems.every((item) => typeof item === 'string')
+          ? given.checklist.extra.systems : DEFAULTS.checklist.extra.systems,
+      },
       proofBy: map(map(map(DEFAULTS.notes.proofBy, given.notes?.proofBy), DEFAULTS.checklist.proofBy), given.checklist?.proofBy),
     },
     notes: {

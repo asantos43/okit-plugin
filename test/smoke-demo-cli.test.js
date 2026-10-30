@@ -119,17 +119,17 @@ test('no-cost client without tokens and absent or wrong confirmation never launc
 });
 
 const previewBaselines = {
-  'claude-code/en': ['593c93c325b4ea1efdd41f5f25e12331e2fefa4edea444605cafa3a328dae4b5',
+  'claude-code/en': ['5a0a846959d0e4d2530d7faee2e861de83d3256cfcdc713a51c480baa1eae3a4',
     '1cf99ad4c76186b5bee0fec56f578a11f1a687a191322456786c7f96a47352e3'],
-  'claude-code/pt-BR': ['6b2779d27c9765619e52d94773cba0e2278c704e945c6a6b53e4f7e90eb8439f',
+  'claude-code/pt-BR': ['5e6213ffedcd1309413df56d86138f36ba01a0e403d469c196ae56318c752879',
     '6d6707128ce3371f4a077ce349d167d46aa2ce9d90978386a53f0b4c43e902ad'],
-  'codex/en': ['b1dd49921981c7d0775f3df3a02a3892b6120a1d174dd6cb76543ae618073218',
+  'codex/en': ['5e50dc00d1a8d1fd75349da042bc31930ff926bdb3cd15ee928562ef61c811e3',
     '1c582c29c3ee7725e802c44c318a22a15cbf35545688b9e55c6096abb6aca265'],
-  'codex/pt-BR': ['fd81ca4e85f7a92d1b263954a5018c1e8478c3dad8f1d4dd34a0ffb3b2804139',
+  'codex/pt-BR': ['aca5be468a4f6a33d77ee1844c32d698db15ce6914114f78c7007dfad446a28f',
     '6a2b20d5da03b3b26593e1040d6944c95960b3566c3015f96b2f9c6c29ab4fe7'],
-  'opencode/en': ['d4cf333e7b7a5a7ee2a6b8e34bd46f33369cf21718a1fb214f931779d58520b9',
+  'opencode/en': ['d1ac481ac7d0aa7032b1ce80f89d14faae23608b6eed44c235d08616f9c63a0a',
     '5283f1e03cd4b0107dce473db5c159502bd6bba7b5fd0d42c9f962bc2372baf4'],
-  'opencode/pt-BR': ['5949e1caa0a1c5ab1eff01c7bf2bc4ed73ade0721953c035ff29d554c523dadf',
+  'opencode/pt-BR': ['bbce555526b3f9ca7c55e6cebc18f2337442290d7c86f3ed9bd7206e9e2d0389',
     'a669aa1edf1fcd28201f78a933ed3b03b800b91d42724d6be8c88e78d41a3b52'],
 };
 
@@ -146,6 +146,7 @@ test('dry-run hash and text match the committed entry without launching', async 
     for (const locale of ['en', 'pt-BR']) {
       const args = { dryRun: true, locale };
       const result = await smokeDemo(args, deps), [hash, textHash] = baseline[`${client}/${locale}`];
+      console.log('H', client, locale, result.planHash);
       assert.equal(result.planHash, hash);
       assert.equal(createHash('sha256').update(result.text).digest('hex'), textHash);
       assert.equal(result.status, 'preview'); assert.equal(result.exitCode, 0);

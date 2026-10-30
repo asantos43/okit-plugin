@@ -28,6 +28,11 @@ export function renderChecklist({ config, packageJson, pairs, proof = {}, hashes
       for (const label of Object.values(text.layerLabels)) lines.push(row(label));
       lines.push('');
     }
+    if (text.extra.systems.includes(pair.system)) {
+      lines.push(`### ${text.extra.title}`, '', row(text.headings.field, text.headings.value), '| :- | :- |');
+      for (const label of Object.values(text.extra.labels)) lines.push(row(label));
+      lines.push('');
+    }
   }
   lines.push(text.producerSignature, '');
   return lines.join('\n');
