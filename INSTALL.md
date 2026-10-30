@@ -123,6 +123,12 @@ registered, in this order, and prints one row, `Self-check (Claude Code)`:
    installer writes (one quoted node path, our script, `hook session-start`); a hook that has anything more in it
    (a command appended or put before it, another subcommand) shows `skipped  the session hook is not exactly ours`
    and is not run. During the check the hook starts no process at all (no client probe, no quota command).
+   The status bar is run only when it names this installation's script (`node <install folder>/src/cli.js
+   statusline-collector`) or its shim (`okit-plugin statusline-collector`, bare or by the path of the link folder,
+   and the shell must find it in that folder); one that is only called like ours shows `skipped  the status bar is not
+   ours, so it was not run`. To find the command the way a new terminal would, the check starts your configured shell,
+   which reads its usual startup files (for example `BASH_ENV`, `.bashrc`, `.zshenv`); what those files do is yours,
+   exactly as when you open a terminal.
 4. **Quota reading**: the status bar leaves its reading. It runs with a temporary state folder, holding the
    allowed part of your `config.json` (the original is only read), that is removed afterwards, so your own quota state is never
    written by the check. The copy holds only the keys of `config.json` that the checked scripts need

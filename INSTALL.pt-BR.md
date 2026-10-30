@@ -124,6 +124,12 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    script, `hook session-start`); um hook com qualquer coisa a mais (um comando acrescentado ou posto antes, outro
    subcomando) aparece como `pulado  o hook de sessão não é exatamente o nosso` e não é executado. Durante a
    verificação o hook não inicia nenhum processo (nenhuma sonda de cliente, nenhum comando de cota).
+   A barra de status só é executada quando nomeia o script desta instalação (`node <pasta da instalação>/src/cli.js
+   statusline-collector`) ou o seu atalho (`okit-plugin statusline-collector`, puro ou pelo caminho da pasta do link,
+   e o shell deve encontrá-lo nessa pasta); uma que apenas se chama como a nossa aparece como `pulado  a barra de
+   status não é nossa, então não foi executada`. Para achar o comando como um terminal novo faria, a verificação
+   inicia o seu shell configurado, que lê seus arquivos de inicialização usuais (por exemplo `BASH_ENV`, `.bashrc`,
+   `.zshenv`); o que esses arquivos fazem é seu, exatamente como ao abrir um terminal.
 4. **Leitura de cota**: a barra de status deixa sua leitura. Ela roda com uma pasta de estado temporária, só com a
    parte permitida do seu `config.json` (o original só é lido), removida depois, então o seu estado de cota nunca é gravado
    pela verificação. A cópia tem só as chaves do `config.json` de que os scripts verificados precisam

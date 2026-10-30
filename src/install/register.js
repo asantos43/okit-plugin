@@ -6,9 +6,11 @@ import { presenterOf, pick } from './present.js';
 
 /**
  * The command of the SessionStart hook of an installation. The one source of the string: the installer writes it into the
- * client's settings, and the post-install check recognises the hooks that are ours by the script this names.
+ * client's settings, and the post-install check recognises what is ours by the script this names (`cliScript`, the same piece
+ * the status bar's `node <script> statusline-collector` form is compared with).
  */
-export const hookScript = (path) => quote(join(path, 'src/cli.js'));
+export const cliScript = (path) => join(path, 'src/cli.js');
+export const hookScript = (path) => quote(cliScript(path));
 const HOOK_ARGUMENTS = 'hook session-start';
 export const hookCommand = (path, node = process.execPath) => `${quote(node)} ${hookScript(path)} ${HOOK_ARGUMENTS}`;
 // One word as `quote` writes it: single-quoted, any quote inside escaped.

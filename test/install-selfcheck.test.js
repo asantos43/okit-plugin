@@ -13,7 +13,7 @@ import { statuslineCommand } from '../src/quota/statusline-collector.js';
 import { runSessionStart } from '../src/hook-session-start.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { readRecord, saveRecord } from '../src/install/place.js';
-import { hookCommand } from '../src/install/register.js';
+import { cliScript, hookCommand } from '../src/install/register.js';
 import { fixture } from './helpers/install-fixture.js';
 
 // The check after an install or an update: the installation only counts when it works on this machine.
@@ -452,9 +452,11 @@ test('S5: the check does not run on an install that is itself refused', async (t
 });
 
 // S7: the shell list and the form of each launch, by platform.
+// (the last row of linux and darwin is the status bar's own executable, resolved in the shell that runs it)
 const FORMS = {
-  linux: [['bash', ['-c', "command -v 'okit-plugin'"]], ['zsh', ['-c', "command -v 'okit-plugin'"]], ['sh', ['-c', "command -v 'okit-plugin'"]], ['fish', ['-c', "command -v 'okit-plugin'"]]],
-  darwin: [['zsh', ['-c', "command -v 'okit-plugin'"]], ['bash', ['-c', "command -v 'okit-plugin'"]], ['sh', ['-c', "command -v 'okit-plugin'"]], ['/bin/sh', ['-c', "command -v 'okit-plugin'"]]],
+  linux: [['bash', ['-c', "command -v 'okit-plugin'"]], ['zsh', ['-c', "command -v 'okit-plugin'"]], ['sh', ['-c', "command -v 'okit-plugin'"]], ['fish', ['-c', "command -v 'okit-plugin'"]],
+    ['sh', ['-c', "command -v 'okit-plugin'"]]],
+  darwin: [['zsh', ['-c', "command -v 'okit-plugin'"]], ['bash', ['-c', "command -v 'okit-plugin'"]], ['sh', ['-c', "command -v 'okit-plugin'"]], ['/bin/sh', ['-c', "command -v 'okit-plugin'"]], ['/bin/sh', ['-c', "command -v 'okit-plugin'"]]],
   win32: [['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "$c = Get-Command 'okit-plugin' -ErrorAction SilentlyContinue; if (-not $c) { exit 1 }; $c.Source"]],
     ['cmd.exe', ['/d', '/s', '/c', 'where', 'okit-plugin']], ['<program-files>/Git/bin/bash.exe', ['-c', "command -v 'okit-plugin'"]]],
 };
@@ -914,4 +916,73 @@ test('R4: with --verbose the new terminal is said exactly once', async (t) => {
   const w = await world(t, 'linux', { env: { PATH: '/usr/bin' }, argv: ['install', '--client', CLIENT, '--statusline', '--verbose'] });
   assert.equal(w.code, 0, w.text);
   assert.equal(countOf(w.text, 'en'), 1, w.text);
+});
+
+// R5: the status bar is run only when it is this installation's (its script, or its shim), not when it is called like it.
+const setBar = (command) => async (moment, f) => {
+  if (moment !== 'check') return;
+  const file = join(f.home, '.claude/settings.json');
+  const settings = JSON.parse(await fs.readFile(file, 'utf8'));
+  settings.statusLine.command = typeof command === 'function' ? command(f, await readRecord(f.destination, CLIENT, fs, f.io.config)) : command;
+  await fs.writeFile(file, JSON.stringify(settings));
+};
+const FOREIGN_BARS = {
+  'a node script that is not ours': () => "'node' '/foreign/src/cli.js' 'statusline-collector'",
+  'a script of another installation': (f) => `'node' '${join(f.destination, 'other/src/cli.js')}' 'statusline-collector'`,
+  'a shim-named executable by an absolute path elsewhere': () => "'/foreign/bin/okit-plugin' 'statusline-collector'",
+  'the short name in another folder': (f) => `'${join(f.bin, '..', 'elsewhere', 'okit')}' 'statusline-collector'`,
+  'a bare name that is not the command': () => "'okit' 'statusline-collector'",
+};
+for (const [name, bar] of Object.entries(FOREIGN_BARS)) {
+  test(`R5: ${name}: the status bar is not run and the check says so`, async (t) => {
+    const w = await world(t, 'linux', { meddle: setBar(bar) });
+    assert.equal(w.code, 0, w.text);
+    assert.equal(w.checks.filter(isBar).length, 0, 'a status bar that is not ours was run');
+    assert.ok(w.lines().some((line) => /Status bar {2}skipped {2}the status bar is not ours, so it was not run/.test(line)), w.text);
+  });
+}
+
+test('R5: a bare command that the shell finds outside the link folder is not run', async (t) => {
+  let calls = 0;
+  // The first four resolutions are the command check of the four shells; the fifth is the status bar's own executable.
+  const w = await world(t, 'linux', { resolved: (spec) => (++calls > 4 ? '/foreign/bin/okit-plugin\n' : `${spec.env.PATH.split(':')[0]}/okit-plugin\n`) });
+  assert.equal(w.code, 0, w.text);
+  assert.equal(w.checks.filter(isBar).length, 0, 'a status bar that resolves outside the link folder was run');
+  assert.ok(w.lines().some((line) => /Status bar {2}skipped {2}the status bar is not ours/.test(line)), w.text);
+});
+
+test('R5: (pt-BR) the skip of a status bar that is not ours is in Portuguese', async (t) => {
+  const w = await world(t, 'linux', { locale: 'pt-BR', meddle: setBar(FOREIGN_BARS['a node script that is not ours']) });
+  assert.equal(w.code, 0, w.text);
+  assert.ok(w.lines().some((line) => /a barra de status não é nossa/.test(line)), w.text);
+});
+
+for (const [name, bar] of Object.entries({
+  'its own script by node': (f, record) => `'node' '${cliScript(record.path)}' 'statusline-collector'`,
+  'its shim by the absolute path of the link folder': (f) => `'${join(f.bin, 'okit-plugin')}' 'statusline-collector'`,
+  'its shim by the bare command': () => "'okit-plugin' 'statusline-collector'",
+})) {
+  test(`R5: ${name}: the status bar is run and passes`, async (t) => {
+    const w = await world(t, 'linux', { meddle: setBar(bar) });
+    assert.equal(w.code, 0, w.text);
+    assert.equal(w.checks.filter(isBar).length, 1, w.text);
+    assert.ok(!w.lines().some((line) => line.includes('is not ours')), w.text);
+  });
+}
+
+test('R5: real run, a preserved bar that is a foreign script called like ours is not executed', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
+  let marker;
+  const w = await realWorld(t, { before: async (f) => {
+    marker = join(f.home, 'ran-by-the-check');
+    const foreign = join(f.home, 'foreign');
+    await fs.mkdir(join(foreign, 'src'), { recursive: true });
+    await fs.mkdir(join(foreign, 'bin'), { recursive: true });
+    await fs.writeFile(join(foreign, 'src/cli.js'), `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'x')\n`);
+    await fs.writeFile(join(foreign, 'bin/okit-plugin'), `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+    await fs.mkdir(join(f.home, '.claude'), { recursive: true });
+    await fs.writeFile(join(f.home, '.claude/settings.json'), JSON.stringify({ statusLine: { type: 'command', command: `'node' '${join(foreign, 'src/cli.js')}' 'statusline-collector'` } }));
+  }, argv: ['install', '--client', CLIENT] });
+  assert.equal(w.code, 0, w.text);
+  await assert.rejects(fs.stat(marker), { code: 'ENOENT' }, 'the check ran a status bar that is not this installation\'s');
+  assert.match(w.text, /not ours/);
 });

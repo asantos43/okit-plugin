@@ -3,8 +3,8 @@ import { HOME_ENV, SELFCHECK_ENV, paths } from '../store.js';
 import { READING_FILE } from '../quota/statusline-collector.js';
 import { readRecord } from './place.js';
 import { quote, binInPath, activationWarning, managedProfile } from './link.js';
-import { collectorCommandIndex, settingsPath } from './statusline.js';
-import { hookScript, isOurHook } from './register.js';
+import { collectorCommandIndex, commandWords, settingsPath } from './statusline.js';
+import { cliScript, hookScript, isOurHook } from './register.js';
 import { clientRoot } from './config.js';
 import { presenterOf, clientLabel } from './present.js';
 
@@ -167,12 +167,36 @@ async function writtenCommands(record, deps) {
   return { bar, hookFile, statusline, present: line !== undefined && line !== null, hooks, altered: named.length - hooks.length };
 }
 
+/**
+ * Whether a status bar string read back from the settings is THIS installation's collector, and not only called like it
+ * (`collectorCommandIndex` recognises by file name, for the registrar). Ours is either `node <our script> statusline-collector`
+ * (the script is `cliScript(record.path)`, the piece the hook recognizer uses) or the shim form (`<command> statusline-collector`,
+ * bare or by the absolute path of the link folder) whose executable resolves into the link folder (`inBin`, as the command check).
+ */
+async function isOurBar(command, record, deps, runner) {
+  if (command === null || collectorCommandIndex(command, deps.statuslineConfig, deps.config) <= 0) return false;
+  const words = commandWords(command);
+  const name = (word) => String(word).replaceAll('\\', '/').split('/').at(-1).replace(/\.(exe|cmd|bat|ps1)$/i, '');
+  if (name(words[0]) === 'node' && words[2] === deps.statuslineConfig.subcommand) {
+    return normal(words[1], deps) === normal(cliScript(record.path), deps);
+  }
+  if (words[1] !== deps.statuslineConfig.subcommand || name(words[0]) !== deps.config.command) return false;
+  if (/[\\/]/.test(words[0])) return inBin(words[0], deps);
+  // A bare name: the first thing the runner's shell finds for it, with the link folder in front, must be in that folder.
+  if (!runner) return false;
+  const outcome = await attempt(deps, { command: runner.executable, env: environment(deps),
+    args: runner.shell.resolve.map((argument) => argument.replaceAll('{command}', QUOTE[runner.shell.quote](words[0]))) });
+  return outcome.state === 'ok' && inBin(firstLine(outcome.stdout), deps);
+}
+
 /** 3 and 4. The status bar and hook strings run in the client's shell, with a temporary state root; the bar leaves a reading. */
 async function runWritten(record, deps) {
   const { ui, config } = deps;
   const written = await writtenCommands(record, deps);
+  const shell = shellNamed(deps, config.selfcheck.runner[deps.platform]);
+  const executable = shell?.run ? await locate(shell, deps) : null;
   const ours = written.statusline !== null
-    && collectorCommandIndex(written.statusline, deps.statuslineConfig, config) > 0;
+    && await isOurBar(written.statusline, record, deps, executable === null ? null : { shell, executable });
   const out = [];
   const reading = { status: 'skip', reason: ui.text('selfcheckOff'), quiet: true };
   const jobs = [
@@ -180,14 +204,14 @@ async function runWritten(record, deps) {
     ...written.hooks.map((text) => ({ id: 'hook', text, fix: ui.text('selfcheckFixHook', { again: again(record, deps), path: written.hookFile }), failed: 'selfcheckHookFailed' })),
   ];
   if (!ours) {
-    out.push(skipCheck('statusline', ui.text(written.present ? 'selfcheckForeign' : 'selfcheckOff'), { quiet: true }));
+    // A bar that is called like ours but is not this installation's is told; one that is plainly the person's own stays quiet.
+    const alike = written.statusline !== null && collectorCommandIndex(written.statusline, deps.statuslineConfig, config) > 0;
+    out.push(skipCheck('statusline', ui.text(written.present ? 'selfcheckForeign' : 'selfcheckOff'), { quiet: !alike }));
   }
   if (written.altered) out.push(skipCheck('hook', ui.text('selfcheckHookForeign'), { quiet: false }));
   else if (!written.hooks.length) out.push(skipCheck('hook', ui.text('selfcheckOff'), { quiet: true }));
   if (!jobs.length) return [...out, { id: 'collector', ...reading }];
 
-  const shell = shellNamed(deps, config.selfcheck.runner[deps.platform]);
-  const executable = shell?.run ? await locate(shell, deps) : null;
   const name = shell?.name ?? config.selfcheck.runner[deps.platform];
   const folder = executable === null || !shell?.run ? null
     : await deps.fs.mkdtemp(join(deps.temporary, 'selfcheck-'));
