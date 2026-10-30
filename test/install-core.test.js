@@ -18,6 +18,7 @@ import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { pick } from '../src/install/present.js';
 import { register } from '../src/install/register.js';
 import { installerCommand } from '../src/install/index.js';
+import { answerCheck } from './helpers/install-fixture.js';
 import { rollback } from '../src/install/update.js';
 import * as moduleAdapter from '../adapters/opencode/index.js';
 import { execFile } from 'node:child_process';
@@ -497,7 +498,7 @@ async function fixture(t) {
   deps.fetch = fetch;
   const io = { ...deps, pkg, arch: 'x64', tmpdir: home, tty: false, stdout: deps.out, stderr: deps.out,
     adapters: [], readQuota: async () => ({ source: 'off' }),
-    run: async (command) => { commands.push(command); return {}; },
+    run: async (command) => { commands.push(command); return answerCheck(command); },
     stopDaemon: async () => { events.push('stop'); return true; },
     startDaemon: async () => { events.push('start'); }, autostart: async () => { events.push('autostart'); },
     smoke: async () => { events.push('smoke'); return { code: 0 }; } };
@@ -613,13 +614,15 @@ test('unregistered client refuses update and uninstall before touching files', a
   const f = await fixture(t);
   assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0);
   const before = await tree(f.home);
+  // What the install ran (its self-check included) is not what a refused command may run.
+  const ran = f.commands.length;
   for (const command of ['update', 'uninstall']) {
     f.output.length = 0;
     assert.equal(await main([command, '--client', 'codex'], f.io), 2);
     assert.ok(f.output.some((line) => line.includes('Client not registered: codex')));
     assert.deepEqual(await tree(f.home), before);
     assert.deepEqual(f.events, []);
-    assert.deepEqual(f.commands, []);
+    assert.equal(f.commands.length, ran);
   }
 });
 
@@ -630,6 +633,7 @@ for (const route of ['direct', 'installerCommand']) test(`cross-client previous 
   const corrupt = { ...records.codex, previous: records['claude-code'] };
   await saveRecord(f.destination, corrupt, f.deps);
   const before = await tree(f.home);
+  const ran = f.commands.length;
   if (route === 'direct') {
     await assert.rejects(rollback(corrupt, f.io), {
       name: 'TypeError', message: 'Previous version belongs to another client',
@@ -640,7 +644,7 @@ for (const route of ['direct', 'installerCommand']) test(`cross-client previous 
   }
   assert.deepEqual(await tree(f.home), before);
   assert.deepEqual(f.events, []);
-  assert.deepEqual(f.commands, []);
+  assert.equal(f.commands.length, ran);
 });
 
 test('second client synchronizes shared link and autostart into existing record', async (t) => {
@@ -806,7 +810,8 @@ test('install idempotent, fixed destination, missing client skipped, update same
   assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0);
   const record = await readRecord(f.destination, fs);
   assert.equal(record.path, join(f.destination, '1.0.0-claude-code'));
-  assert.equal(f.commands.length, 0);
+  // Nothing was registered; the commands that ran are the self-check's (a shell finding the command).
+  assert.ok(f.commands.every(({ args }) => args.some((item) => item.includes('command -v'))), JSON.stringify(f.commands));
   assert.ok(f.output.some((line) => line.includes('not found, so nothing was registered')));
   assert.ok(f.output.some((line) => line.includes('does not authenticate')));
   const before = await tree(f.home);

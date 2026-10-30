@@ -4,6 +4,33 @@ import { detect } from './menu.js';
 import { quote } from './link.js';
 import { presenterOf, pick } from './present.js';
 
+/**
+ * The command of the SessionStart hook of an installation. The one source of the string: the installer writes it into the
+ * client's settings, and the post-install check runs a hook only when what it reads back is EQUAL to this string, byte for
+ * byte (`isOurHook`); it never parses a command to decide that it looks like ours.
+ */
+export const cliScript = (path) => join(path, 'src/cli.js');
+export const hookScript = (path) => quote(cliScript(path));
+const HOOK_ARGUMENTS = 'hook session-start';
+/** The node the registrar writes into the hook: the one source for the writer (`hookCommand`) and for the check. */
+export const hookNode = () => process.execPath;
+export const hookCommand = (path, node = hookNode()) => `${quote(node)} ${hookScript(path)} ${HOOK_ARGUMENTS}`;
+
+/** Whether a hook string read back from the settings is exactly what the registrar writes: equality, nothing else. */
+export const isOurHook = (command, path, node = hookNode()) => typeof command === 'string' && command === hookCommand(path, node);
+
+/**
+ * Whether a hook string differs from the registrar's only in the node path (a node that was upgraded or moved): the
+ * script and the arguments are ours, one single-quoted word stands where the node goes. Used only to choose the sentence
+ * that tells why the hook was not run; a string is never run because of this.
+ */
+export function isAnotherNode(command, path) {
+  const tail = ` ${hookScript(path)} ${HOOK_ARGUMENTS}`;
+  if (typeof command !== 'string' || !command.endsWith(tail)) return false;
+  const word = command.slice(0, -tail.length);
+  return word.length >= 2 && word.startsWith("'") && word.endsWith("'") && !word.slice(1, -1).split("'\\''").join('').includes("'");
+}
+
 export function registrationPlan(record, deps, action = 'install') {
   const settings = deps.config.clients[record.client];
   const identity = `${deps.config.entry}@${deps.config.marketplace}`;
@@ -56,11 +83,11 @@ async function registerRole(record, deps, remove = false) {
     presenterOf(deps).detail(`${presenterOf(deps).text('roleUnsupported')}: ${error.message}`);
     return;
   }
-  const command = `${quote(process.execPath)} ${quote(join(record.path, 'src/cli.js'))} hook session-start`;
+  const command = hookCommand(record.path);
   const opts = { env: deps.env, root: deps.clientRoot, command,
     nativeSupported: deps.platform !== 'win32' };
   if (record.previous && !remove && adapter.removeRole) {
-    await adapter.removeRole({ ...opts, command: `${quote(process.execPath)} ${quote(join(record.previous.path, 'src/cli.js'))} hook session-start` });
+    await adapter.removeRole({ ...opts, command: hookCommand(record.previous.path) });
   }
   const operation = remove ? adapter.removeRole : adapter.installRole;
   const result = operation ? await operation(opts) : { status: 'unsupported', reason: 'Adapter has no native role delivery / Adaptador sem entrega nativa de papel' };

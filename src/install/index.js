@@ -21,6 +21,7 @@ import { offerSetup } from '../setup/offer.js';
 import { initializeDetectedConfig, setupReader, formatUnreadable, formatNotSaved } from '../setup/setup.js';
 import { adapterQuotaReader } from '../env/quota.js';
 import { registerStatusline, appliesStatusline } from './statusline.js';
+import { verifyInstall } from './selfcheck.js';
 import { executionPolicyStep } from './policy.js';
 import { exitCodeFor, kindOf, LanguageError, UsageError } from './exit.js';
 
@@ -100,8 +101,8 @@ export async function installerCommand(command, args, ctx, io = {}) {
       unicode: supportsUnicode({ tty: io.outTty ?? Boolean(process.stdout.isTTY), env: ctx.env, platform: ctx.platform }), hide });
     const config = installConfig(user?.install, flags.dest ? { destination: flags.dest } : {});
     const locations = installPaths(config, { env: ctx.env, platform: ctx.platform, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir() });
-    const deps = { ...ctx, ...io, fs, config, ...locations, out: ctx.out, err: ctx.err, ui, hints: [],
-      statuslineConfig: configOf(user).statuslineRegistration,
+    const deps = { ...ctx, ...io, fs, config, ...locations, out: ctx.out, err: ctx.err, ui, hints: [], pathNotes: [],
+      statuslineConfig: configOf(user).statuslineRegistration, collectorConfig: configOf(user).statuslineCollector,
       home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir(),
       temporary: io.tmpdir ?? tmpdir(), now: ctx.now, platform: ctx.platform, env: ctx.env,
       fetch: io.fetch ?? globalThis.fetch, tty: io.tty ?? Boolean(process.stdin.isTTY),
@@ -172,6 +173,9 @@ export async function installerCommand(command, args, ctx, io = {}) {
     if (command !== 'uninstall' && deps.dryRun) ui.explain([ui.text('dryRunDone')]);
     else if (command !== 'uninstall' && succeeded && deps.hints.length) {
       ui.summary({ client: clientLabel(clients.at(-1)), command: deps.config.command, hint: deps.hints.find(Boolean) });
+    } else if (command !== 'uninstall' && deps.pathNotes.length) {
+      // No closing "Next" steps (the version was already installed, or a check failed): the new terminal is told here, once.
+      ui.row(ui.text('selfcheckPath'), 'info', deps.pathNotes[0]);
     }
     return exitCodeFor(succeeded ? 'ok' : results.every(({ code }) => code === exitCodeFor('usage')) ? 'usage' : 'operational');
   } catch (error) {
@@ -265,7 +269,8 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
       deps.stage('link');
       if (link && deps.dryRun) finishLink(ui, next('link'), null, { dryRun: true, command: deps.config.command, bin: deps.bin });
       else if (link) finishLink(ui, next('link'), await applyLink(current, deps));
-      return exitCodeFor('ok');
+      // Up to date is not enough: the install must also work (a dry run and --check change nothing, so they check nothing).
+      return exitCodeFor(!flags.check && !deps.dryRun && !await verifyInstall(current, selected.version, deps) ? 'operational' : 'ok');
     }
     if (flags.check) {
       const next = ui.sequence(quota ? ['quota'] : [], { client: label });
@@ -336,7 +341,8 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
         }
         next('smoke').ok();
       }
-      return exitCodeFor('ok');
+      // The install is left in place when it does not work: the rows say what to fix.
+      return exitCodeFor(await verifyInstall(record, selected.version, deps) ? 'ok' : 'operational');
     } finally { if (!local) await fs.rm(downloaded.folder, { recursive: true, force: true }); }
   } catch (error) {
     const step = stage ? ui.text(stage, { client: label }) : '';

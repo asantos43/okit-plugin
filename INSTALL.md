@@ -102,6 +102,69 @@ either language.
 Each step prints its result once. Model setup is offered only after a successful
 install or update, never after failure, during `--dry-run` or with `update --check`.
 
+### The self-check after install and update
+
+An install is only done when it works on this machine. After `install` and `update` (not after
+`--dry-run`, `--check`, `--rollback` or `uninstall`) the installer checks every client it just
+registered, in this order, and prints one row, `Self-check (Claude Code)`:
+
+1. **Version**: the install record and the installed `package.json` have the version that was installed.
+2. **Command**: each shell of your system finds `okit-plugin` when it starts without a profile, as a script
+   would: bash, zsh, sh and fish on Linux; zsh, bash, sh and a plain `sh -c` on macOS; PowerShell, cmd and Git Bash
+   on Windows. A shell that is not installed shows `skipped` (`Command (fish)  skipped  fish is not installed`)
+   and never fails the run. If no shell could run the check, the check fails and asks for a POSIX shell.
+   The link folder is put in front of the PATH of the processes the check starts, and the first line each shell
+   prints for `okit-plugin` (`command -v`, `Get-Command` or `where`) must be a file in that folder: our command.
+   If another program with the same name comes first, the row fails and shows the path found, with a Fix line
+   (remove or rename that file, or put the link folder before it on the PATH).
+3. **Status bar and session hook**: the exact commands the installer wrote into the client's settings file are
+   read back and run in the shell the client uses (a sample reading is sent to the status bar); both must exit 0.
+   The check runs the hook and the status bar only when each is exactly what the installer wrote, byte for byte (it is
+   compared with the installer's own output, never parsed). The session hook is run only when its string equals the one
+   the installer writes (this node, our script, `hook session-start`); any other hook, such as one with a command
+   appended or put before it, another subcommand or another quoting, shows `skipped  the session hook is not exactly
+   ours` and is not run; one that differs only in the node path shows `skipped  the session hook was registered with
+   another node (install again to refresh it)`. During the check the hook starts no process at all (no client probe,
+   no quota command). The status bar is run only when it is the shim form the installer writes
+   (`'okit-plugin' 'statusline-collector'`, with `--previous` and its words when your own bar is kept, every word
+   single-quoted; on Windows the absolute path of the shim in the link folder), and the shell must find the bare command in
+   the link folder; any other bar, including one that runs our script with `node`, shows `skipped  the status bar is not
+   ours, so it was not run`. With `--no-link` there is no shim of ours to attest the bare name, so the status bar is not run (`skipped  installed
+   without a link, so the check cannot tell which command the status bar names; it was not run`). To find the command the way a new terminal would, the check starts your configured shell,
+   which reads its usual startup files (for example `BASH_ENV`, `.bashrc`, `.zshenv`); what those files do is yours,
+   exactly as when you open a terminal.
+4. **Quota reading**: the status bar leaves its reading. It runs with a temporary state folder, holding the
+   allowed part of your `config.json` (the original is only read), that is removed afterwards, so your own quota state is never
+   written by the check. The copy holds only the keys of `config.json` that the checked scripts need
+   (`install.selfcheck.stateKeys`: the status bar's collector fields and the limits); every other setting, such as a
+   measurement folder (`telemetry`) or a quota command (`opencodeQuota.sources`), is not copied. The check never runs a command of yours: a status bar you chained with `--previous` is
+   not started by it (the processes of the check carry `OKIT_SELFCHECK`, and the collector then skips `--previous`).
+5. **PATH**: judged apart from the checks above, which add the link folder to the PATH they start with. If the link
+   folder is not on the PATH of this terminal and no profile adds it, the check fails and gives the line to add.
+   When a profile the installer manages adds it, the check passes and the run says once, in its closing lines,
+   that a new terminal is needed (also when the version was already installed).
+
+All passed: `Self-check (Claude Code)  ok  6 checks passed`; the list of the shells is shown with `--verbose`.
+Any failure: the install stays in place, the row says `installed but not working: 1 of 6 checks failed`, each
+failed check has its own row followed by a line `Fix: ...` with the exact command or edit, and the exit code is
+1. Example:
+
+```
+Self-check (Claude Code)  failed  installed but not working: 1 of 6 checks failed
+Command (zsh)             failed  zsh does not find okit-plugin (exit code 1)
+Fix: Add /home/you/.local/bin to the PATH of zsh, then run: okit-plugin install --client claude-code
+```
+
+Do what the Fix line says (it is the one command or edit for that row) and run the installer again; skipped
+rows need nothing.
+
+What the check proves, and what it does not. The shells start non-interactively (never `-l` or `-i`), but a shell
+may still read startup files that apply to every start (for example `BASH_ENV`, `ENV` or `~/.zshenv`), so a result
+can differ from a terminal you open yourself. On Windows, the forms of the PowerShell, cmd and Git Bash launches are
+proven by tests that simulate the platform; what only a real Windows machine proves stays on the list of
+[release evidence](docs/maintainers/RELEASING.md#proof-per-pair), and nothing beyond that is promised here. The shells, the time limit of each process (`install.selfcheck.timeoutMs`) and the keys copied from `config.json` and the sample
+sent to the status bar are in the `install.selfcheck` part of the configuration.
+
 ### Windows command and PowerShell scripts
 
 On Windows the command is two shims in the link directory. PowerShell and cmd.exe use

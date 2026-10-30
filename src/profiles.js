@@ -19,6 +19,9 @@ const PROFILE_MAX_TURNS = Object.freeze({
   hard: 80,
 });
 
+// A shell of the post-install check that reads `-c <string>`: it finds the command with `command -v`, and it runs a string.
+const posixShell = (name, executable = name) => ({ name, executable, quote: 'posix', resolve: ['-c', 'command -v {command}'], run: ['-c'] });
+
 export const DEFAULT_CONFIG = {
   trajectory: {
     enabled: false, dir: 'trajectory', retentionDays: 7,
@@ -121,6 +124,31 @@ export const DEFAULT_CONFIG = {
       opencode: { executable: 'opencode', strategy: 'module', module: 'src/install/client-plugin.js', configEnv: 'OPENCODE_CONFIG_DIR', rootParts: ['.config', 'opencode'], xdgEnv: 'XDG_CONFIG_HOME', xdgParts: ['opencode'] },
     },
     pathExtensions: ['', '.exe', '.cmd', '.bat'],
+    // The check after an install or an update: the shells in which the command must be found (per platform; a shell that
+    // is not on the machine is skipped, never failed), the shell that runs the status bar and hook strings, and the
+    // samples those strings get on stdin. `{command}` in `resolve` is the command, written for the shell's own quoting;
+    // `candidates` are the places of an executable that is not on the PATH (`{NAME}` is an environment variable, and a
+    // candidate whose variable is not set is dropped); `{temp}` in `hookInput` is the temporary state root of the check.
+    selfcheck: {
+      timeoutMs: 10000,
+      // The keys of config.json copied into the temporary state root: the ones the checked scripts need (the status bar's
+      // collector, the session hook's limits). Everything else is dropped, so a setting that runs or writes is never copied.
+      stateKeys: ['statuslineCollector', 'limits', 'staleMinutes'],
+      shells: {
+        linux: [posixShell('bash'), posixShell('zsh'), posixShell('sh'), posixShell('fish')],
+        darwin: [posixShell('zsh'), posixShell('bash'), posixShell('sh'), posixShell('sh -c', '/bin/sh')],
+        win32: [
+          { name: 'powershell', executable: 'powershell.exe', quote: 'powershell',
+            resolve: ['-NoProfile', '-NonInteractive', '-Command', '$c = Get-Command {command} -ErrorAction SilentlyContinue; if (-not $c) { exit 1 }; $c.Source'] },
+          { name: 'cmd', executable: 'cmd.exe', quote: 'none', resolve: ['/d', '/s', '/c', 'where', '{command}'] },
+          { ...posixShell('git-bash', 'bash.exe'),
+            candidates: ['{CLAUDE_CODE_GIT_BASH_PATH}', '{ProgramFiles}/Git/bin/bash.exe', '{ProgramFiles(x86)}/Git/bin/bash.exe', '{LOCALAPPDATA}/Programs/Git/bin/bash.exe'] },
+        ],
+      },
+      runner: { linux: 'sh', darwin: 'sh -c', win32: 'git-bash' },
+      sample: { usedPercentage: 10, resetsInSeconds: 3600,
+        hookInput: { hook_event_name: 'SessionStart', source: 'startup', cwd: '{temp}' } },
+    },
   },
   lowQuotaPct: 15,
   daemon: { minQuotaPct: 10 },

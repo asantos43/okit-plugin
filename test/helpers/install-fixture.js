@@ -4,12 +4,36 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { tarGz, zip } from '../../src/release/archive.js';
 import { installConfig } from '../../src/install/config.js';
+import { HOME_ENV, paths } from '../../src/store.js';
+import { READING_FILE } from '../../src/quota/statusline-collector.js';
 
 // The installer's world in a temporary folder: a fake release, the clients' executables found or not, and the
 // output collected line by line. Shared by the installer's tests; each one keeps its own expectations.
 
 export const SYSTEM = { linux: 'linux', darwin: 'macos', win32: 'windows' };
 export const FORMAT = { linux: 'tar.gz', darwin: 'tar.gz', win32: 'zip' };
+/**
+ * The fake world of the post-install check: a status bar string run with a temporary state root (OKWORK_HOME) leaves its
+ * reading there, as the real collector does, and a shell asked for the command prints the first folder of its PATH. A fake
+ * `run` returns this with the command object it was given.
+ */
+export async function answerCheck({ command = '', env, args = [] }) {
+  const folder = env?.[HOME_ENV];
+  const text = args.map(String);
+  if (folder && text.some((item) => item.includes('statusline-collector'))) {
+    await fs.mkdir(paths(folder).quota, { recursive: true });
+    await fs.writeFile(join(paths(folder).quota, READING_FILE), '{}');
+    return {};
+  }
+  // A shell asked where the command is says the first folder of the PATH it was given (the way a real shell finds it).
+  if (/command -v|Get-Command/.test(text.at(-1) ?? '') || text.at(-2) === 'where') {
+    const windows = command.toLowerCase().endsWith('.exe');
+    const first = String(env?.[Object.keys(env ?? {}).find((name) => name.toLowerCase() === 'path')] ?? '').split(windows ? ';' : ':')[0];
+    return { stdout: `${first}${windows ? '\\' : '/'}okit-plugin${text.at(-2) === 'where' || text.at(-1).includes('Get-Command') ? '.cmd' : ''}\n` };
+  }
+  return {};
+}
+
 export async function fixture(t, platform = 'linux', { tty = false, ask, read } = {}) {
   const home = await fs.mkdtemp(join(tmpdir(), 'installer-output-'));
   t.after(() => fs.rm(home, { recursive: true, force: true }));
@@ -45,7 +69,7 @@ export async function fixture(t, platform = 'linux', { tty = false, ask, read } 
     env: { HOME: home, PATH: platform === 'win32' ? '' : bin },
     pkg, arch: 'x64', tmpdir: scratch, tty, ask, read, outTty: false, clientRoot: join(home, 'client'),
     stdout: out, stderr: out, out, adapters: [], readQuota: async () => ({ source: 'off' }),
-    detect: async () => true, run: async (command) => { commands.push(command); return {}; },
+    detect: async () => true, run: async (command) => { commands.push(command); return answerCheck(command); },
     pathExecute: async () => ({ stdout: 'true\n' }),
     policyExecute: async () => ({ stdout: 'LocalMachine=RemoteSigned\n' }),
     stopDaemon: async () => true, startDaemon: async () => {}, autostart: async () => {}, smoke: async () => ({ code: 0 }) };

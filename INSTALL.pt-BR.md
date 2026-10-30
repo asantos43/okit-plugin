@@ -102,6 +102,69 @@ idiomas.
 Cada passo imprime seu resultado uma vez. A escolha de modelos só é oferecida após
 instalação ou atualização bem-sucedida, nunca após falha, em `--dry-run` ou com `update --check`.
 
+### A autoverificação depois de instalar e atualizar
+
+Uma instalação só está pronta quando funciona nesta máquina. Depois de `install` e `update` (não depois de
+`--dry-run`, `--check`, `--rollback` ou `uninstall`) o instalador verifica cada cliente que acabou de
+registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
+
+1. **Versão**: o registro da instalação e o `package.json` instalado têm a versão que foi instalada.
+2. **Comando**: cada shell do seu sistema encontra `okit-plugin` ao iniciar sem perfil, como faria um script:
+   bash, zsh, sh e fish no Linux; zsh, bash, sh e um `sh -c` simples no macOS; PowerShell, cmd e Git Bash no
+   Windows. Um shell que não está instalado aparece como `pulado` (`Comando (fish)  pulado  fish não está instalado`)
+   e nunca faz a execução falhar. Se nenhum shell pôde fazer a verificação, ela falha e pede um shell POSIX.
+   A pasta do link é posta na frente do PATH dos processos que a verificação inicia, e a primeira linha que cada
+   shell imprime para `okit-plugin` (`command -v`, `Get-Command` ou `where`) deve ser um arquivo dessa pasta: o
+   nosso comando. Se outro programa com o mesmo nome vier antes, a linha falha e mostra o caminho encontrado, com
+   uma linha de Correção (remova ou renomeie esse arquivo, ou ponha a pasta do link antes dele no PATH).
+3. **Barra de status e hook de sessão**: os comandos exatos que o instalador gravou nos ajustes do cliente são
+   lidos de volta e executados no shell que o cliente usa (a barra de status recebe uma leitura de exemplo);
+   os dois devem terminar com código 0. A verificação executa o hook e a barra de status só quando cada um é exatamente o que o instalador gravou, byte a byte
+   (é comparado com a saída do próprio instalador, nunca interpretado). O hook de sessão só é executado quando a sua
+   string é igual à que o instalador grava (este node, o nosso script, `hook session-start`); qualquer outro hook, como um
+   com comando acrescentado ou posto antes, outro subcomando ou outras aspas, aparece como `pulado  o hook de sessão
+   não é exatamente o nosso` e não é executado; um que difere só no caminho do node aparece como `pulado  o hook de
+   sessão foi registrado com outro node (instale de novo para atualizá-lo)`. Durante a verificação o hook não inicia
+   nenhum processo (nenhuma sonda de cliente, nenhum comando de cota). A barra de status só é executada quando é a forma
+   de atalho que o instalador grava (`'okit-plugin' 'statusline-collector'`, com `--previous` e as suas palavras quando
+   a sua barra é mantida, cada palavra entre aspas simples; no Windows, o caminho absoluto do atalho na pasta do link), e
+   o shell deve encontrar o comando puro nessa pasta; qualquer outra barra, inclusive uma que rode o nosso script com
+   `node`, aparece como `pulado  a barra de status não é nossa, então não foi executada`. Com `--no-link` não há atalho nosso que ateste o comando puro, então a barra de status não é executada (`pulado  instalado
+   sem link, então a verificação não sabe qual comando a barra de status nomeia; ela não foi executada`). Para achar o comando como um terminal novo faria, a verificação
+   inicia o seu shell configurado, que lê seus arquivos de inicialização usuais (por exemplo `BASH_ENV`, `.bashrc`,
+   `.zshenv`); o que esses arquivos fazem é seu, exatamente como ao abrir um terminal.
+4. **Leitura de cota**: a barra de status deixa sua leitura. Ela roda com uma pasta de estado temporária, só com a
+   parte permitida do seu `config.json` (o original só é lido), removida depois, então o seu estado de cota nunca é gravado
+   pela verificação. A cópia tem só as chaves do `config.json` de que os scripts verificados precisam
+   (`install.selfcheck.stateKeys`: os campos do coletor da barra de status e os limites); qualquer outro ajuste, como
+   uma pasta de medições (`telemetry`) ou um comando de cota (`opencodeQuota.sources`), não é copiado. A verificação nunca roda um comando seu: uma barra de status que você encadeou com `--previous`
+   não é iniciada por ela (os processos da verificação levam `OKIT_SELFCHECK`, e o coletor então pula `--previous`).
+5. **PATH**: julgado à parte das verificações acima, que acrescentam a pasta do link ao PATH com que começam. Se a
+   pasta do link não está no PATH deste terminal e nenhum perfil a adiciona, a verificação falha e dá a linha a
+   adicionar. Quando um perfil gerenciado pelo instalador a adiciona, a verificação passa e a execução diz uma só
+   vez, nas linhas finais, que é preciso um terminal novo (também quando a versão já estava instalada).
+
+Tudo certo: `Autoverificação (Claude Code)  ok  6 verificações passaram`; a lista dos shells aparece com
+`--verbose`. Qualquer falha: a instalação continua no lugar, a linha diz `instalado, mas não funciona: 1 de 6
+verificações falharam`, cada verificação que falhou tem sua linha seguida de `Correção: ...` com o comando ou a
+edição exata, e o código de saída é 1. Exemplo:
+
+```
+Autoverificação (Claude Code)  falhou  instalado, mas não funciona: 1 de 6 verificações falharam
+Comando (zsh)                  falhou  o zsh não encontra okit-plugin (código de saída 1)
+Correção: Coloque /home/voce/.local/bin no PATH do zsh e rode: okit-plugin install --client claude-code
+```
+
+Faça o que a linha de Correção diz (é o comando ou a edição para aquela linha) e rode o instalador de novo;
+as linhas puladas não pedem nada.
+
+O que a verificação prova, e o que não prova. Os shells iniciam sem interação (nunca `-l` nem `-i`), mas um shell
+ainda pode ler arquivos de inicialização que valem para toda partida (por exemplo `BASH_ENV`, `ENV` ou `~/.zshenv`),
+então o resultado pode diferir de um terminal que você abre. No Windows, as formas de iniciar PowerShell, cmd e Git
+Bash são provadas por testes que simulam a plataforma; o que só uma máquina Windows real prova fica na lista de
+[provas da versão](docs/maintainers/RELEASING.pt-BR.md#proof-per-pair), e nada além disso é prometido aqui. Os shells, o limite de tempo de cada processo (`install.selfcheck.timeoutMs`)
+as chaves copiadas do `config.json` e o exemplo enviado à barra de status ficam na parte `install.selfcheck` da configuração.
+
 ### Comando do Windows e scripts do PowerShell
 
 No Windows o comando são dois atalhos na pasta do link. O PowerShell e o cmd.exe usam

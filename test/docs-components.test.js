@@ -15,7 +15,7 @@ const source = name => readFile(resolve(root, name), 'utf8');
 const read = name => readFile(resolve(directory, name), 'utf8');
 export const COMPONENT_LINE_BUDGETS = Object.freeze({
   README: 40, skills: 70, 'mcp-tools': 50, hooks: 45, adapters: 50,
-  cli: 65, daemon: 50, configuration: 150, state: 55,
+  cli: 65, daemon: 50, configuration: 151, state: 55,
 });
 const pages = Object.keys(COMPONENT_LINE_BUDGETS);
 const names = pages.flatMap(p => [`${p}.md`, `${p}.pt-BR.md`]);

@@ -115,6 +115,7 @@ const SIZE = [1, Number.MAX_SAFE_INTEGER];
 /** `install.*` numbers (installConfig). */
 export const INSTALL_NUMBERS = Object.freeze({
   'kit.timeoutMs': TIMER, timeoutMs: TIMER, daemonPollMs: TIMER, maxDownloadBytes: SIZE, maxExtractBytes: SIZE,
+  'selfcheck.timeoutMs': TIMER, 'selfcheck.sample.usedPercentage': SIZE, 'selfcheck.sample.resetsInSeconds': SIZE,
 });
 /** The numbers `config set` takes; `integer` or `number`. */
 export const CONFIG_NUMBERS = Object.freeze({
@@ -251,6 +252,7 @@ export const ENV_DOMAINS = Object.freeze({
 export const ENV_OTHER = Object.freeze({
   OKIT_CLIENT: { domain: 'a client of OKIT_CLIENTS', invalid: ['no-such-client'], note: 'refused with exit 2 after the settings and before the network' },
   OKIT_LANGUAGE: { domain: 'en | pt-BR', invalid: [], note: 'a value that is not a language is ignored by design: the order of resolveLocale then falls to the saved language, the system and English' },
+  OKIT_SELFCHECK: { domain: 'set (any non-empty value) or not set', invalid: [], note: 'set by the post-install check in the processes it starts, never by the person: the status bar collector then does not start the command of --previous; it is not an installer setting' },
 });
 
 export const envKeysOfTheScripts = () => Object.keys(scriptDefaults({ name: 'x', engines: { node: '>=22' } }));
@@ -395,6 +397,9 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/install/statusline.js', arg: /^(path|original\.toString\('utf8'\))$/, rule: 'settings of the client (statusline)' },
   { file: 'src/install/statusline.js', arg: /^(saved\.path|bytes\.toString\('utf8'\))$/, rule: 'settings of the client (statusline)' },
   { file: 'src/env/snapshot.js', arg: /^path$/, rule: 'settings of the client (statusline state, read by status)' },
+  { file: 'src/install/selfcheck.js', arg: /^(file|text)$/, excluded: 'package.json of the package just installed (code of the program itself), read back only to compare its version; a file that cannot be read or is not JSON is a failed check (a row with its fix, exit 1), never a crash' },
+  { file: 'src/install/selfcheck.js', arg: /^saved$/, excluded: 'the person\'s config.json, read to copy only the allowed keys (install.selfcheck.stateKeys) into the temporary state root; a file that is not JSON, or whose root is not an object, copies nothing and the scripts use their defaults; never a crash, never a failed check' },
+  { file: 'src/install/selfcheck.js', arg: /^path$/, excluded: 'the client\'s settings file, read back to run the status bar and hook strings the installer wrote; a file that cannot be read or is not JSON is a failed check with its fix (exit 1), JSON of another shape finds no status bar and is a skipped row; never a crash' },
   { file: 'src/install/statusline.js', arg: /^saved\.backup$/, excluded: 'the copy of the client\'s settings that okit made before it changed them; restored byte for byte, never parsed' },
   { file: 'src/install/index.js', arg: /^join\(ctx\.root, 'config\.json'\)$/, rule: CONFIG_JSON },
   { file: 'src/install/bootstrap.js', arg: /^(metadata)$/, rule: 'the release metadata (API)' },
