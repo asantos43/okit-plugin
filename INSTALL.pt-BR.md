@@ -113,10 +113,36 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    bash, zsh, sh e fish no Linux; zsh, bash, sh e um `sh -c` simples no macOS; PowerShell, cmd e Git Bash no
    Windows. Um shell que não está instalado aparece como `pulado` (`Comando (fish)  pulado  fish não está instalado`)
    e nunca faz a execução falhar. Se nenhum shell pôde fazer a verificação, ela falha e pede um shell POSIX.
-   A pasta do link é posta na frente do PATH dos processos que a verificação inicia, e a primeira linha que cada
+   A verificação também inicia o seu próprio shell como um terminal novo o inicia, como shell de login
+   (`bash -lc`, `zsh -lc`, `sh -lc`, `fish -l -c`), com a pasta do link fora do PATH, de modo que só o seu perfil pode
+   adicioná-la: o seu shell é o que o `$SHELL` nomeia (bash quando o terminal não nomeia nenhum); um shell POSIX que lê o
+   `~/.profile` como o `sh` lê (dash, ash, ksh, mksh, pdksh, busybox) também é o seu, e é verificado como a entrada `sh`,
+   que lê o `~/.profile`; um shell fora dessa lista (csh, nu, xonsh) não lê `.profile`, então nenhuma partida de login é
+   feita para ele. A partida de login é feita só para o shell do seu próprio terminal: nenhum outro shell instalado é
+   iniciado assim, então quem usa bash com zsh instalado nunca vê uma
+   falha sobre um perfil que não usa. Se a partida simples acha o comando e a de login não (um perfil que sai cedo, falha
+   ou nunca chega ao bloco de PATH), a linha falha: `Comando (bash)  falhou  um terminal novo do bash não achará
+   okit-plugin (...)`, com uma linha `Correção:` que diz o arquivo que o shell lê no login (para o bash, o primeiro de
+   `~/.bash_profile`, `~/.bash_login`, `~/.profile` que existir; para o zsh, o `$ZDOTDIR/.zprofile` quando o `ZDOTDIR` está
+   definido, senão o `~/.zprofile`; para o fish, o `$XDG_CONFIG_HOME/fish/config.fish` quando o `XDG_CONFIG_HOME` está
+   definido, senão o `~/.config/fish/config.fish`) e a linha a pôr antes de qualquer coisa que pare esse arquivo com
+   `return`, o erro de qualquer comando que falhe (por exemplo sob `set -e`) a ser corrigido e qualquer `exit` desse
+   arquivo a sair (um `exit` encerra o próprio shell de login); quando esse
+   arquivo não guarda nenhum bloco de PATH, a correção pede a linha. Um limite: quando o seu `~/.zshenv` define ou
+   sobrescreve o `ZDOTDIR`, a correção diz o arquivo do ambiente herdado pela verificação, que pode não ser o arquivo
+   que o zsh realmente lê; a verificação em si está certa.
+   As linhas de erro do próprio shell aparecem com `--verbose`. Essa partida lê os seus arquivos de
+   inicialização de propósito; ela resolve só o comando simples e nunca roda texto seu. Ela não é feita quando a pasta
+   do link já estava no seu PATH (o PATH que funciona pode vir de outra fonte), com `--no-path` ou `--no-link`, nem no
+   Windows.
+   A pasta do link é posta na frente do PATH dos processos que a verificação inicia, e a linha que cada
    shell imprime para `okit-plugin` (`command -v`, `Get-Command` ou `where`) deve ser um arquivo dessa pasta: o
-   nosso comando. Se outro programa com o mesmo nome vier antes, a linha falha e mostra o caminho encontrado, com
-   uma linha de Correção (remova ou renomeie esse arquivo, ou ponha a pasta do link antes dele no PATH).
+   nosso comando (a primeira linha nas partidas simples; na partida de login, qualquer linha que o shell imprimiu pode ser
+   a resolução, então uma saudação do seu perfil impressa antes da resposta, ou uma mensagem impressa depois dela, não a
+   esconde, desde que a linha nomeie `okit-plugin`: outro programa da pasta do link impresso pelo seu perfil não é a
+   resolução, e quando nenhuma linha impressa nomeia `okit-plugin` a linha diz que nada foi encontrado). Se outro programa
+   com o mesmo nome vier antes, a linha falha e mostra o caminho
+   encontrado, com uma linha de Correção (remova ou renomeie esse arquivo, ou ponha a pasta do link antes dele no PATH).
 3. **Barra de status e hook de sessão**: os comandos exatos que o instalador gravou nos ajustes do cliente são
    lidos de volta e executados no shell que o cliente usa (a barra de status recebe uma leitura de exemplo);
    os dois devem terminar com código 0. A verificação executa o hook e a barra de status só quando cada um é exatamente o que o instalador gravou, byte a byte
@@ -158,7 +184,8 @@ Correção: Coloque /home/voce/.local/bin no PATH do zsh e rode: okit-plugin ins
 Faça o que a linha de Correção diz (é o comando ou a edição para aquela linha) e rode o instalador de novo;
 as linhas puladas não pedem nada.
 
-O que a verificação prova, e o que não prova. Os shells iniciam sem interação (nunca `-l` nem `-i`), mas um shell
+O que a verificação prova, e o que não prova. As partidas simples são sem interação (nunca `-l` nem `-i`; a partida de login acima é a única exceção, para o shell do
+seu próprio terminal), mas um shell
 ainda pode ler arquivos de inicialização que valem para toda partida (por exemplo `BASH_ENV`, `ENV` ou `~/.zshenv`),
 então o resultado pode diferir de um terminal que você abre. No Windows, as formas de iniciar PowerShell, cmd e Git
 Bash são provadas por testes que simulam a plataforma; o que só uma máquina Windows real prova fica na lista de

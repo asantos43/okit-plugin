@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { HOME_ENV, SELFCHECK_ENV, paths } from '../store.js';
 import { READING_FILE } from '../quota/statusline-collector.js';
 import { readRecord } from './place.js';
-import { quote, binInPath, activationWarning, managedProfile } from './link.js';
+import { quote, binInPath, activationWarning, managedProfile, currentShell } from './link.js';
 import { collectorCommandIndex, collectorExecutable, commandWords, settingsPath } from './statusline.js';
 import { collectorArgsValid } from '../quota/statusline-collector.js';
 import { cliScript, hookScript, hookNode, isAnotherNode, isOurHook } from './register.js';
@@ -49,13 +49,29 @@ function normal(path, deps) {
   return value.replace(/\/+$/, '');
 }
 
+/** The environment of a login launch: the link folder is taken OFF the PATH, so only a startup file of the shell can add it. */
+function loginEnvironment(deps) {
+  const key = Object.keys(deps.env).find((name) => name === 'PATH') ?? 'PATH';
+  const kept = String(deps.env[key] ?? '').split(':').filter((folder) => folder && normal(folder, deps) !== normal(deps.bin, deps));
+  return { ...deps.env, [key]: kept.join(':') };
+}
+
+/** The lines the shell printed for the command, trimmed and without the empty ones. */
+const printedLines = (stdout) => String(stdout ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+
 /** The first line the shell printed for the command: the path it resolves to (empty when it printed nothing). */
-const firstLine = (stdout) => String(stdout ?? '').split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? '';
+const firstLine = (stdout) => printedLines(stdout)[0] ?? '';
 
 /** Whether that path is a file of the link directory: the shim is ours, not another program of the same name. */
 function inBin(found, deps) {
   const value = normal(found, deps), cut = value.lastIndexOf('/');
   return cut > 0 && value.slice(0, cut) === normal(deps.bin, deps);
+}
+
+/** Whether that path names the command: the file name (after the last `/`) is the command itself (the shim's name). */
+function namesCommand(found, deps) {
+  const value = normal(found, deps);
+  return value.slice(value.lastIndexOf('/') + 1) === deps.config.command;
 }
 
 /** `{NAME}` of a candidate path from the environment; null when a variable is not set. */
@@ -113,6 +129,104 @@ async function versionCheck(record, expected, deps) {
   return okCheck('version', expected);
 }
 
+// Bash reads at login the first of these files that exists (and only that one): the file the fix names must be the one
+// bash really reads, or the person would edit a file that is never read again.
+const BASH_LOGIN_FILES = ['.bash_profile', '.bash_login', '.profile'];
+
+// The POSIX shells that read `.profile` at login like `sh` does: when `$SHELL` names one of them, the `sh` entry of the
+// check is the shell of the person. A shell outside this list (csh, nu, xonsh) reads no `.profile`, so it is not launched.
+const POSIX_PROFILE_SHELLS = ['dash', 'ash', 'ksh', 'mksh', 'pdksh', 'busybox'];
+
+/**
+ * The file a shell reads at login: bash reads the first of its own that exists (the configured one when none does); zsh
+ * reads `$ZDOTDIR/.zprofile` and fish reads `$XDG_CONFIG_HOME/fish/config.fish` when those variables are set (that is
+ * where those shells look, not under the HOME); the others read the file the installer writes (their configured login
+ * profile).
+ *
+ * @param {object} shell the shell of the check
+ * @param {object} deps the installer's dependencies (fs, config, home)
+ * @returns {Promise<string>} the path of the file
+ */
+async function loginFile(shell, deps) {
+  const shells = deps.config.path.shells;
+  const settings = shells[shell.name] ?? shells[deps.config.path.fallbackShell];
+  if (shell.name === 'bash') {
+    for (const name of BASH_LOGIN_FILES) {
+      const path = join(deps.home, name);
+      if (await deps.fs.access(path).then(() => true, () => false)) return path;
+    }
+  }
+  const zdotdir = shell.name === 'zsh' ? variable(deps, 'ZDOTDIR') : null;
+  if (zdotdir) return join(zdotdir, '.zprofile');
+  const xdg = shell.name === 'fish' ? variable(deps, 'XDG_CONFIG_HOME') : null;
+  if (xdg) return join(xdg, 'fish', 'config.fish');
+  return join(deps.home, settings.login);
+}
+
+/** The login profile of a shell and the line the installer writes in it (its own PATH block holds the same words). */
+async function loginProfile(shell, deps) {
+  const bin = quote(deps.bin);
+  return { file: await loginFile(shell, deps),
+    line: shell.name === 'fish' ? `set -gx PATH ${bin} $PATH` : `export PATH=${bin}\${PATH:+":$PATH"}` };
+}
+
+/** Whether the file a shell reads at login holds the installer's PATH block (it is the line that file may be missing). */
+async function loginHasBlock(file, deps) {
+  const content = await deps.fs.readFile(file, 'utf8').catch(() => null);
+  return Boolean(content?.includes(deps.config.path.begin));
+}
+
+/**
+ * The launch the next terminal makes: the shell of the person's own terminal, as a login shell, resolving only the bare
+ * command (never text of the person). Resolution shells read the person's own startup files BY DESIGN (the same as the
+ * non-login launch below reads what applies to every start): a profile that exits early, fails or skips the PATH block is
+ * exactly what this finds. Only that shell is launched (a profile that never received the block, or lost it, must not pass
+ * in silence; another installed shell is not the one the next terminal starts, so its profile says nothing about this
+ * install). A shell that reads `.profile` at login like `sh` does (dash, ash, ksh, mksh, pdksh, busybox) is the shell of the
+ * person, and the `sh` entry is it; a shell outside that list (csh, nu, xonsh) reads no `.profile`, so it is not launched.
+ * Any line the launch prints may be the resolution: a greeting printed before it, or a message printed after it (a trap on
+ * EXIT), does not hide it. Only a line that names the command is the resolution; a line that names another program (of the
+ * link folder or not) is not, and when no printed line names the command, the launch found nothing at all.
+ * Returns `undefined` when there is nothing to prove, `true` when the command is found in the link folder, else the failed
+ * check.
+ */
+async function loginCheck(record, shell, executable, deps) {
+  const { ui, config } = deps;
+  if (!shell.login || windowsOf(deps) || deps.noPath || config.path.enabled === false) return undefined;
+  const own = currentShell(deps.env, config) ?? config.path.fallbackShell;
+  // A shell that reads `.profile` at login like `sh` does (dash, ash, ksh) is the shell of the person, and the `sh`
+  // entry is it: the entry reads the very file that shell reads.
+  const posix = POSIX_PROFILE_SHELLS.includes(own);
+  if (shell.name !== own && !(posix && shell.name === 'sh')) return undefined;
+  // The link folder was already on the PATH of this terminal (the real one, before the login launch takes it off): the
+  // PATH that works may come from another source, so a login launch would prove nothing about the profile.
+  if (binInPath(deps)) return undefined;
+  const outcome = await attempt(deps, { command: executable, env: loginEnvironment(deps),
+    args: shell.login.map((argument) => argument.replaceAll('{command}', QUOTE[shell.quote](config.command))) });
+  if (outcome.state === 'missing') return undefined;
+  // Any line the launch printed may be the resolution, but only a line that names the command is one: a startup file that
+  // prints another program (of the link folder or elsewhere) is not the command. When none of them is a file of the link
+  // folder, the launch found no command.
+  const printed = outcome.state === 'ok' ? printedLines(outcome.stdout) : [];
+  const answers = printed.filter((line) => namesCommand(line, deps));
+  if (answers.some((line) => inBin(line, deps))) return true;
+  // The row names the last line that names the command (a program of the same name elsewhere is what it found); when no
+  // printed line names the command, the launch found nothing (a greeting or any other line it printed is not the answer).
+  const found = answers.at(-1) ?? '';
+  const why = outcome.state === 'failed' ? outcome.why
+    : found ? ui.text('selfcheckLoginOther', { found, bin: deps.bin }) : ui.text('selfcheckNothing');
+  const { file, line } = await loginProfile(shell, deps);
+  const tail = String(outcome.output ?? '').trim().split('\n').slice(-3).join('\n').slice(-400);
+  // A file that reads at login and holds the block stops before it: the line goes before whatever stops it (a `return`), the
+  // error of a command that fails (for example under `set -e`) is to be fixed and any `exit` of that file is to go (an `exit`
+  // ends the login shell itself). A file without the block needs the line itself: the one the installer writes, or the
+  // installer's own.
+  const fix = await loginHasBlock(file, deps) ? ui.text('selfcheckFixLogin', { file, line, again: again(record, deps) })
+    : ui.text('selfcheckFixLoginMissing', { file, shell: shell.name, line, again: again(record, deps) });
+  return badCheck('command', ui.text('selfcheckLoginFail', { shell: shell.name, command: config.command, why }),
+    fix, { shell: shell.name, output: tail });
+}
+
 /** 2. A non-interactive launch of each shell of the platform finds the command; a shell that is not installed is skipped. */
 async function commandChecks(record, deps) {
   const { ui, config } = deps;
@@ -135,8 +249,14 @@ async function commandChecks(record, deps) {
         ui.text('selfcheckFixElsewhere', { found: found || ui.text('selfcheckNothing'), bin: deps.bin, shell: shell.name, again: again(record, deps) }), { shell: shell.name }));
       continue;
     }
-    results.push(outcome.state === 'ok' ? okCheck('command', ui.text('selfcheckFound'), { shell: shell.name })
-      : badCheck('command', ui.text('selfcheckNotFound', { shell: shell.name, command: config.command, why: outcome.why }),
+    if (outcome.state === 'ok') {
+      // Found without a profile; the next terminal reads one, so the login launch must find it too.
+      const login = await loginCheck(record, shell, executable, deps);
+      if (login?.status === 'fail') { results.push(login); continue; }
+      results.push(okCheck('command', ui.text(login === true ? 'selfcheckFoundLogin' : 'selfcheckFound'), { shell: shell.name }));
+      continue;
+    }
+    results.push(badCheck('command', ui.text('selfcheckNotFound', { shell: shell.name, command: config.command, why: outcome.why }),
         ui.text('selfcheckFixCommand', { bin: deps.bin, shell: shell.name, again: again(record, deps) }),
         { shell: shell.name, output: outcome.output }));
   }

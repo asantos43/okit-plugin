@@ -224,7 +224,7 @@ const CLIENT = record({
 
 // A shell of the check after an install: how it is started, how it finds the command, and (when it runs a string) how.
 const SELFCHECK_SHELL = record({
-  name: word, executable: word, candidates: optional(filled(word)), resolve: filled(word), run: optional(filled(word)),
+  name: word, executable: word, candidates: optional(filled(word)), resolve: filled(word), run: optional(filled(word)), login: optional(filled(word)),
   quote: { kind: 'choice', values: ['posix', 'powershell', 'none'] },
 });
 

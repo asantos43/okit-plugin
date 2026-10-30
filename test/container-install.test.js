@@ -19,6 +19,7 @@ import { DISTROS, USER, buildImage, exec, startContainer, startReleaseServer, st
 // | the exact `statusLine.command` of ~/.claude/settings.json under `sh -c` with a bare environment and the login PATH | exit 0 and a quota reading written | a string the real shell cannot run |
 // | OKIT_MIN_NODE=99 | exit 2, a plain message, nothing written in the home | a half install |
 // | a shell of the machine that cannot run the self-check (a broken zsh) | exit non-zero, "installed but not working", a Fix line, the installation left in place | a success |
+// | a profile of the person that exits before the PATH block (`~/.profile` starting with `exit 0`) | exit non-zero, "a new sh terminal will not find okit-plugin", a Fix line naming the profile, the installation left in place | a success because the plain launch finds the command |
 // | a command of the same name in the link folder that is not ours | exit non-zero, the plain message, the foreign file untouched | an overwrite |
 //
 // What it cannot prove: macOS, Windows, arm64 (the asset is x64; the six pairs of the asset choice are in
@@ -142,6 +143,22 @@ describe('install in containers', { skip: reason ?? false, timeout: 3600000 }, (
         assert.match(text, /installed but not working: 1 of \d+ checks failed/, text);
         assert.match(text, /zsh does not find okit-plugin \(exit code 9\)/, text);
         assert.match(text, /Fix: /, text);
+        assert.equal((await exec(id, ['sh', '-c', `test -L ${home}/.local/bin/okit-plugin`])).code, 0, 'the installation was not left in place');
+      });
+
+      test(`${distro}: a profile that exits before the PATH block fails the run with the fix (a login launch finds nothing)`, { timeout: 120000 }, async (t) => {
+        const id = await fresh(t);
+        // The person's own ~/.profile stops early; install.sh appends its PATH block after it, where no login shell gets to.
+        const profile = await exec(id, ['sh', '-c', `printf '# the person: stop early\\nexit 0\\n' > ${home}/.profile`]);
+        assert.equal(profile.code, 0, `the profile was not written\n${profile.stderr}`);
+        const run = await exec(id, ['sh', '/install.sh', '--client', 'claude-code'], { env: { SHELL: PATHS.sh } });
+        const text = run.stdout + run.stderr;
+        assert.ok(run.code > 0, `the install did not fail with a real exit code (${run.code})\n${text}`);
+        assert.ok(!timedOut(run), `the install hung\n${text}`);
+        // The login launch is made for the shell of the person only (here `sh`), and it fails the same way.
+        assert.match(text, /installed but not working: \d+ of \d+ checks failed/, text);
+        assert.match(text, /a new sh terminal will not find okit-plugin/, text);
+        assert.match(text, new RegExp(`Fix: In ${home}/\\.profile, put this line before anything that stops the file with \`return\``), text);
         assert.equal((await exec(id, ['sh', '-c', `test -L ${home}/.local/bin/okit-plugin`])).code, 0, 'the installation was not left in place');
       });
 
