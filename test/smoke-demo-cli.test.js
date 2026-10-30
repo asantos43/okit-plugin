@@ -119,22 +119,22 @@ test('no-cost client without tokens and absent or wrong confirmation never launc
 });
 
 const previewBaselines = {
-  'claude-code/en': ['1398080e9712e01cad9538884944973749cb3057e4d5475a05a5978804903f9c',
+  'claude-code/en': ['971a2aa94b8cadd8515328d103de410194bb9b0817047d1ee8c2e647b4aee439',
     '1cf99ad4c76186b5bee0fec56f578a11f1a687a191322456786c7f96a47352e3'],
-  'claude-code/pt-BR': ['7494ef646e4e6256c3571f67d32616082646dfb624fc278cd011e08bdc8bb73b',
+  'claude-code/pt-BR': ['45f361d7a9937da360a133ddf75419a5bbbcef273eed981cca66735ea4c2f5c0',
     '6d6707128ce3371f4a077ce349d167d46aa2ce9d90978386a53f0b4c43e902ad'],
-  'codex/en': ['84ce75ca8c570a30db24c7769b3ca2839bcc115b29e93f4c945469990615846c',
+  'codex/en': ['949aa1e5d20e4bd011951eef5d76c1687e75fa32c7fe7ab740f382a540108f3c',
     '1c582c29c3ee7725e802c44c318a22a15cbf35545688b9e55c6096abb6aca265'],
-  'codex/pt-BR': ['981fa5eff0072932cc5d0296c83a4c1d59ddcf58fc633ad317c080a1079ca37b',
+  'codex/pt-BR': ['a841ea20ac301285a6a8eec920a745770e30d7ff8400e217a344683b566472cf',
     '6a2b20d5da03b3b26593e1040d6944c95960b3566c3015f96b2f9c6c29ab4fe7'],
-  'opencode/en': ['c066d78dce1cc3bc2b9169785adfbe3ecff2275469c3d3beff52132347c99067',
+  'opencode/en': ['c5281a25e321345dcd1e0c2c634f4c1fcf678684c5942f07f7b70b80aa4fd972',
     '5283f1e03cd4b0107dce473db5c159502bd6bba7b5fd0d42c9f962bc2372baf4'],
-  'opencode/pt-BR': ['32790b37c2ebccaedc9f47601865a14fd948a6baaa8a147e7e48c18163cbc73f',
+  'opencode/pt-BR': ['9d1f7614890021566c6d6125cdc2c2a136af19feff9f8f6bf0865f3542a7a499',
     'a669aa1edf1fcd28201f78a933ed3b03b800b91d42724d6be8c88e78d41a3b52'],
 };
 
 test('dry-run hash and text match the committed entry without launching', async (t) => {
-  // SHA-256 of plan and exact preview text from the pre-D84 entry at HEAD,
+  // SHA-256 of plan (it embeds the whole config, so it moves when a default does: D98 step 1 changed release.architectures) and exact preview text from the pre-D84 entry,
   // with the confirmed fixture and a fixed quota timestamp. No git subprocess.
   const baseline = previewBaselines;
   for (const client of ['claude-code', 'codex', 'opencode']) {

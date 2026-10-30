@@ -679,7 +679,9 @@ async function install(defaults, present, hide) {
   const system = systems[rawSystem];
   const rawArch = platform === 'win32' ? process.arch : run('uname', ['-m']).trim();
   const arch = architectures[rawArch];
-  if (!system || !arch) fail(t(`No package for system/architecture: ${rawSystem}/${rawArch}`, `Não há pacote para este sistema/arquitetura: ${rawSystem}/${rawArch}`));
+  // The pairs that have a package, as the release names them (system/architecture), so the refusal says what would work.
+  const supported = [...new Set(Object.values(systems))].flatMap((one) => [...new Set(Object.values(architectures))].map((two) => `${one}/${two}`)).join(', ');
+  if (!system || !arch) fail(t(`No package for system/architecture: ${rawSystem}/${rawArch}. Supported: ${supported}`, `Não há pacote para este sistema/arquitetura: ${rawSystem}/${rawArch}. Com suporte: ${supported}`));
   const roots = settings.DATA_ROOTS[platform];
   if (!roots) fail(t(`Unsupported platform: ${platform}`, `Sistema sem suporte: ${platform}`));
   const destination = resolve(flags['--dest'] || config.DEST || join(env[roots[0]] || join(env.HOME || env.USERPROFILE || homedir(), ...roots.slice(1)), config.DIRECTORY));

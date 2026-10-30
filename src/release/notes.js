@@ -94,6 +94,30 @@ export function pairLabel(pair) {
 }
 
 /**
+ * The label of a pair with its architecture, as the proof table and the gaps name it:
+ * the two architectures of one client and system are two assets.
+ *
+ * @param {object} pair the pair
+ * @returns {string} the label
+ */
+export function pairArchLabel(pair) {
+  return `${pairLabel(pair)} (${pair.arch})`;
+}
+
+/**
+ * What the proof of a pair stands on: the same bytes run on every architecture, so an architecture
+ * with no hardware run of its own says so.
+ *
+ * @param {object} options
+ * @param {object} options.config the resolved release configuration
+ * @param {object} options.pair the pair
+ * @returns {string} the basis
+ */
+export function proofBasis({ config, pair }) {
+  return config.notes.basis[pair.arch] ?? config.notes.basisOther;
+}
+
+/**
  * The files of the pairs, named as the build names them, and the pairs the
  * configuration refuses.
  *
@@ -224,12 +248,12 @@ export function renderNotes({ config, packageJson, pairs, lines, proof = {} }) {
   out.push('');
   out.push(`## ${notes.headings.proof}`);
   out.push('');
-  out.push(`| ${notes.labels.pair} | ${notes.labels.state} | ${notes.labels.signer} |`);
-  out.push('| :- | :- | :- |');
+  out.push(`| ${notes.labels.pair} | ${notes.labels.state} | ${notes.labels.signer} | ${notes.labels.basis} |`);
+  out.push('| :- | :- | :- | :- |');
   for (const pair of pairs) {
     const { state } = proofStatus({ config, pair, proof });
     const signer = notes.proofBy[pair.system] ?? notes.proofByOther;
-    out.push(`| ${pairLabel(pair)} | ${state} | ${signer} |`);
+    out.push(`| ${pairArchLabel(pair)} | ${state} | ${signer} | ${proofBasis({ config, pair })} |`);
   }
   out.push('');
   out.push(`## ${notes.headings.gaps}`);
@@ -238,7 +262,7 @@ export function renderNotes({ config, packageJson, pairs, lines, proof = {} }) {
   for (const pair of pairs) {
     const { state } = proofStatus({ config, pair, proof });
     if (state === notes.status.proven) continue;
-    out.push(fill(notes.gapLine, { ...values, pair: pairLabel(pair), state }));
+    out.push(fill(notes.gapLine, { ...values, pair: pairArchLabel(pair), state }));
   }
   out.push('');
   out.push(`## ${notes.headings.changes}`);

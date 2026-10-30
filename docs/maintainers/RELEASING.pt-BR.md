@@ -28,7 +28,9 @@ Estende [ARCHITECTURE.md](ARCHITECTURE.md) e [SMOKE.md](SMOKE.md), incluindo o c
 <a id="section-1"></a>
 ## What a release is
 
-Um candidato tem nove artefatos identificados separadamente por cliente × sistema, com a mesma revisão e versão do pacote. São pacotes de fontes Node, não executáveis autônomos: o Node deve atender a `package.json.engines.node`. O pacote é ESM, sem dependências e privado; publicar no registro npm não é a estratégia de instalação.
+Um candidato tem nove cargas cliente × sistema, cada uma publicada para duas arquiteturas (x64 e arm64): dezoito artefatos identificados separadamente, com a mesma revisão e versão do pacote, mais o manifesto de checksums. O código é Node puro, sem parte nativa; por isso os pacotes x64 e arm64 de um cliente e sistema são idênticos byte a byte e a arquitetura no nome só encaminha o instalador a um artefato. Os pares arm64 são, portanto, "payload identical to x64; not run on real arm64 hardware" (carga idêntica à x64; não executada em hardware arm64 real).
+
+Pares sistema/arquitetura com suporte (os instaladores recusam qualquer outro e listam estes): linux/x64, linux/arm64, macos/x64, macos/arm64, windows/x64, windows/arm64. O macOS sob Rosetta informa x86_64 e recebe o artefato x64; o Windows arm64 informa arm64. São pacotes de fontes Node, não executáveis autônomos: o Node deve atender a `package.json.engines.node`. O pacote é ESM, sem dependências e privado; publicar no registro npm não é a estratégia de instalação.
 
 O payload compartilhado contém `src/`, `skills/` e o adaptador escolhido. Os três adaptadores existem. Por padrão, só Claude Code gera manifestos de plugin/marketplace, MCP e hook de compactação. Codex recebe instruções e adaptador; o instalador registra o marketplace e pede ativação em `/plugins`. opencode recebe o módulo global e as skills. Esses arquivos gerados não ficam na raiz do checkout.
 
@@ -66,10 +68,10 @@ O build implementado usa os seguintes modelos de nomes. `P` é uma codificação
 
 | Saída | Nome derivado | Conteúdo |
 | :- | :- | :- |
-| Carga por par (nove) | `<P>-<V>-<C>-<S>-<A>.<E>` | Metadados do pacote, licença, `src/` necessário, skills e adaptador selecionado, manifestos/configuração do cliente e instruções de instalação. Preservar caminhos relativos referenciados; excluir estado, credenciais e material só de desenvolvimento. |
+| Carga por par (nove pares × duas arquiteturas) | `<P>-<V>-<C>-<S>-<A>.<E>` | Metadados do pacote, licença, `src/` necessário, skills e adaptador selecionado, manifestos/configuração do cliente e instruções de instalação. Preservar caminhos relativos referenciados; excluir estado, credenciais e material só de desenvolvimento. |
 | Manifesto de hashes | `<P>-<V>-checksums.sha256` | SHA-256 e nome exato de cada carga e metadados de marketplace, notas e checklist acompanhantes; exclui a si mesmo. Calcular sobre bytes finais após empacotar. |
 | Notas | `<P>-<V>-release-notes.md` | Mudanças dessa versão no histórico da raiz, pré-requisitos, nomes por par, instalação/atualização, estado das provas e lacunas conhecidas. |
-| Checklist de provas | `<P>-<V>-release-checklist.md` | Nove registros com revisão, hash, ambiente, comandos, códigos de saída e links das evidências. |
+| Checklist de provas | `<P>-<V>-release-checklist.md` | Um registro por cliente × sistema × arquitetura (dezoito) com revisão, hash, ambiente, comandos, códigos de saída e links das evidências. |
 
 Nomes de arquivos de esquema de marketplace seguem os clientes, sob raízes de saída configuradas. As entradas devem resolver a carga/versão exata por par; seleção automática de sistema é **não verificada**, não presumida ([D-Q1 / D-Q2](#decisions)). Identidades e metadados de saída devem coincidir com `package.json`, incluindo `license`, `repository`, `bin` e `engines`; sem constante duplicada de versão. Nova versão é decisão do Produtor, não deste documento.
 
@@ -133,7 +135,7 @@ node scripts/release-notes.js [--out <dir>] [--version <version>] [--dry-run]
 | `--version <version>` | Deve coincidir com `package.json.version`; o padrão é essa versão. |
 | `--dry-run` | Lista o destino das notas e cada nome de arquivo por par, sem gravar. |
 
-Os textos, modelo de nome e caminho do histórico de `release.notes` combinam-se com os metadados do pacote e o plano de pares do build. A saída determinística inclui engines do Node, os nove nomes de cargas, nome do manifesto, instalação/atualização e provas e lacunas de cada par. Sem registro de provas, todos são `not proven` (não provado); Windows/macOS são do Produtor. O opcional `release.notes.proofFile` aponta para um objeto JSON relativo ao repositório com chaves `client:system` e valores `not proven`, `proven` ou `PARCIAL` (ou os rótulos configurados). Prova parcial sempre permanece nas lacunas.
+Os textos, modelo de nome e caminho do histórico de `release.notes` combinam-se com os metadados do pacote e o plano de pares do build. A saída determinística inclui engines do Node, os dezoito nomes de cargas (nove pares × x64 e arm64), nome do manifesto, instalação/atualização e provas e lacunas de cada par. Sem registro de provas, todos são `not proven` (não provado); Windows/macOS são do Produtor. O opcional `release.notes.proofFile` aponta para um objeto JSON relativo ao repositório com chaves `client:system` e valores `not proven`, `proven` ou `PARCIAL` (ou os rótulos configurados). Prova parcial sempre permanece nas lacunas.
 
 Histórico ausente, `[Unreleased]` ausente ou vazio (só subtítulos/comentários não contam), versão divergente ou prova inválida recusa com razão e não grava saída. As linhas preservam texto e espaços. O comando não publica nem calcula hashes das notas; calcular hashes de notas/checklist somente após finalizar os registros, usando o comando de checksums.
 
@@ -151,7 +153,7 @@ node scripts/release-checklist.js [--out <dir>] [--version <version>] [--revisio
 | `--out <dir>` | Grava o checklist aqui; o padrão é a pasta configurada de saída do release. |
 | `--version <version>` | Deve coincidir com `package.json.version`; usa essa versão por padrão. |
 | `--revision <revision>` | Registra a revisão conferida; sem a flag, deixa em branco para preencher. |
-| `--dry-run` | Lista destino e nomes dos nove pares configurados sem gravar. |
+| `--dry-run` | Lista destino e os dezoito nomes de pares configurados sem gravar. |
 
 `release.checklist` configura modelo de nome, título, campos, textos das camadas e linha de assinatura. Os assinantes herdam `release.notes.proofBy`, com substituições opcionais em `release.checklist.proofBy`; são lidos o mesmo JSON opcional de prova e os mesmos rótulos de estado das notas. Cada par do build recebe uma seção desmarcada com ambiente, instalação/atualização, ambas as camadas de smoke, campos explícitos de salto/driver ausente e locais das evidências. Windows/macOS exigem assinatura do Produtor. O comando prepara registros; não executa smoke nem publica.
 
@@ -167,7 +169,7 @@ npm run release:publish -- --publish [--out <dir>]
 
 Dry-run é o padrão: prepara arquivos locais e imprime título, tag, SHA alvo, estado de pré-lançamento, anexos exatos e comando `gh` completo com escape para shell; não cria tag nem release. Ambos os modos exigem árvore limpa, fazem fetch de `origin/main`, comparam HEAD com essa revisão e recusam tag local ou remota existente. Fetch e consulta remota de tag exigem rede; só `--publish` publica. Executar de um checkout com alterações já commitadas.
 
-O comando reutiliza o build dos nove pares, escreve manifesto das cargas, gera notas e checklist (com hashes das cargas e SHA da revisão), escreve o manifesto final cobrindo cargas, notas e checklist e o verifica. Pares/versões recusados, provas inválidas, checklist alterado e falhas nos checksums impedem publicação. Só a lista gerada é anexada; arquivos estranhos na saída fazem a verificação recusar.
+O comando reutiliza o build dos dezoito artefatos, escreve manifesto das cargas, gera notas e checklist (com hashes das cargas e SHA da revisão), escreve o manifesto final cobrindo cargas, notas e checklist e o verifica. Pares/versões recusados, provas inválidas, checklist alterado e falhas nos checksums impedem publicação. Só a lista gerada é anexada; arquivos estranhos na saída fazem a verificação recusar.
 
 `release.publish` em `DEFAULT_CONFIG`, sobrescrevível pelo `config.json`, configura executável GitHub (`executable: 'gh'`), executável git (`gitExecutable: 'git'`), remoto (`remote: 'origin'`), branch (`branch: 'main'`), mínimo de pares cliente × sistema (`requiredPairs: 9`), prefixo da tag, modelo de título, pasta de saída e grupos de anexos (`payloads`, `notes`, `checklist`, `checksums`). Remotos HTTPS mantêm sua URL sem credenciais; remotos SSH/scp como `git@host:owner/repo.git` viram `host/owner/repo`. Caminhos locais e URLs de remoto não suportadas recusam antes do build. Nome/versão vêm de `package.json` (D-Q6: 0.1.0). Usar pasta própria por candidato; provas concluídas ficam em `docs/`, conforme D-Q7.
 
@@ -210,7 +212,7 @@ Prova em processo exige saída 0 e todos os checks selecionados passando; no rel
 <a id="section-10"></a>
 ## Decisions
 
-1. Release separado para Claude Code, Codex e opencode, em Linux, Windows e macOS: os nove pares continuam no escopo.
+1. Release separado para Claude Code, Codex e opencode, em Linux, Windows e macOS: os nove pares continuam no escopo, cada um para x64 e arm64.
 2. Build local. GitHub Actions não executa o release sozinho.
 3. Cortar tag ou publicar só quando o Produtor pedir explicitamente; preparar candidatos é separado de cortar release.
 4. Derivar versões, nomes e caminhos de `package.json` e configuração; sem constantes fixas do projeto no desenho ou na futura implementação.
@@ -219,7 +221,7 @@ Prova em processo exige saída 0 e todos os checks selecionados passando; no rel
 7. **Codex:** usar o manifesto portátil (`plugin.json` na raiz), no mesmo marketplace e na mesma versão do Claude Code; validar contra o Codex real instalado.
 8. **opencode:** instalar módulo JS global em `~/.config/opencode/plugins/`; provar o hook do smoke no cliente pelos eventos do próprio opencode, sem supor o formato de hook do Claude.
 9. **Integração na máquina:** obter destinos do bin/shim e identidades do autostart da configuração, sem constantes no código; o cron preserva as linhas existentes.
-10. **Saída:** usar `.tar.gz` no Linux e no macOS, `.zip` no Windows, uma carga por arquitetura, com nome `<P>-<V>-<C>-<S>.<E>` e manifesto SHA-256; baixar da página de releases do GitHub.
+10. **Saída:** usar `.tar.gz` no Linux e no macOS, `.zip` no Windows, uma carga por arquitetura, com nome `<P>-<V>-<C>-<S>-<A>.<E>` e manifesto SHA-256; baixar da página de releases do GitHub.
 11. **Ciclo de vida:** começar em `0.1.0`, manter o pacote privado (sem npm); antes de atualizar, fazer backup do estado e dos skills editados pelo usuário, com volta atrás para a versão anterior.
 12. **Provas:** o Produtor verifica Windows e macOS; o Linux fica com a máquina do Diretor. Guardar os registros de prova em `docs/` deste repositório; um pulo parcial do smoke exige aceite escrito do Produtor.
 

@@ -447,3 +447,114 @@ test('F5: the installed command and the script agree: exit 0 for success and dry
   down.io.fetch = async () => { throw new Error('network is down'); };
   assert.equal(await main(['install', '--client', 'claude-code'], down.io), 1, down.output.join('\n'));
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// D98: the release has an asset for x64 and for arm64, and the generated scripts (install.sh and install.ps1) pick the
+// one that exists for the machine or refuse, in the language of the run, naming what is supported.
+//
+// Must pass / must refuse:
+// | case | must pass | must refuse |
+// | (uname -s, uname -m) or (win32, process.arch) of the six supported pairs, in both scripts | the asset name the build wrote for that client, system and architecture, found in the release | a name the build does not make |
+// | macOS under Rosetta (uname -m x86_64) | the x64 asset | -- |
+// | Linux armv7l and i686, FreeBSD amd64, Darwin ppc, Windows ia32 | exit 2, nothing downloaded, the plain message with the supported pairs, en and pt-BR | a download, one language mixed with the other |
+
+const PAIRS = [
+  { name: 'Linux x86_64', platform: 'linux', uname: ['Linux', 'x86_64'], arch: 'x64', system: 'linux', built: 'x64' },
+  { name: 'Linux aarch64', platform: 'linux', uname: ['Linux', 'aarch64'], arch: 'x64', system: 'linux', built: 'arm64' },
+  { name: 'macOS Intel (or Rosetta: uname -m says x86_64)', platform: 'darwin', uname: ['Darwin', 'x86_64'], arch: 'x64', system: 'macos', built: 'x64' },
+  { name: 'macOS Apple Silicon', platform: 'darwin', uname: ['Darwin', 'arm64'], arch: 'arm64', system: 'macos', built: 'arm64' },
+  { name: 'Windows x64', platform: 'win32', arch: 'x64', system: 'windows', built: 'x64' },
+  { name: 'Windows arm64', platform: 'win32', arch: 'arm64', system: 'windows', built: 'arm64' },
+];
+const UNSUPPORTED = [
+  { name: 'Linux armv7l', platform: 'linux', uname: ['Linux', 'armv7l'], arch: 'arm', shown: 'Linux/armv7l' },
+  { name: 'Linux i686', platform: 'linux', uname: ['Linux', 'i686'], arch: 'ia32', shown: 'Linux/i686' },
+  { name: 'FreeBSD amd64', platform: 'freebsd', uname: ['FreeBSD', 'amd64'], arch: 'x64', shown: 'FreeBSD/amd64' },
+  { name: 'Darwin ppc', platform: 'darwin', uname: ['Darwin', 'Power Macintosh'], arch: 'ppc', shown: 'Darwin/Power Macintosh' },
+  { name: 'Windows ia32', platform: 'win32', arch: 'ia32', shown: 'Windows_NT/ia32' },
+];
+const SUPPORTED_LIST = 'linux/x64, linux/arm64, macos/x64, macos/arm64, windows/x64, windows/arm64';
+const pkgJson = JSON.parse(await fs.readFile('package.json', 'utf8'));
+
+/** The program each generated script hands to Node, taken from the checked-in file. */
+async function embeddedProgram(file) {
+  const text = await fs.readFile(file, 'utf8');
+  return file === 'install.sh'
+    ? text.split("OKIT_BOOTSTRAP'\n")[1].split('\nOKIT_BOOTSTRAP\n')[0]
+    : text.split("$okitBootstrap = @'\n")[1].split("\n'@\n")[0];
+}
+
+/** The release the build makes (nothing written): its asset names, as the release would carry them. */
+async function builtRelease() {
+  const out = await fs.mkdtemp(join(tmpdir(), 'built-release-'));
+  try {
+    const { buildRelease } = await import('../src/release/build.js');
+    const { built, refused } = await buildRelease({ root: '.', out, dryRun: true, env: { SOURCE_DATE_EPOCH: '1700000000' } });
+    assert.deepEqual(refused, []);
+    return built.filter((item) => !item.bootstrap);
+  } finally { await fs.rm(out, { recursive: true, force: true }); }
+}
+const built = await builtRelease();
+
+/** Runs the program of a generated script for one machine, nothing downloaded or installed: the calls are recorded. */
+async function runScript(t, file, machine, { locale = 'en', assets = built.map((item) => item.file) } = {}) {
+  const home = await fs.mkdtemp(join(tmpdir(), 'bootstrap-arch-'));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const js = await embeddedProgram(file);
+  const load = new Function('imports', 'process', 'console', js.replaceAll('await import(', 'await imports(')
+    .replace('bootstrap(defaults, present).catch', 'return bootstrap(defaults, present).catch'));
+  const release = { tag_name: `v${pkgJson.version}`, prerelease: false,
+    assets: [...assets, `${pkgJson.name}-${pkgJson.version}-checksums.sha256`].map((name) => ({ name })) };
+  const calls = [];
+  const modules = {
+    'node:fs/promises': { ...fs, readFile: (path, ...rest) => (String(path).endsWith('release.json') ? Promise.resolve(JSON.stringify(release)) : fs.readFile(path, ...rest)) },
+    'node:path': await import('node:path'),
+    'node:os': { homedir: () => home, tmpdir: () => home },
+    'node:child_process': { spawnSync: (command, args) => {
+      calls.push([command, ...(args ?? [])]);
+      if (command === 'uname') return { status: 0, stdout: `${machine.uname[args[0] === '-s' ? 0 : 1]}\n` };
+      return { status: 0, stdout: '200' };
+    } },
+  };
+  const runtime = { env: {}, versions: { node: '22' }, platform: machine.platform, arch: machine.arch, execPath: 'node',
+    argv: ['node', 'install', '--client', 'claude-code', '--dry-run', '--dest', join(home, 'data'), '--locale', locale] };
+  const lines = [];
+  const out = (line) => lines.push(String(line));
+  await load(async (name) => modules[name], runtime, { log: out, error: out });
+  return { text: lines.join('\n'), lines, code: runtime.exitCode ?? 0, calls };
+}
+
+test('the build has one asset per client, system and architecture, and both scripts carry the same program', async () => {
+  assert.equal(built.length, 18);
+  assert.equal(await embeddedProgram('install.sh'), await embeddedProgram('install.ps1'));
+});
+
+for (const file of ['install.sh', 'install.ps1']) {
+  for (const machine of PAIRS) {
+    test(`${file} on ${machine.name} chooses the ${machine.system}/${machine.built} asset the build wrote`, async (t) => {
+      const wanted = built.find((item) => item.client === 'claude-code' && item.system === machine.system && item.arch === machine.built);
+      assert.ok(wanted, 'the build has this pair');
+      const ran = await runScript(t, file, machine);
+      assert.equal(ran.code, 0, ran.text);
+      assert.ok(ran.text.split('\n').some((line) => line.trim().endsWith(wanted.file)), `${wanted.file} in\n${ran.text}`);
+      assert.doesNotMatch(ran.text, /Missing release asset/);
+      // A release that holds every other asset but this one is the "Missing release asset" refusal, naming this one.
+      const without = await runScript(t, file, machine, { assets: built.map((item) => item.file).filter((name) => name !== wanted.file) });
+      assert.equal(without.code, 1, without.text);
+      assert.ok(without.text.includes(`Missing release asset: ${wanted.file}`), without.text);
+    });
+  }
+
+  for (const machine of UNSUPPORTED) {
+    for (const [locale, head, list] of [['en', 'No package for system/architecture', 'Supported'], ['pt-BR', 'Não há pacote para este sistema/arquitetura', 'Com suporte']]) {
+      test(`${file} on ${machine.name} refuses with exit 2 in ${locale}, downloads nothing and names the supported pairs`, async (t) => {
+        const ran = await runScript(t, file, machine, { locale });
+        assert.equal(ran.code, 2, ran.text);
+        assert.ok(ran.text.includes(`${head}: ${machine.shown}. ${list}: ${SUPPORTED_LIST}`), ran.text);
+        assert.deepEqual(speaks(ran.text), [locale], ran.text);
+        for (const [command] of ran.calls) assert.ok(['uname'].includes(command), `only uname may run before the refusal, not ${command}`);
+        assert.ok(!ran.calls.some(([command, ...rest]) => ['curl', 'wget', 'powershell.exe'].includes(command) || rest.includes('curl')));
+      });
+    }
+  }
+}
