@@ -614,16 +614,21 @@ test('D102: formatEnvironmentReport names an ignored installation record, in bot
     const root = await mkdtemp(join(tmpdir(), 'okit-bad-record-'));
     try {
       const destination = join(root, 'data');
+      const file = join(destination, 'install.claude-code.json');
       await mkdir(destination, { recursive: true });
-      await writeFile(join(destination, 'install.claude-code.json'), body);
-      const config = { ...DEFAULT_CONFIG, install: { ...DEFAULT_CONFIG.install, destination } };
+      await writeFile(file, body);
+      // The record is read from install.destination of the saved configuration; the readings are injected except the plugin's own.
       for (const locale of ['en', 'pt-BR']) {
+        await writeFile(join(root, 'config.json'), JSON.stringify({ language: locale, install: { destination } }));
         const output = [];
-        const code = await main(['env', 'report', '--client', 'codex', '--locale', locale], {
-          ...readings({ plugin: undefined, versions: undefined }), config: undefined, root, home: root, env: { HOME: root },
+        const code = await main(['env', 'report', '--client', 'codex'], {
+          ...readings({ plugin: undefined }), config: undefined, root, home: root, env: { HOME: root },
           stdout: (text) => output.push(text), stderr: (text) => output.push(text) });
-        assert.equal(code, 0, `${body} ${locale}: ${output.join('\n')}`);
-        assert.doesNotMatch(output.join('\n'), /Cannot read properties/);
+        const text = output.join('\n');
+        assert.equal(code, 0, `${body} ${locale}: ${text}`);
+        assert.doesNotMatch(text, /Cannot read properties/);
+        assert.ok(text.includes(file), `${body} ${locale}: the file path\n${text}`);
+        assert.match(text, locale === 'pt-BR' ? /Registro de instalação ignorado/ : /Installation record ignored/);
       }
     } finally { await rm(root, { recursive: true, force: true }); }
   }

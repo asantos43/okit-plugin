@@ -25,7 +25,7 @@ async function legacyRecord(destination, fs, config, skipped) {
 /**
  * The records of the installation, by client. With `options.unreadable` (an array), a record that is not a JSON object
  * (null, a list, a number, text) is left out and its file path is pushed there, so a caller that only looks (`status`,
- * `env report`) can say so; without it only `null` is left out and any other wrong shape is a refusal of usage.
+ * `env report`) can say so; without it a record is read exactly as before (`null` stays as a null entry, any other wrong shape is a refusal of usage).
  */
 export async function readRecords(destination, fs, config = installConfig(), options = {}) {
   const records = {};
@@ -35,7 +35,8 @@ export async function readRecords(destination, fs, config = installConfig(), opt
   for (const client of Object.keys(config.clients)) {
     try {
       const record = checked(await fs.readFile(recordPath(destination, client, config), 'utf8'), basename(recordPath(destination, client, config)), config.command, lenient);
-      if (record) records[client] = record;
+      // As before: a strict read keeps a `null` record in the map; only a read that only looks leaves it out.
+      if (record || !lenient) records[client] = record;
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   return records;

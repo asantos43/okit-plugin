@@ -249,6 +249,17 @@ test('input inventory: an installation record that is not a JSON object is ignor
   await fs.writeFile(join(f.destination, 'install.codex.json'), 'null');
   f.clear();
   assert.equal(await main(['status'], f.io), 0, f.output.join('\n'));
+  // The commands that change the installation read as before (the outputs are those of main): a client record that is null
+  // stays a null entry that hides the legacy record (a refusal, 2), and a list, a number or text is an invalid record (2).
+  for (const body of ['null', '[]', '1', '"x"']) {
+    await fs.writeFile(join(f.destination, 'install.json'), JSON.stringify(good));
+    await fs.writeFile(join(f.destination, 'install.claude-code.json'), body);
+    for (const command of [['update'], ['uninstall']]) {
+      f.clear();
+      assert.equal(await main(command, f.io), 2, `${command[0]} with install.claude-code.json = ${body}\n${f.output.join('\n')}`);
+      assert.match(f.output.join('\n'), body === 'null' ? /Client not registered/ : /Invalid installation record: install\.claude-code\.json/);
+    }
+  }
 });
 
 test('input inventory: telemetry status with an export time that is not text shows no export time, exit 0', async (t) => {
