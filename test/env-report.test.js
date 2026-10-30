@@ -606,6 +606,34 @@ test('D95 R9: a disabled (null) profile confirms nothing and never breaks env re
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('D102: formatEnvironmentReport names an ignored installation record, in both languages', async () => {
+  const snapshot = await environmentSnapshot(readings({ plugin: { path: 'p', onPath: true, unreadableRecords: ['/data/install.claude-code.json'] } }));
+  assert.match(formatEnvironmentReport(snapshot, 'en'), /Installation record ignored \(not a JSON object\): \/data\/install\.claude-code\.json\./);
+  assert.match(formatEnvironmentReport(snapshot, 'pt-BR'), /Registro de instalação ignorado \(não é um objeto JSON\): \/data\/install\.claude-code\.json\./);
+  for (const body of ['null', '[]', '1', '"x"']) {
+    const root = await mkdtemp(join(tmpdir(), 'okit-bad-record-'));
+    try {
+      const destination = join(root, 'data');
+      const file = join(destination, 'install.claude-code.json');
+      await mkdir(destination, { recursive: true });
+      await writeFile(file, body);
+      // The record is read from install.destination of the saved configuration; the readings are injected except the plugin's own.
+      for (const locale of ['en', 'pt-BR']) {
+        await writeFile(join(root, 'config.json'), JSON.stringify({ language: locale, install: { destination } }));
+        const output = [];
+        const code = await main(['env', 'report', '--client', 'codex'], {
+          ...readings({ plugin: undefined }), config: undefined, root, home: root, env: { HOME: root },
+          stdout: (text) => output.push(text), stderr: (text) => output.push(text) });
+        const text = output.join('\n');
+        assert.equal(code, 0, `${body} ${locale}: ${text}`);
+        assert.doesNotMatch(text, /Cannot read properties/);
+        assert.ok(text.includes(file), `${body} ${locale}: the file path\n${text}`);
+        assert.match(text, locale === 'pt-BR' ? /Registro de instalação ignorado/ : /Installation record ignored/);
+      }
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
+});
+
 test('catalog fallback never claims active models; saved setup and command are respected', async () => {
   const deps = readings({ command: 'chosen-command',
     detectClients: async () => ({ clients: clients.map((client) => ({ client,

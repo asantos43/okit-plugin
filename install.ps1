@@ -150,6 +150,7 @@ const TEXTS = Object.freeze({
   kitLineAbsent: { en: 'kit: absent. {hint}', 'pt-BR': 'kit: ausente. {hint}' },
   kitLineIgnored: { en: 'kit: absent (plugin executable ignored). {hint}', 'pt-BR': 'kit: ausente (executável do plugin ignorado). {hint}' },
   kitLineBroken: { en: 'kit: broken ({path}; {reason})', 'pt-BR': 'kit: com defeito ({path}; {reason})' },
+  recordIgnored: { en: 'Installation record ignored (not a JSON object): {path}', 'pt-BR': 'Registro de instalação ignorado (não é um objeto JSON): {path}' },
   kitOverlap: { en: 'See docs/maintainers/ARCHITECTURE.md#kit-and-plugin-overlap-d1 for overlap rules.', 'pt-BR': 'Veja docs/maintainers/ARCHITECTURE.md#kit-and-plugin-overlap-d1 para as regras de sobreposição.' },
   kitHint: { en: 'Needed only for the orchestration workflow: INSTALL.md#orchestration-kit', 'pt-BR': 'Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração' },
   modelsExplain: { en: 'Setup chooses the models for simple, everyday and hard tasks. You can redo it later with {command} setup.', 'pt-BR': 'O setup escolhe os modelos para tarefas simples, do dia a dia e difíceis. Você pode refazer depois com {command} setup.' },

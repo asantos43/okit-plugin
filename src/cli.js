@@ -38,7 +38,7 @@ const { adapterQuotaReader, clientsOf, LABELS, quotaOrigin, setupPendingLine, st
   ? {} : await import('./status.js');
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
-const { installerCommand, kitLine } = collectorEntry ? {} : await import('./install/index.js');
+const { installerCommand, kitLine, recordIgnoredLines } = collectorEntry ? {} : await import('./install/index.js');
 const { createPresenter, localizeReason, redactingWriter, resolveLocale } = collectorEntry ? {} : await import('./install/present.js');
 const { exitCodeFor, kindOf } = collectorEntry ? {} : await import('./install/exit.js');
 const { installConfig, installPaths } = collectorEntry ? {} : await import('./install/config.js');
@@ -565,7 +565,9 @@ async function statusCommand(ctx, rawArgs) {
     if (pending) ctx.out(pending);
     const home = ctx.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir();
     const deps = { ...ctx, config, home, locale, ...installPaths(config, { ...ctx, home }) };
-    const records = Object.values(await readRecords(deps.destination, ctx.fs, config));
+    const unreadable = [];
+    const records = Object.values(await readRecords(deps.destination, ctx.fs, config, { unreadable }));
+    for (const line of recordIgnoredLines(unreadable, locale)) ctx.out(line);
     deps.bin = records.find((record) => record.linkDirectory)?.linkDirectory ?? deps.bin;
     const warning = await activationWarning(deps);
     if (warning) ctx.out(warning);
