@@ -118,13 +118,14 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    adicioná-la: o seu shell é o que o `$SHELL` nomeia (bash quando o terminal não nomeia nenhum); um shell POSIX que lê o
    `~/.profile` como o `sh` lê (dash, ash, ksh, mksh, pdksh, busybox) também é o seu, e é verificado como a entrada `sh`,
    que lê o `~/.profile`; um shell fora dessa lista (csh, nu, xonsh) não lê `.profile`, então nenhuma partida de login é
-   feita para ele. Outro shell instalado só é iniciado assim quando o arquivo que ele realmente lê no login guarda o bloco de PATH que o
-   instalador escreveu (para o bash, o primeiro de `~/.bash_profile`, `~/.bash_login`, `~/.profile` que existir; para o
-   zsh, o `~/.zprofile`; para o fish, o `~/.config/fish/config.fish`), então quem usa bash com zsh instalado nunca vê uma
+   feita para ele. A partida de login é feita só para o shell do seu próprio terminal: nenhum outro shell instalado é
+   iniciado assim, então quem usa bash com zsh instalado nunca vê uma
    falha sobre um perfil que não usa. Se a partida simples acha o comando e a de login não (um perfil que sai cedo, falha
    ou nunca chega ao bloco de PATH), a linha falha: `Comando (bash)  falhou  um terminal novo do bash não achará
    okit-plugin (...)`, com uma linha `Correção:` que diz o arquivo que o shell lê no login (para o bash, o primeiro de
-   `~/.bash_profile`, `~/.bash_login`, `~/.profile` que existir) e a linha a pôr antes do que o interrompe; quando esse
+   `~/.bash_profile`, `~/.bash_login`, `~/.profile` que existir; para o zsh, o `$ZDOTDIR/.zprofile` quando o `ZDOTDIR` está
+   definido, senão o `~/.zprofile`; para o fish, o `$XDG_CONFIG_HOME/fish/config.fish` quando o `XDG_CONFIG_HOME` está
+   definido, senão o `~/.config/fish/config.fish`) e a linha a pôr antes do que o interrompe; quando esse
    arquivo não guarda nenhum bloco de PATH, a correção pede a linha (ou pede para rodar o instalador de novo sem
    `--no-path`). As linhas de erro do próprio shell aparecem com `--verbose`. Essa partida lê os seus arquivos de
    inicialização de propósito; ela resolve só o comando simples e nunca roda texto seu. Ela não é feita quando a pasta
@@ -132,8 +133,9 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    Windows.
    A pasta do link é posta na frente do PATH dos processos que a verificação inicia, e a linha que cada
    shell imprime para `okit-plugin` (`command -v`, `Get-Command` ou `where`) deve ser um arquivo dessa pasta: o
-   nosso comando (a primeira linha nas partidas simples, a última na partida de login, onde uma saudação do seu perfil
-   impressa antes da resposta é ignorada). Se outro programa com o mesmo nome vier antes, a linha falha e mostra o caminho
+   nosso comando (a primeira linha nas partidas simples; na partida de login, qualquer linha que o shell imprimiu pode ser
+   a resolução, então uma saudação do seu perfil impressa antes da resposta, ou uma mensagem impressa depois dela, não a
+   esconde). Se outro programa com o mesmo nome vier antes, a linha falha e mostra o caminho
    encontrado, com uma linha de Correção (remova ou renomeie esse arquivo, ou ponha a pasta do link antes dele no PATH).
 3. **Barra de status e hook de sessão**: os comandos exatos que o instalador gravou nos ajustes do cliente são
    lidos de volta e executados no shell que o cliente usa (a barra de status recebe uma leitura de exemplo);

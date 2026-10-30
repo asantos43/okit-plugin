@@ -1171,13 +1171,13 @@ const LOGIN_TEXTS = {
   en: {
     row: (shell, why) => `Command (${shell})  failed  a new ${shell} terminal will not find okit-plugin (${why})`,
     fix: (file) => `Fix: In ${file}, put this line before anything that exits or fails, or fix the error that stops that file early, then run: okit-plugin install --client claude-code (the line: export PATH='<bin>'\${PATH:+":$PATH"})`,
-    missing: (file, shell) => `Fix: Put this line in ${file}, the file ${shell} reads at login, before anything that exits or fails, then run: okit-plugin install --client claude-code (the line: export PATH='<bin>'\${PATH:+":$PATH"}; or run the installer again without --no-path)`,
+    missing: (file, shell, line = `export PATH='<bin>'\${PATH:+":$PATH"}`) => `Fix: Put this line in ${file}, the file ${shell} reads at login, before anything that exits or fails, then run: okit-plugin install --client claude-code (the line: ${line}; or run the installer again without --no-path)`,
     found: '  Command (bash)  ok  found, also at login',
   },
   'pt-BR': {
     row: (shell, why) => `Comando (${shell})  falhou  um terminal novo do ${shell} não achará okit-plugin (${why})`,
     fix: (file) => `Correção: Em ${file}, ponha esta linha antes de qualquer coisa que saia ou falhe, ou corrija o erro que interrompe esse arquivo, e rode: okit-plugin install --client claude-code (a linha: export PATH='<bin>'\${PATH:+":$PATH"})`,
-    missing: (file, shell) => `Correção: Ponha esta linha em ${file}, o arquivo que o ${shell} lê no login, antes de qualquer coisa que saia ou falhe, e rode: okit-plugin install --client claude-code (a linha: export PATH='<bin>'\${PATH:+":$PATH"}; ou rode o instalador de novo sem --no-path)`,
+    missing: (file, shell, line = `export PATH='<bin>'\${PATH:+":$PATH"}`) => `Correção: Ponha esta linha em ${file}, o arquivo que o ${shell} lê no login, antes de qualquer coisa que saia ou falhe, e rode: okit-plugin install --client claude-code (a linha: ${line}; ou rode o instalador de novo sem --no-path)`,
     found: '  Comando (bash)  ok  encontrado, também no login',
   },
 };
@@ -1198,7 +1198,7 @@ test('D103: a login launch passes: the same checks, no link folder in front of i
   const w = await world(t, 'linux', { env: NOT_ON_PATH, hook: false });
   assert.equal(w.code, 0, w.text);
   const logins = w.checks.filter(isLogin);
-  // The person's shell is bash (none named: the installer's fallback); the other shells have no block and are not asked.
+  // The person's shell is bash (none named: the installer's fallback); no other shell is launched.
   assert.deepEqual(logins.map((spec) => [spec.command, spec.args]), [['bash', ['-lc', "command -v 'okit-plugin'"]]]);
   assert.equal(logins[0].timeoutMs, DEFAULT_CONFIG.install.selfcheck.timeoutMs);
   assert.equal(logins[0].env.PATH, '/usr/bin', 'the link folder must not be put in front for a login launch');
@@ -1275,13 +1275,6 @@ test('D103: when the plain launch already fails, only that failure is told (no s
   assert.equal(w.lines().filter((line) => line.startsWith('  Command (bash)')).length, 1, w.text);
 });
 
-test('D103: a login launch of another installed shell without the installer\'s PATH block is not asked, whatever it would answer', async (t) => {
-  // The person\'s shell is bash: the other shells (zsh, sh, fish) have no block of their own and are not launched.
-  const w = await world(t, 'linux', { env: { ...NOT_ON_PATH, SHELL: '/bin/bash' }, hook: false, fail: (spec) => (isLogin(spec) && spec.command !== 'bash' ? 1 : undefined) });
-  assert.equal(w.code, 0, w.text);
-  assert.deepEqual(w.checks.filter(isLogin).map((spec) => spec.command), ['bash']);
-});
-
 test('D103: the login launch of the person\'s own shell happens even without the PATH block, and the fix names the login file', async (t) => {
   const w = await world(t, 'linux', { env: { ...NOT_ON_PATH, SHELL: '/bin/bash' }, hook: false,
     fail: (spec) => (isLogin(spec) ? 1 : undefined),
@@ -1318,6 +1311,22 @@ test('D103: the fix names the file bash reads at login (the first of .bash_profi
     } });
   assert.equal(w.code, OPERATIONAL, w.text);
   assert.ok(w.lines().includes(`  ${LOGIN_TEXTS.en.missing('<home>/.bash_profile', 'bash')}`), w.text);
+});
+
+test('D103: the fix names the file zsh reads at login when ZDOTDIR is set', async (t) => {
+  // zsh reads `$ZDOTDIR/.zprofile` when ZDOTDIR is set: the fix must name that file, not the one under the HOME.
+  const w = await world(t, 'linux', { env: { ...NOT_ON_PATH, SHELL: '/usr/bin/zsh', ZDOTDIR: '/home/you/zdotdir' }, hook: false,
+    fail: (spec) => (isLogin(spec) ? 1 : undefined) });
+  assert.equal(w.code, OPERATIONAL, w.text);
+  assert.ok(w.lines().includes(`  ${LOGIN_TEXTS.en.missing('/home/you/zdotdir/.zprofile', 'zsh')}`), w.text);
+});
+
+test('D103: the fix names the file fish reads at login when XDG_CONFIG_HOME is set', async (t) => {
+  // fish reads `$XDG_CONFIG_HOME/fish/config.fish` when that variable is set: the fix must name that file.
+  const w = await world(t, 'linux', { env: { ...NOT_ON_PATH, SHELL: '/usr/bin/fish', XDG_CONFIG_HOME: '/home/you/xdg' }, hook: false,
+    fail: (spec) => (isLogin(spec) ? 1 : undefined) });
+  assert.equal(w.code, OPERATIONAL, w.text);
+  assert.ok(w.lines().includes(`  ${LOGIN_TEXTS.en.missing('/home/you/xdg/fish/config.fish', 'fish', `set -gx PATH '<bin>' $PATH`)}`), w.text);
 });
 
 // D103, real shells: a profile that stops early, and one that does not.
@@ -1386,22 +1395,29 @@ test('D103: the same POSIX shell with a profile that does not stop passes', asyn
   assert.ok(w.checks.filter(isLogin).some((spec) => spec.command === 'sh'), 'the `sh` login launch was not made');
 });
 
-test('D103: another installed shell is launched only when the file it reads at login holds the PATH block', async (t) => {
-  // The person's shell is sh: its `.profile` holds the block, but bash reads `.bash_profile`, which has none: the bash
-  // login launch would prove nothing about the file bash really reads, so it is not made (the run passes).
-  const w = await world(t, 'linux', { env: { ...NOT_ON_PATH, SHELL: '/bin/sh' }, hook: false,
-    fail: (spec) => (isLogin(spec) && spec.command !== 'sh' ? 1 : undefined),
+test('D103: only the shell of the person\'s own terminal is launched, even when another installed shell has the PATH block', async (t) => {
+  // The person's shell is bash; zsh is installed and its own profile holds the installer's PATH block, but zsh is not
+  // the shell of the person's terminal: the next terminal does not start it, so its profile says nothing about this
+  // install (a bash person with zsh installed must not see a failure about a profile they do not use).
+  const w = await world(t, 'linux', { env: { ...NOT_ON_PATH, SHELL: '/bin/bash' }, hook: false,
+    fail: (spec) => (isLogin(spec) && spec.command !== 'bash' ? 1 : undefined),
     meddle: async (moment, f) => {
-      if (moment === 'check') await fs.writeFile(join(f.home, '.bash_profile'), '# the person\'s own start\nexit 0\n');
+      if (moment !== 'check') return;
+      await fs.writeFile(join(f.home, '.zprofile'), '# >>> okit-plugin PATH >>>\nexport PATH="/x/bin:$PATH"\n# <<< okit-plugin PATH <<<\n');
     } });
   assert.equal(w.code, 0, w.text);
-  assert.deepEqual(w.checks.filter(isLogin).map((spec) => spec.command), ['sh']);
+  assert.deepEqual(w.checks.filter(isLogin).map((spec) => spec.command), ['bash']);
 });
 
-test('D103: the login launch reads the last line it prints: a greeting before the resolution is ignored', async (t) => {
+test('D103: any line the login launch prints may be the resolution', async (t) => {
+  // A greeting printed before the resolution is not the answer, and neither is a message printed after it (a trap on
+  // EXIT): the resolution is in one of the lines, and that is what the check looks for.
   const greeting = await world(t, 'linux', { env: NOT_ON_PATH, hook: false,
     resolved: (spec) => (isLogin(spec) ? `Welcome to this machine!\n${spec.env.HOME}/bin/okit-plugin\n` : `${spec.env.PATH.split(':')[0]}/okit-plugin\n`) });
   assert.equal(greeting.code, 0, greeting.text);
+  const after = await world(t, 'linux', { env: NOT_ON_PATH, hook: false,
+    resolved: (spec) => (isLogin(spec) ? `${spec.env.HOME}/bin/okit-plugin\nsee you\n` : `${spec.env.PATH.split(':')[0]}/okit-plugin\n`) });
+  assert.equal(after.code, 0, after.text);
   // The greeting alone (no resolution) is all the launch printed: the row fails with it, and does not crash.
   const alone = await world(t, 'linux', { env: NOT_ON_PATH, hook: false,
     resolved: (spec) => (isLogin(spec) ? 'Welcome to this machine!\n' : `${spec.env.PATH.split(':')[0]}/okit-plugin\n`) });
