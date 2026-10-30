@@ -437,7 +437,7 @@ export const DEFAULT_CONFIG = {
           shellA: 'Shell 1 finds the command (macOS: zsh; Windows: PowerShell)',
           shellB: 'Shell 2 finds the command (macOS: bash; Windows: cmd)',
           shellC: 'Shell 3 finds the command (macOS: sh, non-login non-interactive launch; Windows: Git Bash)',
-          clientCommands: 'statusLine and hook command strings from the client settings, run in the client shell / exit code',
+          clientCommands: 'statusLine command string and every hook command string from the client settings, each run in the client shell and exited 0 / exit code of each',
           reading: 'Collector wrote a reading',
           path: 'PATH change persisted / new terminal needed (yes or no)',
           gui: 'GUI-launched client finds the command (macOS Dock / Finder; Windows Start menu)',
