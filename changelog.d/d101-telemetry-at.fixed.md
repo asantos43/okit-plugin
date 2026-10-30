@@ -1,0 +1,1 @@
+`okit-plugin telemetry status` no longer fails (exit 1) when `telemetry-export.json` holds an export time that is not text: it shows the same line as when there is no export / `okit-plugin telemetry status` não falha mais (saída 1) quando `telemetry-export.json` guarda um horário de exportação que não é texto: mostra a mesma linha de quando não há exportação.

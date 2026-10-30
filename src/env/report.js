@@ -12,6 +12,7 @@ const WORDS = {
     models: 'Active models', actors: 'Actors', sizes: 'sizes', critic: 'review',
     quota: 'Quota remaining', renews: 'renews in', minutes: 'minutes', slots: 'Free slots', of: 'of',
     plugin: 'Plugin folder', state: 'State folder', path: 'Command available in PATH', yes: 'yes', no: 'no',
+    unreadableRecord: 'Installation record ignored (not a JSON object)',
     configured: 'Configured', missing: 'Missing', setup: 'model choices', run: 'Run',
     missingSetup: 'model choices have not been saved', missingPath: 'the command is not in PATH',
     missingModels: (client) => `no active model confirmed for ${client}`,
@@ -26,6 +27,7 @@ const WORDS = {
     models: 'Modelos ativos', actors: 'Atores', sizes: 'tamanhos', critic: 'revisão',
     quota: 'Cota restante', renews: 'renova em', minutes: 'minutos', slots: 'Vagas livres', of: 'de',
     plugin: 'Pasta do plugin', state: 'Pasta de estado', path: 'Comando disponível no PATH', yes: 'sim', no: 'não',
+    unreadableRecord: 'Registro de instalação ignorado (não é um objeto JSON)',
     configured: 'Configurado', missing: 'Falta', setup: 'escolha de modelos', run: 'Rode',
     missingSetup: 'a escolha de modelos ainda não foi salva', missingPath: 'o comando não está no PATH',
     missingModels: (client) => `nenhum modelo ativo confirmado para ${client}`,
@@ -55,6 +57,7 @@ export function formatEnvironmentReport(report, locale = 'en') {
     lines.push(`${words.collector}: ${state}${active === true && received === false ? `; ${words.noReading}` : ''}.${active === true ? '' : ` ${words.run} ${command}.`}`);
   }
   lines.push(`${words.plugin}: ${plugin.path ?? words.unknown}.`, `${words.state}: ${plugin.statePath ?? words.unknown}.`);
+  for (const path of plugin.unreadableRecords ?? []) lines.push(`${words.unreadableRecord}: ${path}.`);
   lines.push(`${words.path}: ${plugin.onPath === undefined ? words.unknown : plugin.onPath ? words.yes : words.no}.`);
   const itemText = (entry) => `${words[entry.item ?? entry]}${entry.client ? ` (${entry.client})` : ''}${entry.sizes ? `: ${entry.sizes.join(', ')}` : ''}`;
   lines.push(`${words.configured}: ${plugin.configured.map(itemText).join(', ') || words.none}.`);

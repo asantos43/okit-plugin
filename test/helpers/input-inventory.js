@@ -380,7 +380,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/telemetry/config.js', arg: /^config\.kitConfigFile$/, excluded: 'the kit\'s own configuration file, named by telemetry.kitConfigFile and optional: any failure to read it leaves the plugin standalone (a try/catch around it, by design)' },
   { file: 'src/telemetry/config.js', arg: /^\(await promisify\(execFile\)/, excluded: 'the output of the kit program (a process we start), not a file; a failure leaves the plugin standalone' },
   { file: 'src/telemetry/index.js', arg: /^await readFile\(join\(config\.dir, name\)|^join\(config\.dir, name\)$/, excluded: 'the measurement files okit wrote in telemetry.dir; a damaged one is reported by `telemetry check` as damaged, never as the person\'s usage' },
-  { file: 'src/telemetry/index.js', arg: /^(join\(root, 'telemetry-export\.json'\)|file)$/, excluded: 'telemetry-export.json is written by okit (atomic write) and read back for the last-export line; `file` is the configuration file of `telemetry on|off` (CONFIG_JSON above)' },
+  { file: 'src/telemetry/index.js', arg: /^(join\(root, 'telemetry-export\.json'\)|file)$/, excluded: 'telemetry-export.json is written by okit (atomic write) and read back for the last-export line (a non-text `at`, from a hand edit, counts as no export time: input inventory test); `file` is the configuration file of `telemetry on|off` (CONFIG_JSON above)' },
   // The installer.
   { file: 'src/install/place.js', arg: /^(text|join\(destination, 'install\.json'\)|recordPath\(destination, client, config\))$/, rule: RECORD },
   { file: 'src/install/bootstrap.js', arg: /^(path|recordFile)$/, rule: RECORD },

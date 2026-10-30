@@ -217,6 +217,54 @@ test('input inventory: telemetry export --since that is not a date is a refusal 
   assert.equal(await main(['telemetry', 'export', '--since', '2026-10-01T00:00:00Z'], f.io), 0, f.output.join('\n'));
 });
 
+test('input inventory: an installation record that is not a JSON object is ignored by status and env report (exit 0, a line with its path), and still refused by the commands that change the installation', async (t) => {
+  const f = await fixture(t);
+  await fs.mkdir(f.destination, { recursive: true });
+  for (const locale of LOCALES) {
+    for (const body of ['null', '[]', '1', '"x"']) {
+      for (const name of ['install.json', 'install.claude-code.json']) {
+        const file = join(f.destination, name);
+        await fs.writeFile(file, body);
+        for (const command of [['status'], ['env', 'report']]) {
+          f.clear();
+          const code = await main([...command, '--locale', locale], f.io);
+          const text = f.output.join('\n');
+          assert.equal(code, 0, `${locale} ${name} ${body} ${command.join(' ')}\n${text}`);
+          assert.doesNotMatch(text, /Cannot read properties|TypeError/);
+          assert.ok(text.includes(file), `${locale} ${name} ${body} ${command.join(' ')}: the path\n${text}`);
+          assert.match(text, locale === 'pt-BR' ? /Registro de instalação ignorado/ : /Installation record ignored/);
+        }
+        // Not a record, and not a refusal of the others: a list is still a wrong shape for `uninstall`.
+        if (body === '[]') {
+          f.clear();
+          assert.equal(await main(['uninstall', '--locale', locale], f.io), 2, `${locale} ${name} uninstall`);
+        }
+        await fs.rm(file);
+      }
+    }
+  }
+  // A good legacy record next to a bad one of a client is still read.
+  const good = { client: 'claude-code', path: f.destination, version: '1.0.0', bin: 'okit-plugin', link: false, linkDirectory: null };
+  await fs.writeFile(join(f.destination, 'install.json'), JSON.stringify(good));
+  await fs.writeFile(join(f.destination, 'install.codex.json'), 'null');
+  f.clear();
+  assert.equal(await main(['status'], f.io), 0, f.output.join('\n'));
+});
+
+test('input inventory: telemetry status with an export time that is not text shows no export time, exit 0', async (t) => {
+  const f = await fixture(t);
+  for (const at of [{ toString: null }, 1, null, [], true]) {
+    await fs.writeFile(join(f.root, 'telemetry-export.json'), JSON.stringify({ at }));
+    f.clear();
+    assert.equal(await main(['telemetry', 'status'], f.io), 0, `${JSON.stringify(at)}\n${f.output.join('\n')}`);
+    assert.match(f.output.join('\n'), /Last export \/ Última exportação: none \/ nenhuma/);
+  }
+  await fs.writeFile(join(f.root, 'telemetry-export.json'), JSON.stringify({ at: '2026-10-01T00:00:00.000Z' }));
+  f.clear();
+  assert.equal(await main(['telemetry', 'status'], f.io), 0);
+  assert.match(f.output.join('\n'), /Última exportação: 2026-10-01T00:00:00.000Z/);
+});
+
 test('input inventory: --repo takes owner/repository and nothing that walks out of it', async (t) => {
   const f = await fixture(t);
   for (const repo of ['..', '../x', './y', 'a/..', '.']) {
@@ -313,6 +361,8 @@ test('input inventory: the files that are read follow their rule (unreadable is 
       for (const record of ['install.json', 'install.claude-code.json']) {
         await fs.writeFile(join(f.destination, record), body);
         for (const command of [['update'], ['uninstall'], ['status'], COMMANDS[0]]) {
+          // A list is not an object: `status` only looks, so it ignores that record (the next test); the others refuse it.
+          if (body === '[]' && command[0] === 'status') continue;
           f.clear();
           const code = await main([...command, '--locale', locale], f.io);
           const text = f.output.join('\n');

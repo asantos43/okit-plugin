@@ -16,8 +16,10 @@ export async function telemetryCommand(ctx, action, args) {
     return 2;
   }
   if (action === 'status') {
+    // The export time is the file's own text; anything else in `at` (a hand edit) is no time, as if there were no export.
+    const lastExport = typeof result.lastExport?.at === 'string' ? result.lastExport.at : 'none / nenhuma';
     const enabled = value => value ? 'on / ligado' : 'off / desligado';
-    ctx.out(`${result.what}\nRecording / Gravação: ${enabled(result.enabled)}\nSending / Envio: ${enabled(result.network)}\nFolder / Pasta: ${result.where}\nSize in bytes / Tamanho em bytes: ${result.sizeBytes}\nLast export / Última exportação: ${result.lastExport?.at ?? 'none / nenhuma'}`);
+    ctx.out(`${result.what}\nRecording / Gravação: ${enabled(result.enabled)}\nSending / Envio: ${enabled(result.network)}\nFolder / Pasta: ${result.where}\nSize in bytes / Tamanho em bytes: ${result.sizeBytes}\nLast export / Última exportação: ${lastExport}`);
   } else ctx.out(typeof result === 'string' ? result : JSON.stringify(result));
   return result.ok === false ? 1 : 0;
   } catch (error) {
