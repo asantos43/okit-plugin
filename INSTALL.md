@@ -105,7 +105,7 @@ bar runs its command through Git Bash, so the status bar entry written by
 remove an `okit-plugin.ps1` this plugin wrote in an earlier version (a `.ps1` that is not
 ours is left alone), and rewrite an older status bar entry that named the bare command;
 uninstall removes the shims. A file of either name that is not ours is preserved like any
-foreign command. `okit-plugin status` says when the collector is registered but has
+foreign command. `okit-plugin env report` says when the collector is registered but has
 received no reading yet.
 An existing command that belongs to someone else is preserved and fails the
 command step and installation. Rename or remove it, or choose another directory

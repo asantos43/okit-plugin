@@ -106,7 +106,7 @@ removem um `okit-plugin.ps1` que este plugin gravou numa versão anterior (um `.
 que não é nosso fica como está) e reescrevem uma entrada antiga da barra de status que
 usava o nome do comando solto; desinstalar remove os atalhos. Um arquivo com qualquer um
 dos dois nomes que não seja nosso é preservado como qualquer comando alheio.
-`okit-plugin status` avisa quando o coletor está registrado mas ainda não recebeu nenhuma leitura.
+`okit-plugin env report` avisa quando o coletor está registrado mas ainda não recebeu nenhuma leitura.
 Um comando existente de terceiros é preservado e faz o passo do comando e a
 instalação falharem. Renomeie ou remova esse comando, ou escolha outra pasta em
 `install.linkDirectory` na configuração, e tente novamente.
