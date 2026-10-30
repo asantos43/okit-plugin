@@ -216,9 +216,7 @@ async function loginCheck(record, shell, executable, deps) {
   const why = outcome.state === 'failed' ? outcome.why
     : found ? ui.text('selfcheckLoginOther', { found, bin: deps.bin }) : ui.text('selfcheckNothing');
   const { file, line } = await loginProfile(shell, deps);
-  // The raw output of the launch (what it printed and what it wrote on the error stream) stays in the check.
-  const raw = [outcome.stdout, outcome.output].filter(Boolean).join('\n');
-  const tail = String(raw).trim().split('\n').slice(-3).join('\n').slice(-400);
+  const tail = String(outcome.output ?? '').trim().split('\n').slice(-3).join('\n').slice(-400);
   // A file that reads at login and holds the block stops before it: the line goes before whatever stops it (a `return`), the
   // error of a command that fails (for example under `set -e`) is to be fixed and any `exit` of that file is to go (an `exit`
   // ends the login shell itself). A file without the block needs the line itself: the one the installer writes, or the

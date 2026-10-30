@@ -1427,12 +1427,11 @@ test('D103: any line the login launch prints may be the resolution', async (t) =
     resolved: (spec) => (isLogin(spec) ? `${spec.env.HOME}/bin/okit-plugin\nsee you\n` : `${spec.env.PATH.split(':')[0]}/okit-plugin\n`) });
   assert.equal(after.code, 0, after.text);
   // The greeting alone (no resolution) is all the launch printed: the row says that nothing was found (the greeting is
-  // not the program), and the raw output keeps it.
+  // not the program), and the greeting is not shown.
   const alone = await world(t, 'linux', { env: NOT_ON_PATH, hook: false, argv: ['install', '--client', CLIENT, '--verbose'],
     resolved: (spec) => (isLogin(spec) ? 'Welcome to this machine!\n' : `${spec.env.PATH.split(':')[0]}/okit-plugin\n`) });
   assert.equal(alone.code, OPERATIONAL, alone.text);
   assert.ok(alone.lines().includes('  Command (bash)  failed  a new bash terminal will not find okit-plugin ((nothing))'), alone.text);
-  assert.ok(alone.lines().some((line) => line.trim() === '> Welcome to this machine!'), alone.text);
 });
 
 // D103, round 5: only a line that names the command is the resolution; another program of the link folder is not.
