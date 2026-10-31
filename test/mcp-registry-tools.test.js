@@ -3,12 +3,13 @@
 // the schema the client reads.
 
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { after, test } from 'node:test';
 
+import { inboxAdd } from '../src/inbox.js';
 import { OPERATIONS, operation } from '../src/core/operations.js';
 import { createServer } from '../src/mcp/server.js';
 import { toolsFromRegistry } from '../src/mcp/registry-tools.js';
@@ -241,4 +242,57 @@ test('a generated tool refuses null, an array, a hidden key and an inherited one
   for (const args of [null, [], hidden, inherited, { client: 'claude-code', pct: 50, [Symbol('x')]: 1 }]) {
     await assert.rejects(tool.handler(args, { root, ...DETECT }), TypeError);
   }
+});
+
+test('daemon answers the state it keeps: status, pause, status again and resume', async () => {
+  const root = await tempRoot();
+  const server = harness({ root, ...DETECT, now: () => 1_700_000_000_000 });
+
+  const before = server.data(await server.call('daemon', { action: 'status' }));
+  assert.deepEqual(before, { running: false, pid: null, startedAt: null, paused: false, lastTick: null });
+
+  assert.deepEqual(server.data(await server.call('daemon', { action: 'pause' })), { paused: true });
+  assert.equal(server.data(await server.call('daemon', { action: 'status' })).paused, true);
+  assert.deepEqual(server.data(await server.call('daemon', { action: 'resume' })), { paused: false });
+  assert.equal(server.data(await server.call('daemon', { action: 'status' })).paused, false);
+  await server.stop();
+});
+
+test('kit_detect probes the kit of the root with the runner the server gives it', async () => {
+  const root = await tempRoot();
+  const kit = join(root, 'fake-kit');
+  await writeFile(kit, '#!/bin/sh\n', 'utf8');
+  await chmod(kit, 0o755);
+  await writeFile(join(root, 'config.json'), JSON.stringify({ install: { kit: { path: kit } } }), 'utf8');
+  const calls = [];
+  const run = async (call) => {
+    calls.push(call);
+    return { code: 0, stdout: 'kit 2.0.1\n', stderr: '' };
+  };
+  const server = harness({ root, ...DETECT, run });
+
+  const probe = server.data(await server.call('kit_detect', {}));
+  assert.equal(probe.state, 'installed');
+  assert.equal(probe.path, kit);
+  assert.equal(probe.version, 'kit 2.0.1');
+  assert.equal(calls.length, 1, 'the probe runs the kit once, through the runner of the server');
+  assert.equal(calls[0].command, kit);
+  await server.stop();
+});
+
+test('todo_check reports the work without a task and the tasks without work', async () => {
+  const root = await tempRoot();
+  const project = await tempRoot();
+  await writeFile(join(project, 'TODO.md'), '# Tasks\n\n## Inbox\n- [ ] Add search\n', 'utf8');
+  await writeFile(join(root, 'config.json'),
+    JSON.stringify({ todo: { projects: { [project]: { enabled: true } } } }), 'utf8');
+  await inboxAdd(root, { title: 'Missing work', appliesTo: project });
+  const server = harness({ root, ...DETECT });
+
+  const checked = server.data(await server.call('todo_check', {}));
+  assert.equal(checked.reports.length, 1);
+  assert.equal(checked.reports[0].project, project);
+  assert.deepEqual(checked.reports[0].demandsWithoutItem.map((item) => item.title), ['Missing work']);
+  assert.deepEqual(checked.reports[0].itemsWithoutDemand.map((item) => item.text), ['Add search']);
+  await server.stop();
 });
