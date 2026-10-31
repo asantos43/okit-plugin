@@ -154,8 +154,11 @@ test('the deadline answers empty when the command did not finish',
   });
 
 // The kill of the tree reaches the whole tree of the command: on Windows the
-// tree is killed by name and the child itself dies with it.
-test('the kill of the tree on Windows kills the tree of the command and the child', async () => {
+// tree is killed by name (taskkill /T kills the descendants with the child),
+// so the child is not killed by hand while taskkill is still running: a parent
+// killed before taskkill enumerated the tree leaves the descendants behind.
+// The direct kill of the child is only the fallback of a taskkill that failed.
+test('the kill of the tree on Windows kills the tree by name and kills the child only as a fallback', async () => {
   const calls = [];
   const spawnFn = (command, args, options) => {
     const killer = { handlers: {}, on: (event, handler) => { killer.handlers[event] = handler; return killer; },
@@ -163,6 +166,8 @@ test('the kill of the tree on Windows kills the tree of the command and the chil
     calls.push({ command, args, options, killer });
     return killer;
   };
+  // The kill of the child is observed, not assumed: it must not happen while
+  // taskkill is still enumerating the tree.
   const killed = [];
   const child = { pid: 4242, kill: (signal) => killed.push(signal) };
   killTree(child, { platform: 'win32', spawnFn });
@@ -170,14 +175,44 @@ test('the kill of the tree on Windows kills the tree of the command and the chil
   assert.equal(calls[0].command, 'taskkill');
   assert.deepEqual(calls[0].args, ['/pid', '4242', '/T', '/F']);
   assert.deepEqual(calls[0].options, { stdio: 'ignore', windowsHide: true });
-  assert.deepEqual(killed, ['SIGKILL'], 'the child dies with the tree');
   assert.equal(calls[0].killer.unrefed, true, 'the kill of the tree does not hold the collector');
-  assert.doesNotThrow(() => calls[0].killer.handlers.error(new Error('taskkill is gone')));
-  // A taskkill that cannot even start is swallowed: the child still dies.
-  const other = { pid: 4343, kill: (signal) => killed.push(signal) };
-  assert.doesNotThrow(() => killTree(other, { platform: 'win32',
+  assert.deepEqual(killed, [], 'the child is not killed before taskkill enumerated the tree');
+  // A taskkill that ended well did the work: the child dies with the tree and
+  // is not killed by hand.
+  calls[0].killer.handlers.exit(0);
+  assert.deepEqual(killed, [], 'a taskkill that worked needs no fallback');
+  // A taskkill that failed leaves the tree: the child alone dies, once.
+  const failed = [];
+  const other = { pid: 4343, kill: (signal) => failed.push(signal) };
+  killTree(other, { platform: 'win32', spawnFn });
+  calls[1].killer.handlers.exit(1);
+  assert.deepEqual(failed, ['SIGKILL'], 'a taskkill that failed falls back to the kill of the child');
+  // A taskkill that could not even start is swallowed, but the child dies.
+  const gone = [];
+  const third = { pid: 4444, kill: (signal) => gone.push(signal) };
+  assert.doesNotThrow(() => killTree(third, { platform: 'win32',
     spawnFn: () => { throw new Error('no taskkill'); } }));
-  assert.deepEqual(killed, ['SIGKILL', 'SIGKILL']);
+  assert.deepEqual(gone, ['SIGKILL'], 'a taskkill that could not start falls back to the kill of the child');
+});
+
+// The fallback of the Windows kill runs once, whatever the events say: an
+// error and an exit that failed together kill the child a single time.
+test('the fallback of the Windows kill of the child happens at most once', async () => {
+  const killer = { handlers: {}, on: (event, handler) => { killer.handlers[event] = handler; return killer; },
+    unref: () => {} };
+  const killed = [];
+  const child = { pid: 4545, kill: (signal) => killed.push(signal) };
+  killTree(child, { platform: 'win32', spawnFn: () => killer });
+  assert.doesNotThrow(() => killer.handlers.error(new Error('taskkill is gone')));
+  assert.deepEqual(killed, ['SIGKILL'], 'the child dies when taskkill failed');
+  assert.doesNotThrow(() => killer.handlers.exit(1));
+  assert.deepEqual(killed, ['SIGKILL'], 'the child dies once, not twice');
+  // A kill that throws never reaches the caller.
+  const stubborn = { pid: 4646, kill: () => { throw new Error('the child is gone'); } };
+  const other = { handlers: {}, on: (event, handler) => { other.handlers[event] = handler; return other; },
+    unref: () => {} };
+  killTree(stubborn, { platform: 'win32', spawnFn: () => other });
+  assert.doesNotThrow(() => other.handlers.exit(1));
 });
 
 // On POSIX the kill of the tree reaches the whole group of the command: the

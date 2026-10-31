@@ -26,14 +26,24 @@ export function killTree(child, { platform = process.platform, spawnFn = spawn }
   if (!Number.isInteger(child?.pid)) return;
   if (platform === 'win32') {
     // Windows has no group of our own: the tree of the command is killed by
-    // name, and the child itself dies with it.
+    // name, and the child itself dies with it. The child is not killed here:
+    // a parent killed before taskkill enumerated the tree leaves the
+    // descendants behind. The direct kill of the child is the fallback for a
+    // taskkill that failed, and it happens at most once.
+    let fell = false;
+    const fallback = () => {
+      if (fell) return;
+      fell = true;
+      try { child.kill('SIGKILL'); } catch { /* the child is already gone */ }
+    };
     try {
-      spawnFn('taskkill', ['/pid', String(child.pid), '/T', '/F'],
-        { stdio: 'ignore', windowsHide: true })
-        .on('error', () => { /* the tree is gone */ })
-        .unref();
-    } catch { /* the tree is gone: the child alone is left */ }
-    try { child.kill('SIGKILL'); } catch { /* the child is already gone */ }
+      const killer = spawnFn('taskkill', ['/pid', String(child.pid), '/T', '/F'],
+        { stdio: 'ignore', windowsHide: true });
+      killer.on('error', () => fallback());
+      killer.on('exit', (code) => { if (code !== 0) fallback(); });
+      killer.on('close', (code) => { if (code !== 0) fallback(); });
+      killer.unref();
+    } catch { fallback(); }
     return;
   }
   // The whole group of the child dies with it, so a descendant that inherited
