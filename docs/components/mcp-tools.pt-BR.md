@@ -9,7 +9,7 @@ As ferramentas MCP expõem operações validadas do núcleo ao assistente do cli
 <a id="tools"></a>
 ## Contrato das ferramentas
 
-O servidor expõe 29 ferramentas. Entradas são objetos JSON; ? indica campo opcional. Respostas são texto JSON com resultado ou recusa; argumentos inválidos geram erro. Escrita de estado não lança modelo nem gasta cota por si só. A lista das ferramentas custa 14255 bytes de JSON, cerca de 3564 tokens de contexto, e sete delas são geradas do registro de operações (`src/core/operations.js`), então uma função do núcleo é descrita uma vez só.
+O servidor expõe 29 ferramentas. Entradas são objetos JSON; ? indica campo opcional. Respostas são texto JSON com resultado ou recusa; argumentos inválidos geram erro. Escrita de estado não lança modelo nem gasta cota por si só. A lista das ferramentas custa 14255 bytes de JSON, cerca de 3564 tokens de contexto, e quinze delas são geradas do registro de operações (`src/core/operations.js`), então uma função do núcleo é descrita uma vez só.
 
 | Nome | Propósito e retorno | Entradas | Efeito |
 | :- | :- | :- | :- |

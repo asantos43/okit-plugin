@@ -25,6 +25,13 @@ const NAMES = [
   'smoke_demo',
   'classify',
   'profile_pick',
+  'config_get',
+  'config_set',
+  'quota_show',
+  'quota_set',
+  'daemon',
+  'kit_detect',
+  'todo_check',
   'inbox_add',
   'inbox_list',
   'inbox_claim',
@@ -33,13 +40,6 @@ const NAMES = [
   'order_add',
   'order_list',
   'order_remove',
-  'config_get',
-  'config_set',
-  'quota_show',
-  'quota_set',
-  'daemon',
-  'kit_detect',
-  'todo_check',
 ];
 
 const roots = [];

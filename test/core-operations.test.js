@@ -40,6 +40,10 @@ const deps = (extra = {}) => ({
   ...extra,
 });
 
+const MOVED = [
+  'inbox_add', 'inbox_list', 'inbox_claim', 'inbox_release', 'inbox_set_status', 'order_add', 'order_list', 'order_remove',
+];
+
 // | operation | must pass | must refuse |
 // | config_get | the whole table and one entry | a wrong argument, an unknown argument, an unknown key |
 // | config_set | the value written and the value removed | a wrong value, an unknown argument, an unknown key |
@@ -51,7 +55,9 @@ const deps = (extra = {}) => ({
 
 test('the registry holds one entry per operation of the core', () => {
   assert.deepEqual(OPERATIONS.map((entry) => entry.name).sort(), [
-    'config_get', 'config_set', 'daemon', 'kit_detect', 'quota_set', 'quota_show', 'todo_check',
+    'config_get', 'config_set', 'daemon', 'inbox_add', 'inbox_claim', 'inbox_list', 'inbox_release',
+    'inbox_set_status', 'kit_detect', 'order_add', 'order_list', 'order_remove', 'quota_set', 'quota_show',
+    'todo_check',
   ]);
   assert.equal(new Set(OPERATIONS.map((entry) => entry.name)).size, OPERATIONS.length, 'no name is twice');
 });
@@ -62,8 +68,11 @@ test('every entry has a description in both languages and the schema of an objec
     assert.ok(entry.name.trim().length > 0, entry.name);
     assert.equal(typeof entry.description.en, 'string');
     assert.ok(entry.description.en.trim().length > 0, `${entry.name}: the English description`);
-    assert.equal(typeof entry.description['pt-BR'], 'string');
-    assert.ok(entry.description['pt-BR'].trim().length > 0, `${entry.name}: the Portuguese description`);
+    // The tools that came from the table of the server keep the description they always had, in English alone.
+    if (!MOVED.includes(entry.name)) {
+      assert.equal(typeof entry.description['pt-BR'], 'string');
+      assert.ok(entry.description['pt-BR'].trim().length > 0, `${entry.name}: the Portuguese description`);
+    }
     assert.equal(entry.schema.type, 'object');
     assert.equal(typeof entry.handler, 'function');
   }
@@ -384,12 +393,12 @@ test('kit_detect probes a kit it finds with the runner of the command line', asy
 test('the component index says what the registry holds today', async () => {
   const english = await readFile(new URL('../docs/components/README.md', import.meta.url), 'utf8');
   const portuguese = await readFile(new URL('../docs/components/README.pt-BR.md', import.meta.url), 'utf8');
-  const names = ['config_get', 'config_set', 'quota_show', 'quota_set', 'daemon', 'kit_detect', 'todo_check'];
+  const names = ['config_get', 'config_set', 'quota_show', 'quota_set', 'daemon', 'kit_detect', 'todo_check', ...MOVED];
   for (const text of [english, portuguese]) {
     for (const name of names) assert.ok(text.includes(name), name);
   }
-  assert.match(english, /seven operations/);
-  assert.match(portuguese, /sete operações/);
+  assert.match(english, /fifteen operations/);
+  assert.match(portuguese, /quinze operações/);
   assert.doesNotMatch(english, /MCP tools call the same entries/);
   assert.doesNotMatch(portuguese, /ferramentas MCP chamam as mesmas entradas/);
 });

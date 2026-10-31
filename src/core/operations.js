@@ -10,10 +10,18 @@
 // The command line and the MCP server are two callers of the same operations:
 // this registry is what they share, so a function exists once.
 
+import { EFFORT_CLASSES } from '../classify.js';
+import { STATUSES } from '../inbox.js';
+import { SCOPES } from '../orders.js';
 import { configGet, configSet } from './config.js';
 import { daemonOperation, DAEMON_ACTIONS } from './daemon.js';
+import {
+  inboxAddOperation, inboxClaimOperation, inboxListOperation, inboxReleaseOperation, inboxSetStatusOperation,
+} from './inbox-operations.js';
 import { kitDetect } from './kit.js';
+import { orderAddOperation, orderListOperation, orderRemoveOperation } from './orders-operations.js';
 import { quotaSet, quotaShow } from './quota.js';
+import { LOCALE_SCHEMA } from './tool-arguments.js';
 import { todoCheck } from './todo.js';
 
 export const OPERATIONS = [
@@ -134,6 +142,146 @@ export const OPERATIONS = [
       additionalProperties: false,
     },
     handler: (root, args, deps) => todoCheck(root, args, deps),
+  },
+  // The operations of the inbox and of the standing orders: they were tools
+  // of the table of the server before, with the validation they always had.
+  // Their description is in English only, the way the tool published it.
+  {
+    name: 'inbox_add',
+    description: {
+      en: 'Adds a demand to the shared inbox and returns the stored item, id included.',
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'What the demand is about.' },
+        body: { type: 'string', description: 'The demand in full.' },
+        kind: { type: 'string', description: 'Free text: research, writing, code, data, ...' },
+        accept: { type: 'array', items: { type: 'string' }, description: 'Checks the demand must pass.' },
+        effort: { type: 'string', enum: EFFORT_CLASSES, description: 'Effort class; call classify when it is absent.' },
+        client: { type: 'string', description: 'Client the demand belongs to.' },
+        appliesTo: { description: 'Project the demand is about; absent or "global" means every project.' },
+        todoLink: { type: 'object', description: 'Confirmed task link: project (absolute root), item (text or anchor), optional file.' },
+      },
+      required: ['title'],
+      additionalProperties: false,
+    },
+    handler: (root, args, deps) => inboxAddOperation(root, args, deps),
+  },
+  {
+    name: 'inbox_list',
+    description: {
+      en: 'Lists inbox items newest first, optionally filtered by status, client or project.',
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: STATUSES, description: 'Only items in this status.' },
+        client: { type: 'string', description: 'Only items of this client.' },
+        appliesTo: { type: 'string', description: 'Project name, or "global" for the shared items alone.' },
+        limit: { type: 'integer', minimum: 0, description: 'How many items at most.' },
+        locale: LOCALE_SCHEMA,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    handler: (root, args, deps) => inboxListOperation(root, args, deps),
+  },
+  {
+    name: 'inbox_claim',
+    description: {
+      en: 'Claims an inbox item atomically; refuses another active holder.',
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' }, client: { type: 'string' }, session: { type: 'string' }, worktree: { type: 'string' },
+      },
+      required: ['id', 'client'],
+      additionalProperties: false,
+    },
+    handler: (root, args, deps) => inboxClaimOperation(root, args, deps),
+  },
+  {
+    name: 'inbox_release',
+    description: {
+      en: 'Releases an owned or stale hold.',
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' }, client: { type: 'string' }, session: { type: 'string' },
+      },
+      required: ['id', 'client'],
+      additionalProperties: false,
+    },
+    handler: (root, args, deps) => inboxReleaseOperation(root, args, deps),
+  },
+  {
+    name: 'inbox_set_status',
+    description: {
+      en: 'Moves one inbox item along pending, delegated, criticised, consolidated or failed.',
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Inbox item id, as returned by inbox_add.' },
+        status: { type: 'string', enum: STATUSES, description: 'Status to move the item to.' },
+        holder: { type: 'object', properties: { client: { type: 'string' }, session: { type: 'string' } }, required: ['client'], additionalProperties: false },
+      },
+      required: ['id', 'status'],
+      additionalProperties: false,
+    },
+    handler: (root, args, deps) => inboxSetStatusOperation(root, args, deps),
+  },
+  {
+    name: 'order_add',
+    description: {
+      en: 'Adds a standing order: one instruction the Director reads with every demand until it is revoked.',
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'The instruction, in plain words.' },
+        scope: { type: 'string', enum: SCOPES, description: 'Effort class the order applies to; "all" by default.' },
+        until: { type: 'string', description: 'ISO date-time after which the order stops being active.' },
+        appliesTo: { description: 'Project the order binds; absent or "global" means every project.' },
+      },
+      required: ['text'],
+      additionalProperties: false,
+    },
+    handler: (root, args, deps) => orderAddOperation(root, args, deps),
+  },
+  {
+    name: 'order_list',
+    description: {
+      en: 'Lists the standing orders that are active now, optionally for one project.',
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        appliesTo: { type: 'string', description: 'Project name, or "global" for the shared orders alone.' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    handler: (root, args, deps) => orderListOperation(root, args, deps),
+  },
+  {
+    name: 'order_remove',
+    description: {
+      en: 'Revokes a standing order by id. Nothing is deleted, so the history survives.',
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Standing order id, as returned by order_add.' },
+        reason: { type: 'string', description: 'Why the order is revoked.' },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    handler: (root, args, deps) => orderRemoveOperation(root, args, deps),
   },
 ];
 
