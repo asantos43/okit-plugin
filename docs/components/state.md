@@ -17,6 +17,7 @@ The default root is ~/.okwork; OKWORK_HOME replaces the entire directory (it doe
 | `orders.json` | Global/project instructions, expiry, revocation and history until retention |
 | `templates.json` | Recurring demands, schedules, rules and last run |
 | `quota/<client>.json` | Remaining percentage, source, timestamp and known windows; readers choose between automatic and manual; valid JSON of another type is no reading, a file that is not JSON makes `status` fail (exit 1) |
+| `quota/claude-code-statusline.json` | The status bar JSON of the client as it came, with the instant it was received; the collector writes it and the core derives the quota reading from it |
 | `runs/<runId>.json` | Slot status, client and start/end times; process launches also record PID and outcome |
 | `runs/<runId>.out` | Process launcher stdout/stderr when no other log directory is supplied |
 | `locks/config.lock/owner.json`, `inbox.json.lock/owner.json`, `orders.json.lock/owner.json`, `templates.json.lock/owner.json`, `runs.lock/owner.json` | Writer lock owner, PID and timestamp; temporary claim files coordinate recovery |

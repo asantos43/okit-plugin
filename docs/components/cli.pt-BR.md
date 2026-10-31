@@ -41,9 +41,9 @@ Cada linha mostra o comando e um exemplo; substitua <id> pelo identificador reto
 | `okit-plugin autostart show` | Consulta plano de inicialização da plataforma | `okit-plugin autostart show --kind systemd` |
 | `okit-plugin autostart install` | Aplica plano de inicialização | `okit-plugin autostart install --kind systemd` |
 | `okit-plugin autostart uninstall` | Remove registro de inicialização | `okit-plugin autostart uninstall --kind systemd` |
-| `okit-plugin hook session-start` | Devolve contexto nativo de papel com JSON no stdin | `okit-plugin hook session-start` |
-| `okit-plugin hook post-compact` | Devolve resumo limitado de restauração com JSON no stdin | `okit-plugin hook post-compact` |
-| `okit-plugin statusline-collector` | Coleta cota do JSON no stdin e encadeia barra anterior | `okit-plugin statusline-collector` |
+| `okit-plugin hook session-start` | Entrada interna que o cliente inicia; devolve contexto nativo de papel com JSON no stdin | `okit-plugin hook session-start` |
+| `okit-plugin hook post-compact` | Entrada interna que o cliente inicia; devolve resumo limitado de restauração com JSON no stdin | `okit-plugin hook post-compact` |
+| `okit-plugin statusline-collector` | Entrada interna que o cliente inicia; coleta cota do JSON no stdin e encadeia barra anterior | `okit-plugin statusline-collector` |
 | `okit-plugin smoke` | Executa verificações offline isoladas em estado temporário | `okit-plugin smoke` |
 | `okit-plugin client-smoke` | Executa cenário no cliente ou prévia/ensaio offline | `okit-plugin client-smoke --client claude-code --dry-run` |
 | `okit-plugin smoke-demo` | Mostra prévia; com --confirm e o hash da prévia executa o cliente real e gasta cota dentro dos tetos mostrados | `okit-plugin smoke-demo --dry-run --json` |

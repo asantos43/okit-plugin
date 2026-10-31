@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { tarGz, zip } from '../../src/release/archive.js';
 import { installConfig } from '../../src/install/config.js';
 import { HOME_ENV, paths } from '../../src/store.js';
-import { READING_FILE } from '../../src/quota/statusline-collector.js';
+import { STATUSLINE_FILE } from '../../src/quota/statusline-collector.js';
 
 // The installer's world in a temporary folder: a fake release, the clients' executables found or not, and the
 // output collected line by line. Shared by the installer's tests; each one keeps its own expectations.
@@ -22,7 +22,7 @@ export async function answerCheck({ command = '', env, args = [] }, { bin } = {}
   const text = args.map(String);
   if (folder && text.some((item) => item.includes('statusline-collector'))) {
     await fs.mkdir(paths(folder).quota, { recursive: true });
-    await fs.writeFile(join(paths(folder).quota, READING_FILE), '{}');
+    await fs.writeFile(join(paths(folder).quota, STATUSLINE_FILE), '{}');
     return {};
   }
   // A shell asked where the command is says the first folder of the PATH it was given (the way a real shell finds it).

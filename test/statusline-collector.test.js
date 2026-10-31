@@ -1,23 +1,29 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, writeFile, readdir, rm, open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
-import { collectStatusline, statuslineCommand } from '../src/quota/statusline-collector.js';
+import { collectStatusline, killTree, runPrevious, statuslineCommand, STATUSLINE_FILE, KILL_TREE_CAP_MS } from '../src/quota/statusline-collector.js';
 import { readQuota } from '../adapters/claude-code/index.js';
 import { configOf } from '../src/profiles.js';
 import { main } from '../src/cli.js';
+import { readingOf } from '../src/core/statusline-reading.js';
 
 const input = Buffer.from('{"rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1793003358},"seven_day":{"used_percentage":41.2,"resets_at":1793513484}},"extra":true}\n');
 const now = () => Date.UTC(2026, 9, 26);
+// `setsid` is not everywhere (stock macOS has none): the test that needs it
+// skips itself when the tool is absent.
+const HAS_SETSID = process.platform !== 'win32'
+  && spawnSync('sh', ['-c', 'command -v setsid'], { stdio: 'ignore' }).status === 0;
 async function rootFor(t) {
   const root = await mkdtemp(join(tmpdir(), 'okit-collector-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
 }
-const quotaFile = (root) => join(root, 'quota', 'claude-code.json');
+const statusFile = (root) => join(root, 'quota', STATUSLINE_FILE);
+const manualFile = (root) => join(root, 'quota', 'claude-code.json');
 const echoInput = 'const fs=require("node:fs");fs.writeSync(1,fs.readFileSync(0));';
 test('executable is hermetic with empty HOME and never imports daemon or MCP', async (t) => {
   const root = await rootFor(t);
@@ -41,15 +47,317 @@ test('executable is hermetic with empty HOME and never imports daemon or MCP', a
   assert.equal(code, 0, Buffer.concat(errors).toString());
   assert.deepEqual(await readFile(join(root, 'output')), input);
   assert.ok(performance.now() - started < 2000);
-  assert.equal(JSON.parse(await readFile(quotaFile(root))).source, 'automatic');
+  const stored = JSON.parse(await readFile(statusFile(root)));
+  assert.deepEqual(stored.input, JSON.parse(input.toString()), 'the client JSON is stored as it came');
 });
-test('invalid or absent quota preserves old bytes and still chains', async (t) => {
+
+// A previous command that leaves a descendant behind must not keep the client
+// waiting: the collector ends at its deadline and takes the group with it.
+test('the collector ends at its deadline and leaves no descendant of the previous command alive',
+  { skip: process.platform === 'win32' }, async (t) => {
+    const root = await rootFor(t);
+    const pidFile = join(root, 'descendant.pid');
+    // The `sleep` in the background inherits the output of the shell: it keeps
+    // the pipe open long after the shell itself is gone.
+    const previous = ['sh', '-c', `sleep 5 & echo $! > ${pidFile}; echo bar; sleep 5`];
+    await writeFile(join(root, 'config.json'), JSON.stringify({ statuslineCollector: { previous, timeoutMs: 300 } }));
+    await writeFile(join(root, 'input'), input);
+    const stdin = await open(join(root, 'input'), 'r');
+    const stdout = await open(join(root, 'output'), 'w');
+    t.after(async () => { await stdin.close(); await stdout.close(); });
+    const started = performance.now();
+    const child = spawn(process.execPath, ['src/cli.js', 'statusline-collector'], {
+      env: { ...process.env, HOME: '', USERPROFILE: '', OKWORK_HOME: root }, stdio: [stdin.fd, stdout.fd, 'pipe'],
+    });
+    const errors = [];
+    child.stderr.on('data', (bytes) => errors.push(bytes));
+    const code = await new Promise((resolve, reject) => {
+      child.once('error', reject); child.once('close', resolve);
+    });
+    const elapsed = performance.now() - started;
+    assert.equal(code, 0, Buffer.concat(errors).toString());
+    assert.ok(elapsed < 2000, `the collector exited in ${Math.round(elapsed)} ms`);
+    // The descendant of the previous command is dead with it: the group died.
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    let alive = true;
+    for (let attempt = 0; attempt < 20 && alive; attempt += 1) {
+      try { process.kill(pid, 0); } catch { alive = false; }
+      if (alive) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(alive, false, 'the descendant of the previous command is dead');
+  });
+
+// A descendant that left the group of the previous command (its own session)
+// cannot be killed with it, but it must not keep the collector waiting either:
+// the pipes of the collector are closed when the deadline passes.
+test('a descendant that left the group does not keep the collector waiting',
+  { skip: !HAS_SETSID }, async (t) => {
+    const root = await rootFor(t);
+    const pidFile = join(root, 'descendant.pid');
+    // The descendant of the previous command opens a session of its own and
+    // holds the output open; only the pipes of the collector can free it.
+    const previous = ['sh', '-c', `setsid sh -c 'echo $$ > ${pidFile}; sleep 30' & sleep 30`];
+    await writeFile(join(root, 'config.json'), JSON.stringify({ statuslineCollector: { previous, timeoutMs: 300 } }));
+    await writeFile(join(root, 'input'), input);
+    const stdin = await open(join(root, 'input'), 'r');
+    const stdout = await open(join(root, 'output'), 'w');
+    t.after(async () => { await stdin.close(); await stdout.close(); });
+    const started = performance.now();
+    const child = spawn(process.execPath, ['src/cli.js', 'statusline-collector'], {
+      env: { ...process.env, HOME: '', USERPROFILE: '', OKWORK_HOME: root }, stdio: [stdin.fd, stdout.fd, 'pipe'],
+    });
+    const errors = [];
+    child.stderr.on('data', (bytes) => errors.push(bytes));
+    const code = await new Promise((resolve, reject) => {
+      child.once('error', reject); child.once('close', resolve);
+    });
+    const elapsed = performance.now() - started;
+    assert.equal(code, 0, Buffer.concat(errors).toString());
+    assert.ok(elapsed < 2000, `the collector exited in ${Math.round(elapsed)} ms`);
+    // The descendant left the group, so it is still there; the collector is not.
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    t.after(() => { try { process.kill(pid, 'SIGKILL'); } catch { /* it is already gone */ } });
+    assert.doesNotThrow(() => process.kill(pid, 0));
+  });
+
+test('the previous command: the output limit, the deadline and the exact bytes', async () => {
+  // More than the limit is no answer at all, and the answer comes at once.
+  const loud = await runPrevious({ command: process.execPath,
+    args: ['-e', 'process.stdout.write("x".repeat(1000))'], input: Buffer.alloc(0),
+    timeoutMs: 5000, maxOutputBytes: 10 });
+  assert.equal(loud, undefined);
+  // A command that ignores the signal and sleeps answers empty at the deadline.
+  const started = performance.now();
+  const stubborn = await runPrevious({ command: process.execPath,
+    args: ['-e', 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000)'], input: Buffer.alloc(0),
+    timeoutMs: 300, maxOutputBytes: 1024 });
+  assert.deepEqual(stubborn, Buffer.alloc(0));
+  assert.ok(performance.now() - started < 2000, 'the deadline is the answer');
+  // A command that ends well answers with its exact bytes.
+  const exact = await runPrevious({ command: process.execPath,
+    args: ['-e', 'process.stdout.write(Buffer.from([0,255,13,10]))'], input: Buffer.alloc(0),
+    timeoutMs: 5000, maxOutputBytes: 1024 });
+  assert.deepEqual(exact, Buffer.from([0, 255, 13, 10]));
+});
+
+// A command that did not finish before the deadline has not answered in time:
+// the bytes it printed on the way are not an answer, even when its parent
+// exited well and a descendant of it holds the pipe open.
+test('the deadline answers empty when the command did not finish',
+  { skip: process.platform === 'win32' }, async () => {
+    const started = performance.now();
+    const answer = await runPrevious({ command: 'sh', args: ['-c', 'sleep 5 & echo bar'],
+      input: Buffer.alloc(0), timeoutMs: 300, maxOutputBytes: 1024 });
+    assert.equal(answer.length, 0, 'the deadline answers an empty buffer');
+    assert.notEqual(answer.toString(), 'bar\n');
+    assert.ok(performance.now() - started < 2000, 'the deadline is the answer');
+  });
+
+// The kill of the tree reaches the whole tree of the command: on Windows the
+// tree is killed by name (taskkill /T kills the descendants with the child),
+// so the child is not killed by hand while taskkill is still running: a parent
+// killed before taskkill enumerated the tree leaves the descendants behind.
+// The direct kill of the child is only the fallback of a taskkill that failed,
+// and the collector waits for the answer of taskkill: the killer is not
+// unreferenced and a cap ends the wait of a taskkill that got stuck.
+const fakeTimers = () => {
+  const pending = [];
+  return {
+    timers: {
+      set: (handler, ms) => { const timer = { handler, ms, cleared: false }; pending.push(timer); return timer; },
+      clear: (timer) => { if (timer) timer.cleared = true; },
+    },
+    pending,
+  };
+};
+const fakeKiller = () => {
+  const killer = { handlers: {}, unrefed: false, kills: 0,
+    on: (event, handler) => { killer.handlers[event] = handler; return killer; },
+    unref: () => { killer.unrefed = true; },
+    kill: () => { killer.kills += 1; } };
+  return killer;
+};
+test('the kill of the tree on Windows kills the tree by name and kills the child only as a fallback', async () => {
+  const calls = [];
+  const spawnFn = (command, args, options) => {
+    const killer = fakeKiller();
+    calls.push({ command, args, options, killer });
+    return killer;
+  };
+  const { timers, pending } = fakeTimers();
+  // The kill of the child is observed, not assumed: it must not happen while
+  // taskkill is still enumerating the tree.
+  const killed = [];
+  const child = { pid: 4242, kill: (signal) => killed.push(signal) };
+  killTree(child, { platform: 'win32', spawnFn, timers });
+  assert.equal(calls.length, 1, 'taskkill runs once');
+  assert.equal(calls[0].command, 'taskkill');
+  assert.deepEqual(calls[0].args, ['/pid', '4242', '/T', '/F']);
+  assert.deepEqual(calls[0].options, { stdio: 'ignore', windowsHide: true });
+  assert.equal(calls[0].killer.unrefed, false, 'the collector waits for the answer of taskkill');
+  assert.equal(pending.length, 1, 'the cap of the wait is pending');
+  assert.equal(pending[0].ms, KILL_TREE_CAP_MS, 'the cap is the one of the module');
+  assert.deepEqual(killed, [], 'the child is not killed before taskkill enumerated the tree');
+  // A taskkill that ended well did the work: the child dies with the tree and
+  // is not killed by hand.
+  calls[0].killer.handlers.exit(0);
+  assert.deepEqual(killed, [], 'a taskkill that worked needs no fallback');
+  assert.equal(pending[0].cleared, true, 'the cap is cleared when taskkill answers');
+});
+
+// The cap of the wait is the safety net of a taskkill that got stuck: the
+// child dies by hand and the killer is stopped, whatever taskkill says after.
+test('the cap of the wait kills the child and stops the killer that got stuck', async () => {
+  const { timers, pending } = fakeTimers();
+  const killer = fakeKiller();
+  const killed = [];
+  const child = { pid: 4343, kill: (signal) => killed.push(signal) };
+  killTree(child, { platform: 'win32', spawnFn: () => killer, timers, capMs: 700 });
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].ms, 700, 'the cap of the wait is the one of the caller');
+  pending[0].handler();
+  assert.deepEqual(killed, ['SIGKILL'], 'the child dies when the cap passes');
+  assert.equal(killer.kills, 1, 'the killer that got stuck is stopped');
+  // The answer of taskkill after the cap changes nothing.
+  assert.doesNotThrow(() => killer.handlers.exit(1));
+  assert.deepEqual(killed, ['SIGKILL'], 'the child dies once, not twice');
+});
+
+// The fallback of the Windows kill runs once, whatever the events say: an
+// error and an exit that failed together kill the child a single time.
+test('the fallback of the Windows kill of the child happens at most once', async () => {
+  const { timers, pending } = fakeTimers();
+  const killer = fakeKiller();
+  const killed = [];
+  const child = { pid: 4545, kill: (signal) => killed.push(signal) };
+  killTree(child, { platform: 'win32', spawnFn: () => killer, timers });
+  assert.doesNotThrow(() => killer.handlers.error(new Error('taskkill is gone')));
+  assert.deepEqual(killed, ['SIGKILL'], 'the child dies when taskkill failed');
+  assert.equal(pending[0].cleared, true, 'the cap is cleared when taskkill answers');
+  assert.doesNotThrow(() => killer.handlers.exit(1));
+  assert.deepEqual(killed, ['SIGKILL'], 'the child dies once, not twice');
+  // A kill that throws never reaches the caller.
+  const stubborn = { pid: 4646, kill: () => { throw new Error('the child is gone'); } };
+  const other = fakeKiller();
+  const otherTimers = fakeTimers();
+  killTree(stubborn, { platform: 'win32', spawnFn: () => other, timers: otherTimers.timers });
+  assert.doesNotThrow(() => other.handlers.exit(1));
+});
+
+// A taskkill that could not even start falls back at once and leaves no cap
+// behind: there is no answer to wait for.
+test('a taskkill that could not start kills the child at once and waits for nothing', async () => {
+  const { timers, pending } = fakeTimers();
+  const gone = [];
+  const third = { pid: 4444, kill: (signal) => gone.push(signal) };
+  assert.doesNotThrow(() => killTree(third, { platform: 'win32',
+    spawnFn: () => { throw new Error('no taskkill'); }, timers }));
+  assert.deepEqual(gone, ['SIGKILL'], 'a taskkill that could not start falls back to the kill of the child');
+  assert.equal(pending.length, 0, 'no cap is pending without a taskkill');
+});
+
+// The collector waits for the answer of taskkill: an unreferenced killer would
+// let the collector go before the fallback of a failed taskkill ran, and the
+// previous command would stay alive. The test is a real process: the collector
+// is a node subprocess that kills the tree and then does nothing else, so
+// only the reference to the killer and the cap hold it.
+test('the collector waits for the answer of taskkill and runs the fallback before it goes',
+  { skip: process.platform === 'win32' }, async (t) => {
+    const root = await rootFor(t);
+    const pidFile = join(root, 'sleep.pid');
+    const script = join(root, 'collector.mjs');
+    const source = new URL('../src/quota/statusline-collector.js', import.meta.url).href;
+    await writeFile(script, [
+      "import { spawn } from 'node:child_process';",
+      "import { writeFileSync } from 'node:fs';",
+      `import { killTree } from ${JSON.stringify(source)};`,
+      // The command the collector started: a detached `sleep 30` of its own.
+      "const sleeper = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' });",
+      'sleeper.unref();',
+      `writeFileSync(${JSON.stringify(pidFile)}, String(sleeper.pid));`,
+      // The stand-in of taskkill: it fails after 300 ms, as a taskkill that
+      // found nothing to kill does.
+      "killTree(sleeper, { platform: 'win32', capMs: 2000, spawnFn: () => spawn(process.execPath,",
+      "  ['-e', 'setTimeout(()=>process.exit(1),300)'], { stdio: 'ignore' }) });",
+    ].join('\n'));
+    const started = performance.now();
+    const collector = spawn(process.execPath, [script], { stdio: 'ignore' });
+    t.after(() => { try { collector.kill('SIGKILL'); } catch { /* it is already gone */ } });
+    const ended = new Promise((resolve) => collector.once('exit', () => resolve(performance.now() - started)));
+    // The collector reports the pid of the command it started.
+    let pid = null;
+    for (let attempt = 0; attempt < 40 && pid === null; attempt += 1) {
+      try { pid = Number((await readFile(pidFile, 'utf8')).trim()); } catch { await new Promise((r) => setTimeout(r, 50)); }
+    }
+    assert.ok(pid, 'the collector reported the pid of the command');
+    t.after(() => { try { process.kill(pid, 'SIGKILL'); } catch { /* it is already gone */ } });
+    // The command dies with the fallback of the taskkill that failed: the
+    // collector stayed alive long enough to hear the answer of taskkill.
+    let alive = true;
+    for (let attempt = 0; attempt < 30 && alive; attempt += 1) {
+      try { process.kill(pid, 0); } catch { alive = false; }
+      if (alive) await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(alive, false, 'the previous command died with the fallback');
+    assert.ok(performance.now() - started < 1500, 'the fallback ran before the cap of the wait');
+    // The collector goes by itself once the answer came: it does not wait for
+    // anything else.
+    const elapsed = await ended;
+    assert.ok(elapsed >= 200, `the collector waited for the answer of taskkill (${Math.round(elapsed)} ms)`);
+    assert.ok(elapsed < 1500, `the collector exited by itself in ${Math.round(elapsed)} ms`);
+  });
+
+// On POSIX the kill of the tree reaches the whole group of the command: the
+// descendant that inherited the output dies with it.
+test('the kill of the tree on POSIX reaches the whole group of the command',
+  { skip: process.platform === 'win32' }, async (t) => {
+    // The command leads a group of its own: the child is detached.
+    const command = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' });
+    t.after(() => { try { process.kill(-command.pid, 'SIGKILL'); } catch { /* it is already gone */ } });
+    const ended = new Promise((resolve) => command.once('exit', (code, signal) => resolve({ code, signal })));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    killTree(command);
+    const result = await ended;
+    assert.equal(result.signal, 'SIGKILL', 'the command dies with the kill of the tree');
+    // The group of the command is gone with it: a descendant of it dies too.
+    const root = await rootFor(t);
+    const pidFile = join(root, 'descendant.pid');
+    const leader = spawn('sh', ['-c', `sleep 30 & echo $! > ${pidFile}; wait`],
+      { detached: true, stdio: 'ignore' });
+    t.after(() => { try { process.kill(-leader.pid, 'SIGKILL'); } catch { /* it is already gone */ } });
+    const gone = new Promise((resolve) => leader.once('exit', resolve));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    killTree(leader);
+    await gone;
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    let alive = true;
+    for (let attempt = 0; attempt < 20 && alive; attempt += 1) {
+      try { process.kill(pid, 0); } catch { alive = false; }
+      if (alive) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(alive, false, 'the descendant of the group is dead');
+  });
+
+test('the collector stores the client JSON unchanged and never reads the percentages', async (t) => {
+  const root = await rootFor(t);
+  await collectStatusline({ input, stateRoot: root, now });
+  const stored = JSON.parse(await readFile(statusFile(root)));
+  assert.deepEqual(stored.input, JSON.parse(input.toString()), 'the unknown fields of the client come along');
+  assert.equal(stored.receivedAt, new Date(now()).toISOString(), 'the instant is the one of the clock');
+  assert.deepEqual(Object.keys(stored).sort(), ['input', 'receivedAt']);
+  // A percentage that is not one is stored all the same: the core is the one that reads them.
+  const odd = Buffer.from('{"rate_limits":{"five_hour":{"used_percentage":101,"resets_at":1}}}');
+  await collectStatusline({ input: odd, stateRoot: root, now });
+  assert.deepEqual(JSON.parse(await readFile(statusFile(root))).input, JSON.parse(odd.toString()));
+});
+
+test('invalid or absent rate limits preserve old bytes and still chain', async (t) => {
   const root = await rootFor(t);
   await collectStatusline({ input: '{}', stateRoot: root });
-  await assert.rejects(readFile(quotaFile(root)), { code: 'ENOENT' });
+  await assert.rejects(readFile(statusFile(root)), { code: 'ENOENT' });
   await collectStatusline({ input, stateRoot: root, now });
-  const old = await readFile(quotaFile(root));
-  for (const text of ['{', '{}', '{"rate_limits":null}', '{"rate_limits":{"five_hour":{"used_percentage":101,"resets_at":1}}}']) {
+  const old = await readFile(statusFile(root));
+  for (const text of ['{', '{}', '{"rate_limits":null}', '{"rate_limits":[]}']) {
     let called = false;
     const output = await collectStatusline({ input: Buffer.from(text), stateRoot: root,
       previous: ['fake', 'arg'], run: async (request) => {
@@ -60,11 +368,11 @@ test('invalid or absent quota preserves old bytes and still chains', async (t) =
       } });
     assert.ok(called);
     assert.equal(output.toString(), 'old bar\n');
-    assert.deepEqual(await readFile(quotaFile(root)), old);
+    assert.deepEqual(await readFile(statusFile(root)), old);
   }
 });
 
-test('oversized valid input skips quota and still chains; exact limit writes', async (t) => {
+test('oversized valid input skips the sample and still chains; exact limit writes', async (t) => {
   for (const oversized of [true, false]) {
     const root = await rootFor(t);
     const config = { statuslineCollector: {
@@ -80,8 +388,8 @@ test('oversized valid input skips quota and still chains; exact limit writes', a
       } });
     assert.equal(calls, 1);
     assert.deepEqual(output, Buffer.from('previous bar\n'));
-    if (oversized) await assert.rejects(readFile(quotaFile(root)), { code: 'ENOENT' });
-    else assert.equal(JSON.parse(await readFile(quotaFile(root))).remainingPct, 58.8);
+    if (oversized) await assert.rejects(readFile(statusFile(root)), { code: 'ENOENT' });
+    else assert.deepEqual(JSON.parse(await readFile(statusFile(root))).input, JSON.parse(input.toString()));
   }
 });
 
@@ -102,9 +410,9 @@ test('concurrent readers only observe whole old or new samples', async (t) => {
   let active = true, reads = 0;
   const reader = (async () => {
     while (active) {
-      const value = JSON.parse(await readFile(quotaFile(root)));
-      assert.equal(value.windows.length, 2);
-      assert.ok([58.8, 90].includes(value.remainingPct));
+      const value = JSON.parse(await readFile(statusFile(root)));
+      assert.ok([23.5, 10].includes(value.input.rate_limits.five_hour.used_percentage));
+      assert.ok(Number.isFinite(Date.parse(value.receivedAt)));
       reads++;
     }
   })();
@@ -115,7 +423,7 @@ test('concurrent readers only observe whole old or new samples', async (t) => {
     }
   } finally { active = false; await reader; }
   assert.ok(reads > 0);
-  assert.deepEqual(await readdir(join(root, 'quota')), ['claude-code.json']);
+  assert.deepEqual(await readdir(join(root, 'quota')), [STATUSLINE_FILE]);
 });
 
 test('CLI bounded stdin and raw stdout; quota show has bilingual origin and age', async (t) => {
@@ -173,31 +481,36 @@ test('configuration controls field names, windows and previous command', async (
   const root = await rootFor(t);
   const config = { statuslineCollector: { fields: { rateLimits: 'limits', usedPercentage: 'used', resetsAt: 'reset' },
     windows: { custom: 17 }, previous: ['fake'] } };
+  await writeFile(join(root, 'config.json'), JSON.stringify(config));
   const output = await collectStatusline({ input: '{"limits":{"custom":{"used":25,"reset":1}}}',
     stateRoot: root, config, run: async ({ command }) => Buffer.from(command) });
   assert.equal(output.toString(), 'fake');
-  assert.equal(JSON.parse(await readFile(quotaFile(root))).windowMinutes, 17);
+  const stored = JSON.parse(await readFile(statusFile(root)));
+  assert.deepEqual(stored.input, { limits: { custom: { used: 25, reset: 1 } } });
+  const reading = await readQuota({ stateRoot: root, now });
+  assert.equal(reading.windowMinutes, 17, 'the core reads the sample with the settings of the root');
+  assert.equal(reading.remainingPct, 75);
   for (const change of [{ timeoutMs: 0 }, { maxInputBytes: -1 }, { maxOutputBytes: 0 },
     { previous: 'shell text' }, { windows: {} }, { windows: { bad: 0 } }, { fields: { rateLimits: '' } }]) {
     assert.throws(() => configOf({ statuslineCollector: change }));
   }
 });
 
-test('sample writes all windows, tightest quota, automatic source and age', async (t) => {
+test('the core reads the sample: every window, the tightest quota, automatic source and age', async (t) => {
   const root = await rootFor(t);
   await collectStatusline({ input, stateRoot: root, now });
-  const stored = JSON.parse(await readFile(quotaFile(root)));
-  assert.equal(stored.remainingPct, 58.8);
-  assert.equal(stored.windowMinutes, 10080);
-  assert.deepEqual(stored.windows, [
+  const stored = JSON.parse(await readFile(statusFile(root)));
+  assert.equal(stored.receivedAt, new Date(now()).toISOString());
+  const reading = await readQuota({ stateRoot: root, now: () => now() + 120000 });
+  assert.equal(reading.source, 'automatic');
+  assert.equal(reading.remainingPct, 58.8);
+  assert.equal(reading.windowMinutes, 10080);
+  assert.equal(reading.ageMinutes, 2);
+  assert.deepEqual(reading.windows, [
     { windowMinutes: 300, remainingPct: 76.5, resetsAt: new Date(1793003358000).toISOString() },
     { windowMinutes: 10080, remainingPct: 58.8, resetsAt: new Date(1793513484000).toISOString() },
   ]);
-  const reading = await readQuota({ stateRoot: root, now: () => now() + 120000 });
-  assert.equal(reading.source, 'automatic');
-  assert.equal(reading.ageMinutes, 2);
-  assert.deepEqual(reading.windows, stored.windows);
-  await writeFile(quotaFile(root), JSON.stringify({ remainingPct: 80, recordedAt: stored.recordedAt }));
+  await writeFile(manualFile(root), JSON.stringify({ remainingPct: 80, recordedAt: stored.receivedAt }));
   assert.equal((await readQuota({ stateRoot: root, now })).source, 'user');
 });
 
@@ -206,4 +519,13 @@ test('real previous command receives exact input and returns exact binary bytes'
   const output = await collectStatusline({ input, stateRoot: root,
     previous: [process.execPath, '-e', echoInput + 'fs.writeSync(1,Buffer.from([0,255,13,10]));'] });
   assert.deepEqual(output, Buffer.concat([input, Buffer.from([0, 255, 13, 10])]));
+});
+
+test('a stored sample with a receivedAt that is not a date is no reading', async () => {
+  const settings = configOf().statuslineCollector;
+  const stored = { receivedAt: '2026-10-26T00:00:00.000Z', input: JSON.parse(input.toString()) };
+  assert.equal(readingOf(stored, settings).recordedAt, stored.receivedAt);
+  for (const receivedAt of ['garbage', '', 7, null, undefined]) {
+    assert.equal(readingOf({ ...stored, receivedAt }, settings), null, String(receivedAt));
+  }
 });

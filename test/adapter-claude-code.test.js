@@ -181,6 +181,81 @@ test('readQuota says the number came from the user and never invents one', async
   assert.deepEqual(await readQuota({ stateRoot: base }), { source: 'user', remainingPct: 42 });
 });
 
+// The sample of the collector and the record of the person live in two files; the later instant is the reading.
+const sample = (used, receivedAt) => JSON.stringify({ receivedAt, input: { rate_limits: {
+  five_hour: { used_percentage: used, resets_at: 1793003358 } } } });
+
+test('readQuota chooses the newer of the manual record and the sample of the collector, in both orders', async () => {
+  const base = await root('quota-both');
+  await mkdir(join(base, 'quota'), { recursive: true });
+  const manual = join(base, 'quota', 'claude-code.json');
+  const collected = join(base, 'quota', 'claude-code-statusline.json');
+  const now = () => Date.UTC(2026, 9, 26);
+
+  await writeFile(manual, JSON.stringify({ remainingPct: 42, recordedAt: '2026-10-26T00:00:00.000Z' }));
+  await writeFile(collected, sample(25, '2026-10-26T00:01:00.000Z'));
+  const newer = await readQuota({ stateRoot: base, now });
+  assert.equal(newer.source, 'automatic');
+  assert.equal(newer.remainingPct, 75);
+  assert.equal(newer.recordedAt, '2026-10-26T00:01:00.000Z');
+
+  await writeFile(manual, JSON.stringify({ remainingPct: 42, recordedAt: '2026-10-26T00:02:00.000Z' }));
+  const older = await readQuota({ stateRoot: base, now });
+  assert.equal(older.source, 'user');
+  assert.equal(older.remainingPct, 42);
+  assert.equal(older.recordedAt, '2026-10-26T00:02:00.000Z');
+});
+
+test('a configuration that cannot be read is no reading of its own: the record and the sample still read', async () => {
+  const base = await root('quota-config');
+  await mkdir(join(base, 'quota'), { recursive: true });
+  const manual = join(base, 'quota', 'claude-code.json');
+  const collected = join(base, 'quota', 'claude-code-statusline.json');
+  const config = join(base, 'config.json');
+  const now = () => Date.UTC(2026, 9, 26);
+
+  // A configuration that is not JSON, and one that cannot be read at all.
+  for (const broken of ['{ not json', '']) {
+    await writeFile(config, broken, 'utf8');
+    await rm(collected, { force: true });
+    await writeFile(manual, JSON.stringify({ remainingPct: 42, recordedAt: '2026-10-26T00:00:00.000Z' }));
+    const reading = await readQuota({ stateRoot: base, now });
+    assert.equal(reading.source, 'user', broken);
+    assert.equal(reading.remainingPct, 42, broken);
+    // The sample of the collector is read with the default settings of the collector.
+    await writeFile(collected, sample(25, '2026-10-26T00:01:00.000Z'));
+    const automatic = await readQuota({ stateRoot: base, now });
+    assert.equal(automatic.source, 'automatic', broken);
+    assert.equal(automatic.remainingPct, 75, broken);
+    assert.equal(automatic.windowMinutes, 300, broken);
+  }
+  // A folder where the configuration should be: the reader still reads.
+  await rm(config, { force: true });
+  await mkdir(config);
+  assert.equal((await readQuota({ stateRoot: base, now })).source, 'automatic');
+});
+
+test('the sample of the collector is read defensively: an invalid one falls back to the record of the person', async () => {
+  const base = await root('quota-sample');
+  await mkdir(join(base, 'quota'), { recursive: true });
+  const manual = join(base, 'quota', 'claude-code.json');
+  const collected = join(base, 'quota', 'claude-code-statusline.json');
+  await writeFile(manual, JSON.stringify({ remainingPct: 42, recordedAt: '2026-10-26T00:00:00.000Z' }));
+  const now = () => Date.UTC(2026, 9, 26);
+  const fallback = { source: 'user', remainingPct: 42, recordedAt: '2026-10-26T00:00:00.000Z', ageMinutes: 0 };
+
+  // A percentage that is not one, an instant that is not a date, a file that is not JSON: no automatic reading.
+  for (const body of [sample(101, '2026-10-26T00:01:00.000Z'), sample(25, 'not a date'),
+    '{"receivedAt":"2026-10-26T00:01:00.000Z","input":{}}', 'not json', '']) {
+    await writeFile(collected, body);
+    assert.deepEqual(await readQuota({ stateRoot: base, now }), fallback, body);
+  }
+  // A sample with no reading at all and no record either: no value, as before.
+  await rm(manual);
+  await writeFile(collected, sample(101, '2026-10-26T00:01:00.000Z'));
+  assert.deepEqual(await readQuota({ stateRoot: base, now }), { source: 'user' });
+});
+
 test('capabilities are the values of section 4.1 and cannot be edited by a caller', () => {
   assert.deepEqual(capabilities(), {
     models: ['sonnet', 'opus', 'haiku', 'fable'],

@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { HOME_ENV, SELFCHECK_ENV, paths } from '../store.js';
-import { READING_FILE } from '../quota/statusline-collector.js';
+import { STATUSLINE_FILE } from '../quota/statusline-collector.js';
 import { readRecord } from './place.js';
 import { quote, binInPath, activationWarning, managedProfile, currentShell } from './link.js';
 import { collectorCommandIndex, collectorExecutable, commandWords, settingsPath } from './statusline.js';
@@ -365,7 +365,7 @@ async function runWritten(record, deps) {
     }
     const bar = out.find(({ id }) => id === 'statusline');
     if (bar?.status === 'pass') {
-      const file = join(paths(folder).quota, READING_FILE);
+      const file = join(paths(folder).quota, STATUSLINE_FILE);
       const found = await deps.fs.access(file).then(() => true, () => false);
       out.push(found ? okCheck('collector', ui.text('selfcheckCollectorOk'))
         : badCheck('collector', ui.text('selfcheckCollectorMissing'), jobs.find(({ id }) => id === 'statusline').fix));

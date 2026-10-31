@@ -31,9 +31,12 @@ const valid = (value) => LANGUAGES.includes(value);
 // What each exemption skips: `protocol` is a machine protocol (P1, P3 and P4 do not apply), `bilingual` is a
 // subsystem whose sentences are bilingual by design (P1 and P4 do not apply), `skip` is not run at all. P2 holds
 // for everything that is run.
+//
+// `hook` and `statusline-collector` are not in the table any more: they are the entry points the client launches
+// (src/launchers.js), internal by design, so the user help does not list them and the matrix does not run them.
+// The reason they were exempt is still the reason they are internal: a machine protocol with no text of its own to
+// ask in a language, whose exit code is zero whatever the flags and whose output belongs to the client.
 const EXEMPT = {
-  hook: { protocol: true, why: 'the client reads JSON on stdout and an exit 0 whatever the flags (a hook must never fail the client); session-start carries bilingual context for the model on purpose' },
-  'statusline-collector': { skip: true, why: 'handed to the collector before the common door: it reads the stream of the client on stdin and forwards it to the previous command, with no text of its own to ask in a language' },
   config: { bilingual: true, why: 'the configuration commands keep their own sentences, written in both languages (src/config.js), outside the installer; the refusals of the installer about the same settings are single-language (R12-2)' },
   quota: { bilingual: true, why: 'the quota table and its refusals are the quota subsystem own, bilingual by design' },
   telemetry: { bilingual: true, why: 'the telemetry status and refusals are the subsystem own, bilingual by design' },
@@ -171,7 +174,7 @@ test('matrix: every command of the table is run or named in EXEMPT with its reas
   }
   assert.ok(Object.keys(EXEMPT).length <= 6, 'the exempt list is short; do not grow it to make a failure go away');
   // The table is read from the usage text: the groups the program has are in it.
-  for (const group of ['install', 'update', 'uninstall', 'setup', 'kit', 'status', 'daemon', 'config', 'hook']) assert.ok(groups.includes(group), group);
+  for (const group of ['install', 'update', 'uninstall', 'setup', 'kit', 'status', 'daemon', 'config']) assert.ok(groups.includes(group), group);
 });
 
 // P3 for every kind of setting that is not valid: one class, usage (2), by the one policy (src/install/exit.js). The

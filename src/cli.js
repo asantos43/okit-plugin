@@ -24,8 +24,6 @@ const { daemonRun, daemonStatus } = collectorEntry
 const { limitsStatus } = collectorEntry ? {} : await import('./limits.js');
 const { inboxClaim, inboxRelease, inboxProducerTakeover, inboxList, holdText, holdIsStale } = collectorEntry
   ? {} : await import('./inbox.js');
-const { runPostCompact } = collectorEntry ? {} : await import('./hook-post-compact.js');
-const { runSessionStart } = collectorEntry ? {} : await import('./hook-session-start.js');
 const { orderList } = collectorEntry ? {} : await import('./orders.js');
 import { configOf, DEFAULT_CONFIG, localeOf } from './profiles.js';
 const { listActors, formatActors } = collectorEntry ? {} : await import('./actors.js');
@@ -158,14 +156,12 @@ const USAGE_LINES = [
   '       {command} quota show [client]',
   '       {command} telemetry status|on|off|rede on|off|export [--since ISO]|check',
   '       {command} trajectory list|show <run>|export <run>|prune|on|off|status',
-  '       {command} statusline-collector [--previous <command> <args...>]',
   '       {command} inbox list [--locale en|pt-BR]',
   '       {command} todo sync [--dry-run] [--project <path>]',
   '       {command} todo check [--project <path>]',
   '       {command} inbox take <id> [--producer-takeover] [--client <c>] [--session <s>] [--worktree <path>] [--yes]',
   '       {command} inbox release <id> [--client <c>] [--session <s>]',
   '       {command} kit [--require] [--locale en|pt-BR]',
-  '       {command} hook post-compact',
   '       {command} smoke [--real] [--keep] [--only <ids>] [--timeout <ms>]',
   '       {command} smoke|client-smoke --client claude-code|codex|opencode [--headless|--demo|--dry-run|--rehearsal]',
   '       {command} smoke-demo [--dry-run] [--client <client>] [--locale en|pt-BR] [--confirm <preview>] [--json]',
@@ -725,8 +721,8 @@ function wantsHelp([group, action, ...rest]) {
  */
 export async function main(argv = [], io = {}) {
   if (argv[0] === 'statusline-collector') {
-    const { statuslineCommand } = await import('./quota/statusline-collector.js');
-    return statuslineCommand(argv.slice(1), io);
+    const { launch } = await import('./launchers.js');
+    return launch(argv, io);
   }
   // Every line of every command prints through one door that redacts (credentials, query and fragment of an
   // address), whoever writes it and whatever the command is, the usage text included. The commands that download
@@ -822,10 +818,12 @@ export async function main(argv = [], io = {}) {
       });
     }
     if (group === 'hook' && action === 'post-compact') {
-      return await runPostCompact({ root: ctx.root, stdin: io.stdin, stdout: out });
+      const { launch } = await import('./launchers.js');
+      return await launch(argv, { ...io, root: ctx.root, env: ctx.env, stdout: out });
     }
     if (group === 'hook' && action === 'session-start') {
-      return await runSessionStart({ root: ctx.root, env: ctx.env, stdin: io.stdin, stdout: out, snapshot: io.snapshot });
+      const { launch } = await import('./launchers.js');
+      return await launch(argv, { ...io, root: ctx.root, env: ctx.env, stdout: out });
     }
     if (group === 'daemon') return await daemonCommand(ctx, action, args);
     if (group === 'autostart') return await autostartCommand(ctx, action, args);

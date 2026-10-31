@@ -1,54 +1,154 @@
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
+import process from 'node:process';
 import { configOf } from '../profiles.js';
 import { readJson, writeJsonAtomic } from '../state.js';
 import { paths, stateRoot as defaultRoot, SELFCHECK_ENV } from '../store.js';
 
-/** The quota file the collector writes under the state root; the environment report looks for this same name. */
+/** The file the person records the quota in (`quota set claude-code`); the collector never writes it. */
 export const READING_FILE = 'claude-code.json';
 
-const finite = (value) => typeof value === 'number' && Number.isFinite(value);
+/** The file the collector writes under the state root: the client's JSON as it came; the core reads it. */
+export const STATUSLINE_FILE = 'claude-code-statusline.json';
 
-export function runPrevious({ command, args, input, timeoutMs, maxOutputBytes }) {
-  return new Promise((resolve) => {
-    let child, timer, size = 0;
-    const chunks = [];
-    const finish = (output = Buffer.alloc(0)) => {
-      clearTimeout(timer);
-      resolve(output);
+/** The cap of the wait for the answer of taskkill: past it the child dies by hand. */
+export const KILL_TREE_CAP_MS = 2000;
+
+const plain = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * Kills the command and the tree it leads: the whole group of the command on
+ * POSIX, the tree of the process on Windows. Only what the collector started is
+ * touched, and a kill that fails never throws to the caller.
+ *
+ * @param {object} child the child process of the collector
+ * @param {{platform?: string, spawnFn?: Function, capMs?: number,
+ *   timers?: {set: Function, clear: Function}}} [options] the platform, the
+ *   spawn function, the cap of the wait for taskkill and the timers,
+ *   injectable for the test
+ */
+export function killTree(child, { platform = process.platform, spawnFn = spawn,
+  capMs = KILL_TREE_CAP_MS, timers = { set: setTimeout, clear: clearTimeout } } = {}) {
+  if (!Number.isInteger(child?.pid)) return;
+  if (platform === 'win32') {
+    // Windows has no group of our own: the tree of the command is killed by
+    // name, and the child itself dies with it. The child is not killed here:
+    // a parent killed before taskkill enumerated the tree leaves the
+    // descendants behind. The direct kill of the child is the fallback for a
+    // taskkill that failed, and it happens at most once.
+    let fell = false;
+    const fallback = () => {
+      if (fell) return;
+      fell = true;
+      try { child.kill('SIGKILL'); } catch { /* the child is already gone */ }
     };
     try {
-      child = spawn(command, args, { shell: false, stdio: ['pipe', 'pipe', 'ignore'] });
-      timer = setTimeout(() => { child.kill('SIGKILL'); finish(); }, timeoutMs);
-      child.on('error', () => finish());
+      const killer = spawnFn('taskkill', ['/pid', String(child.pid), '/T', '/F'],
+        { stdio: 'ignore', windowsHide: true });
+      // The killer is not unreferenced: the collector waits for its answer, so
+      // the fallback of a taskkill that failed runs before the collector goes.
+      // The cap of the wait is referenced too: it holds the collector until
+      // taskkill answers or the cap passes, and it ends the wait of a taskkill
+      // that got stuck.
+      let cap = null;
+      const clearCap = () => {
+        if (cap === null) return;
+        try { timers.clear(cap); } catch { /* the timer is already gone */ }
+        cap = null;
+      };
+      // The answer of taskkill comes first (the cap is cleared), the rule
+      // after: the child dies by hand only for a taskkill that failed.
+      const ended = (failed) => {
+        clearCap();
+        if (failed) fallback();
+      };
+      killer.on('error', () => ended(true));
+      killer.on('exit', (code) => ended(code !== 0));
+      killer.on('close', (code) => ended(code !== 0));
+      cap = timers.set(() => {
+        // The cap passed: the child dies by hand and the killer is stopped.
+        fallback();
+        try { killer.kill(); } catch { /* the killer is already gone */ }
+        cap = null;
+      }, capMs);
+    } catch { fallback(); }
+    return;
+  }
+  // The whole group of the child dies with it, so a descendant that inherited
+  // the output dies too; only the group of this command is touched.
+  try { process.kill(-child.pid, 'SIGKILL'); return; }
+  catch { /* the group is gone: the child alone is left */ }
+  try { child.kill('SIGKILL'); } catch { /* the child is already gone */ }
+}
+
+/**
+ * Runs the previous command of the status bar and answers its bytes.
+ *
+ * The command is a plain program (no shell) and it has one deadline. Whatever
+ * it does, the answer comes before the deadline passes and nothing of ours
+ * stays behind: the pipes are closed, the child is unreferenced and the tree
+ * of the child is killed, so a descendant that inherited the output cannot keep
+ * the status bar of the client waiting.
+ *
+ * The answer is the bytes the command wrote, unchanged and binary, when it ended
+ * well; an empty buffer when the deadline passed before the command finished
+ * (the pipe did not close) and nothing when it failed or spoke too much. A
+ * command that did not finish has not answered in time, whatever the exit code
+ * of its parent was.
+ *
+ * @param {{command: string, args?: string[], input: Buffer, timeoutMs: number,
+ *   maxOutputBytes: number}} call
+ * @returns {Promise<Buffer|undefined>} the bytes of the command
+ */
+export function runPrevious({ command, args, input, timeoutMs, maxOutputBytes }) {
+  return new Promise((resolve) => {
+    let child, timer, size = 0, settled = false;
+    const chunks = [];
+    // The pipes and the handle of the child must not hold the collector alive
+    // once the run is over: they are released exactly once, here.
+    const release = () => {
+      clearTimeout(timer);
+      for (const pipe of [child?.stdout, child?.stdin]) {
+        try { pipe?.destroy(); } catch { /* the pipe is already gone */ }
+      }
+      try { child?.unref?.(); } catch { /* the child is already gone */ }
+    };
+    // The one way out of the run: the first answer is the answer, and a late
+    // event of the child (more bytes, the end of the pipe) changes nothing.
+    const finish = (output) => {
+      if (settled) return;
+      settled = true;
+      release();
+      resolve(output);
+    };
+    // The whole tree of the child dies with it, so a descendant that inherited
+    // the output dies too; only what the collector started is touched.
+    const kill = () => killTree(child);
+    try {
+      // On POSIX the child leads a group of its own, so the group can be killed
+      // as a whole; on Windows there is no group and the tree is killed by name.
+      child = spawn(command, args, { shell: false, stdio: ['pipe', 'pipe', 'ignore'],
+        detached: process.platform !== 'win32' });
+      timer = setTimeout(() => {
+        kill();
+        // A command that did not finish before the deadline has not answered
+        // in time and answers nothing, even when its parent already exited well.
+        finish(Buffer.alloc(0));
+      }, timeoutMs);
+      child.on('error', () => { kill(); finish(undefined); });
       child.stdin.on('error', () => {});
+      child.stdout.on('error', () => {});
       child.stdout.on('data', (chunk) => {
+        if (settled) return;
         size += chunk.length;
-        if (size > maxOutputBytes) { child.kill('SIGKILL'); finish(); }
+        if (size > maxOutputBytes) { kill(); finish(undefined); }
         else chunks.push(chunk);
       });
       child.on('close', (code) => finish(code === 0 && size <= maxOutputBytes
         ? Buffer.concat(chunks) : undefined));
       child.stdin.end(input);
-    } catch { child?.kill('SIGKILL'); finish(); }
+    } catch { kill(); finish(undefined); }
   });
-}
-
-function reading(input, settings, now) {
-  const limits = JSON.parse(input.toString())[settings.fields.rateLimits];
-  const windows = Object.entries(settings.windows).flatMap(([key, windowMinutes]) => {
-    const value = limits?.[key];
-    const used = value?.[settings.fields.usedPercentage];
-    const reset = value?.[settings.fields.resetsAt];
-    if (!finite(used) || used < 0 || used > 100 || !finite(reset)
-      || !Number.isFinite(new Date(reset * 1000).getTime())) return [];
-    return [{ windowMinutes, remainingPct: 100 - used,
-      resetsAt: new Date(reset * 1000).toISOString() }];
-  });
-  if (!windows.length) return null;
-  const tightest = windows.reduce((a, b) => a.remainingPct <= b.remainingPct ? a : b);
-  return { remainingPct: tightest.remainingPct, windowMinutes: tightest.windowMinutes,
-    windows, recordedAt: new Date(now()).toISOString(), source: 'automatic' };
 }
 
 /** Collection must never prevent the user's bar from running. Output stays binary. */
@@ -61,8 +161,12 @@ export async function collectStatusline({ input, previous, stateRoot, run = runP
   catch { settings = configOf().statuslineCollector; }
   try {
     if (Buffer.byteLength(input) <= settings.maxInputBytes) {
-      const value = reading(input, settings, now);
-      if (value) await writeJsonAtomic(join(paths(stateRoot).quota, READING_FILE), value);
+      const value = JSON.parse(input.toString());
+      // The collector stores what the client sent and nothing more: the percentages are read by the core.
+      if (plain(value) && plain(value[settings.fields.rateLimits])) {
+        await writeJsonAtomic(join(paths(stateRoot).quota, STATUSLINE_FILE),
+          { receivedAt: new Date(now()).toISOString(), input: value });
+      }
     }
   } catch { /* An optional reading must not break the bar. */ }
   try {
