@@ -121,9 +121,13 @@ export const DEFAULT_CONFIG = {
     // null inherits the existing release.name model without duplicating it.
     name: null,
     manifest: '{package}-{version}-checksums.sha256',
+    // The MCP server of the plugin, registered in the client with the client's own `mcp` commands: the name of the
+    // entry and the file inside the installation the client starts.
+    mcp: { name: 'okit', server: 'src/mcp/server.js' },
     clients: {
-      'claude-code': { executable: 'claude', strategy: 'marketplace', install: true, update: true, configEnv: 'CLAUDE_CONFIG_DIR', rootParts: ['.claude'] },
-      codex: { executable: 'codex', strategy: 'marketplace', install: false, update: false, configEnv: 'CODEX_HOME', rootParts: ['.codex'] },
+      // The clients that register the MCP server: `scope` is the scope their own command takes (null: none).
+      'claude-code': { executable: 'claude', strategy: 'marketplace', install: true, update: true, configEnv: 'CLAUDE_CONFIG_DIR', rootParts: ['.claude'], mcp: { scope: 'user' } },
+      codex: { executable: 'codex', strategy: 'marketplace', install: false, update: false, configEnv: 'CODEX_HOME', rootParts: ['.codex'], mcp: { scope: null } },
       opencode: { executable: 'opencode', strategy: 'module', module: 'src/install/client-plugin.js', configEnv: 'OPENCODE_CONFIG_DIR', rootParts: ['.config', 'opencode'], xdgEnv: 'XDG_CONFIG_HOME', xdgParts: ['opencode'] },
     },
     pathExtensions: ['', '.exe', '.cmd', '.bat'],

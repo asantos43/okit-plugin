@@ -110,7 +110,9 @@ test('the defaults and the merge of valid settings pass the schema; an absent ke
     const config = JSON_ONLY(DEFAULT_CONFIG.install);
     const parts = path.split('.');
     let at = config;
-    for (const part of parts.slice(0, -1)) at = at[part];
+    for (const part of parts.slice(0, -1)) at = at?.[part];
+    // A key whose parent is not in the defaults (an optional field of a client that does not have it) is already absent.
+    if (!at) continue;
     delete at[parts.at(-1)];
     const value = installConfig(config);
     assert.ok(value, path);

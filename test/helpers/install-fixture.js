@@ -40,6 +40,57 @@ export async function answerCheck({ command = '', env, args = [] }, { bin } = {}
   return {};
 }
 
+/**
+ * The name of the entry in the words of the client's own command: the first word that is not a flag and not the
+ * value of one (`mcp add --scope user okit -- node server.js` and `mcp remove okit --scope user` both name `okit`).
+ */
+function mcpNameOf(args) {
+  const words = args.slice(2);
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index];
+    if (word === '--') break;
+    if (word.startsWith('-')) { index += 1; continue; }
+    return word;
+  }
+  return undefined;
+}
+
+/**
+ * The MCP registry of a client, as the fake world of the tests: the entry of each client and the file it points at.
+ * The client's own `mcp get`, `mcp add` and `mcp remove` commands are answered as the real clients answer them: the
+ * read of an entry that is not there fails, the read of one that is there prints the command and its arguments.
+ */
+export function mcpWorld() {
+  const registries = new Map();
+  const registryOf = (executable) => {
+    if (!registries.has(executable)) registries.set(executable, new Map());
+    return registries.get(executable);
+  };
+  return {
+    /** Whether the command is one of the MCP commands of a client. */
+    handles: ({ args = [] }) => args[0] === 'mcp',
+    /** The entry a client holds, as the client prints it. */
+    async run({ command: executable, args = [] }) {
+      const verb = args[1];
+      const name = mcpNameOf(args);
+      const registry = registryOf(executable);
+      if (verb === 'get') {
+        const entry = registry.get(name);
+        if (!entry) throw Object.assign(new Error(`No MCP server found: ${name}`), { code: 1 });
+        return { stdout: `${name}\n  command: ${entry.command}\n  args: ${entry.args.join(' ')}\n` };
+      }
+      if (verb === 'add') {
+        const at = args.indexOf('--');
+        const [command, ...rest] = args.slice(at + 1);
+        registry.set(name, { command, args: rest });
+        return {};
+      }
+      if (verb === 'remove') { registry.delete(name); return {}; }
+      return {};
+    },
+  };
+}
+
 export async function fixture(t, platform = 'linux', { tty = false, ask, read } = {}) {
   const home = await fs.mkdtemp(join(tmpdir(), 'installer-output-'));
   t.after(() => fs.rm(home, { recursive: true, force: true }));
@@ -71,11 +122,13 @@ export async function fixture(t, platform = 'linux', { tty = false, ask, read } 
     throw new Error(`Unexpected request ${url}`);
   };
   const out = (line) => output.push(line);
+  const mcp = mcpWorld();
   const io = { home, root, destination, bin, config, fs, fetch, platform, now: () => 1700000000000,
     env: { HOME: home, PATH: platform === 'win32' ? '' : bin },
     pkg, arch: 'x64', tmpdir: scratch, tty, ask, read, outTty: false, clientRoot: join(home, 'client'),
     stdout: out, stderr: out, out, adapters: [], readQuota: async () => ({ source: 'off' }),
-    detect: async () => true, run: async (command) => { commands.push(command); return answerCheck(command, { bin }); },
+    detect: async () => true,
+    run: async (command) => { commands.push(command); return mcp.handles(command) ? mcp.run(command) : answerCheck(command, { bin }); },
     pathExecute: async () => ({ stdout: 'true\n' }),
     policyExecute: async () => ({ stdout: 'LocalMachine=RemoteSigned\n' }),
     stopDaemon: async () => true, startDaemon: async () => {}, autostart: async () => {}, smoke: async () => ({ code: 0 }) };

@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { detect } from './menu.js';
 import { quote } from './link.js';
 import { presenterOf, pick } from './present.js';
+import { mcpPlan, registerMcp } from './mcp-register.js';
 
 /**
  * The command of the SessionStart hook of an installation. The one source of the string: the installer writes it into the
@@ -54,26 +55,52 @@ export async function register(record, deps, action = 'install') {
   const settings = deps.config.clients[record.client];
   const ui = presenterOf(deps);
   const commands = registrationPlan(record, deps, action);
+  const mcp = mcpPlan(record, deps, action);
   if (action === 'uninstall') await registerRole(record, deps, true);
   if (settings.strategy === 'module' && action === 'uninstall') {
     await removeOwnedModule(record, deps); return { status: 'ok', detail: ui.text('registerModule') };
   }
   if (!await (deps.detect ?? detect)(settings.executable, deps)) {
     const notes = [ui.text('registerMissingNext'), ...commands.map((item) => `  ${[item.command, ...item.args].join(' ')}`)];
+    if (mcp) notes.push(...mcpManual(record, mcp, action).map((words) => `  ${words.join(' ')}`));
     if (settings.strategy === 'module') notes.push(ui.text('registerModuleNext', { path: join(record.path, settings.module) }));
     return { status: 'skipped', detail: ui.text('registerMissing', { executable: settings.executable }), notes };
   }
+  // The MCP entry of the client goes out before the plugin it points at is gone.
+  const notes = [];
+  if (action === 'uninstall') notes.push(...await mcpStep(record, deps, action));
   for (const command of commands) {
     ui.detail([command.command, ...command.args].join(' '));
     await deps.run(command);
   }
+  // The MCP entry is written after the client's own registration, which succeeded.
+  if (action !== 'uninstall') notes.push(...await mcpStep(record, deps, action));
   if (action !== 'uninstall') await registerRole(record, deps);
   if (settings.strategy === 'module') {
     await registerModule(record, deps, settings);
     return { status: 'ok', detail: ui.text('registerModule') };
   }
   const manual = settings.strategy === 'marketplace' && !settings[action] && action !== 'uninstall';
-  return { status: 'ok', detail: ui.text(manual ? 'registerMarketplaceManual' : action === 'uninstall' ? 'registerRemoved' : 'registerMarketplace') };
+  return { status: 'ok', detail: ui.text(manual ? 'registerMarketplaceManual' : action === 'uninstall' ? 'registerRemoved' : 'registerMarketplace'), notes };
+}
+
+/**
+ * The MCP step of the registration: what it did is a note of the step, what it could not do is a warning. A failure
+ * of the MCP registration never fails the installation (the same posture as the role).
+ */
+async function mcpStep(record, deps, action) {
+  const result = await registerMcp(record, deps, action);
+  if (!result) return [];
+  const ui = presenterOf(deps);
+  const warning = result.status === 'failed' || (result.status === 'kept' && action !== 'uninstall');
+  if (warning) { ui.warn(result.detail); return []; }
+  return result.detail ? [result.detail] : [];
+}
+
+/** The commands a person runs by hand when the client's own program is not on the machine. */
+function mcpManual(record, plan, action) {
+  if (action === 'uninstall') return [plan.remove];
+  return record.previous?.path ? [plan.remove, plan.add] : [plan.add];
 }
 
 async function registerRole(record, deps, remove = false) {

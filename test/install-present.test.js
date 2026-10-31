@@ -66,6 +66,7 @@ function installLines(locale, platform) {
       '  SHA-256 detects altered bytes; it does not authenticate the source.',
       '[2/5] Install files  ok  <data>/1.0.0-claude-code',
       '[3/5] Register in Claude Code  ok  marketplace and plugin',
+      '  MCP server registered in Claude Code',
       `[4/5] Command and PATH  ok  okit-plugin  (${windows ? 'added to your user PATH' : 'already on your PATH'})`,
       '[5/5] Quota recording  skipped  off. To turn it on: okit-plugin install --client claude-code --statusline',
       `  Self-check (Claude Code)  ok  ${checks} checks passed`,
@@ -82,6 +83,7 @@ function installLines(locale, platform) {
     '  O SHA-256 detecta bytes alterados; não autentica a origem.',
     '[2/5] Instalar arquivos  ok  <data>/1.0.0-claude-code',
     '[3/5] Registrar no Claude Code  ok  marketplace e plugin',
+    '  Servidor MCP registrado no Claude Code',
     `[4/5] Comando e PATH  ok  okit-plugin  (${windows ? 'adicionado ao PATH do seu usuário' : 'já está no seu PATH'})`,
     '[5/5] Registro de cota  pulado  desligado. Para ligar: okit-plugin install --client claude-code --statusline',
     `  Autoverificação (Claude Code)  ok  ${checks} verificações passaram`,
@@ -109,6 +111,7 @@ function updateLines(locale, platform) {
       /^\[2\/7\] Back up your files {2}ok( {2}.+)?$/,
       '[3/7] Install files  ok  <data>/2.0.0-claude-code',
       '[4/7] Register in Claude Code  ok  marketplace and plugin',
+      '  MCP server of Claude Code replaced by this installation',
       `[5/7] Command and PATH  ok  okit-plugin  (${windows ? 'added to your user PATH' : 'already on your PATH'})`,
       '[6/7] Quota recording  skipped  off. To turn it on: okit-plugin install --client claude-code --statusline',
       '[7/7] Check the install  ok',
@@ -126,6 +129,7 @@ function updateLines(locale, platform) {
     /^\[2\/7\] Copiar seus arquivos {2}ok( {2}.+)?$/,
     '[3/7] Instalar arquivos  ok  <data>/2.0.0-claude-code',
     '[4/7] Registrar no Claude Code  ok  marketplace e plugin',
+    '  Servidor MCP de Claude Code substituído por esta instalação',
     `[5/7] Comando e PATH  ok  okit-plugin  (${windows ? 'adicionado ao PATH do seu usuário' : 'já está no seu PATH'})`,
     '[6/7] Registro de cota  pulado  desligado. Para ligar: okit-plugin install --client claude-code --statusline',
     '[7/7] Verificar a instalação  ok',
@@ -143,6 +147,7 @@ function uninstallLines(locale, platform) {
     return [
       `okit-plugin 1.0.0 for Claude Code (${system} x64)`,
       '[1/3] Unregister from Claude Code  ok  marketplace and plugin removed',
+      '  MCP server removed from Claude Code',
       '[2/3] Remove command and PATH  ok  okit-plugin removed',
       '[3/3] Remove files  ok  <data>/1.0.0-claude-code (your settings are kept)',
     ];
@@ -150,6 +155,7 @@ function uninstallLines(locale, platform) {
   return [
     `okit-plugin 1.0.0 para Claude Code (${system} x64)`,
     '[1/3] Remover registro do Claude Code  ok  marketplace e plugin removidos',
+    '  Servidor MCP removido do Claude Code',
     '[2/3] Remover comando e PATH  ok  okit-plugin removido',
     '[3/3] Remover arquivos  ok  <data>/1.0.0-claude-code (seus ajustes foram mantidos)',
   ];
