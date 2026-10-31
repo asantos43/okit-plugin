@@ -27,4 +27,6 @@ Hooks → context/quota → client       daemon → schedules → adapters
 
 Skills guide the model; tools validate arguments and call the core. Adapters connect clients. The daemon handles scheduled work; the CLI exposes inspection and control of these resources.
 
+Every core function is one entry of the operations registry (`src/core/operations.js`): a name, a description in both languages, the schema of its arguments and one handler. The command line and the MCP tools call the same entries, so a function exists once; an operation returns data and never prints.
+
 [Guide](../guide/README.md) · [Português](README.pt-BR.md)
