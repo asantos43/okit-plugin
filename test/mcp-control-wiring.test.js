@@ -13,6 +13,10 @@ import { fileURLToPath } from 'node:url';
 import { callControl } from '../src/mcp/control-client.js';
 import { listRecords, writeRecord } from '../src/mcp/control-endpoint.js';
 
+// A socket path is limited to a hundred bytes, so the folders of these tests are
+// short even where TMPDIR is a long path.
+const SHORT_TMP = process.platform === 'win32' ? tmpdir() : '/tmp';
+
 const { mkdtemp, rm, stat } = filesystem;
 
 const SERVER = fileURLToPath(new URL('../src/mcp/server.js', import.meta.url));
@@ -28,7 +32,7 @@ const children = [];
 async function tempRoot() {
   // The root has to be short: the socket of the api lives under it and a
   // socket path is limited to a hundred bytes.
-  const dir = await mkdtemp(join(tmpdir(), 'okit-ctl-'));
+  const dir = await mkdtemp(join(SHORT_TMP, 'okit-ctl-'));
   roots.push(dir);
   return dir;
 }

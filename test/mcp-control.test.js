@@ -13,6 +13,10 @@ import { startControl } from '../src/mcp/control.js';
 import { respond } from '../src/mcp/server.js';
 import { paths } from '../src/store.js';
 
+// A socket path is limited to a hundred bytes, so the folders of these tests are
+// short even where TMPDIR is a long path.
+const SHORT_TMP = process.platform === 'win32' ? tmpdir() : '/tmp';
+
 const { mkdir, mkdtemp, readFile, rm, stat, writeFile } = filesystem;
 
 // The modes of a folder and of a file are a fact of POSIX only.
@@ -40,7 +44,7 @@ const roots = [];
 const running = [];
 
 async function tempRoot() {
-  const dir = await mkdtemp(join(tmpdir(), 'mcp-control-test-'));
+  const dir = await mkdtemp(join(SHORT_TMP, 'mcp-control-test-'));
   roots.push(dir);
   return dir;
 }
