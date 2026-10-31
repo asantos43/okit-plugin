@@ -114,9 +114,9 @@ describe('install in containers', { skip: reason ?? false, timeout: 3600000 }, (
           const input = JSON.stringify({ rate_limits: { five_hour: { used_percentage: 10, resets_at: resets }, seven_day: { used_percentage: 20, resets_at: resets } } });
           const ran = await exec(id, ['env', '-i', `HOME=${home}`, `PATH=${path}`, `OKWORK_HOME=${state}`, 'sh', '-c', command], { input });
           assert.equal(ran.code, 0, `sh -c ${command}\n${ran.stdout}${ran.stderr}`);
-          const reading = await exec(id, ['sh', '-c', `cat ${state}/quota/claude-code.json`]);
+          const reading = await exec(id, ['sh', '-c', `cat ${state}/quota/claude-code-statusline.json`]);
           assert.equal(reading.code, 0, `the collector wrote no reading under ${state}\n${reading.stderr}`);
-          assert.equal(JSON.parse(reading.stdout).remainingPct, 80);
+          assert.equal(JSON.parse(reading.stdout).input.rate_limits.five_hour.used_percentage, 10);
         });
       }
 

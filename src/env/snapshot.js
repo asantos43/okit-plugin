@@ -14,7 +14,7 @@ import { installConfig, installPaths, clientRoot } from '../install/config.js';
 import { binInPath } from './path.js';
 import { readRecords } from '../install/place.js';
 import { paths } from '../store.js';
-import { READING_FILE } from '../quota/statusline-collector.js';
+import { STATUSLINE_FILE } from '../quota/statusline-collector.js';
 
 const exec = promisify(execFile);
 const READING_CACHE = new Map();
@@ -22,7 +22,7 @@ const READING_CACHE = new Map();
 // Whether the collector has written a reading yet: null when this cannot be told (no state folder, or the file system refused).
 async function readingReceived(deps) {
   if (!deps.root) return null;
-  try { await (deps.fs ?? filesystem).stat(join(paths(deps.root).quota, READING_FILE)); return true; }
+  try { await (deps.fs ?? filesystem).stat(join(paths(deps.root).quota, STATUSLINE_FILE)); return true; }
   catch (error) { return ['ENOENT', 'ENOTDIR'].includes(error?.code) ? false : null; }
 }
 

@@ -8,7 +8,7 @@ The five functions of `docs/maintainers/ARCHITECTURE.md` section 4, for Claude C
 Zero dependencies, Node >= 20 ESM; the core imports this module, never the CLI.
 
 - `spawn(actor, briefing, opts)` — `NATIVE` (default) returns the Agent tool call `{model, effort, prompt}` and starts no process; `PROCESS` (`opts.headless`) goes through `makeSpawner` of `src/spawn-process.js`.
-- `readQuota(opts)` — reads `quota/claude-code.json` under the state root. Manual samples keep `source: 'user'`; collector samples return `source: 'automatic'`, `windows`, `remainingPct`, `windowMinutes`, `recordedAt` and `ageMinutes`.
+- `readQuota(opts)` — reads `quota/claude-code.json` (the manual record) and `quota/claude-code-statusline.json` (the client's JSON, written by the collector) under the state root and returns the later of the two. Manual samples keep `source: 'user'`; collector samples return `source: 'automatic'`, `windows`, `remainingPct`, `windowMinutes`, `recordedAt` and `ageMinutes`.
 - `capabilities()` — models, efforts and the packaging features of section 4.1.
 - `installSkill(name, files, opts)` — copies a skill folder to `<root>/skills/<name>/`, never overwriting a file that differs.
 - `installHooks(files, opts)` — writes or merges `<root>/hooks/hooks.json`, keeping the user's own entries.

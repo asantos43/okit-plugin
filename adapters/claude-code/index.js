@@ -19,6 +19,8 @@ import { listModelsOf, makeSpawner } from '../../src/spawn-process.js';
 import { readJson } from '../../src/state.js';
 import { finiteNumber, timeOf, windowsOf } from '../../src/quota-fields.js';
 import { paths, stateRoot } from '../../src/store.js';
+import { newerReading, readingOf } from '../../src/core/statusline-reading.js';
+import { STATUSLINE_FILE } from '../../src/quota/statusline-collector.js';
 import { capture } from '../../src/trajectory/capture.js';
 
 export const CLIENT = 'claude-code';
@@ -157,18 +159,54 @@ export function capabilities() {
 /**
  * Reads the latest automatic status bar sample or the user's manual sample.
  *
- * @param {{stateRoot?: string, env?: object, now?: Function}} [opts]
+ * The two live in two files: the collector writes the client's own JSON in
+ * `quota/claude-code-statusline.json` and the core reads the reading out of it;
+ * the person records a value in `quota/claude-code.json`. The later of the two
+ * instants is the reading; a sample that holds no window is no reading.
+ *
+ * @param {{stateRoot?: string, env?: object, now?: Function, config?: object}} [opts]
  * @returns {Promise<object>}
  */
-export async function readQuota({ stateRoot: root, env, now = Date.now } = {}) {
-  const stored = await readJson(join(paths(root ?? stateRoot(env)).quota, `${CLIENT}.json`), null);
+export async function readQuota({ stateRoot: root, env, now = Date.now, config } = {}) {
+  const base = root ?? stateRoot(env);
+  const stored = await readJson(join(paths(base).quota, `${CLIENT}.json`), null);
+  const manual = manualReading(stored, now);
+  // The sample of the collector: one that cannot be read is no automatic reading, never an exception.
+  let sample = null;
+  try { sample = await readJson(join(paths(base).quota, STATUSLINE_FILE), null); }
+  catch { /* A sample that cannot be read is no reading at all. */ }
+  const automatic = automaticReading(readingOf(sample, await collectorSettings(config, base)), now);
+  return newerReading(manual, automatic) ?? { source: 'user' };
+}
+
+/** The settings of the collector: the ones of the root, or the defaults when it has none that are valid. */
+async function collectorSettings(config, base) {
+  const stored = config ?? await readJson(join(base, 'config.json'), {});
+  try { return configOf(stored).statuslineCollector; }
+  catch { return configOf().statuslineCollector; }
+}
+
+/** The reading of the file the person recorded, in the shape every reader of a client gives. */
+function manualReading(stored, now) {
   const remainingPct = finiteNumber(stored?.remainingPct);
+  if (remainingPct === null) return null;
   const windowMinutes = finiteNumber(stored?.windowMinutes);
-  if (remainingPct === null) return { source: 'user' };
   const recorded = timeOf(stored.recordedAt);
-  return { source: stored.source === 'automatic' ? 'automatic' : 'user', remainingPct,
-    ...(stored.source === 'automatic' && Array.isArray(stored.windows) ? { windows: windowsOf(stored.windows) } : {}),
+  const automatic = stored.source === 'automatic';
+  return { source: automatic ? 'automatic' : 'user', remainingPct,
+    ...(automatic && Array.isArray(stored.windows) ? { windows: windowsOf(stored.windows) } : {}),
     ...(windowMinutes === null ? {} : { windowMinutes }),
+    ...(recorded ? { recordedAt: recorded.text,
+      ageMinutes: Math.max(0, now() - recorded.ms) / 60_000 } : {}) };
+}
+
+/** The reading of the sample the collector wrote, in the same shape. */
+function automaticReading(reading, now) {
+  if (reading === null) return null;
+  const recorded = timeOf(reading.recordedAt);
+  return { source: 'automatic', remainingPct: reading.remainingPct,
+    windows: windowsOf(reading.windows),
+    ...(finiteNumber(reading.windowMinutes) === null ? {} : { windowMinutes: reading.windowMinutes }),
     ...(recorded ? { recordedAt: recorded.text,
       ageMinutes: Math.max(0, now() - recorded.ms) / 60_000 } : {}) };
 }

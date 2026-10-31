@@ -10,7 +10,7 @@ import { environmentSnapshot } from '../src/env/snapshot.js';
 import { statusTable } from '../src/status.js';
 import { listActors } from '../src/actors.js';
 import { runSetup } from '../src/setup/setup.js';
-import { collectStatusline, collectorArgsValid, READING_FILE } from '../src/quota/statusline-collector.js';
+import { collectStatusline, collectorArgsValid, STATUSLINE_FILE } from '../src/quota/statusline-collector.js';
 import { readJson } from '../src/state.js';
 import claudeCode from '../adapters/claude-code/index.js';
 import codex from '../adapters/codex/index.js';
@@ -247,7 +247,7 @@ test('status bar registration is read from settings, with a command when inactiv
 });
 
 test('D97: the report says when the active collector has received no reading yet', async () => {
-  const quotaFile = join(resolve('/state'), 'quota', 'claude-code.json');
+  const quotaFile = join(resolve('/state'), 'quota', STATUSLINE_FILE);
   const settings = (command) => JSON.stringify({ statusLine: { type: 'command', command } });
   const cases = [
     // [command, the reading file exists, expected phrase in the line]
@@ -291,10 +291,15 @@ test('D97 I10: the quota file the report looks for is the one the collector writ
   const received = async (client) => (await environmentSnapshot(readings({ fs, root,
     config: { ...readings().config, statuslineRegistration: { client } } }))).plugin.statusline.received;
   for (const client of ['claude-code', 'codex']) assert.equal(await received(client), false, `${client} before`);
+  // The record of the person is not evidence of the collector.
+  await mkdir(join(root, 'quota'), { recursive: true });
+  await writeFile(join(root, 'quota', 'claude-code.json'), JSON.stringify({ remainingPct: 80 }));
+  for (const client of ['claude-code', 'codex']) assert.equal(await received(client), false, `${client} with a manual record`);
+  await rm(join(root, 'quota', 'claude-code.json'));
   // The real collector writes one file under quota/, and it is the one the report looks for.
   await collectStatusline({ stateRoot: root, input: Buffer.from(JSON.stringify({
     rate_limits: { five_hour: { used_percentage: 25, resets_at: Date.now() / 1000 + 3600 } } })) });
-  assert.deepEqual(await readdir(join(root, 'quota')), [READING_FILE]);
+  assert.deepEqual(await readdir(join(root, 'quota')), [STATUSLINE_FILE]);
   for (const client of ['claude-code', 'codex']) assert.equal(await received(client), true, `${client} after`);
 });
 

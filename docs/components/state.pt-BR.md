@@ -17,6 +17,7 @@ A raiz padrão é ~/.okwork; OKWORK_HOME substitui a pasta inteira (não acresce
 | `orders.json` | Instruções globais/por projeto, validade, revogação e histórico até a retenção |
 | `templates.json` | Demandas recorrentes, agendas, regras e última execução |
 | `quota/<client>.json` | Percentual restante, origem, instante e janelas conhecidas; o leitor escolhe entre automático e manual; JSON válido de outro tipo não é leitura, e um arquivo que não é JSON faz o `status` falhar (saída 1) |
+| `quota/claude-code-statusline.json` | O JSON da barra de status do cliente como ele veio, com o instante em que chegou; o coletor grava e o núcleo deduz dele a leitura de cota |
 | `runs/<runId>.json` | Estado da vaga, cliente e início/fim; lançamentos de processos também registram PID e resultado |
 | `runs/<runId>.out` | Stdout/stderr do lançador de processos quando não há outra pasta de logs |
 | `locks/config.lock/owner.json`, `inbox.json.lock/owner.json`, `orders.json.lock/owner.json`, `templates.json.lock/owner.json`, `runs.lock/owner.json` | Dono do lock de escrita, PID e instante; arquivos claim temporários coordenam recuperação |

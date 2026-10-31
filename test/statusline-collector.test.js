@@ -5,10 +5,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
-import { collectStatusline, statuslineCommand } from '../src/quota/statusline-collector.js';
+import { collectStatusline, statuslineCommand, STATUSLINE_FILE } from '../src/quota/statusline-collector.js';
 import { readQuota } from '../adapters/claude-code/index.js';
 import { configOf } from '../src/profiles.js';
 import { main } from '../src/cli.js';
+import { readingOf } from '../src/core/statusline-reading.js';
 
 const input = Buffer.from('{"rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1793003358},"seven_day":{"used_percentage":41.2,"resets_at":1793513484}},"extra":true}\n');
 const now = () => Date.UTC(2026, 9, 26);
@@ -17,7 +18,8 @@ async function rootFor(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
 }
-const quotaFile = (root) => join(root, 'quota', 'claude-code.json');
+const statusFile = (root) => join(root, 'quota', STATUSLINE_FILE);
+const manualFile = (root) => join(root, 'quota', 'claude-code.json');
 const echoInput = 'const fs=require("node:fs");fs.writeSync(1,fs.readFileSync(0));';
 test('executable is hermetic with empty HOME and never imports daemon or MCP', async (t) => {
   const root = await rootFor(t);
@@ -41,15 +43,30 @@ test('executable is hermetic with empty HOME and never imports daemon or MCP', a
   assert.equal(code, 0, Buffer.concat(errors).toString());
   assert.deepEqual(await readFile(join(root, 'output')), input);
   assert.ok(performance.now() - started < 2000);
-  assert.equal(JSON.parse(await readFile(quotaFile(root))).source, 'automatic');
+  const stored = JSON.parse(await readFile(statusFile(root)));
+  assert.deepEqual(stored.input, JSON.parse(input.toString()), 'the client JSON is stored as it came');
 });
-test('invalid or absent quota preserves old bytes and still chains', async (t) => {
+
+test('the collector stores the client JSON unchanged and never reads the percentages', async (t) => {
+  const root = await rootFor(t);
+  await collectStatusline({ input, stateRoot: root, now });
+  const stored = JSON.parse(await readFile(statusFile(root)));
+  assert.deepEqual(stored.input, JSON.parse(input.toString()), 'the unknown fields of the client come along');
+  assert.equal(stored.receivedAt, new Date(now()).toISOString(), 'the instant is the one of the clock');
+  assert.deepEqual(Object.keys(stored).sort(), ['input', 'receivedAt']);
+  // A percentage that is not one is stored all the same: the core is the one that reads them.
+  const odd = Buffer.from('{"rate_limits":{"five_hour":{"used_percentage":101,"resets_at":1}}}');
+  await collectStatusline({ input: odd, stateRoot: root, now });
+  assert.deepEqual(JSON.parse(await readFile(statusFile(root))).input, JSON.parse(odd.toString()));
+});
+
+test('invalid or absent rate limits preserve old bytes and still chain', async (t) => {
   const root = await rootFor(t);
   await collectStatusline({ input: '{}', stateRoot: root });
-  await assert.rejects(readFile(quotaFile(root)), { code: 'ENOENT' });
+  await assert.rejects(readFile(statusFile(root)), { code: 'ENOENT' });
   await collectStatusline({ input, stateRoot: root, now });
-  const old = await readFile(quotaFile(root));
-  for (const text of ['{', '{}', '{"rate_limits":null}', '{"rate_limits":{"five_hour":{"used_percentage":101,"resets_at":1}}}']) {
+  const old = await readFile(statusFile(root));
+  for (const text of ['{', '{}', '{"rate_limits":null}', '{"rate_limits":[]}']) {
     let called = false;
     const output = await collectStatusline({ input: Buffer.from(text), stateRoot: root,
       previous: ['fake', 'arg'], run: async (request) => {
@@ -60,11 +77,11 @@ test('invalid or absent quota preserves old bytes and still chains', async (t) =
       } });
     assert.ok(called);
     assert.equal(output.toString(), 'old bar\n');
-    assert.deepEqual(await readFile(quotaFile(root)), old);
+    assert.deepEqual(await readFile(statusFile(root)), old);
   }
 });
 
-test('oversized valid input skips quota and still chains; exact limit writes', async (t) => {
+test('oversized valid input skips the sample and still chains; exact limit writes', async (t) => {
   for (const oversized of [true, false]) {
     const root = await rootFor(t);
     const config = { statuslineCollector: {
@@ -80,8 +97,8 @@ test('oversized valid input skips quota and still chains; exact limit writes', a
       } });
     assert.equal(calls, 1);
     assert.deepEqual(output, Buffer.from('previous bar\n'));
-    if (oversized) await assert.rejects(readFile(quotaFile(root)), { code: 'ENOENT' });
-    else assert.equal(JSON.parse(await readFile(quotaFile(root))).remainingPct, 58.8);
+    if (oversized) await assert.rejects(readFile(statusFile(root)), { code: 'ENOENT' });
+    else assert.deepEqual(JSON.parse(await readFile(statusFile(root))).input, JSON.parse(input.toString()));
   }
 });
 
@@ -102,9 +119,9 @@ test('concurrent readers only observe whole old or new samples', async (t) => {
   let active = true, reads = 0;
   const reader = (async () => {
     while (active) {
-      const value = JSON.parse(await readFile(quotaFile(root)));
-      assert.equal(value.windows.length, 2);
-      assert.ok([58.8, 90].includes(value.remainingPct));
+      const value = JSON.parse(await readFile(statusFile(root)));
+      assert.ok([23.5, 10].includes(value.input.rate_limits.five_hour.used_percentage));
+      assert.ok(Number.isFinite(Date.parse(value.receivedAt)));
       reads++;
     }
   })();
@@ -115,7 +132,7 @@ test('concurrent readers only observe whole old or new samples', async (t) => {
     }
   } finally { active = false; await reader; }
   assert.ok(reads > 0);
-  assert.deepEqual(await readdir(join(root, 'quota')), ['claude-code.json']);
+  assert.deepEqual(await readdir(join(root, 'quota')), [STATUSLINE_FILE]);
 });
 
 test('CLI bounded stdin and raw stdout; quota show has bilingual origin and age', async (t) => {
@@ -173,31 +190,36 @@ test('configuration controls field names, windows and previous command', async (
   const root = await rootFor(t);
   const config = { statuslineCollector: { fields: { rateLimits: 'limits', usedPercentage: 'used', resetsAt: 'reset' },
     windows: { custom: 17 }, previous: ['fake'] } };
+  await writeFile(join(root, 'config.json'), JSON.stringify(config));
   const output = await collectStatusline({ input: '{"limits":{"custom":{"used":25,"reset":1}}}',
     stateRoot: root, config, run: async ({ command }) => Buffer.from(command) });
   assert.equal(output.toString(), 'fake');
-  assert.equal(JSON.parse(await readFile(quotaFile(root))).windowMinutes, 17);
+  const stored = JSON.parse(await readFile(statusFile(root)));
+  assert.deepEqual(stored.input, { limits: { custom: { used: 25, reset: 1 } } });
+  const reading = await readQuota({ stateRoot: root, now });
+  assert.equal(reading.windowMinutes, 17, 'the core reads the sample with the settings of the root');
+  assert.equal(reading.remainingPct, 75);
   for (const change of [{ timeoutMs: 0 }, { maxInputBytes: -1 }, { maxOutputBytes: 0 },
     { previous: 'shell text' }, { windows: {} }, { windows: { bad: 0 } }, { fields: { rateLimits: '' } }]) {
     assert.throws(() => configOf({ statuslineCollector: change }));
   }
 });
 
-test('sample writes all windows, tightest quota, automatic source and age', async (t) => {
+test('the core reads the sample: every window, the tightest quota, automatic source and age', async (t) => {
   const root = await rootFor(t);
   await collectStatusline({ input, stateRoot: root, now });
-  const stored = JSON.parse(await readFile(quotaFile(root)));
-  assert.equal(stored.remainingPct, 58.8);
-  assert.equal(stored.windowMinutes, 10080);
-  assert.deepEqual(stored.windows, [
+  const stored = JSON.parse(await readFile(statusFile(root)));
+  assert.equal(stored.receivedAt, new Date(now()).toISOString());
+  const reading = await readQuota({ stateRoot: root, now: () => now() + 120000 });
+  assert.equal(reading.source, 'automatic');
+  assert.equal(reading.remainingPct, 58.8);
+  assert.equal(reading.windowMinutes, 10080);
+  assert.equal(reading.ageMinutes, 2);
+  assert.deepEqual(reading.windows, [
     { windowMinutes: 300, remainingPct: 76.5, resetsAt: new Date(1793003358000).toISOString() },
     { windowMinutes: 10080, remainingPct: 58.8, resetsAt: new Date(1793513484000).toISOString() },
   ]);
-  const reading = await readQuota({ stateRoot: root, now: () => now() + 120000 });
-  assert.equal(reading.source, 'automatic');
-  assert.equal(reading.ageMinutes, 2);
-  assert.deepEqual(reading.windows, stored.windows);
-  await writeFile(quotaFile(root), JSON.stringify({ remainingPct: 80, recordedAt: stored.recordedAt }));
+  await writeFile(manualFile(root), JSON.stringify({ remainingPct: 80, recordedAt: stored.receivedAt }));
   assert.equal((await readQuota({ stateRoot: root, now })).source, 'user');
 });
 
@@ -206,4 +228,13 @@ test('real previous command receives exact input and returns exact binary bytes'
   const output = await collectStatusline({ input, stateRoot: root,
     previous: [process.execPath, '-e', echoInput + 'fs.writeSync(1,Buffer.from([0,255,13,10]));'] });
   assert.deepEqual(output, Buffer.concat([input, Buffer.from([0, 255, 13, 10])]));
+});
+
+test('a stored sample with a receivedAt that is not a date is no reading', async () => {
+  const settings = configOf().statuslineCollector;
+  const stored = { receivedAt: '2026-10-26T00:00:00.000Z', input: JSON.parse(input.toString()) };
+  assert.equal(readingOf(stored, settings).recordedAt, stored.receivedAt);
+  for (const receivedAt of ['garbage', '', 7, null, undefined]) {
+    assert.equal(readingOf({ ...stored, receivedAt }, settings), null, String(receivedAt));
+  }
 });

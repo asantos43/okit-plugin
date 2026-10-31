@@ -518,7 +518,7 @@ test('S7: real run, the shim resolves and the written status bar and hook exit 0
   };
   const code = await main(['install', '--client', CLIENT, '--statusline'], f.io);
   assert.equal(code, 0, f.output.join('\n'));
-  assert.deepEqual(readings, [['claude-code.json']], 'the real collector left its reading in the temporary root');
+  assert.deepEqual(readings, [['claude-code-statusline.json']], 'the real collector left its reading in the temporary root');
   const block = blockOf(f.lines(), 'en');
   assert.match(block[0], /ok {2}\d+ checks passed$/, block.join('\n'));
   assert.ok(f.commands.length > 0);
@@ -594,7 +594,7 @@ test('C1: a status bar of the person, chained with --previous, is not run by the
   assert.equal(w.code, 0, w.text);
   const written = JSON.parse(await fs.readFile(join(w.f.home, '.claude/settings.json'), 'utf8')).statusLine.command;
   assert.match(written, /--previous/, `the written bar does not chain the person's command: ${written}`);
-  assert.deepEqual(w.readings, [['claude-code.json']], 'the reading is written in the temporary root');
+  assert.deepEqual(w.readings, [['claude-code-statusline.json']], 'the reading is written in the temporary root');
   await assert.rejects(fs.stat(sentinel), { code: 'ENOENT' }, 'the check ran a command that is not ours');
 });
 
@@ -617,7 +617,7 @@ test('C1: the collector chains --previous without the variable and never starts 
   const call = (env) => statuslineCommand(previous, { root: join(folder, env ? 'a' : 'b'), env, stdin: Readable.from([sample]), stdout: () => {} });
   assert.equal(await call({ [SELFCHECK_ENV]: '1' }), 0);
   await assert.rejects(fs.stat(sentinel), { code: 'ENOENT' }, 'the collector chained the command under the check');
-  assert.deepEqual(await fs.readdir(join(folder, 'a', 'quota')), ['claude-code.json'], 'the reading is written under the check');
+  assert.deepEqual(await fs.readdir(join(folder, 'a', 'quota')), ['claude-code-statusline.json'], 'the reading is written under the check');
   assert.equal(await call({}), 0);
   assert.equal(await fs.readFile(sentinel, 'utf8'), 'x', 'without the variable the collector chains as before');
 });
@@ -675,7 +675,7 @@ test('C3: custom field names of the collector pass the check; the real state sta
     before = { config: await fs.readFile(file, 'utf8'), quota: await fs.readdir(join(f.root, 'quota')) };
   } });
   assert.equal(w.code, 0, w.text);
-  assert.deepEqual(w.readings, [['claude-code.json']], 'the collector found no reading with the custom fields');
+  assert.deepEqual(w.readings, [['claude-code-statusline.json']], 'the collector found no reading with the custom fields');
   assert.equal(await fs.readFile(join(w.f.root, 'config.json'), 'utf8'), before.config, 'the real configuration was changed');
   assert.deepEqual(await fs.readdir(join(w.f.root, 'quota')), before.quota, 'the real state root was written');
   assert.deepEqual(await fs.readdir(w.f.scratch), [], 'the temporary copy was left behind');
@@ -931,7 +931,7 @@ test('R2: a measurement folder and a quota command of the real configuration nev
   const written = await Promise.all((await fs.readdir(outside).catch(() => [])).map((name) => fs.readFile(join(outside, name), 'utf8')));
   assert.ok(!written.some((text) => text.includes('role.choice')), 'the hook of the check measured into the real configuration');
   await assert.rejects(fs.stat(marker), { code: 'ENOENT' }, 'the check ran a quota command of the real configuration');
-  assert.deepEqual(w.readings, [['claude-code.json']], 'the allowed key (the collector fields) did not arrive');
+  assert.deepEqual(w.readings, [['claude-code-statusline.json']], 'the allowed key (the collector fields) did not arrive');
 });
 
 // R3: under the check the hook starts nothing.

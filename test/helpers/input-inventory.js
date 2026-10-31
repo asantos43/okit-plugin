@@ -302,6 +302,9 @@ export const FILE_RULES = Object.freeze([
   { file: 'quota/<client>.json (the manual reading)', readBy: 'adapters/{claude-code,codex,opencode}/index.js (readQuota, by `status`)', unreadable: 1, wrongType: 0,
     proof: 'test/input-inventory.test.js#the quota file of a client (quota/<client>.json)',
     note: 'not JSON, empty or a folder cannot be read (1); valid JSON of another type, or a field of the wrong type, is no reading: status goes on and says no value is recorded' },
+  { file: 'quota/claude-code-statusline.json (the sample of the collector)', readBy: 'adapters/claude-code/index.js (readQuota, by `status`)', unreadable: 0, wrongType: 0,
+    proof: 'test/adapter-claude-code.test.js#the sample of the collector is read defensively',
+    note: 'the file the collector writes with the JSON of the client; one that cannot be read, one that is not JSON and one that holds no window are no automatic reading: the manual one is used and status goes on' },
 ]);
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -369,11 +372,13 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/', arg: /^(paths\([\w.]+\)\.config|join\(root, 'config\.json'\)|join\(ctx\.root, 'config\.json'\)|join\(stateRoot, 'config\.json'\)|target\.config|files\.config|join\(context\.root, 'config\.json'\))$/, rule: CONFIG_JSON },
   // The adapters (adapters/): the same scan, one table.
   { file: 'adapters/', arg: /\.quota, `\$\{CLIENT\}\.json`\)$/, rule: 'quota/<client>.json (the manual reading)' },
+  { file: 'adapters/', arg: /\.quota, STATUSLINE_FILE\)$/, rule: 'quota/claude-code-statusline.json (the sample of the collector)' },
   { file: 'adapters/claude-code/index.js', arg: /^path$/, rule: 'settings.json of the client (role)' },
   { file: 'adapters/claude-code/index.js', arg: /^file$/, excluded: 'hooks/hooks.json of the client, read only by installHooks, which no command of this inventory calls (the maintainers\' smoke runner does); a file that is not JSON is refused and left alone' },
   { file: 'adapters/', arg: /^join\(source, 'SKILL\.md'\)$/, excluded: 'the SKILL.md of a skill folder of the package being installed (code and text of the program), read only to know the folder is a skill' },
   { file: 'adapters/codex/index.js', arg: /^join\(configRoot\(opts\), 'AGENTS\.override\.md'\)$/, excluded: 'text without a format: the client\'s AGENTS.override.md, only tested for being empty; never parsed (a file that cannot be read is a failure of the work, as for every file)' },
   { file: 'adapters/codex/index.js', arg: /^join\(base, 'config\.json'\)$/, rule: CONFIG_JSON },
+  { file: 'adapters/claude-code/index.js', arg: /^join\(base, 'config\.json'\)$/, rule: CONFIG_JSON },
   { file: 'adapters/codex/session-quota.js', arg: /^line$/, excluded: 'a line of a session file of the Codex client (a source of the client, not an input of the user): parsed inside a try/catch that returns no reading, so no content makes status fail (test/input-inventory.test.js#own sources)' },
   { file: 'adapters/opencode/quota-source.js', arg: /^output$/, excluded: 'the output of a source of the opencode client (a file or a command the configuration names): parsed inside a try/catch that returns no reading, so no content makes status fail (test/input-inventory.test.js#own sources)' },
   { file: 'adapters/opencode/index.js', arg: /^(source|path)$/, excluded: 'the plugin module okit wrote and the plugin file already in the client\'s folder, compared byte for byte; never parsed' },

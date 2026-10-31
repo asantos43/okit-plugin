@@ -4,10 +4,13 @@ import { configOf } from '../profiles.js';
 import { readJson, writeJsonAtomic } from '../state.js';
 import { paths, stateRoot as defaultRoot, SELFCHECK_ENV } from '../store.js';
 
-/** The quota file the collector writes under the state root; the environment report looks for this same name. */
+/** The file the person records the quota in (`quota set claude-code`); the collector never writes it. */
 export const READING_FILE = 'claude-code.json';
 
-const finite = (value) => typeof value === 'number' && Number.isFinite(value);
+/** The file the collector writes under the state root: the client's JSON as it came; the core reads it. */
+export const STATUSLINE_FILE = 'claude-code-statusline.json';
+
+const plain = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 export function runPrevious({ command, args, input, timeoutMs, maxOutputBytes }) {
   return new Promise((resolve) => {
@@ -34,23 +37,6 @@ export function runPrevious({ command, args, input, timeoutMs, maxOutputBytes })
   });
 }
 
-function reading(input, settings, now) {
-  const limits = JSON.parse(input.toString())[settings.fields.rateLimits];
-  const windows = Object.entries(settings.windows).flatMap(([key, windowMinutes]) => {
-    const value = limits?.[key];
-    const used = value?.[settings.fields.usedPercentage];
-    const reset = value?.[settings.fields.resetsAt];
-    if (!finite(used) || used < 0 || used > 100 || !finite(reset)
-      || !Number.isFinite(new Date(reset * 1000).getTime())) return [];
-    return [{ windowMinutes, remainingPct: 100 - used,
-      resetsAt: new Date(reset * 1000).toISOString() }];
-  });
-  if (!windows.length) return null;
-  const tightest = windows.reduce((a, b) => a.remainingPct <= b.remainingPct ? a : b);
-  return { remainingPct: tightest.remainingPct, windowMinutes: tightest.windowMinutes,
-    windows, recordedAt: new Date(now()).toISOString(), source: 'automatic' };
-}
-
 /** Collection must never prevent the user's bar from running. Output stays binary. */
 export async function collectStatusline({ input, previous, stateRoot, run = runPrevious,
   now = Date.now, config } = {}) {
@@ -61,8 +47,12 @@ export async function collectStatusline({ input, previous, stateRoot, run = runP
   catch { settings = configOf().statuslineCollector; }
   try {
     if (Buffer.byteLength(input) <= settings.maxInputBytes) {
-      const value = reading(input, settings, now);
-      if (value) await writeJsonAtomic(join(paths(stateRoot).quota, READING_FILE), value);
+      const value = JSON.parse(input.toString());
+      // The collector stores what the client sent and nothing more: the percentages are read by the core.
+      if (plain(value) && plain(value[settings.fields.rateLimits])) {
+        await writeJsonAtomic(join(paths(stateRoot).quota, STATUSLINE_FILE),
+          { receivedAt: new Date(now()).toISOString(), input: value });
+      }
     }
   } catch { /* An optional reading must not break the bar. */ }
   try {

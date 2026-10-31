@@ -272,8 +272,9 @@ test('statusLine command runs from Git Bash', async (t) => {
   const input = JSON.stringify({ rate_limits: { five_hour: { used_percentage: 25, resets_at: Date.now() / 1000 + 3600 } } });
   const result = bash(['-c', command], { input, env: { PATH: '/usr/bin:/bin', OKWORK_HOME: state } });
   assert.equal(result.status, 0, result.stderr);
-  const reading = JSON.parse(await fs.readFile(join(state, 'quota', 'claude-code.json'), 'utf8'));
-  assert.equal(reading.remainingPct, 75);
+  const reading = JSON.parse(await fs.readFile(join(state, 'quota', 'claude-code-statusline.json'), 'utf8'));
+  assert.equal(reading.input.rate_limits.five_hour.used_percentage, 25);
+  assert.ok(Number.isFinite(Date.parse(reading.receivedAt)));
 });
 
 test('on Windows the statusLine names the shim, rewrites an owned bare command once and keeps --previous', async (t) => {
