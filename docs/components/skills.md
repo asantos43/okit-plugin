@@ -13,7 +13,7 @@ All route environment questions to env_report, actors to actors_list/status and 
 <a id="okit-director"></a>
 ## okit-director
 
-Keeps enabled project tasks in step with saved work; asks before using a suggested task and checks missing links before delivery with `todo_status` and previews repairs with `todo_sync`.
+Keeps enabled project tasks in step with saved work; asks before using a suggested task and checks missing links before delivery with `todo_check` and previews repairs with `todo_sync`.
 
 | Skill | Use and instruction | Main resources |
 | :- | :- | :- |

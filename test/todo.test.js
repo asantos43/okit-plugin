@@ -236,13 +236,13 @@ test('CLI and MCP share synchronization and status; invalid flags and types refu
   assert.equal(await main(['todo', 'sync', '--dry-run'], io), 0);
   assert.equal(await main(['todo', 'check', '--dry-run'], io), 2);
   const tool = name => TOOLS.find(tool => tool.name === name);
-  const status = JSON.parse(await tool('todo_status').handler({ project }, { root }));
+  const status = JSON.parse(await tool('todo_check').handler({ project }, { root }));
   assert.equal(status.reports[0].demandsWithoutItem[0].title, 'Telemetry');
   const before = await text(file);
   await tool('todo_sync').handler({ project, dryRun: true }, { root });
   assert.equal(await text(file), before);
   await assert.rejects(tool('todo_sync').handler({ dryRun: 'yes' }, { root }), /boolean/);
-  await assert.rejects(tool('todo_status').handler({ unknown: true }, { root }), /unknown argument/);
+  await assert.rejects(tool('todo_check').handler({ unknown: true }, { root }), /unknown argument/);
 });
 
 test('configuration accepts project settings and custom checkbox characters', async t => {

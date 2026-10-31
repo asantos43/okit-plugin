@@ -13,7 +13,7 @@ Todas encaminham perguntas de ambiente para env_report, atores para actors_list/
 <a id="okit-director"></a>
 ## okit-director
 
-Mantém as tarefas dos projetos habilitados em dia; pergunta antes de usar uma sugestão, confere vínculos ausentes antes da entrega com `todo_status` e mostra correções com `todo_sync`.
+Mantém as tarefas dos projetos habilitados em dia; pergunta antes de usar uma sugestão, confere vínculos ausentes antes da entrega com `todo_check` e mostra correções com `todo_sync`.
 
 | Skill | Uso e instrução | Recursos principais |
 | :- | :- | :- |
