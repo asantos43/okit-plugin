@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
+import process from 'node:process';
 import { configOf } from '../profiles.js';
 import { readJson, writeJsonAtomic } from '../state.js';
 import { paths, stateRoot as defaultRoot, SELFCHECK_ENV } from '../store.js';
@@ -12,28 +13,79 @@ export const STATUSLINE_FILE = 'claude-code-statusline.json';
 
 const plain = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
+/**
+ * Runs the previous command of the status bar and answers its bytes.
+ *
+ * The command is a plain program (no shell) and it has one deadline. Whatever
+ * it does, the answer comes before the deadline passes and nothing of ours
+ * stays behind: the pipes are closed, the child is unreferenced and the group
+ * of the child is killed, so a descendant that inherited the output cannot keep
+ * the status bar of the client waiting.
+ *
+ * The answer is the bytes the command wrote, unchanged and binary, when it ended
+ * well; an empty buffer when it did not answer in time and nothing when it
+ * failed or spoke too much.
+ *
+ * @param {{command: string, args?: string[], input: Buffer, timeoutMs: number,
+ *   maxOutputBytes: number}} call
+ * @returns {Promise<Buffer|undefined>} the bytes of the command
+ */
 export function runPrevious({ command, args, input, timeoutMs, maxOutputBytes }) {
   return new Promise((resolve) => {
-    let child, timer, size = 0;
+    let child, timer, size = 0, settled = false, exit = null;
     const chunks = [];
-    const finish = (output = Buffer.alloc(0)) => {
+    // The pipes and the handle of the child must not hold the collector alive
+    // once the run is over: they are released exactly once, here.
+    const release = () => {
       clearTimeout(timer);
+      for (const pipe of [child?.stdout, child?.stdin]) {
+        try { pipe?.destroy(); } catch { /* the pipe is already gone */ }
+      }
+      try { child?.unref?.(); } catch { /* the child is already gone */ }
+    };
+    // The one way out of the run: the first answer is the answer, and a late
+    // event of the child (more bytes, the end of the pipe) changes nothing.
+    const finish = (output) => {
+      if (settled) return;
+      settled = true;
+      release();
       resolve(output);
     };
+    // The whole group of the child dies with it, so a descendant that inherited
+    // the output dies too; only the group of this command is touched.
+    const kill = () => {
+      if (!Number.isInteger(child?.pid)) return;
+      if (process.platform !== 'win32') {
+        try { process.kill(-child.pid, 'SIGKILL'); return; }
+        catch { /* the group is gone: the child alone is left */ }
+      }
+      try { child.kill('SIGKILL'); } catch { /* the child is already gone */ }
+    };
     try {
-      child = spawn(command, args, { shell: false, stdio: ['pipe', 'pipe', 'ignore'] });
-      timer = setTimeout(() => { child.kill('SIGKILL'); finish(); }, timeoutMs);
-      child.on('error', () => finish());
+      // On POSIX the child leads a group of its own, so the group can be killed
+      // as a whole; on Windows there is no group and the child is killed alone.
+      child = spawn(command, args, { shell: false, stdio: ['pipe', 'pipe', 'ignore'],
+        detached: process.platform !== 'win32' });
+      timer = setTimeout(() => {
+        kill();
+        // A command that ended well keeps the bytes it wrote; one that was
+        // still running has nothing to answer.
+        finish(exit === 0 ? Buffer.concat(chunks) : Buffer.alloc(0));
+      }, timeoutMs);
+      child.on('error', () => { kill(); finish(undefined); });
+      child.on('exit', (code) => { exit = code; });
       child.stdin.on('error', () => {});
+      child.stdout.on('error', () => {});
       child.stdout.on('data', (chunk) => {
+        if (settled) return;
         size += chunk.length;
-        if (size > maxOutputBytes) { child.kill('SIGKILL'); finish(); }
+        if (size > maxOutputBytes) { kill(); finish(undefined); }
         else chunks.push(chunk);
       });
       child.on('close', (code) => finish(code === 0 && size <= maxOutputBytes
         ? Buffer.concat(chunks) : undefined));
       child.stdin.end(input);
-    } catch { child?.kill('SIGKILL'); finish(); }
+    } catch { kill(); finish(undefined); }
   });
 }
 

@@ -229,7 +229,7 @@ async function shimFixture(t, { spaces = false } = {}) {
 }
 const bash = (args, options) => spawnSync('bash', args, { encoding: 'utf8', ...options });
 
-test('the shim runs under bash with a fake node, with and without cygpath', async (t) => {
+test('the shim runs under bash with a fake node, with and without cygpath', { skip: process.platform === 'win32' }, async (t) => {
   for (const spaces of [false, true]) {
     const f = await shimFixture(t, { spaces });
     const shim = join(f.home, 'shim');

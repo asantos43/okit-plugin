@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
-import { collectStatusline, statuslineCommand, STATUSLINE_FILE } from '../src/quota/statusline-collector.js';
+import { collectStatusline, runPrevious, statuslineCommand, STATUSLINE_FILE } from '../src/quota/statusline-collector.js';
 import { readQuota } from '../adapters/claude-code/index.js';
 import { configOf } from '../src/profiles.js';
 import { main } from '../src/cli.js';
@@ -45,6 +45,95 @@ test('executable is hermetic with empty HOME and never imports daemon or MCP', a
   assert.ok(performance.now() - started < 2000);
   const stored = JSON.parse(await readFile(statusFile(root)));
   assert.deepEqual(stored.input, JSON.parse(input.toString()), 'the client JSON is stored as it came');
+});
+
+// A previous command that leaves a descendant behind must not keep the client
+// waiting: the collector ends at its deadline and takes the group with it.
+test('the collector ends at its deadline and leaves no descendant of the previous command alive',
+  { skip: process.platform === 'win32' }, async (t) => {
+    const root = await rootFor(t);
+    const pidFile = join(root, 'descendant.pid');
+    // The `sleep` in the background inherits the output of the shell: it keeps
+    // the pipe open long after the shell itself is gone.
+    const previous = ['sh', '-c', `sleep 5 & echo $! > ${pidFile}; echo bar; sleep 5`];
+    await writeFile(join(root, 'config.json'), JSON.stringify({ statuslineCollector: { previous, timeoutMs: 300 } }));
+    await writeFile(join(root, 'input'), input);
+    const stdin = await open(join(root, 'input'), 'r');
+    const stdout = await open(join(root, 'output'), 'w');
+    t.after(async () => { await stdin.close(); await stdout.close(); });
+    const started = performance.now();
+    const child = spawn(process.execPath, ['src/cli.js', 'statusline-collector'], {
+      env: { ...process.env, HOME: '', USERPROFILE: '', OKWORK_HOME: root }, stdio: [stdin.fd, stdout.fd, 'pipe'],
+    });
+    const errors = [];
+    child.stderr.on('data', (bytes) => errors.push(bytes));
+    const code = await new Promise((resolve, reject) => {
+      child.once('error', reject); child.once('close', resolve);
+    });
+    const elapsed = performance.now() - started;
+    assert.equal(code, 0, Buffer.concat(errors).toString());
+    assert.ok(elapsed < 2000, `the collector exited in ${Math.round(elapsed)} ms`);
+    // The descendant of the previous command is dead with it: the group died.
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    let alive = true;
+    for (let attempt = 0; attempt < 20 && alive; attempt += 1) {
+      try { process.kill(pid, 0); } catch { alive = false; }
+      if (alive) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(alive, false, 'the descendant of the previous command is dead');
+  });
+
+// A descendant that left the group of the previous command (its own session)
+// cannot be killed with it, but it must not keep the collector waiting either:
+// the pipes of the collector are closed when the deadline passes.
+test('a descendant that left the group does not keep the collector waiting',
+  { skip: process.platform === 'win32' }, async (t) => {
+    const root = await rootFor(t);
+    const pidFile = join(root, 'descendant.pid');
+    // The descendant of the previous command opens a session of its own and
+    // holds the output open; only the pipes of the collector can free it.
+    const previous = ['sh', '-c', `setsid sh -c 'echo $$ > ${pidFile}; sleep 30' & sleep 30`];
+    await writeFile(join(root, 'config.json'), JSON.stringify({ statuslineCollector: { previous, timeoutMs: 300 } }));
+    await writeFile(join(root, 'input'), input);
+    const stdin = await open(join(root, 'input'), 'r');
+    const stdout = await open(join(root, 'output'), 'w');
+    t.after(async () => { await stdin.close(); await stdout.close(); });
+    const started = performance.now();
+    const child = spawn(process.execPath, ['src/cli.js', 'statusline-collector'], {
+      env: { ...process.env, HOME: '', USERPROFILE: '', OKWORK_HOME: root }, stdio: [stdin.fd, stdout.fd, 'pipe'],
+    });
+    const errors = [];
+    child.stderr.on('data', (bytes) => errors.push(bytes));
+    const code = await new Promise((resolve, reject) => {
+      child.once('error', reject); child.once('close', resolve);
+    });
+    const elapsed = performance.now() - started;
+    assert.equal(code, 0, Buffer.concat(errors).toString());
+    assert.ok(elapsed < 2000, `the collector exited in ${Math.round(elapsed)} ms`);
+    // The descendant left the group, so it is still there; the collector is not.
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    t.after(() => { try { process.kill(pid, 'SIGKILL'); } catch { /* it is already gone */ } });
+    assert.doesNotThrow(() => process.kill(pid, 0));
+  });
+
+test('the previous command: the output limit, the deadline and the exact bytes', async () => {
+  // More than the limit is no answer at all, and the answer comes at once.
+  const loud = await runPrevious({ command: process.execPath,
+    args: ['-e', 'process.stdout.write("x".repeat(1000))'], input: Buffer.alloc(0),
+    timeoutMs: 5000, maxOutputBytes: 10 });
+  assert.equal(loud, undefined);
+  // A command that ignores the signal and sleeps answers empty at the deadline.
+  const started = performance.now();
+  const stubborn = await runPrevious({ command: process.execPath,
+    args: ['-e', 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000)'], input: Buffer.alloc(0),
+    timeoutMs: 300, maxOutputBytes: 1024 });
+  assert.deepEqual(stubborn, Buffer.alloc(0));
+  assert.ok(performance.now() - started < 2000, 'the deadline is the answer');
+  // A command that ends well answers with its exact bytes.
+  const exact = await runPrevious({ command: process.execPath,
+    args: ['-e', 'process.stdout.write(Buffer.from([0,255,13,10]))'], input: Buffer.alloc(0),
+    timeoutMs: 5000, maxOutputBytes: 1024 });
+  assert.deepEqual(exact, Buffer.from([0, 255, 13, 10]));
 });
 
 test('the collector stores the client JSON unchanged and never reads the percentages', async (t) => {
