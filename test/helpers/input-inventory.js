@@ -275,9 +275,9 @@ export function envLiterals() {
 // refusal of usage (exit 2); a file of another program that we would have to change and cannot preserve is unreadable.
 
 export const FILE_RULES = Object.freeze([
-  { file: 'config.json (the plugin\'s own)', readBy: 'readConfig / configOf / installConfig', unreadable: 1, wrongType: 2,
+  { file: 'config.json (the plugin\'s own)', readBy: 'readConfig / configOf / installConfig, adapters/{claude-code,codex}/index.js (readQuota)', unreadable: 1, wrongType: 2,
     proof: 'test/input-inventory.test.js#config.json is a folder',
-    note: 'a root that is not an object is an empty configuration; setup reads a wrong shape of profiles as an unreadable file (1, test/setup-wizard.test.js)' },
+    note: 'a root that is not an object is an empty configuration; setup reads a wrong shape of profiles as an unreadable file (1, test/setup-wizard.test.js); the quota reader of the claude-code adapter never fails for it: a configuration it cannot read leaves the default settings of the collector (test/adapter-claude-code.test.js#a configuration that cannot be read is no reading of its own)' },
   { file: 'package.json of --from', readBy: 'src/install/source.js', unreadable: 2, wrongType: 2, proof: 'test/input-inventory.test.js#package.json ${body}',
     note: 'a folder the person named that has no package is a wrong argument (--from), told as such' },
   { file: 'install.json / install.<client>.json (the record)', readBy: 'src/install/place.js, src/install/bootstrap.js', unreadable: 1, wrongType: 2,

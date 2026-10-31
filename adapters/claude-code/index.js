@@ -179,9 +179,19 @@ export async function readQuota({ stateRoot: root, env, now = Date.now, config }
   return newerReading(manual, automatic) ?? { source: 'user' };
 }
 
-/** The settings of the collector: the ones of the root, or the defaults when it has none that are valid. */
+/**
+ * The settings of the collector: the ones of the root, or the defaults when it has none that are valid.
+ *
+ * A configuration that cannot be read is no configuration here: the reader never
+ * throws for it, it uses the defaults of the collector. Only the record of the
+ * person (`quota/claude-code.json`) can make this reader fail, as it did before.
+ */
 async function collectorSettings(config, base) {
-  const stored = config ?? await readJson(join(base, 'config.json'), {});
+  let stored = config;
+  if (stored === undefined || stored === null) {
+    try { stored = await readJson(join(base, 'config.json'), {}); }
+    catch { stored = {}; }
+  }
   try { return configOf(stored).statuslineCollector; }
   catch { return configOf().statuslineCollector; }
 }

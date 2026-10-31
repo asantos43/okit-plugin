@@ -45,10 +45,43 @@ test('each launcher runs and never throws into the client', async (t) => {
     stdin: Readable.from([sample]), stdout: (text) => quiet.push(text) }), 0);
 });
 
+// The guard of the hermetic test: it refuses a forbidden import and records
+// every attempt in a log, so a refusal that the launchers swallow is still seen.
+const guard = [
+  "import { appendFileSync } from 'node:fs';",
+  'const log = process.env.OKIT_FORBIDDEN_LOG;',
+  'export async function resolve(s,c,n){',
+  '  const r = await n(s,c);',
+  '  const url = String(r.url ?? "");',
+  '  if (s.includes("daemon.js")||s.includes("/mcp/")||url.includes("daemon.js")||url.includes("/mcp/")){',
+  '    if (log) appendFileSync(log, s + " -> " + url + "\\n");',
+  '    throw Error("heavy import: "+s);',
+  '  }',
+  '  return r;',
+  '}',
+].join('\n');
+
+/** Runs a child script under the guard and answers its JSON output. */
+async function runGuarded(root, script, args) {
+  const loader = join(root, 'guard.mjs');
+  await writeFile(loader, guard);
+  const log = join(root, 'forbidden.log');
+  const child = spawn(process.execPath, ['--loader', loader, script, ...args],
+    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, OKIT_FORBIDDEN_LOG: log } });
+  const errors = [];
+  child.stderr.on('data', (bytes) => errors.push(bytes));
+  const [code, out] = await new Promise((resolve, reject) => {
+    const chunks = [];
+    child.stdout.on('data', (chunk) => chunks.push(chunk));
+    child.once('error', reject);
+    child.once('close', (code) => resolve([code, Buffer.concat(chunks).toString()]));
+  });
+  assert.equal(code, 0, Buffer.concat(errors).toString());
+  return { answer: JSON.parse(out), log: await readFile(log, 'utf8').catch(() => '') };
+}
+
 test('the launchers are hermetic: no daemon and no MCP server is loaded', async (t) => {
   const root = await rootFor(t);
-  const loader = join(root, 'guard.mjs');
-  await writeFile(loader, 'export async function resolve(s,c,n){if(s.includes("daemon.js")||s.includes("/mcp/"))throw Error("heavy import: "+s);return n(s,c)}');
   const script = join(root, 'child.mjs');
   await writeFile(script, [
     "import { pathToFileURL } from 'node:url';",
@@ -63,20 +96,30 @@ test('the launchers are hermetic: no daemon and no MCP server is loaded', async 
     "  await module.launch(['hook', 'session-start'], { ...io(), env: { OKIT_SELFCHECK: '1' } })];",
     "process.stdout.write(JSON.stringify({ launchers: module.LAUNCHERS, codes }));",
   ].join('\n'));
-  const child = spawn(process.execPath, ['--loader', loader, script,
-    fileURLToPath(new URL('../src/launchers.js', import.meta.url)), root, sample], { stdio: ['ignore', 'pipe', 'pipe'] });
-  const errors = [];
-  child.stderr.on('data', (bytes) => errors.push(bytes));
-  const [code, out] = await new Promise((resolve, reject) => {
-    const chunks = [];
-    child.stdout.on('data', (chunk) => chunks.push(chunk));
-    child.once('error', reject);
-    child.once('close', (code) => resolve([code, Buffer.concat(chunks).toString()]));
-  });
-  assert.equal(code, 0, Buffer.concat(errors).toString());
-  const answer = JSON.parse(out);
+  const { answer, log } = await runGuarded(root, script,
+    [fileURLToPath(new URL('../src/launchers.js', import.meta.url)), root, sample]);
   assert.deepEqual(answer.launchers, [...LAUNCHERS]);
   assert.deepEqual(answer.codes, [null, 0, 0, 0], 'the first argv is no launcher (JSON has no undefined)');
+  // The guard is not silent: nothing forbidden was even tried.
+  assert.equal(log, '', 'no forbidden import was attempted');
+});
+
+test('the guard of the hermetic test can fail: a forbidden import is refused and recorded', async (t) => {
+  const root = await rootFor(t);
+  const script = join(root, 'guard-proof.mjs');
+  await writeFile(script, [
+    "import { pathToFileURL } from 'node:url';",
+    // The daemon, resolved from the folder of the launchers.
+    'const forbidden = new URL("../src/daemon.js", pathToFileURL(process.argv[2])).href;',
+    'let refused = false; let reason = "";',
+    'try { await import(forbidden); } catch (error) { refused = true; reason = String(error.message); }',
+    'process.stdout.write(JSON.stringify({ refused, reason }));',
+  ].join('\n'));
+  const { answer, log } = await runGuarded(root, script,
+    [fileURLToPath(new URL('../src/launchers.js', import.meta.url))]);
+  assert.equal(answer.refused, true, 'the guard refuses the forbidden import');
+  assert.match(answer.reason, /heavy import/);
+  assert.match(log, /daemon\.js/, 'the guard recorded the attempt');
 });
 
 test('the user help lists none of the three internal entry points', async () => {

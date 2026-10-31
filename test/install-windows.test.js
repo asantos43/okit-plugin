@@ -256,7 +256,7 @@ test('the shim runs under bash with a fake node, with and without cygpath', asyn
   }
 });
 
-test('statusLine command runs from Git Bash', async (t) => {
+test('statusLine command runs from Git Bash', { skip: process.platform === 'win32' }, async (t) => {
   const f = await fixture(t);
   const root = fileURLToPath(new URL('..', import.meta.url));
   const config = { ...f.config, node: process.execPath };

@@ -206,6 +206,35 @@ test('readQuota chooses the newer of the manual record and the sample of the col
   assert.equal(older.recordedAt, '2026-10-26T00:02:00.000Z');
 });
 
+test('a configuration that cannot be read is no reading of its own: the record and the sample still read', async () => {
+  const base = await root('quota-config');
+  await mkdir(join(base, 'quota'), { recursive: true });
+  const manual = join(base, 'quota', 'claude-code.json');
+  const collected = join(base, 'quota', 'claude-code-statusline.json');
+  const config = join(base, 'config.json');
+  const now = () => Date.UTC(2026, 9, 26);
+
+  // A configuration that is not JSON, and one that cannot be read at all.
+  for (const broken of ['{ not json', '']) {
+    await writeFile(config, broken, 'utf8');
+    await rm(collected, { force: true });
+    await writeFile(manual, JSON.stringify({ remainingPct: 42, recordedAt: '2026-10-26T00:00:00.000Z' }));
+    const reading = await readQuota({ stateRoot: base, now });
+    assert.equal(reading.source, 'user', broken);
+    assert.equal(reading.remainingPct, 42, broken);
+    // The sample of the collector is read with the default settings of the collector.
+    await writeFile(collected, sample(25, '2026-10-26T00:01:00.000Z'));
+    const automatic = await readQuota({ stateRoot: base, now });
+    assert.equal(automatic.source, 'automatic', broken);
+    assert.equal(automatic.remainingPct, 75, broken);
+    assert.equal(automatic.windowMinutes, 300, broken);
+  }
+  // A folder where the configuration should be: the reader still reads.
+  await rm(config, { force: true });
+  await mkdir(config);
+  assert.equal((await readQuota({ stateRoot: base, now })).source, 'automatic');
+});
+
 test('the sample of the collector is read defensively: an invalid one falls back to the record of the person', async () => {
   const base = await root('quota-sample');
   await mkdir(join(base, 'quota'), { recursive: true });
