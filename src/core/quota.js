@@ -52,10 +52,15 @@ function settingsOf(root, deps) {
   return deps.config ?? readConfig(root);
 }
 
-/** The clients of this root, the same list the quota table shows. */
+/**
+ * The clients of this root, the same list the quota table shows.
+ *
+ * Only a name that is a name is a client: a configuration that names a path
+ * never has that path listed, read nor written.
+ */
 function clientsOfRoot(config, deps) {
   const fallback = Array.isArray(deps.clients) && deps.clients.length > 0 ? deps.clients : CLIENTS;
-  return clientsOf(config, fallback);
+  return clientsOf(config, fallback).filter((client) => CLIENT_NAME.test(client));
 }
 
 /**

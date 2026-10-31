@@ -10,7 +10,9 @@ import { Refusal } from './refusal.js';
  *
  * Only a plain object is taken: an operation reads the own keys of the
  * arguments, so an object that hides a value in its prototype (or a class
- * instance that carries one) is refused instead of read.
+ * instance that carries one) is refused instead of read. Every own key is
+ * read, the ones that hide as well: a symbol or a property that is not
+ * enumerable is a key the operation does not take, so it is refused too.
  *
  * @param {string} name the operation, for the message of the refusal
  * @param {unknown} args the arguments as they arrived
@@ -22,9 +24,9 @@ export function argsOf(name, args, allowed) {
   if (typeof args !== 'object' || args === null || Array.isArray(args)) throw new Refusal(`${name}: arguments must be an object`);
   const prototype = Object.getPrototypeOf(args);
   if (prototype !== Object.prototype && prototype !== null) throw new Refusal(`${name}: arguments must be a plain object`);
-  const unknown = Object.keys(args).filter((key) => !allowed.includes(key));
+  const unknown = Reflect.ownKeys(args).filter((key) => !allowed.includes(key));
   if (unknown.length > 0) {
-    throw new Refusal(`${name}: unknown argument ${unknown.join(', ')}; expected ${allowed.join('|')}`);
+    throw new Refusal(`${name}: unknown argument ${unknown.map((key) => String(key)).join(', ')}; expected ${allowed.join('|')}`);
   }
   return args;
 }

@@ -10,8 +10,9 @@ import process from 'node:process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { inboxAdd } from '../src/inbox.js';
+import { inboxAdd, inboxClaim } from '../src/inbox.js';
 import { OPERATIONS, operation, run } from '../src/core/operations.js';
+import { todoRun } from '../src/todo/index.js';
 
 // Scratch state lives inside the repository, never in the system temp folder.
 const TMP = fileURLToPath(new URL('../.delegate/tmp/', import.meta.url));
@@ -170,6 +171,25 @@ test('daemon reports the state of a root and refuses an action it does not have'
   await assert.rejects(run('daemon', root, { action: 'status', other: 1 }, deps()), TypeError);
 });
 
+test('daemon refuses a table it cannot build and shows the one the caller brings', async (t) => {
+  const root = await tempRoot(t);
+  // The table is built from the dependencies of the caller: without them the
+  // answer says so instead of showing a status with no table at all.
+  await assert.rejects(run('daemon', root, { action: 'status', table: true }, deps()), (error) => {
+    assert.equal(error.name, 'Refusal');
+    assert.match(error.message, /daemon: table needs deps\.table/);
+    return true;
+  });
+  const table = { clients: ['claude-code'], readQuota: async () => ({ source: 'off' }), now: () => T0,
+    cache: new Map(), env: {}, home: root, demands: [], plugin: {}, versions: {},
+    detectClients: async () => ({ clients: [] }) };
+  const status = await run('daemon', root, { action: 'status', table: true }, deps({ table }));
+  assert.equal(status.running, false);
+  assert.deepEqual(Object.keys(status.table), ['markdown', 'capacityLine']);
+  assert.match(status.table.markdown, /\| Subscription \|/);
+  assert.match(status.table.capacityLine, /quota floor/);
+});
+
 test('kit_detect probes the kit of a root and refuses arguments it does not take', async (t) => {
   const root = await tempRoot(t);
   const kit = await run('kit_detect', root, {}, deps());
@@ -222,6 +242,45 @@ test('todo_check reports the work without a task and the tasks without work', as
   assert.deepEqual(elsewhere.reports[0].changes, []);
 });
 
+test('todo_check changes nothing while a plain run writes the list', async (t) => {
+  await mkdir(TMP, { recursive: true });
+  const base = await mkdtemp(join(TMP, 'core-todo-active-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = join(base, 'state');
+  const project = join(base, 'project');
+  const copy = join(base, 'copy');
+  await mkdir(root);
+  await mkdir(project);
+  await mkdir(copy);
+  const list = '# Tasks\n\n## Inbox\n- [ ] Add search\n';
+  await writeFile(join(project, 'TODO.md'), list, 'utf8');
+  await writeFile(join(copy, 'TODO.md'), list, 'utf8');
+  // The lists start off: the work is registered and taken while nothing is
+  // written to them, so the demand is active and the list still has no line
+  // for it.
+  const settings = (enabled) => JSON.stringify({ todo: { projects: {
+    [project]: { enabled }, [copy]: { enabled },
+  } } });
+  await writeFile(join(root, 'config.json'), settings(false), 'utf8');
+  const demand = await inboxAdd(root, { title: 'Active work', appliesTo: [project, copy] });
+  await inboxClaim(root, demand.id, { client: 'codex', session: 'test' });
+  await writeFile(join(root, 'config.json'), settings(true), 'utf8');
+  const before = await readFile(join(project, 'TODO.md'));
+
+  // The premise: a plain run writes the active work into the list.
+  const written = await todoRun(root, { project: copy, check: false });
+  assert.equal(written.reports[0].changes.length, 1);
+  assert.match(await readFile(join(copy, 'TODO.md'), 'utf8'), /Active work/);
+
+  // The check reads the same work and writes nothing at all.
+  const checked = await run('todo_check', root, { project }, deps());
+  assert.equal(checked.reports.length, 1);
+  assert.equal(checked.reports[0].enabled, true);
+  assert.deepEqual(checked.reports[0].demandsWithoutItem.map((item) => item.title), ['Active work']);
+  assert.deepEqual(checked.reports[0].changes, []);
+  assert.deepEqual(await readFile(join(project, 'TODO.md')), before);
+});
+
 test('quota_set refuses a client name that is a path and writes nothing outside the root', async (t) => {
   const root = await tempRoot(t, {
     limits: { global: 3, clients: {} },
@@ -230,6 +289,21 @@ test('quota_set refuses a client name that is a path and writes nothing outside 
   await assert.rejects(run('quota_set', root, { client: '../../escape', pct: 80 }, deps()), TypeError);
   await assert.rejects(run('quota_show', root, { client: '../../escape' }, deps()), TypeError);
   await assert.rejects(readFile(join(TMP, 'escape.json'), 'utf8'), { code: 'ENOENT' });
+  assert.deepEqual(await readdir(join(root, 'quota')).catch(() => []), []);
+});
+
+test('a configured client name that is a path is never listed, read nor written', async (t) => {
+  const root = await tempRoot(t, {
+    limits: { global: 3, clients: {} },
+    profiles: {
+      '../../escape': { simple: { model: 'haiku', effort: 'low', maxTurns: 4 } },
+      codex: { simple: { model: 'gpt-5-codex', effort: 'low', maxTurns: 4 } },
+    },
+  });
+  const shown = await run('quota_show', root, {}, deps());
+  assert.deepEqual(shown.clients.map((entry) => entry.client), ['codex']);
+  await assert.rejects(run('quota_show', root, { client: '../../escape' }, deps()), TypeError);
+  await assert.rejects(run('quota_set', root, { client: '../../escape', pct: 80 }, deps()), TypeError);
   assert.deepEqual(await readdir(join(root, 'quota')).catch(() => []), []);
 });
 
@@ -250,6 +324,26 @@ test('the arguments are a plain object and only their own keys are read', async 
   await assert.rejects(run('config_get', root, null), TypeError);
   const all = await run('config_get', root, undefined);
   assert.ok(all.entries.length > 10, 'no arguments is the whole table');
+});
+
+test('an argument that hides is refused as well', async (t) => {
+  const root = await tempRoot(t);
+  // A key that is not enumerable is still a key the operation does not take.
+  const hidden = {};
+  Object.defineProperty(hidden, 'secret', { value: 1, enumerable: false });
+  await assert.rejects(run('config_get', root, hidden, deps()), (error) => {
+    assert.equal(error.name, 'Refusal');
+    assert.match(error.message, /unknown argument secret/);
+    return true;
+  });
+  // A symbol is a key as well, and the refusal says which one it is.
+  const marked = { key: 'limits.global' };
+  marked[Symbol('secret')] = 1;
+  await assert.rejects(run('config_get', root, marked, deps()), (error) => {
+    assert.equal(error.name, 'Refusal');
+    assert.match(error.message, /unknown argument Symbol\(secret\)/);
+    return true;
+  });
 });
 
 test('a name with a space around it is refused by the four operations the same way', async (t) => {

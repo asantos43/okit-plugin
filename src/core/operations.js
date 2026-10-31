@@ -91,7 +91,7 @@ export const OPERATIONS = [
       type: 'object',
       properties: {
         action: { type: 'string', enum: DAEMON_ACTIONS, description: 'What to do with the daemon.' },
-        table: { type: 'boolean', description: 'The table of the quota under the lines of the status.' },
+        table: { type: 'boolean', description: 'The table of the quota under the lines of the status; the caller supplies the dependencies of the table.' },
       },
       required: ['action'],
       additionalProperties: false,
