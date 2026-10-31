@@ -7,7 +7,13 @@ import process from 'node:process';
 import { StringDecoder } from 'node:string_decoder';
 import { pathToFileURL } from 'node:url';
 
+import { callTool } from './call-tool.js';
+import { startControl } from './control.js';
 import { makeContext, TOOLS } from './tools.js';
+
+// The call of one tool lives in its own module, so the control API can use it
+// without importing the server; it stays reachable from here.
+export { callTool };
 
 const PROTOCOL_VERSION = '2025-06-18';
 // Versions this server speaks; anything else gets the default back.
@@ -90,15 +96,13 @@ export async function respond(message, { tools, ctx, version }) {
       if (typeof name !== 'string' || name === '') {
         return failure(id, INVALID_PARAMS, 'Invalid params: tools/call needs a tool name');
       }
-      const tool = tools.find((candidate) => candidate.name === name);
-      if (!tool) return failure(id, INVALID_PARAMS, `Invalid params: unknown tool ${name}`);
       try {
-        return success(id, toolResult(await tool.handler(params.arguments, ctx)));
+        const result = await callTool(tools, ctx, name, params.arguments);
+        return success(id, toolResult(result.text, result.isError));
       } catch (error) {
-        // A refusal or a bad argument is reported as a failed tool call, so the
-        // client can read the message and the loop keeps going.
-        const text = error instanceof Error ? error.message : String(error);
-        return success(id, toolResult(text, true));
+        // The only failure that reaches here is the name of a tool the table
+        // does not hold: a refusal of the tool itself is an answer.
+        return failure(id, INVALID_PARAMS, `Invalid params: ${error.message}`);
       }
     }
     default:
@@ -187,10 +191,20 @@ export async function main() {
     version,
   });
   server.start();
-  await new Promise((resolve) => {
+  // The end of the input may come while the API is still opening, so the
+  // promise of it is made before the wait for the API: an input that ended
+  // in the meantime is an input that already ended.
+  const ended = new Promise((resolve) => {
     process.stdin.once('end', resolve);
     process.stdin.once('close', resolve);
   });
+  // The control API of this process: an API that does not open is not a
+  // crash, and `startControl` already said why on the error stream.
+  const control = await startControl({ tools: TOOLS, ctx: server.context.ctx, version });
+  await ended;
+  // The API goes down before the server, so its socket and its record are
+  // gone by the time the process leaves.
+  await control?.stop();
   await server.stop();
 }
 

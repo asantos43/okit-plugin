@@ -9,6 +9,7 @@ Consulte cada componente para entender como o plugin organiza e executa trabalho
 
 - [Skills](skills.pt-BR.md): instruções para cada papel e tarefa.
 - [Ferramentas MCP](mcp-tools.pt-BR.md): entradas, respostas e efeitos.
+- [API de controle](control-api.pt-BR.md): chamadas locais a um servidor em execução.
 - [Hooks](hooks.pt-BR.md): contexto de sessão e coleta de cota.
 - [Adaptadores](adapters.pt-BR.md): recursos e instalação por cliente.
 - [CLI](cli.pt-BR.md): comandos e exemplos.

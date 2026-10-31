@@ -343,6 +343,7 @@ async function allSources() {
 const SCREEN_ELSEWHERE = new Map([
   ['src/cli.js: process.stdout', 'the question of `inbox take` (an inbox command, not the installer), read by a readline on the terminal'],
   ['src/setup/setup.js: process.stdout', 'the default of the reader, which wraps it in redactingStream on the next line'],
+  ['src/mcp/control.js: process.stderr', 'the control API tells on the error stream why it could not open; its default, replaced by the tests'],
   ['src/mcp/server.js: process.stdout', 'the MCP protocol: JSON-RPC messages are its output, not text for a person'],
   ['src/mcp/server.js: process.stderr.write', 'the MCP server log of a failure it cannot answer on the protocol'],
   ['src/quota/statusline-collector.js: process.stdout.write', 'the statusline collector prints the line the client shows; not the installer'],

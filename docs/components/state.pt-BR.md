@@ -20,6 +20,7 @@ A raiz padrão é ~/.okwork; OKWORK_HOME substitui a pasta inteira (não acresce
 | `runs/<runId>.json` | Estado da vaga, cliente e início/fim; lançamentos de processos também registram PID e resultado |
 | `runs/<runId>.out` | Stdout/stderr do lançador de processos quando não há outra pasta de logs |
 | `locks/config.lock/owner.json`, `inbox.json.lock/owner.json`, `orders.json.lock/owner.json`, `templates.json.lock/owner.json`, `runs.lock/owner.json` | Dono do lock de escrita, PID e instante; arquivos claim temporários coordenam recuperação |
+| `control/<pid>.json`, `control/<pid>.sock` | Registro e socket da [API de controle](control-api.pt-BR.md) de um servidor MCP em execução; privados do usuário |
 | `daemon.lock/owner.json` | Lock exclusivo do loop do daemon |
 | `daemon.pid.json`, `daemon.paused`, `daemon.stop` | Dono do loop e controles persistidos de pausa/parada |
 | `logs/<date>.jsonl` | Decisões do daemon e remoções por retenção |
