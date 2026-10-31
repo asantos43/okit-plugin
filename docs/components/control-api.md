@@ -17,7 +17,7 @@ When the MCP server starts, it opens a local endpoint next to its stdio channel.
 | Linux and macOS | A socket file `control/<pid>.sock` in the [state root](state.md), at most 100 bytes long |
 | Windows | A named pipe `okit-<hash of the root>-<pid>`, so two roots never share one |
 
-Next to it the server writes `control/<pid>.json` with its pid, endpoint, start time, version and a random token. The folder is private to the user (mode 0700) and so are the socket and the record (mode 0600); a folder that belongs to another user is refused.
+Next to it the server writes `control/<pid>.json` with its pid, endpoint, start time, version and a random token. On Linux and macOS the folder is private to the user (mode 0700) and so are the socket and the record (mode 0600); a folder that belongs to another user, or that is a link, is refused, and a record that is not a plain small file of the user is removed unread. On Windows the folder and the record live in the profile of the user and the pipe has no file mode: the random token of the record is what protects the API.
 
 <a id="protocol"></a>
 ## Protocol
@@ -34,6 +34,6 @@ The server opens it after the stdio channel starts and removes the socket and th
 <a id="client"></a>
 ## Calling it
 
-`src/mcp/control-client.js` offers `callControl({ root, tool, arguments })`. It tries the newest live server first, skips one that does not accept the connection, waits 5 seconds by default and always returns `{ ok, text }` or `{ ok: false, error }` in plain words; it never throws.
+`src/mcp/control-client.js` offers `callControl({ root, tool, arguments })`. It tries the newest live server first, skips one that does not accept the connection, waits 5 seconds by default and always returns `{ ok, text }` or `{ ok: false, error }` in plain words; it never throws. The client only connects to the endpoint the process of a record must have, never to one the record invents, and a call is never repeated on another server once it was sent.
 
 [Overview](README.md) · [MCP tools](mcp-tools.md) · [Português](control-api.pt-BR.md)

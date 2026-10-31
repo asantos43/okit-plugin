@@ -27,6 +27,8 @@ import { callTool } from './call-tool.js';
 const POSIX_PLATFORMS = new Set(['linux', 'darwin']);
 // The mode of the socket file: the owner of the machine only.
 const PRIVATE_SOCKET = 0o600;
+// How long a socket of a caller that is over the line may stay open.
+const REFUSED_TIMEOUT = 1000;
 
 /**
  * Starts the local control API of one process: it listens on the endpoint of
@@ -47,6 +49,7 @@ const PRIVATE_SOCKET = 0o600;
  * @param {number} [options.idleMs] how long a connection may say nothing
  * @param {number} [options.maxFrame] the most bytes of one frame
  * @param {number} [options.maxConnections] how many callers at a time
+ * @param {number} [options.maxQueued] how many frames one caller may have waiting
  * @returns {Promise<{endpoint: string, token: string, stop: () => Promise<void>}|null>}
  */
 export async function startControl({
@@ -60,37 +63,48 @@ export async function startControl({
   idleMs = 30000,
   maxFrame = 1048576,
   maxConnections = 8,
+  maxQueued = 16,
 } = {}) {
   const root = ctx?.root;
   const isPosix = POSIX_PLATFORMS.has(platform);
   const connections = new Set();
+  // The callers that are over the line: their sockets are tracked too, so a
+  // stop takes them away with the others.
+  const refused = new Set();
+  // The state every connection reads: a stop that happened while a frame was
+  // waiting must be seen by the handler of that frame.
+  const state = { stopped: false };
   let server = null;
   let endpoint = null;
-  let stopped = false;
 
   try {
-    // A process that died leaves its record and its socket behind: they are
-    // pruned before the API takes an endpoint of its own.
-    await listRecords(root, isAlive === undefined ? {} : { isAlive });
-
     endpoint = endpointFor({ root, pid, platform });
     if (!fitsPlatform(endpoint, platform)) {
       throw new Error(`the endpoint is longer than ${SOCKET_PATH_LIMIT} bytes`);
     }
+    // The folder is ours before anything of it is read: the records of it are
+    // not opened by a process that does not own the folder.
     await openControlDir(root, { platform });
+    // A process that died leaves its record and its socket behind: they are
+    // pruned before the API takes an endpoint of its own.
+    await listRecords(root, isAlive === undefined ? {} : { isAlive });
     // A socket file of this pid from a run that died is not ours to keep.
     if (isPosix) await filesystem.rm(endpoint, { force: true });
 
     const token = newToken();
     const stop = async () => {
       // Stopping twice is not a failure: the API is already gone.
-      if (stopped) return;
-      stopped = true;
+      if (state.stopped) return;
+      state.stopped = true;
       for (const socket of connections) socket.destroy();
       connections.clear();
+      for (const socket of refused) socket.destroy();
+      refused.clear();
       if (server !== null) {
+        // A connection that comes while the server is closing is sent away by
+        // the handler of it: a caller that never closes its side must not
+        // keep the API waiting.
         const closed = new Promise((resolve) => server.close(() => resolve()));
-        server.closeAllConnections?.();
         await closed;
       }
       // The socket file and the record of the API go with it.
@@ -102,7 +116,18 @@ export async function startControl({
     // it: the API is local and a failed caller is the caller's problem.
     server.on('error', () => {});
     server.on('connection', (socket) => {
-      handleConnection(socket, { tools, ctx, token, idleMs, maxFrame, maxConnections, connections });
+      handleConnection(socket, {
+        tools,
+        ctx,
+        token,
+        idleMs,
+        maxFrame,
+        maxConnections,
+        maxQueued,
+        connections,
+        refused,
+        state,
+      });
     });
     const opened = once(server, 'listening');
     server.listen(endpoint);
@@ -121,13 +146,14 @@ export async function startControl({
     // nothing behind.
     if (server !== null) {
       server.close();
-      server.closeAllConnections?.();
     }
     for (const socket of connections) socket.destroy();
     connections.clear();
+    for (const socket of refused) socket.destroy();
+    refused.clear();
     if (isPosix && endpoint !== null) await filesystem.rm(endpoint, { force: true }).catch(() => {});
     await removeRecord(root, pid, { platform }).catch(() => {});
-    stderr.write(`okit control api: ${reason(error)}\n`);
+    stderr.write(`okit control api: ${openReason(error)}\n`);
     return null;
   }
 }
@@ -146,12 +172,25 @@ function handleConnection(socket, {
   idleMs,
   maxFrame,
   maxConnections,
+  maxQueued,
   connections,
+  refused,
+  state,
 }) {
+  if (state.stopped) {
+    // The API is already gone: the caller is sent away.
+    socket.destroy();
+    return;
+  }
   if (connections.size >= maxConnections) {
     // The API takes only a few callers: the one over the line is told to go.
+    // Its socket is tracked anyway, so a caller that never closes its side
+    // does not keep the API waiting.
     socket.on('error', () => {});
     socket.end(`${JSON.stringify({ id: null, ok: false, error: 'too many connections' })}\n`);
+    socket.setTimeout(REFUSED_TIMEOUT, () => socket.destroy());
+    refused.add(socket);
+    socket.on('close', () => refused.delete(socket));
     return;
   }
   connections.add(socket);
@@ -161,15 +200,42 @@ function handleConnection(socket, {
   const decoder = new StringDecoder('utf8');
   let pending = '';
   let oversized = false;
+  let flooded = false;
   // Lines are answered in the order they arrived, so one chain is enough.
   let chain = Promise.resolve();
+  // The frames that arrived and were not answered yet.
+  let queued = 0;
 
   const reply = (payload) => {
     if (socket.destroyed || socket.writableEnded) return;
     socket.write(`${JSON.stringify(payload)}\n`);
   };
 
+  // The clock of the idle time only runs when there is nothing to answer.
+  const arm = () => {
+    if (socket.destroyed || socket.writableEnded) return;
+    socket.setTimeout(idleMs, () => socket.destroy());
+  };
+  const disarm = () => {
+    if (socket.destroyed) return;
+    socket.setTimeout(0);
+  };
+
   const handle = async (line) => {
+    try {
+      await answer(line);
+    } finally {
+      queued -= 1;
+      // The clock starts again when the queue is empty and the answer of the
+      // last frame was written.
+      if (queued === 0) arm();
+    }
+  };
+
+  const answer = async (line) => {
+    // A frame that comes after the connection went away, or after the API
+    // was stopped, is not answered and does not run.
+    if (socket.destroyed || socket.writableEnded || state.stopped) return;
     let frame;
     try {
       frame = JSON.parse(line);
@@ -194,6 +260,9 @@ function handleConnection(socket, {
       return;
     }
     const args = frame.arguments ?? {};
+    // The clock of the idle time stops while the call runs: a call that takes
+    // its time is not an idle connection.
+    disarm();
     try {
       const result = await callTool(tools, ctx, frame.tool, args);
       if (result.isError) reply({ id, ok: false, error: result.text });
@@ -213,7 +282,7 @@ function handleConnection(socket, {
   };
 
   socket.on('data', (chunk) => {
-    if (oversized) return;
+    if (oversized || flooded) return;
     pending += decoder.write(chunk);
     let index = pending.indexOf('\n');
     while (index >= 0) {
@@ -225,6 +294,17 @@ function handleConnection(socket, {
         chain = chain.then(tooLarge).catch(() => {});
         return;
       }
+      // The queue of one caller is bounded: a caller that floods the API is
+      // told and goes, and the frames that were waiting do not run.
+      if (queued + 1 > maxQueued) {
+        flooded = true;
+        pending = '';
+        reply({ id: null, ok: false, error: 'too many pending calls' });
+        socket.end();
+        socket.setTimeout(REFUSED_TIMEOUT, () => socket.destroy());
+        return;
+      }
+      queued += 1;
       chain = chain.then(() => handle(line)).catch(() => {});
       index = pending.indexOf('\n');
     }
@@ -251,4 +331,28 @@ function handleConnection(socket, {
 function reason(error) {
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/^control api:\s*/, '');
+}
+
+/**
+ * The reason of a failure of the open, in words that name no path of the
+ * machine: the message of the system carries the path of the endpoint, and
+ * that path is not one to print.
+ *
+ * @param {unknown} error
+ * @returns {string}
+ */
+function openReason(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = error?.code;
+  if (typeof code === 'string' && code !== '') return `could not open the endpoint (${code})`;
+  if (message.includes('is not a plain folder')) {
+    return 'the control folder is not a plain folder of this user';
+  }
+  if (message.includes('is not owned by this user')) {
+    return 'the control folder belongs to another user';
+  }
+  if (message.includes(`longer than ${SOCKET_PATH_LIMIT} bytes`)) {
+    return `the endpoint is longer than ${SOCKET_PATH_LIMIT} bytes`;
+  }
+  return 'could not open the endpoint';
 }

@@ -4,6 +4,7 @@
 // processes that are still alive.
 
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import * as filesystem from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,7 +23,7 @@ import {
 } from '../src/mcp/control-endpoint.js';
 import { paths } from '../src/store.js';
 
-const { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } = filesystem;
+const { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } = filesystem;
 
 // The modes of a folder and of a file are a fact of POSIX only.
 const POSIX_ONLY = process.platform === 'win32' ? 'the modes are a fact of POSIX' : false;
@@ -118,22 +119,30 @@ test('a folder of another user is refused', { skip: POSIX_ONLY }, async () => {
   });
 });
 
-test('a record that is corrupted, incomplete or of a dead process is removed', async () => {
+test('a record that is corrupted, incomplete or of a dead process is removed', { skip: POSIX_ONLY }, async () => {
   const root = await tempRoot();
   const dir = await openControlDir(root, { platform: 'linux' });
 
-  await writeRecord(root, { pid: 11, endpoint: 'ep-11', token: 'tk-11' }, { platform: 'linux' });
+  await writeRecord(root, {
+    pid: 11,
+    endpoint: endpointFor({ root, pid: 11, platform: 'linux' }),
+    token: 'tk-11',
+  }, { platform: 'linux' });
   // A record that cannot be parsed.
   await writeFile(join(dir, '12.json'), '{ not json', 'utf8');
   // A record without the fields the API needs.
   await writeFile(join(dir, '13.json'), JSON.stringify({ pid: 13 }), 'utf8');
   // A record of a process that died, with the socket file that goes with it.
-  await writeFile(join(dir, '14.json'), JSON.stringify({ pid: 14, endpoint: 'ep-14', token: 'tk-14' }), 'utf8');
+  await writeFile(join(dir, '14.json'), JSON.stringify({
+    pid: 14,
+    endpoint: endpointFor({ root, pid: 14, platform: 'linux' }),
+    token: 'tk-14',
+  }), 'utf8');
   await writeFile(join(dir, '14.sock'), '', 'utf8');
 
-  const alive = await listRecords(root, { isAlive: (pid) => pid === 11 });
+  const alive = await listRecords(root, { platform: 'linux', isAlive: (pid) => pid === 11 });
   assert.deepEqual(alive.map((record) => record.pid), [11]);
-  assert.equal(alive[0].endpoint, 'ep-11');
+  assert.equal(alive[0].endpoint, endpointFor({ root, pid: 11, platform: 'linux' }));
 
   for (const name of ['12.json', '13.json', '14.json', '14.sock']) {
     await assert.rejects(stat(join(dir, name)), { code: 'ENOENT' }, `${name} should be gone`);
@@ -181,4 +190,94 @@ test('on Windows the socket file is left alone', async () => {
   await removeRecord(root, 22, { platform: 'win32' });
   await assert.rejects(stat(join(dir, '22.json')), { code: 'ENOENT' });
   assert.ok((await stat(join(dir, '22.sock'))).isFile(), 'the socket file stays on Windows');
+});
+
+test('a control folder that is a link is refused and lists nothing', { skip: POSIX_ONLY }, async () => {
+  const root = await tempRoot();
+  const dir = paths(root).control;
+  const target = join(root, 'elsewhere');
+  await mkdir(target, { recursive: true });
+  await symlink(target, dir);
+
+  await assert.rejects(() => openControlDir(root, { platform: 'linux' }), {
+    message: `control api: ${dir} is not a plain folder`,
+  });
+  assert.deepEqual(await listRecords(root, { platform: 'linux' }), []);
+});
+
+test('a record that is a fifo is pruned without being read', { skip: POSIX_ONLY }, async () => {
+  const root = await tempRoot();
+  const dir = await openControlDir(root, { platform: 'linux' });
+  // A fifo with no writer would block the read for ever.
+  execFileSync('mkfifo', [join(dir, '31.json')]);
+
+  const alive = await Promise.race([
+    listRecords(root, { platform: 'linux', isAlive: () => true }),
+    new Promise((resolve) => setTimeout(() => resolve('timeout'), 2000)),
+  ]);
+  assert.notEqual(alive, 'timeout', 'the listing must not block on the fifo');
+  assert.deepEqual(alive, []);
+  await assert.rejects(stat(join(dir, '31.json')), { code: 'ENOENT' });
+});
+
+test('a record that is a link to another record is pruned', { skip: POSIX_ONLY }, async () => {
+  const root = await tempRoot();
+  const dir = await openControlDir(root, { platform: 'linux' });
+  // The record behind the link is a whole one: only the link itself keeps it
+  // from being read.
+  const real = join(root, 'real.json');
+  await writeFile(real, JSON.stringify({
+    pid: 33,
+    endpoint: endpointFor({ root, pid: 33, platform: 'linux' }),
+    token: 'tk-33',
+  }), 'utf8');
+  await symlink(real, join(dir, '33.json'));
+
+  const alive = await listRecords(root, { platform: 'linux', isAlive: () => true });
+  assert.deepEqual(alive, []);
+  await assert.rejects(lstat(join(dir, '33.json')), { code: 'ENOENT' });
+  assert.ok((await stat(real)).isFile(), 'the record behind the link stays');
+});
+
+test('a record whose pid is not the one of its name is pruned', { skip: POSIX_ONLY }, async () => {
+  const root = await tempRoot();
+  const dir = await openControlDir(root, { platform: 'linux' });
+  await writeFile(join(dir, '41.json'), JSON.stringify({
+    pid: 42,
+    endpoint: endpointFor({ root, pid: 42, platform: 'linux' }),
+    token: 'tk-42',
+  }), 'utf8');
+
+  const alive = await listRecords(root, { platform: 'linux', isAlive: () => true });
+  assert.deepEqual(alive, []);
+  await assert.rejects(stat(join(dir, '41.json')), { code: 'ENOENT' });
+});
+
+test('a record that names another endpoint is pruned', { skip: POSIX_ONLY }, async () => {
+  const root = await tempRoot();
+  const dir = await openControlDir(root, { platform: 'linux' });
+  await writeFile(join(dir, '51.json'), JSON.stringify({
+    pid: 51,
+    endpoint: '/somewhere/else.sock',
+    token: 'tk-51',
+  }), 'utf8');
+
+  const alive = await listRecords(root, { platform: 'linux', isAlive: () => true });
+  assert.deepEqual(alive, []);
+  await assert.rejects(stat(join(dir, '51.json')), { code: 'ENOENT' });
+});
+
+test('a record bigger than the limit is pruned', { skip: POSIX_ONLY }, async () => {
+  const root = await tempRoot();
+  const dir = await openControlDir(root, { platform: 'linux' });
+  const big = JSON.stringify({
+    pid: 61,
+    endpoint: endpointFor({ root, pid: 61, platform: 'linux' }),
+    token: 'x'.repeat(70000),
+  });
+  await writeFile(join(dir, '61.json'), big, 'utf8');
+
+  const alive = await listRecords(root, { platform: 'linux', isAlive: () => true });
+  assert.deepEqual(alive, []);
+  await assert.rejects(stat(join(dir, '61.json')), { code: 'ENOENT' });
 });

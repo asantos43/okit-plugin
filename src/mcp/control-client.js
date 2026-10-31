@@ -6,9 +6,12 @@
 // The client asks the servers from the newest to the oldest, because the one
 // that started last is the one that holds the state of the moment. A server
 // that does not accept the connection is skipped: a record of a process that
-// died can be there for a while, and the client must not stop at it.
+// died can be there for a while, and the client must not stop at it. From the
+// moment the connection is open the call may already have run, so a failure
+// from there on is the answer of that server, and no other server is asked.
 
 import net from 'node:net';
+import { StringDecoder } from 'node:string_decoder';
 
 import { listRecords } from './control-endpoint.js';
 
@@ -20,6 +23,8 @@ const NO_ANSWER = 'no okit server answers on this state folder';
 const NOT_UNDERSTOOD = 'the okit server sent an answer that is not understood';
 // What the caller reads when a server hangs up before it answers.
 const CLOSED = 'the okit server closed the connection';
+// What the caller reads when a server does not take the connection.
+const NOT_ACCEPTED = 'the okit server did not accept the connection';
 
 const refusal = (error) => ({ ok: false, error });
 
@@ -74,6 +79,16 @@ export async function callControl({
   isAlive,
   platform,
 } = {}) {
+  // The arguments are turned into JSON once, before any server is asked: a
+  // cycle or a number too big is said here, and the call ends without
+  // opening a socket.
+  let argumentsText;
+  try {
+    argumentsText = JSON.stringify(args) ?? 'null';
+  } catch (error) {
+    return refusal(`the arguments cannot be sent: ${reason(error)}`);
+  }
+
   let servers;
   try {
     servers = await findServers(root, { isAlive, platform, pid });
@@ -82,22 +97,20 @@ export async function callControl({
   }
   if (servers.length === 0) return refusal(NO_SERVER);
 
-  let timeout = null;
   for (const server of servers) {
-    const answer = await ask(server, { tool, args, timeoutMs });
-    if (answer.ok) return { ok: true, text: answer.text };
-    // A server that does not accept the connection is not the one the
-    // caller wants: the next one is tried.
-    if (answer.retry) continue;
-    if (answer.timeout) {
-      timeout = answer;
-      continue;
+    let answer;
+    try {
+      answer = await ask(server, { tool, argumentsText, timeoutMs });
+    } catch (error) {
+      return refusal(reason(error));
     }
+    if (answer.ok) return { ok: true, text: answer.text };
+    // A server that does not take the connection never ran the call, so the
+    // next one is tried. Once the connection is open the call may already
+    // have run, and the answer of that server is the answer.
+    if (answer.retry) continue;
     return refusal(answer.error);
   }
-  // A server that was there and did not answer in time says more than the
-  // silence of a folder where nobody listens.
-  if (timeout !== null) return refusal(timeout.error);
   return refusal(NO_ANSWER);
 }
 
@@ -106,38 +119,66 @@ export async function callControl({
  * line back.
  *
  * @param {object} server the record of the server
- * @param {{tool: string, args: object, timeoutMs: number}} options
- * @returns {Promise<{ok: true, text: string}|{ok: false, error: string, retry?: boolean, timeout?: boolean}>}
+ * @param {{tool: string, argumentsText: string, timeoutMs: number}} options
+ * @returns {Promise<{ok: true, text: string}|{ok: false, error: string, retry?: boolean}>}
  */
-function ask(server, { tool, args, timeoutMs }) {
+function ask(server, { tool, argumentsText, timeoutMs }) {
   return new Promise((resolve) => {
-    const socket = net.connect(server.endpoint);
+    let socket = null;
+    let timer = null;
     let settled = false;
+    let connected = false;
+    const decoder = new StringDecoder('utf8');
     let buffer = '';
     const settle = (result) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
-      socket.destroy();
+      if (timer !== null) clearTimeout(timer);
+      if (socket !== null) socket.destroy();
       resolve(result);
     };
-    // The whole attempt has one budget: the connection, the frame and the
-    // answer together may not take longer than that.
-    const timer = setTimeout(
-      () => settle({ ok: false, error: `the okit server did not answer in ${timeoutMs} ms`, timeout: true }),
-      timeoutMs,
-    );
-    socket.on('error', () => settle({ ok: false, error: 'the okit server did not accept the connection', retry: true }));
-    socket.on('close', () => settle({ ok: false, error: CLOSED }));
-    socket.on('connect', () => {
-      socket.write(`${JSON.stringify({ id: 1, token: server.token, tool, arguments: args })}\n`);
-    });
-    socket.on('data', (chunk) => {
-      buffer += chunk.toString('utf8');
-      const index = buffer.indexOf('\n');
-      if (index < 0) return;
-      settle(answerOf(buffer.slice(0, index)));
-    });
+    // The frame of the call: the id, the token of the record, the tool and
+    // the arguments, which are already text. It is built before the
+    // connection is opened, so a frame that cannot be built is said instead
+    // of thrown.
+    let frame;
+    try {
+      frame = `{"id":1,"token":${JSON.stringify(server.token)},"tool":${JSON.stringify(tool)},"arguments":${argumentsText}}\n`;
+    } catch (error) {
+      settle({ ok: false, error: `the arguments cannot be sent: ${reason(error)}` });
+      return;
+    }
+    try {
+      // The whole attempt has one budget: the connection, the frame and the
+      // answer together may not take longer than that.
+      timer = setTimeout(
+        () => settle({ ok: false, error: `the okit server did not answer in ${timeoutMs} ms` }),
+        timeoutMs,
+      );
+      socket = net.connect(server.endpoint);
+      socket.on('error', () => settle(connected
+        ? { ok: false, error: CLOSED }
+        : { ok: false, error: NOT_ACCEPTED, retry: true }));
+      socket.on('close', () => settle(connected
+        ? { ok: false, error: CLOSED }
+        : { ok: false, error: NOT_ACCEPTED, retry: true }));
+      socket.on('connect', () => {
+        connected = true;
+        try {
+          socket.write(frame);
+        } catch {
+          settle({ ok: false, error: CLOSED });
+        }
+      });
+      socket.on('data', (chunk) => {
+        buffer += decoder.write(chunk);
+        const index = buffer.indexOf('\n');
+        if (index < 0) return;
+        settle(answerOf(buffer.slice(0, index)));
+      });
+    } catch (error) {
+      settle({ ok: false, error: reason(error) });
+    }
   });
 }
 

@@ -21,6 +21,8 @@ const PRIVATE_FILE = 0o600;
 // The name of a record and of the socket file of one process.
 const RECORD_SUFFIX = '.json';
 const SOCKET_SUFFIX = '.sock';
+// The most bytes a record may have: a record is a few lines of JSON.
+const MAX_RECORD_BYTES = 65536;
 
 /**
  * Where the control API of one process listens: a socket file inside the
@@ -61,14 +63,29 @@ export function fitsPlatform(endpoint, platform = process.platform) {
  * @param {string} root the state root
  * @param {{platform?: string, fs?: object}} [options]
  * @returns {Promise<string>} the folder of the control API
- * @throws when the folder belongs to another user
+ * @throws when the folder belongs to another user or is not a plain folder
  */
 export async function openControlDir(root, { platform = process.platform, fs = filesystem } = {}) {
   const dir = paths(root).control;
-  await fs.mkdir(dir, { recursive: true, mode: PRIVATE_DIR });
   // Windows has no mode of its own, so the folder is only created there.
-  if (!POSIX_PLATFORMS.has(platform)) return dir;
+  if (!POSIX_PLATFORMS.has(platform)) {
+    await fs.mkdir(dir, { recursive: true, mode: PRIVATE_DIR });
+    return dir;
+  }
 
+  await fs.mkdir(dir, { recursive: true, mode: PRIVATE_DIR }).catch((error) => {
+    // A path that is there and is not a folder is told by the check below.
+    if (error.code !== 'EEXIST' && error.code !== 'ENOENT') throw error;
+  });
+  const plain = await fs.lstat(dir).catch((error) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  // A link or a file is not the private folder of the user: what is behind
+  // it would be the one that decides.
+  if (plain === null || plain.isSymbolicLink() || !plain.isDirectory()) {
+    throw new Error(`control api: ${dir} is not a plain folder`);
+  }
   const info = await fs.stat(dir);
   if (info.uid !== process.getuid()) {
     // A folder of another user: the mode is tried anyway, and the owner is
@@ -155,12 +172,31 @@ export async function removeRecord(root, pid, { platform = process.platform, fs 
  * corrupted, incomplete or of a process that died is removed, together with
  * the socket file that goes with it.
  *
+ * On POSIX the folder of the records is only read when it is a plain folder
+ * of this user, and a record is only read when it is a plain file of this
+ * user: a link, a fifo or a file that is too big is removed instead of being
+ * opened. A record that says another endpoint than the one the process of
+ * that pid must have is removed too, so the client never connects to an
+ * endpoint a record invented.
+ *
  * @param {string} root the state root
  * @param {{isAlive?: (pid: number) => boolean, platform?: string, fs?: object}} [options]
  * @returns {Promise<object[]>} the records of the live processes
  */
 export async function listRecords(root, { isAlive = defaultIsAlive, platform = process.platform, fs = filesystem } = {}) {
   const dir = paths(root).control;
+  const isPosix = POSIX_PLATFORMS.has(platform);
+  if (isPosix) {
+    // The folder is looked at before anything is read: a link or a folder of
+    // another user is not ours to open, and nothing of it is removed.
+    const info = await fs.lstat(dir).catch((error) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (info === null) return [];
+    if (info.isSymbolicLink() || !info.isDirectory() || info.uid !== process.getuid()) return [];
+  }
+
   let names;
   try {
     names = await fs.readdir(dir);
@@ -172,9 +208,23 @@ export async function listRecords(root, { isAlive = defaultIsAlive, platform = p
   const alive = [];
   for (const name of names) {
     if (!name.endsWith(RECORD_SUFFIX)) continue;
-    const record = await readRecord(join(dir, name), fs);
-    if (!isComplete(record) || !isAlive(record.pid)) {
-      await removeRecord(root, pidOf(name), { platform, fs });
+    const file = join(dir, name);
+    if (isPosix) {
+      // The file is looked at before it is opened: a fifo would block the
+      // read, and a record of another user is not ours to read.
+      const info = await fs.lstat(file).catch(() => null);
+      const plain = info !== null
+        && info.isFile()
+        && info.uid === process.getuid()
+        && info.size <= MAX_RECORD_BYTES;
+      if (!plain) {
+        await prune(root, name, { platform, fs });
+        continue;
+      }
+    }
+    const record = await readRecord(file, fs);
+    if (!isUsable(record, name, root, platform, isPosix) || !isAlive(record.pid)) {
+      await prune(root, name, { platform, fs });
       continue;
     }
     alive.push(record);
@@ -202,6 +252,32 @@ export function tokenMatches(expected, given) {
 // The pid of the name of a record, so a record that cannot be read is still
 // removed by the name it was found under.
 const pidOf = (name) => name.slice(0, -RECORD_SUFFIX.length);
+
+// The pid of the name of a record, when the name holds one.
+function pidInName(name) {
+  const text = pidOf(name);
+  if (!/^\d+$/.test(text)) return null;
+  const pid = Number(text);
+  return Number.isSafeInteger(pid) ? pid : null;
+}
+
+// A record that cannot be used is removed with the name it was found under,
+// and a failure of the removal is not a failure of the listing.
+async function prune(root, name, { platform, fs }) {
+  await removeRecord(root, pidOf(name), { platform, fs }).catch(() => {});
+}
+
+// A record that can be used: the pid of its name is the pid it says, and the
+// endpoint it carries is the one the process of that pid must have, so the
+// client never connects to an endpoint a record invented.
+function isUsable(record, name, root, platform, isPosix) {
+  if (!isComplete(record)) return false;
+  if (isPosix) {
+    const pid = pidInName(name);
+    if (pid === null || pid !== record.pid) return false;
+  }
+  return record.endpoint === endpointFor({ root, pid: record.pid, platform });
+}
 
 async function readRecord(file, fs) {
   try {

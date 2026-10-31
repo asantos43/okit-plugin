@@ -11,7 +11,7 @@ import { after, test } from 'node:test';
 
 import { callControl, findServers } from '../src/mcp/control-client.js';
 import { startControl } from '../src/mcp/control.js';
-import { writeRecord } from '../src/mcp/control-endpoint.js';
+import { endpointFor, openControlDir, writeRecord } from '../src/mcp/control-endpoint.js';
 import { respond } from '../src/mcp/server.js';
 
 // A socket path is limited to a hundred bytes, so the folders of these tests are
@@ -121,7 +121,7 @@ test('a record of a server that is not there says that nobody answers', async ()
   const root = await tempRoot();
   await writeRecord(root, {
     pid: 999999,
-    endpoint: join(root, 'control', 'gone.sock'),
+    endpoint: endpointFor({ root, pid: 999999 }),
     token: 'tk-999999',
     startedAt: Date.now(),
   });
@@ -138,7 +138,7 @@ test('the client falls back to the older server when the newest one is gone', as
   // alive: the client tries it first and moves on to the one that answers.
   await writeRecord(root, {
     pid: 999999,
-    endpoint: join(root, 'control', 'gone.sock'),
+    endpoint: endpointFor({ root, pid: 999999 }),
     token: 'tk-999999',
     startedAt: Date.now() + 1000,
   });
@@ -162,7 +162,8 @@ test('a server that is slow says that it did not answer in time', async () => {
 for (const junk of ['not json', '42', '{"ok":"yes","text":"x"}']) {
   test(`a server that answers ${junk} says that it was not understood`, async () => {
     const root = await tempRoot();
-    const endpoint = join(root, 'junk.sock');
+    await openControlDir(root);
+    const endpoint = endpointFor({ root, pid: 999998 });
     const server = net.createServer((socket) => {
       accepted.push(socket);
       socket.write(`${junk}\n`);
@@ -182,7 +183,7 @@ test('the servers of a folder come with the newest first', async () => {
   await start({ root });
   await writeRecord(root, {
     pid: 999999,
-    endpoint: join(root, 'control', 'gone.sock'),
+    endpoint: endpointFor({ root, pid: 999999 }),
     token: 'tk-999999',
     startedAt: Date.now() + 1000,
   });
@@ -195,4 +196,127 @@ test('the servers of a folder come with the newest first', async () => {
   const one = await findServers(root, { isAlive: () => true, pid: process.pid });
   assert.equal(one.length, 1);
   assert.equal(one[0].pid, process.pid);
+});
+
+test('a server that takes the call and says nothing is not tried again', async () => {
+  const root = await tempRoot();
+  await openControlDir(root);
+  // The newest server takes the connection and never answers: the call may
+  // already have run there, so the older one is never asked.
+  const quiet = net.createServer((socket) => {
+    accepted.push(socket);
+  });
+  servers.push(quiet);
+  await new Promise((resolve) => quiet.listen(endpointFor({ root, pid: 999998 }), resolve));
+  let olderCalls = 0;
+  const older = net.createServer((socket) => {
+    olderCalls += 1;
+    accepted.push(socket);
+    socket.write(`${JSON.stringify({ id: 1, ok: true, text: 'answered' })}\n`);
+  });
+  servers.push(older);
+  await new Promise((resolve) => older.listen(endpointFor({ root, pid: 999997 }), resolve));
+  await writeRecord(root, {
+    pid: 999998,
+    endpoint: endpointFor({ root, pid: 999998 }),
+    token: 'tk-999998',
+    startedAt: Date.now() + 1000,
+  });
+  await writeRecord(root, {
+    pid: 999997,
+    endpoint: endpointFor({ root, pid: 999997 }),
+    token: 'tk-999997',
+    startedAt: Date.now(),
+  });
+
+  const answer = await callControl({ root, tool: 'first', arguments: {}, timeoutMs: 150, isAlive: () => true });
+  assert.equal(answer.ok, false);
+  assert.equal(answer.error, 'the okit server did not answer in 150 ms');
+  assert.equal(olderCalls, 0, 'the older server must not be asked');
+});
+
+test('a server that closes without answering is not tried again', async () => {
+  const root = await tempRoot();
+  await openControlDir(root);
+  // The newest server takes the connection and hangs up: the call may
+  // already have run there, so the older one is never asked.
+  const closing = net.createServer((socket) => {
+    accepted.push(socket);
+    socket.on('data', () => socket.destroy());
+  });
+  servers.push(closing);
+  await new Promise((resolve) => closing.listen(endpointFor({ root, pid: 999998 }), resolve));
+  let olderCalls = 0;
+  const older = net.createServer((socket) => {
+    olderCalls += 1;
+    accepted.push(socket);
+    socket.write(`${JSON.stringify({ id: 1, ok: true, text: 'answered' })}\n`);
+  });
+  servers.push(older);
+  await new Promise((resolve) => older.listen(endpointFor({ root, pid: 999997 }), resolve));
+  await writeRecord(root, {
+    pid: 999998,
+    endpoint: endpointFor({ root, pid: 999998 }),
+    token: 'tk-999998',
+    startedAt: Date.now() + 1000,
+  });
+  await writeRecord(root, {
+    pid: 999997,
+    endpoint: endpointFor({ root, pid: 999997 }),
+    token: 'tk-999997',
+    startedAt: Date.now(),
+  });
+
+  const answer = await callControl({ root, tool: 'first', arguments: {}, timeoutMs: 5000, isAlive: () => true });
+  assert.equal(answer.ok, false);
+  assert.equal(answer.error, 'the okit server closed the connection');
+  assert.equal(olderCalls, 0, 'the older server must not be asked');
+});
+
+test('arguments that cannot be sent are refused without throwing', async () => {
+  const root = await tempRoot();
+  await start({ root });
+  const circular = { name: 'loop' };
+  circular.self = circular;
+
+  const loop = await callControl({ root, tool: 'first', arguments: circular });
+  assert.equal(loop.ok, false);
+  assert.match(loop.error, /^the arguments cannot be sent: /);
+
+  const big = await callControl({ root, tool: 'first', arguments: { value: 1n } });
+  assert.equal(big.ok, false);
+  assert.match(big.error, /^the arguments cannot be sent: /);
+
+  // The arguments are refused before any server is looked for: the call
+  // says what is wrong with them and not who could have answered.
+  const empty = await tempRoot();
+  const nowhere = await callControl({ root: empty, tool: 'first', arguments: circular });
+  assert.equal(nowhere.ok, false);
+  assert.match(nowhere.error, /^the arguments cannot be sent: /);
+});
+
+test('an answer cut in the middle of a character keeps its text', async () => {
+  const root = await tempRoot();
+  await openControlDir(root);
+  const line = `${JSON.stringify({ id: 1, ok: true, text: 'ação' })}\n`;
+  const bytes = Buffer.from(line, 'utf8');
+  // The cut is in the middle of the two bytes of the first accent.
+  const cut = bytes.indexOf(0xc3) + 1;
+  const server = net.createServer((socket) => {
+    accepted.push(socket);
+    socket.write(bytes.subarray(0, cut));
+    setTimeout(() => socket.write(bytes.subarray(cut)), 30);
+  });
+  servers.push(server);
+  await new Promise((resolve) => server.listen(endpointFor({ root, pid: 999998 }), resolve));
+  await writeRecord(root, {
+    pid: 999998,
+    endpoint: endpointFor({ root, pid: 999998 }),
+    token: 'tk-999998',
+    startedAt: Date.now(),
+  });
+
+  const answer = await callControl({ root, tool: 'first', arguments: {}, isAlive: () => true });
+  assert.equal(answer.ok, true);
+  assert.equal(answer.text, 'ação');
 });

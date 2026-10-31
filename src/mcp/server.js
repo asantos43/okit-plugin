@@ -191,13 +191,17 @@ export async function main() {
     version,
   });
   server.start();
-  // The control API of this process: an API that does not open is not a
-  // crash, and `startControl` already said why on the error stream.
-  const control = await startControl({ tools: TOOLS, ctx: server.context.ctx, version });
-  await new Promise((resolve) => {
+  // The end of the input may come while the API is still opening, so the
+  // promise of it is made before the wait for the API: an input that ended
+  // in the meantime is an input that already ended.
+  const ended = new Promise((resolve) => {
     process.stdin.once('end', resolve);
     process.stdin.once('close', resolve);
   });
+  // The control API of this process: an API that does not open is not a
+  // crash, and `startControl` already said why on the error stream.
+  const control = await startControl({ tools: TOOLS, ctx: server.context.ctx, version });
+  await ended;
   // The API goes down before the server, so its socket and its record are
   // gone by the time the process leaves.
   await control?.stop();

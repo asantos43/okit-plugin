@@ -10,6 +10,7 @@ import process from 'node:process';
 import { after, test } from 'node:test';
 
 import { startControl } from '../src/mcp/control.js';
+import { endpointFor } from '../src/mcp/control-endpoint.js';
 import { respond } from '../src/mcp/server.js';
 import { paths } from '../src/store.js';
 
@@ -17,7 +18,7 @@ import { paths } from '../src/store.js';
 // short even where TMPDIR is a long path.
 const SHORT_TMP = process.platform === 'win32' ? tmpdir() : '/tmp';
 
-const { mkdir, mkdtemp, readFile, rm, stat, writeFile } = filesystem;
+const { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } = filesystem;
 
 // The modes of a folder and of a file are a fact of POSIX only.
 const POSIX_ONLY = process.platform === 'win32' ? 'the modes are a fact of POSIX' : false;
@@ -70,9 +71,9 @@ async function start({ root, tools = TOOLS, ...options } = {}) {
 
 // The client of the API, in the test itself: it opens a socket, writes a
 // frame and reads a line back.
-function open(endpoint) {
+function open(endpoint, options = {}) {
   return new Promise((resolve, reject) => {
-    const socket = net.connect(endpoint);
+    const socket = net.connect({ path: endpoint, ...options });
     const client = { socket, lines: [], waiters: [], buffer: '' };
     let connected = false;
     // The close of the socket is a promise from the start, so a test that
@@ -118,6 +119,21 @@ function nextLine(client) {
 // it is.
 function send(client, frame) {
   client.socket.write(typeof frame === 'string' ? frame : `${JSON.stringify(frame)}\n`);
+}
+
+// A bounded wait fails the test instead of leaving a stuck socket behind.
+async function within(promise, milliseconds = 3000) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('the api did not finish in time')), milliseconds);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 test('a call over the api answers the text the mcp gives for the same call', async () => {
@@ -205,21 +221,27 @@ test('a connection over the limit is refused and the others keep answering', asy
   second.socket.destroy();
 });
 
-test('a connection that says nothing is closed', async () => {
+test('a connection that says nothing is closed', async (t) => {
   const root = await tempRoot();
   const control = await start({ root, idleMs: 150 });
   const client = await open(control.endpoint);
+  t.after(() => client.socket.destroy());
 
   const started = Date.now();
-  await client.closed;
+  await within(client.closed, 1500);
   assert.ok(Date.now() - started >= 100, 'the connection waited for the idle time');
+  assert.ok(Date.now() - started < 1500, 'the idle connection should close promptly');
 });
 
 test('the record of a dead process is pruned when the api opens', async () => {
   const root = await tempRoot();
   const dir = paths(root).control;
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, '999999.json'), JSON.stringify({ pid: 999999, endpoint: 'ep-999999', token: 'tk-999999' }), 'utf8');
+  await writeFile(join(dir, '999999.json'), JSON.stringify({
+    pid: 999999,
+    endpoint: endpointFor({ root, pid: 999999 }),
+    token: 'tk-999999',
+  }), 'utf8');
   await writeFile(join(dir, '999999.sock'), '', 'utf8');
 
   const control = await start({ root, isAlive: () => false });
@@ -307,6 +329,8 @@ test('a root whose path is too long does not open the api', { skip: POSIX_ONLY }
   assert.equal(control, null);
   assert.equal(lines.length, 1);
   assert.match(lines[0], /^okit control api: /);
+  assert.ok(!lines[0].includes(root), 'an open failure must not print the root');
+  assert.match(lines[0], /^okit control api: (?:the endpoint is longer than \d+ bytes|could not open the endpoint(?: \([A-Z0-9_]+\))?)\n$/);
 });
 
 test('the socket and the record belong to the owner of the machine only', { skip: POSIX_ONLY }, async () => {
@@ -376,4 +400,173 @@ test('a socket file left by a run of the same process does not stop the api', { 
   send(client, { id: 1, token: control.token, tool: 'first', arguments: {} });
   assert.equal(JSON.parse(await nextLine(client)).ok, true);
   client.socket.destroy();
+});
+
+test('stop destroys a refused connection whose client keeps its side open', async (t) => {
+  const root = await tempRoot();
+  const control = await start({ root, maxConnections: 1 });
+  const first = await open(control.endpoint);
+  t.after(() => first.socket.destroy());
+  const refused = await open(control.endpoint, { allowHalfOpen: true });
+  t.after(() => refused.socket.destroy());
+
+  assert.equal(JSON.parse(await within(nextLine(refused))).error, 'too many connections');
+  assert.equal(refused.socket.writableEnded, false);
+  assert.equal(refused.socket.destroyed, false);
+
+  const started = Date.now();
+  await within(control.stop());
+  assert.ok(Date.now() - started < 500, 'a refused caller must not hold stop open');
+  // The caller still has its write side open: a write now sees the peer gone.
+  refused.socket.write('still here\n');
+  await within(refused.closed);
+  assert.equal(refused.socket.destroyed, true);
+});
+
+test('a refused connection whose client never closes is destroyed by its timeout', async (t) => {
+  const root = await tempRoot();
+  const control = await start({ root, maxConnections: 1 });
+  const first = await open(control.endpoint);
+  t.after(() => first.socket.destroy());
+  const refused = await open(control.endpoint, { allowHalfOpen: true });
+  t.after(() => refused.socket.destroy());
+
+  assert.equal(JSON.parse(await within(nextLine(refused))).error, 'too many connections');
+  // Nobody stops the api: the timeout of the refused socket does the work.
+  // The caller keeps its write side open, so a write after the timeout is
+  // what shows that the peer is gone.
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  refused.socket.write('still here\n');
+  await within(refused.closed);
+  assert.equal(refused.socket.destroyed, true);
+});
+
+test('five frames in one write overflow a queue of two without running extra calls', async (t) => {
+  const root = await tempRoot();
+  const calls = [];
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  t.after(() => release());
+  const slow = {
+    ...TOOLS[0],
+    name: 'slow',
+    handler: async (args) => {
+      calls.push(args.id);
+      await held;
+      return 'done';
+    },
+  };
+  const control = await start({ root, tools: [slow], maxQueued: 2 });
+  const client = await open(control.endpoint);
+  t.after(() => client.socket.destroy());
+
+  send(client, [1, 2, 3, 4, 5].map((id) => JSON.stringify({
+    id, token: control.token, tool: 'slow', arguments: { id },
+  })).join('\n') + '\n');
+  const answer = JSON.parse(await within(nextLine(client)));
+  assert.equal(answer.id, null);
+  assert.equal(answer.ok, false);
+  assert.equal(answer.error, 'too many pending calls');
+  await within(client.closed);
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(calls.length <= 2, 'only the accepted calls may run');
+  assert.ok(calls.every((id) => id <= 2), 'the excess frames must not run');
+});
+
+// Hold the first call until stop or the client close has discarded the rest.
+for (const ending of ['stop', 'client close']) {
+  test(`${ending} discards two frames waiting behind a running tool`, async (t) => {
+    const root = await tempRoot();
+    const calls = [];
+    let enter;
+    let release;
+    const entered = new Promise((resolve) => { enter = resolve; });
+    const held = new Promise((resolve) => { release = resolve; });
+    t.after(() => release());
+    const slow = {
+      ...TOOLS[0],
+      name: 'slow',
+      handler: async () => {
+        calls.push('slow');
+        enter();
+        await held;
+        return 'done';
+      },
+    };
+    const second = {
+      ...TOOLS[0],
+      name: 'recorded',
+      handler: async () => {
+        calls.push('recorded');
+        return 'done';
+      },
+    };
+    const control = await start({ root, tools: [slow, second] });
+    const client = await open(control.endpoint);
+    t.after(() => client.socket.destroy());
+
+    send(client, ['slow', 'recorded', 'recorded'].map((tool, id) => JSON.stringify({
+      id, token: control.token, tool, arguments: {},
+    })).join('\n') + '\n');
+    await within(entered);
+    if (ending === 'stop') await within(control.stop());
+    else client.socket.end();
+    await within(client.closed);
+
+    release();
+    // Let the promise chain drain after the running handler returns.
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(calls, ['slow'], 'the queued tool must never run');
+  });
+}
+
+test('a call that takes longer than the idle time still gets its answer', async (t) => {
+  const root = await tempRoot();
+  const slow = {
+    ...TOOLS[0],
+    name: 'slow',
+    handler: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return 'done';
+    },
+  };
+  const control = await start({ root, tools: [slow], idleMs: 150 });
+  const client = await open(control.endpoint);
+  t.after(() => client.socket.destroy());
+
+  const started = Date.now();
+  send(client, { id: 1, token: control.token, tool: 'slow', arguments: {} });
+  assert.deepEqual(JSON.parse(await within(nextLine(client))), { id: 1, ok: true, text: 'done' });
+  assert.ok(Date.now() - started >= 350, 'the tool should outlast the idle time');
+  const answered = Date.now();
+  await within(client.closed, 1500);
+  assert.ok(Date.now() - answered >= 100, 'the idle clock should restart after the answer');
+});
+
+test('a control folder that is a link is refused without pruning its target', { skip: POSIX_ONLY }, async () => {
+  const root = await tempRoot();
+  const target = await tempRoot();
+  const record = join(target, '999999.json');
+  const contents = JSON.stringify({
+    pid: 999999,
+    endpoint: endpointFor({ root, pid: 999999 }),
+    token: 'tk-dead',
+  });
+  await writeFile(record, contents, 'utf8');
+  await symlink(target, paths(root).control, 'dir');
+  const lines = [];
+
+  const control = await startControl({
+    tools: TOOLS, ctx: { root }, version: '0.0.0',
+    isAlive: () => false,
+    stderr: { write: (text) => lines.push(text) },
+  });
+  if (control !== null) running.push(control);
+  assert.equal(control, null);
+  assert.equal(await readFile(record, 'utf8'), contents, 'the linked record must stay untouched');
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /the control folder is not a plain folder of this user/);
+  assert.ok(!lines[0].includes(root));
+  assert.ok(!lines[0].includes(target));
 });

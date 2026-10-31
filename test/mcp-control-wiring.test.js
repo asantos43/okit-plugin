@@ -11,7 +11,7 @@ import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { callControl } from '../src/mcp/control-client.js';
-import { listRecords, writeRecord } from '../src/mcp/control-endpoint.js';
+import { endpointFor, listRecords, writeRecord } from '../src/mcp/control-endpoint.js';
 
 // A socket path is limited to a hundred bytes, so the folders of these tests are
 // short even where TMPDIR is a long path.
@@ -153,10 +153,12 @@ test('a record of a process that died is pruned when the server starts', async (
   const dead = await deadPid();
   await writeRecord(root, {
     pid: dead,
-    endpoint: join(root, 'control', `${dead}.sock`),
+    endpoint: endpointFor({ root, pid: dead }),
     token: 'tk-dead',
     startedAt: Date.now(),
   });
+  await filesystem.writeFile(join(root, 'control', `${dead}.sock`), '', 'utf8');
+  await filesystem.stat(join(root, 'control', `${dead}.sock`));
 
   const server = startServer(root);
   await handshake(server.child, server.frames);
@@ -169,4 +171,33 @@ test('a record of a process that died is pruned when the server starts', async (
 
   server.child.stdin.end();
   assert.equal(await exited(server.child), 0);
+});
+
+test('stdin ending in the spawn turn leaves no control files in ten successive runs', async () => {
+  for (let run = 0; run < 10; run += 1) {
+    const root = await tempRoot();
+    const started = Date.now();
+    const server = startServer(root);
+    // No await between spawn and EOF: startup must observe this early end.
+    server.child.stdin.end();
+    let timer;
+    try {
+      const code = await Promise.race([
+        exited(server.child),
+        new Promise((resolve, reject) => {
+          timer = setTimeout(() => {
+            server.child.kill('SIGKILL');
+            reject(new Error(`run ${run + 1} did not exit within ${WAIT_MS} ms`));
+          }, WAIT_MS);
+        }),
+      ]);
+      assert.equal(code, 0, `run ${run + 1}: ${server.errors.join('')}`);
+      assert.ok(Date.now() - started < WAIT_MS, `run ${run + 1} should exit promptly`);
+      const folder = join(root, 'control');
+      await assert.rejects(stat(join(folder, `${server.child.pid}.json`)), { code: 'ENOENT' });
+      await assert.rejects(stat(join(folder, `${server.child.pid}.sock`)), { code: 'ENOENT' });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 });
