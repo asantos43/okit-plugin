@@ -14,17 +14,49 @@ export const STATUSLINE_FILE = 'claude-code-statusline.json';
 const plain = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
+ * Kills the command and the tree it leads: the whole group of the command on
+ * POSIX, the tree of the process on Windows. Only what the collector started is
+ * touched, and a kill that fails never throws to the caller.
+ *
+ * @param {object} child the child process of the collector
+ * @param {{platform?: string, spawnFn?: Function}} [options] the platform and
+ *   the spawn function, injectable for the test
+ */
+export function killTree(child, { platform = process.platform, spawnFn = spawn } = {}) {
+  if (!Number.isInteger(child?.pid)) return;
+  if (platform === 'win32') {
+    // Windows has no group of our own: the tree of the command is killed by
+    // name, and the child itself dies with it.
+    try {
+      spawnFn('taskkill', ['/pid', String(child.pid), '/T', '/F'],
+        { stdio: 'ignore', windowsHide: true })
+        .on('error', () => { /* the tree is gone */ })
+        .unref();
+    } catch { /* the tree is gone: the child alone is left */ }
+    try { child.kill('SIGKILL'); } catch { /* the child is already gone */ }
+    return;
+  }
+  // The whole group of the child dies with it, so a descendant that inherited
+  // the output dies too; only the group of this command is touched.
+  try { process.kill(-child.pid, 'SIGKILL'); return; }
+  catch { /* the group is gone: the child alone is left */ }
+  try { child.kill('SIGKILL'); } catch { /* the child is already gone */ }
+}
+
+/**
  * Runs the previous command of the status bar and answers its bytes.
  *
  * The command is a plain program (no shell) and it has one deadline. Whatever
  * it does, the answer comes before the deadline passes and nothing of ours
- * stays behind: the pipes are closed, the child is unreferenced and the group
+ * stays behind: the pipes are closed, the child is unreferenced and the tree
  * of the child is killed, so a descendant that inherited the output cannot keep
  * the status bar of the client waiting.
  *
  * The answer is the bytes the command wrote, unchanged and binary, when it ended
- * well; an empty buffer when it did not answer in time and nothing when it
- * failed or spoke too much.
+ * well; an empty buffer when the deadline passed before the command finished
+ * (the pipe did not close) and nothing when it failed or spoke too much. A
+ * command that did not finish has not answered in time, whatever the exit code
+ * of its parent was.
  *
  * @param {{command: string, args?: string[], input: Buffer, timeoutMs: number,
  *   maxOutputBytes: number}} call
@@ -32,7 +64,7 @@ const plain = (value) => typeof value === 'object' && value !== null && !Array.i
  */
 export function runPrevious({ command, args, input, timeoutMs, maxOutputBytes }) {
   return new Promise((resolve) => {
-    let child, timer, size = 0, settled = false, exit = null;
+    let child, timer, size = 0, settled = false;
     const chunks = [];
     // The pipes and the handle of the child must not hold the collector alive
     // once the run is over: they are released exactly once, here.
@@ -51,29 +83,21 @@ export function runPrevious({ command, args, input, timeoutMs, maxOutputBytes })
       release();
       resolve(output);
     };
-    // The whole group of the child dies with it, so a descendant that inherited
-    // the output dies too; only the group of this command is touched.
-    const kill = () => {
-      if (!Number.isInteger(child?.pid)) return;
-      if (process.platform !== 'win32') {
-        try { process.kill(-child.pid, 'SIGKILL'); return; }
-        catch { /* the group is gone: the child alone is left */ }
-      }
-      try { child.kill('SIGKILL'); } catch { /* the child is already gone */ }
-    };
+    // The whole tree of the child dies with it, so a descendant that inherited
+    // the output dies too; only what the collector started is touched.
+    const kill = () => killTree(child);
     try {
       // On POSIX the child leads a group of its own, so the group can be killed
-      // as a whole; on Windows there is no group and the child is killed alone.
+      // as a whole; on Windows there is no group and the tree is killed by name.
       child = spawn(command, args, { shell: false, stdio: ['pipe', 'pipe', 'ignore'],
         detached: process.platform !== 'win32' });
       timer = setTimeout(() => {
         kill();
-        // A command that ended well keeps the bytes it wrote; one that was
-        // still running has nothing to answer.
-        finish(exit === 0 ? Buffer.concat(chunks) : Buffer.alloc(0));
+        // A command that did not finish before the deadline has not answered
+        // in time and answers nothing, even when its parent already exited well.
+        finish(Buffer.alloc(0));
       }, timeoutMs);
       child.on('error', () => { kill(); finish(undefined); });
-      child.on('exit', (code) => { exit = code; });
       child.stdin.on('error', () => {});
       child.stdout.on('error', () => {});
       child.stdout.on('data', (chunk) => {

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, writeFile, readdir, rm, open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
-import { collectStatusline, runPrevious, statuslineCommand, STATUSLINE_FILE } from '../src/quota/statusline-collector.js';
+import { collectStatusline, killTree, runPrevious, statuslineCommand, STATUSLINE_FILE } from '../src/quota/statusline-collector.js';
 import { readQuota } from '../adapters/claude-code/index.js';
 import { configOf } from '../src/profiles.js';
 import { main } from '../src/cli.js';
@@ -13,6 +13,10 @@ import { readingOf } from '../src/core/statusline-reading.js';
 
 const input = Buffer.from('{"rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1793003358},"seven_day":{"used_percentage":41.2,"resets_at":1793513484}},"extra":true}\n');
 const now = () => Date.UTC(2026, 9, 26);
+// `setsid` is not everywhere (stock macOS has none): the test that needs it
+// skips itself when the tool is absent.
+const HAS_SETSID = process.platform !== 'win32'
+  && spawnSync('sh', ['-c', 'command -v setsid'], { stdio: 'ignore' }).status === 0;
 async function rootFor(t) {
   const root = await mkdtemp(join(tmpdir(), 'okit-collector-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -87,7 +91,7 @@ test('the collector ends at its deadline and leaves no descendant of the previou
 // cannot be killed with it, but it must not keep the collector waiting either:
 // the pipes of the collector are closed when the deadline passes.
 test('a descendant that left the group does not keep the collector waiting',
-  { skip: process.platform === 'win32' }, async (t) => {
+  { skip: !HAS_SETSID }, async (t) => {
     const root = await rootFor(t);
     const pidFile = join(root, 'descendant.pid');
     // The descendant of the previous command opens a session of its own and
@@ -135,6 +139,77 @@ test('the previous command: the output limit, the deadline and the exact bytes',
     timeoutMs: 5000, maxOutputBytes: 1024 });
   assert.deepEqual(exact, Buffer.from([0, 255, 13, 10]));
 });
+
+// A command that did not finish before the deadline has not answered in time:
+// the bytes it printed on the way are not an answer, even when its parent
+// exited well and a descendant of it holds the pipe open.
+test('the deadline answers empty when the command did not finish',
+  { skip: process.platform === 'win32' }, async () => {
+    const started = performance.now();
+    const answer = await runPrevious({ command: 'sh', args: ['-c', 'sleep 5 & echo bar'],
+      input: Buffer.alloc(0), timeoutMs: 300, maxOutputBytes: 1024 });
+    assert.equal(answer.length, 0, 'the deadline answers an empty buffer');
+    assert.notEqual(answer.toString(), 'bar\n');
+    assert.ok(performance.now() - started < 2000, 'the deadline is the answer');
+  });
+
+// The kill of the tree reaches the whole tree of the command: on Windows the
+// tree is killed by name and the child itself dies with it.
+test('the kill of the tree on Windows kills the tree of the command and the child', async () => {
+  const calls = [];
+  const spawnFn = (command, args, options) => {
+    const killer = { handlers: {}, on: (event, handler) => { killer.handlers[event] = handler; return killer; },
+      unref: () => { killer.unrefed = true; } };
+    calls.push({ command, args, options, killer });
+    return killer;
+  };
+  const killed = [];
+  const child = { pid: 4242, kill: (signal) => killed.push(signal) };
+  killTree(child, { platform: 'win32', spawnFn });
+  assert.equal(calls.length, 1, 'taskkill runs once');
+  assert.equal(calls[0].command, 'taskkill');
+  assert.deepEqual(calls[0].args, ['/pid', '4242', '/T', '/F']);
+  assert.deepEqual(calls[0].options, { stdio: 'ignore', windowsHide: true });
+  assert.deepEqual(killed, ['SIGKILL'], 'the child dies with the tree');
+  assert.equal(calls[0].killer.unrefed, true, 'the kill of the tree does not hold the collector');
+  assert.doesNotThrow(() => calls[0].killer.handlers.error(new Error('taskkill is gone')));
+  // A taskkill that cannot even start is swallowed: the child still dies.
+  const other = { pid: 4343, kill: (signal) => killed.push(signal) };
+  assert.doesNotThrow(() => killTree(other, { platform: 'win32',
+    spawnFn: () => { throw new Error('no taskkill'); } }));
+  assert.deepEqual(killed, ['SIGKILL', 'SIGKILL']);
+});
+
+// On POSIX the kill of the tree reaches the whole group of the command: the
+// descendant that inherited the output dies with it.
+test('the kill of the tree on POSIX reaches the whole group of the command',
+  { skip: process.platform === 'win32' }, async (t) => {
+    // The command leads a group of its own: the child is detached.
+    const command = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' });
+    t.after(() => { try { process.kill(-command.pid, 'SIGKILL'); } catch { /* it is already gone */ } });
+    const ended = new Promise((resolve) => command.once('exit', (code, signal) => resolve({ code, signal })));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    killTree(command);
+    const result = await ended;
+    assert.equal(result.signal, 'SIGKILL', 'the command dies with the kill of the tree');
+    // The group of the command is gone with it: a descendant of it dies too.
+    const root = await rootFor(t);
+    const pidFile = join(root, 'descendant.pid');
+    const leader = spawn('sh', ['-c', `sleep 30 & echo $! > ${pidFile}; wait`],
+      { detached: true, stdio: 'ignore' });
+    t.after(() => { try { process.kill(-leader.pid, 'SIGKILL'); } catch { /* it is already gone */ } });
+    const gone = new Promise((resolve) => leader.once('exit', resolve));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    killTree(leader);
+    await gone;
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    let alive = true;
+    for (let attempt = 0; attempt < 20 && alive; attempt += 1) {
+      try { process.kill(pid, 0); } catch { alive = false; }
+      if (alive) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(alive, false, 'the descendant of the group is dead');
+  });
 
 test('the collector stores the client JSON unchanged and never reads the percentages', async (t) => {
   const root = await rootFor(t);
