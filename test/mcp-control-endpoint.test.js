@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import * as filesystem from 'node:fs/promises';
+import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
@@ -29,9 +30,10 @@ const { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } =
 const POSIX_ONLY = process.platform === 'win32' ? 'the modes are a fact of POSIX' : false;
 
 const roots = [];
+const SHORT_TMP = process.platform === 'win32' ? tmpdir() : '/tmp';
 
 async function tempRoot() {
-  const dir = await mkdtemp(join(tmpdir(), 'mcp-control-test-'));
+  const dir = await mkdtemp(join(SHORT_TMP, 'mcp-control-test-'));
   roots.push(dir);
   return dir;
 }
@@ -40,7 +42,18 @@ after(async () => {
   for (const dir of roots) await rm(dir, { recursive: true, force: true });
 });
 
-test('the endpoint is a socket file on POSIX and a named pipe on Windows', async () => {
+// A valid record points at a real socket with a private mode.
+async function listen(t, endpoint) {
+  const server = net.createServer();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(endpoint, resolve);
+  });
+  await chmod(endpoint, 0o600);
+}
+
+test('the endpoint is a socket file on POSIX and a named pipe on Windows', { skip: POSIX_ONLY }, async () => {
   const root = await tempRoot();
   const control = paths(root).control;
 
@@ -58,7 +71,7 @@ test('the endpoint is a socket file on POSIX and a named pipe on Windows', async
     /control api: platform sunos is not supported/);
 });
 
-test('a socket path of 100 bytes fits and one of 101 does not', () => {
+test('a socket path of 100 bytes fits and one of 101 does not', { skip: POSIX_ONLY }, () => {
   const exact = '/'.repeat(100);
   const long = '/'.repeat(101);
   assert.equal(Buffer.byteLength(exact), 100);
@@ -119,7 +132,7 @@ test('a folder of another user is refused', { skip: POSIX_ONLY }, async () => {
   });
 });
 
-test('a record that is corrupted, incomplete or of a dead process is removed', { skip: POSIX_ONLY }, async () => {
+test('a record that is corrupted, incomplete or of a dead process is removed', { skip: POSIX_ONLY }, async (t) => {
   const root = await tempRoot();
   const dir = await openControlDir(root, { platform: 'linux' });
 
@@ -128,6 +141,7 @@ test('a record that is corrupted, incomplete or of a dead process is removed', {
     endpoint: endpointFor({ root, pid: 11, platform: 'linux' }),
     token: 'tk-11',
   }, { platform: 'linux' });
+  await listen(t, endpointFor({ root, pid: 11, platform: 'linux' }));
   // A record that cannot be parsed.
   await writeFile(join(dir, '12.json'), '{ not json', 'utf8');
   // A record without the fields the API needs.
@@ -150,6 +164,36 @@ test('a record that is corrupted, incomplete or of a dead process is removed', {
   assert.ok((await stat(join(dir, '11.json'))).isFile(), 'the record of the live process stays');
 });
 
+for (const unsafe of ['folder mode', 'record mode', 'plain endpoint', 'socket mode', 'socket owner']) {
+  test(`a record with unsafe ${unsafe} is not listed`, { skip: POSIX_ONLY }, async (t) => {
+    const root = await tempRoot();
+    const dir = await openControlDir(root);
+    const endpoint = endpointFor({ root, pid: 71 });
+    const file = await writeRecord(root, { pid: 71, endpoint, token: 'tk-71' });
+    if (unsafe === 'plain endpoint') await writeFile(endpoint, '', { mode: 0o600 });
+    else await listen(t, endpoint);
+    if (unsafe === 'folder mode') await chmod(dir, 0o777);
+    if (unsafe === 'record mode') await chmod(file, 0o666);
+    if (unsafe === 'socket mode') await chmod(endpoint, 0o666);
+    const fs = unsafe === 'socket owner' ? {
+      ...filesystem,
+      lstat: async (path) => {
+        const info = await lstat(path);
+        if (path === endpoint) Object.defineProperty(info, 'uid', { value: process.getuid() + 1 });
+        return info;
+      },
+    } : filesystem;
+
+    assert.deepEqual(await listRecords(root, { isAlive: () => true, fs }), []);
+    if (unsafe === 'folder mode') {
+      assert.ok((await stat(file)).isFile(), 'an unsafe folder must stay untouched');
+      await chmod(dir, 0o700);
+    } else {
+      await assert.rejects(stat(file), { code: 'ENOENT' });
+    }
+  });
+}
+
 test('the token is compared without telling how much of it was right', () => {
   const token = newToken();
   assert.match(token, /^[0-9a-f]{64}$/);
@@ -167,7 +211,7 @@ test('the token is compared without telling how much of it was right', () => {
   assert.equal(tokenMatches(token, Buffer.from(token)), false);
 });
 
-test('the record goes with the socket file of the same process', async () => {
+test('the record goes with the socket file of the same process', { skip: POSIX_ONLY }, async () => {
   const root = await tempRoot();
   const dir = await openControlDir(root, { platform: 'linux' });
   await writeRecord(root, { pid: 21, endpoint: 'ep-21', token: 'tk-21' }, { platform: 'linux' });
@@ -181,7 +225,7 @@ test('the record goes with the socket file of the same process', async () => {
   await removeRecord(root, 21, { platform: 'linux' });
 });
 
-test('on Windows the socket file is left alone', async () => {
+test('on Windows the socket file is left alone', { skip: POSIX_ONLY }, async () => {
   const root = await tempRoot();
   const dir = await openControlDir(root, { platform: 'win32' });
   await writeRecord(root, { pid: 22, endpoint: 'ep-22', token: 'tk-22' }, { platform: 'win32' });

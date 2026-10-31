@@ -77,6 +77,16 @@ async function start({ root, tools = TOOLS, ...options } = {}) {
   return control;
 }
 
+// Test servers use the same private socket mode as the API.
+async function listen(server, endpoint) {
+  servers.push(server);
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(endpoint, resolve);
+  });
+  if (process.platform !== 'win32') await filesystem.chmod(endpoint, 0o600);
+}
+
 test('a call over the api answers the text the mcp gives for the same call', async () => {
   const root = await tempRoot();
   await start({ root });
@@ -128,14 +138,15 @@ test('a record of a server that is not there says that nobody answers', async ()
 
   const answer = await callControl({ root, tool: 'first', arguments: {}, isAlive: () => true });
   assert.equal(answer.ok, false);
-  assert.equal(answer.error, 'no okit server answers on this state folder');
+  assert.equal(answer.error, process.platform === 'win32'
+    ? 'no okit server answers on this state folder'
+    : 'no okit server is running for this state folder');
 });
 
 test('the client falls back to the older server when the newest one is gone', async () => {
   const root = await tempRoot();
   await start({ root });
-  // A record of a process that is not there, but that the caller says is
-  // alive: the client tries it first and moves on to the one that answers.
+  // POSIX prunes the missing socket; Windows tries the missing pipe first.
   await writeRecord(root, {
     pid: 999999,
     endpoint: endpointFor({ root, pid: 999999 }),
@@ -168,8 +179,7 @@ for (const junk of ['not json', '42', '{"ok":"yes","text":"x"}']) {
       accepted.push(socket);
       socket.write(`${junk}\n`);
     });
-    servers.push(server);
-    await new Promise((resolve) => server.listen(endpoint, resolve));
+    await listen(server, endpoint);
     await writeRecord(root, { pid: 999998, endpoint, token: 'tk-999998', startedAt: Date.now() });
 
     const answer = await callControl({ root, tool: 'first', arguments: {}, isAlive: () => true });
@@ -181,6 +191,7 @@ for (const junk of ['not json', '42', '{"ok":"yes","text":"x"}']) {
 test('the servers of a folder come with the newest first', async () => {
   const root = await tempRoot();
   await start({ root });
+  await listen(net.createServer(), endpointFor({ root, pid: 999999 }));
   await writeRecord(root, {
     pid: 999999,
     endpoint: endpointFor({ root, pid: 999999 }),
@@ -206,16 +217,14 @@ test('a server that takes the call and says nothing is not tried again', async (
   const quiet = net.createServer((socket) => {
     accepted.push(socket);
   });
-  servers.push(quiet);
-  await new Promise((resolve) => quiet.listen(endpointFor({ root, pid: 999998 }), resolve));
+  await listen(quiet, endpointFor({ root, pid: 999998 }));
   let olderCalls = 0;
   const older = net.createServer((socket) => {
     olderCalls += 1;
     accepted.push(socket);
     socket.write(`${JSON.stringify({ id: 1, ok: true, text: 'answered' })}\n`);
   });
-  servers.push(older);
-  await new Promise((resolve) => older.listen(endpointFor({ root, pid: 999997 }), resolve));
+  await listen(older, endpointFor({ root, pid: 999997 }));
   await writeRecord(root, {
     pid: 999998,
     endpoint: endpointFor({ root, pid: 999998 }),
@@ -244,16 +253,14 @@ test('a server that closes without answering is not tried again', async () => {
     accepted.push(socket);
     socket.on('data', () => socket.destroy());
   });
-  servers.push(closing);
-  await new Promise((resolve) => closing.listen(endpointFor({ root, pid: 999998 }), resolve));
+  await listen(closing, endpointFor({ root, pid: 999998 }));
   let olderCalls = 0;
   const older = net.createServer((socket) => {
     olderCalls += 1;
     accepted.push(socket);
     socket.write(`${JSON.stringify({ id: 1, ok: true, text: 'answered' })}\n`);
   });
-  servers.push(older);
-  await new Promise((resolve) => older.listen(endpointFor({ root, pid: 999997 }), resolve));
+  await listen(older, endpointFor({ root, pid: 999997 }));
   await writeRecord(root, {
     pid: 999998,
     endpoint: endpointFor({ root, pid: 999998 }),
@@ -307,8 +314,7 @@ test('an answer cut in the middle of a character keeps its text', async () => {
     socket.write(bytes.subarray(0, cut));
     setTimeout(() => socket.write(bytes.subarray(cut)), 30);
   });
-  servers.push(server);
-  await new Promise((resolve) => server.listen(endpointFor({ root, pid: 999998 }), resolve));
+  await listen(server, endpointFor({ root, pid: 999998 }));
   await writeRecord(root, {
     pid: 999998,
     endpoint: endpointFor({ root, pid: 999998 }),

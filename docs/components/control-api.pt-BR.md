@@ -17,7 +17,7 @@ Quando o servidor MCP inicia, ele abre um ponto local ao lado do canal stdio. Um
 | Linux e macOS | Um arquivo de socket `control/<pid>.sock` na [raiz de estado](state.pt-BR.md), com no máximo 100 bytes |
 | Windows | Um pipe nomeado `okit-<hash da raiz>-<pid>`, para que duas raízes nunca dividam um |
 
-Ao lado dele o servidor grava `control/<pid>.json` com pid, ponto de acesso, hora de início, versão e um token aleatório. No Linux e no macOS a pasta é privada do usuário (modo 0700), assim como o socket e o registro (modo 0600); uma pasta de outro usuário, ou que seja um link, é recusada, e um registro que não seja um arquivo simples e pequeno do usuário é removido sem ser lido. No Windows a pasta e o registro ficam no perfil do usuário e o pipe não tem modo de arquivo: o token aleatório do registro é o que protege a API.
+Ao lado dele o servidor grava `control/<pid>.json` com pid, ponto de acesso, hora de início, versão e um token aleatório. No Linux e no macOS a pasta é privada do usuário (modo 0700), assim como o socket e o registro (modo 0600); uma pasta de outro usuário, ou que seja um link, é recusada, e um registro que não seja um arquivo simples e pequeno do usuário é removido sem ser lido. No POSIX, a descoberta ignora pasta, registro ou socket com escrita para grupo ou outros; o registro só vale se o ponto de acesso for um socket do usuário. No Windows a pasta e o registro ficam no perfil do usuário e o pipe não tem modo de arquivo: o token aleatório do registro é o que protege a API.
 
 <a id="protocol"></a>
 ## Protocolo

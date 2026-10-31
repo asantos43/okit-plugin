@@ -76,6 +76,9 @@ export async function startControl({
   const state = { stopped: false };
   let server = null;
   let endpoint = null;
+  let secured = false;
+  let listening = false;
+  let recorded = false;
 
   try {
     endpoint = endpointFor({ root, pid, platform });
@@ -85,6 +88,7 @@ export async function startControl({
     // The folder is ours before anything of it is read: the records of it are
     // not opened by a process that does not own the folder.
     await openControlDir(root, { platform });
+    secured = true;
     // A process that died leaves its record and its socket behind: they are
     // pruned before the API takes an endpoint of its own.
     await listRecords(root, isAlive === undefined ? {} : { isAlive });
@@ -131,6 +135,7 @@ export async function startControl({
     });
     const opened = once(server, 'listening');
     server.listen(endpoint);
+    listening = true;
     await opened;
 
     // The socket file belongs to the owner of the machine only.
@@ -138,6 +143,7 @@ export async function startControl({
 
     // The record is written only when the API is already listening, so a
     // record never points at an endpoint that is not there.
+    recorded = true;
     await writeRecord(root, { pid, endpoint, token, startedAt: Date.now(), version }, { platform });
 
     return { endpoint, token, stop };
@@ -151,11 +157,19 @@ export async function startControl({
     connections.clear();
     for (const socket of refused) socket.destroy();
     refused.clear();
-    if (isPosix && endpoint !== null) await filesystem.rm(endpoint, { force: true }).catch(() => {});
-    await removeRecord(root, pid, { platform }).catch(() => {});
+    if (secured && listening && isPosix) await filesystem.rm(endpoint, { force: true }).catch(() => {});
+    if (secured && recorded) await removeRecord(root, pid, { platform }).catch(() => {});
     stderr.write(`okit control api: ${openReason(error)}\n`);
     return null;
   }
+}
+
+// A refused caller has a fixed time to close its side.
+function closeSoon(socket) {
+  socket.end();
+  const timer = setTimeout(() => socket.destroy(), REFUSED_TIMEOUT);
+  timer.unref?.();
+  socket.once('close', () => clearTimeout(timer));
 }
 
 /**
@@ -187,15 +201,16 @@ function handleConnection(socket, {
     // Its socket is tracked anyway, so a caller that never closes its side
     // does not keep the API waiting.
     socket.on('error', () => {});
-    socket.end(`${JSON.stringify({ id: null, ok: false, error: 'too many connections' })}\n`);
-    socket.setTimeout(REFUSED_TIMEOUT, () => socket.destroy());
+    socket.write(`${JSON.stringify({ id: null, ok: false, error: 'too many connections' })}\n`);
+    closeSoon(socket);
     refused.add(socket);
     socket.on('close', () => refused.delete(socket));
     return;
   }
   connections.add(socket);
   // A connection that says nothing for a while is of no use to anybody.
-  socket.setTimeout(idleMs, () => socket.destroy());
+  socket.on('timeout', () => socket.destroy());
+  socket.setTimeout(idleMs);
 
   const decoder = new StringDecoder('utf8');
   let pending = '';
@@ -214,7 +229,7 @@ function handleConnection(socket, {
   // The clock of the idle time only runs when there is nothing to answer.
   const arm = () => {
     if (socket.destroyed || socket.writableEnded) return;
-    socket.setTimeout(idleMs, () => socket.destroy());
+    socket.setTimeout(idleMs);
   };
   const disarm = () => {
     if (socket.destroyed) return;
@@ -252,7 +267,7 @@ function handleConnection(socket, {
     // and the caller is gone.
     if (!tokenMatches(token, frame.token)) {
       reply({ id, ok: false, error: 'unauthorized' });
-      socket.end();
+      closeSoon(socket);
       return;
     }
     if (typeof frame.tool !== 'string' || frame.tool === '') {
@@ -300,8 +315,7 @@ function handleConnection(socket, {
         flooded = true;
         pending = '';
         reply({ id: null, ok: false, error: 'too many pending calls' });
-        socket.end();
-        socket.setTimeout(REFUSED_TIMEOUT, () => socket.destroy());
+        closeSoon(socket);
         return;
       }
       queued += 1;

@@ -16,6 +16,7 @@ import { endpointFor, listRecords, writeRecord } from '../src/mcp/control-endpoi
 // A socket path is limited to a hundred bytes, so the folders of these tests are
 // short even where TMPDIR is a long path.
 const SHORT_TMP = process.platform === 'win32' ? tmpdir() : '/tmp';
+const POSIX_ONLY = process.platform === 'win32' ? 'socket files are a fact of POSIX' : false;
 
 const { mkdtemp, rm, stat } = filesystem;
 
@@ -145,10 +146,12 @@ test('the api of a running server answers the same call the server answers', asy
 
   const folder = join(root, 'control');
   await assert.rejects(stat(join(folder, `${server.child.pid}.json`)), { code: 'ENOENT' });
-  await assert.rejects(stat(join(folder, `${server.child.pid}.sock`)), { code: 'ENOENT' });
+  if (process.platform !== 'win32') {
+    await assert.rejects(stat(join(folder, `${server.child.pid}.sock`)), { code: 'ENOENT' });
+  }
 });
 
-test('a record of a process that died is pruned when the server starts', async () => {
+test('a record of a process that died is pruned when the server starts', { skip: POSIX_ONLY }, async () => {
   const root = await tempRoot();
   const dead = await deadPid();
   await writeRecord(root, {
@@ -195,7 +198,9 @@ test('stdin ending in the spawn turn leaves no control files in ten successive r
       assert.ok(Date.now() - started < WAIT_MS, `run ${run + 1} should exit promptly`);
       const folder = join(root, 'control');
       await assert.rejects(stat(join(folder, `${server.child.pid}.json`)), { code: 'ENOENT' });
-      await assert.rejects(stat(join(folder, `${server.child.pid}.sock`)), { code: 'ENOENT' });
+      if (process.platform !== 'win32') {
+        await assert.rejects(stat(join(folder, `${server.child.pid}.sock`)), { code: 'ENOENT' });
+      }
     } finally {
       clearTimeout(timer);
     }

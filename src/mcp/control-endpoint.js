@@ -194,7 +194,8 @@ export async function listRecords(root, { isAlive = defaultIsAlive, platform = p
       throw error;
     });
     if (info === null) return [];
-    if (info.isSymbolicLink() || !info.isDirectory() || info.uid !== process.getuid()) return [];
+    if (info.isSymbolicLink() || !info.isDirectory()
+      || info.uid !== process.getuid() || (info.mode & 0o022) !== 0) return [];
   }
 
   let names;
@@ -216,6 +217,7 @@ export async function listRecords(root, { isAlive = defaultIsAlive, platform = p
       const plain = info !== null
         && info.isFile()
         && info.uid === process.getuid()
+        && (info.mode & 0o022) === 0
         && info.size <= MAX_RECORD_BYTES;
       if (!plain) {
         await prune(root, name, { platform, fs });
@@ -226,6 +228,15 @@ export async function listRecords(root, { isAlive = defaultIsAlive, platform = p
     if (!isUsable(record, name, root, platform, isPosix) || !isAlive(record.pid)) {
       await prune(root, name, { platform, fs });
       continue;
+    }
+    if (isPosix) {
+      // The endpoint itself must be a socket private to this user.
+      const info = await fs.lstat(record.endpoint).catch(() => null);
+      if (info === null || !info.isSocket()
+        || info.uid !== process.getuid() || (info.mode & 0o022) !== 0) {
+        await prune(root, name, { platform, fs });
+        continue;
+      }
     }
     alive.push(record);
   }

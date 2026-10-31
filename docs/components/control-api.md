@@ -17,7 +17,7 @@ When the MCP server starts, it opens a local endpoint next to its stdio channel.
 | Linux and macOS | A socket file `control/<pid>.sock` in the [state root](state.md), at most 100 bytes long |
 | Windows | A named pipe `okit-<hash of the root>-<pid>`, so two roots never share one |
 
-Next to it the server writes `control/<pid>.json` with its pid, endpoint, start time, version and a random token. On Linux and macOS the folder is private to the user (mode 0700) and so are the socket and the record (mode 0600); a folder that belongs to another user, or that is a link, is refused, and a record that is not a plain small file of the user is removed unread. On Windows the folder and the record live in the profile of the user and the pipe has no file mode: the random token of the record is what protects the API.
+Next to it the server writes `control/<pid>.json` with its pid, endpoint, start time, version and a random token. On Linux and macOS the folder is private to the user (mode 0700) and so are the socket and the record (mode 0600); a folder that belongs to another user, or that is a link, is refused, and a record that is not a plain small file of the user is removed unread. On POSIX, discovery ignores any folder, record or socket writable by group or others; a record is valid only if its endpoint is a socket owned by the user. On Windows the folder and the record live in the profile of the user and the pipe has no file mode: the random token of the record is what protects the API.
 
 <a id="protocol"></a>
 ## Protocol

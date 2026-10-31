@@ -155,6 +155,57 @@ test('a call over the api answers the text the mcp gives for the same call', asy
   client.socket.destroy();
 });
 
+test('forty sequential calls do not accumulate timeout listeners', async (t) => {
+  const warnings = [];
+  const collect = (warning) => warnings.push(warning);
+  process.on('warning', collect);
+  t.after(() => process.off('warning', collect));
+  const root = await tempRoot();
+  const control = await start({ root });
+  const client = await open(control.endpoint);
+  t.after(() => client.socket.destroy());
+  for (let id = 0; id < 40; id += 1) {
+    send(client, { id, token: control.token, tool: 'first' });
+    assert.equal(JSON.parse(await within(nextLine(client))).ok, true);
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(warnings.filter((warning) => warning.name === 'MaxListenersExceededWarning').length, 0);
+});
+
+test('a valid call followed by an unauthorized frame has a fixed close deadline', async (t) => {
+  const root = await tempRoot();
+  const control = await start({ root });
+  const client = await open(control.endpoint, { allowHalfOpen: true });
+  t.after(() => client.socket.destroy());
+  send(client, [{ id: 1, token: control.token, tool: 'first' },
+    { id: 2, token: 'wrong', tool: 'first' }].map((frame) => JSON.stringify(frame)).join('\n') + '\n');
+  assert.equal(JSON.parse(await within(nextLine(client))).ok, true);
+  assert.equal(JSON.parse(await within(nextLine(client))).error, 'unauthorized');
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  client.socket.write('still here\n');
+  await within(client.closed, 700);
+});
+
+test('traffic cannot extend the deadline of a refused connection', async (t) => {
+  const root = await tempRoot();
+  const control = await start({ root, maxConnections: 1 });
+  const first = await open(control.endpoint);
+  t.after(() => first.socket.destroy());
+  const client = await open(control.endpoint, { allowHalfOpen: true });
+  t.after(() => client.socket.destroy());
+  assert.equal(JSON.parse(await within(nextLine(client))).error, 'too many connections');
+  const started = Date.now();
+  const traffic = setInterval(() => client.socket.write('x'), 200);
+  t.after(() => clearInterval(traffic));
+  try {
+    await within(client.closed, 2000);
+    assert.ok(Date.now() - started >= 700, 'the refusal should allow time to close');
+    assert.ok(Date.now() - started < 1800, 'traffic must not reset the deadline');
+  } finally {
+    clearInterval(traffic);
+  }
+});
+
 test('a call without the token of the record is refused and the tool does not run', async () => {
   const root = await tempRoot();
   let called = 0;
@@ -233,7 +284,7 @@ test('a connection that says nothing is closed', async (t) => {
   assert.ok(Date.now() - started < 1500, 'the idle connection should close promptly');
 });
 
-test('the record of a dead process is pruned when the api opens', async () => {
+test('the record of a dead process is pruned when the api opens', { skip: POSIX_ONLY }, async () => {
   const root = await tempRoot();
   const dir = paths(root).control;
   await mkdir(dir, { recursive: true });
@@ -313,7 +364,7 @@ test('stop takes the socket and the record away and can be called twice', async 
 
   await control.stop();
   await assert.rejects(stat(record), { code: 'ENOENT' });
-  await assert.rejects(stat(control.endpoint), { code: 'ENOENT' });
+  if (process.platform !== 'win32') await assert.rejects(stat(control.endpoint), { code: 'ENOENT' });
 
   // Stopping twice is not a failure.
   await control.stop();
@@ -474,6 +525,27 @@ test('five frames in one write overflow a queue of two without running extra cal
   assert.ok(calls.every((id) => id <= 2), 'the excess frames must not run');
 });
 
+test('a caller that overflows its queue and keeps its side open is destroyed by the deadline', async (t) => {
+  const root = await tempRoot();
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  t.after(() => release());
+  const slow = { ...TOOLS[0], name: 'slow', handler: async () => { await held; return 'done'; } };
+  const control = await start({ root, tools: [slow], maxQueued: 1 });
+  const client = await open(control.endpoint, { allowHalfOpen: true });
+  t.after(() => client.socket.destroy());
+
+  send(client, [1, 2, 3].map((id) => JSON.stringify({
+    id, token: control.token, tool: 'slow', arguments: {},
+  })).join('\n') + '\n');
+  assert.equal(JSON.parse(await within(nextLine(client))).error, 'too many pending calls');
+  // The write side stays open: the deadline of the server closes the socket.
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  client.socket.write('still here\n');
+  await within(client.closed);
+  assert.equal(client.socket.destroyed, true);
+});
+
 // Hold the first call until stop or the client close has discarded the rest.
 for (const ending of ['stop', 'client close']) {
   test(`${ending} discards two frames waiting behind a running tool`, async (t) => {
@@ -547,24 +619,27 @@ test('a call that takes longer than the idle time still gets its answer', async 
 test('a control folder that is a link is refused without pruning its target', { skip: POSIX_ONLY }, async () => {
   const root = await tempRoot();
   const target = await tempRoot();
-  const record = join(target, '999999.json');
+  const record = join(target, `${process.pid}.json`);
+  const endpoint = join(target, `${process.pid}.sock`);
   const contents = JSON.stringify({
-    pid: 999999,
-    endpoint: endpointFor({ root, pid: 999999 }),
+    pid: process.pid,
+    endpoint: endpointFor({ root, pid: process.pid }),
     token: 'tk-dead',
   });
   await writeFile(record, contents, 'utf8');
+  await writeFile(endpoint, 'untouched', 'utf8');
   await symlink(target, paths(root).control, 'dir');
   const lines = [];
 
   const control = await startControl({
-    tools: TOOLS, ctx: { root }, version: '0.0.0',
+    tools: TOOLS, ctx: { root }, version: '0.0.0', pid: process.pid,
     isAlive: () => false,
     stderr: { write: (text) => lines.push(text) },
   });
   if (control !== null) running.push(control);
   assert.equal(control, null);
   assert.equal(await readFile(record, 'utf8'), contents, 'the linked record must stay untouched');
+  assert.equal(await readFile(endpoint, 'utf8'), 'untouched', 'the linked socket must stay untouched');
   assert.equal(lines.length, 1);
   assert.match(lines[0], /the control folder is not a plain folder of this user/);
   assert.ok(!lines[0].includes(root));
