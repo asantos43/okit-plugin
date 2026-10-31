@@ -38,5 +38,6 @@ export function paths(root) {
     runs: join(base, 'runs'),
     locks: join(base, 'locks'),
     logs: join(base, 'logs'),
+    control: join(base, 'control'),
   };
 }
