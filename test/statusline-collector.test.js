@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
-import { collectStatusline, killTree, runPrevious, statuslineCommand, STATUSLINE_FILE } from '../src/quota/statusline-collector.js';
+import { collectStatusline, killTree, runPrevious, statuslineCommand, STATUSLINE_FILE, KILL_TREE_CAP_MS } from '../src/quota/statusline-collector.js';
 import { readQuota } from '../adapters/claude-code/index.js';
 import { configOf } from '../src/profiles.js';
 import { main } from '../src/cli.js';
@@ -157,63 +157,155 @@ test('the deadline answers empty when the command did not finish',
 // tree is killed by name (taskkill /T kills the descendants with the child),
 // so the child is not killed by hand while taskkill is still running: a parent
 // killed before taskkill enumerated the tree leaves the descendants behind.
-// The direct kill of the child is only the fallback of a taskkill that failed.
+// The direct kill of the child is only the fallback of a taskkill that failed,
+// and the collector waits for the answer of taskkill: the killer is not
+// unreferenced and a cap ends the wait of a taskkill that got stuck.
+const fakeTimers = () => {
+  const pending = [];
+  return {
+    timers: {
+      set: (handler, ms) => { const timer = { handler, ms, cleared: false }; pending.push(timer); return timer; },
+      clear: (timer) => { if (timer) timer.cleared = true; },
+    },
+    pending,
+  };
+};
+const fakeKiller = () => {
+  const killer = { handlers: {}, unrefed: false, kills: 0,
+    on: (event, handler) => { killer.handlers[event] = handler; return killer; },
+    unref: () => { killer.unrefed = true; },
+    kill: () => { killer.kills += 1; } };
+  return killer;
+};
 test('the kill of the tree on Windows kills the tree by name and kills the child only as a fallback', async () => {
   const calls = [];
   const spawnFn = (command, args, options) => {
-    const killer = { handlers: {}, on: (event, handler) => { killer.handlers[event] = handler; return killer; },
-      unref: () => { killer.unrefed = true; } };
+    const killer = fakeKiller();
     calls.push({ command, args, options, killer });
     return killer;
   };
+  const { timers, pending } = fakeTimers();
   // The kill of the child is observed, not assumed: it must not happen while
   // taskkill is still enumerating the tree.
   const killed = [];
   const child = { pid: 4242, kill: (signal) => killed.push(signal) };
-  killTree(child, { platform: 'win32', spawnFn });
+  killTree(child, { platform: 'win32', spawnFn, timers });
   assert.equal(calls.length, 1, 'taskkill runs once');
   assert.equal(calls[0].command, 'taskkill');
   assert.deepEqual(calls[0].args, ['/pid', '4242', '/T', '/F']);
   assert.deepEqual(calls[0].options, { stdio: 'ignore', windowsHide: true });
-  assert.equal(calls[0].killer.unrefed, true, 'the kill of the tree does not hold the collector');
+  assert.equal(calls[0].killer.unrefed, false, 'the collector waits for the answer of taskkill');
+  assert.equal(pending.length, 1, 'the cap of the wait is pending');
+  assert.equal(pending[0].ms, KILL_TREE_CAP_MS, 'the cap is the one of the module');
   assert.deepEqual(killed, [], 'the child is not killed before taskkill enumerated the tree');
   // A taskkill that ended well did the work: the child dies with the tree and
   // is not killed by hand.
   calls[0].killer.handlers.exit(0);
   assert.deepEqual(killed, [], 'a taskkill that worked needs no fallback');
-  // A taskkill that failed leaves the tree: the child alone dies, once.
-  const failed = [];
-  const other = { pid: 4343, kill: (signal) => failed.push(signal) };
-  killTree(other, { platform: 'win32', spawnFn });
-  calls[1].killer.handlers.exit(1);
-  assert.deepEqual(failed, ['SIGKILL'], 'a taskkill that failed falls back to the kill of the child');
-  // A taskkill that could not even start is swallowed, but the child dies.
-  const gone = [];
-  const third = { pid: 4444, kill: (signal) => gone.push(signal) };
-  assert.doesNotThrow(() => killTree(third, { platform: 'win32',
-    spawnFn: () => { throw new Error('no taskkill'); } }));
-  assert.deepEqual(gone, ['SIGKILL'], 'a taskkill that could not start falls back to the kill of the child');
+  assert.equal(pending[0].cleared, true, 'the cap is cleared when taskkill answers');
+});
+
+// The cap of the wait is the safety net of a taskkill that got stuck: the
+// child dies by hand and the killer is stopped, whatever taskkill says after.
+test('the cap of the wait kills the child and stops the killer that got stuck', async () => {
+  const { timers, pending } = fakeTimers();
+  const killer = fakeKiller();
+  const killed = [];
+  const child = { pid: 4343, kill: (signal) => killed.push(signal) };
+  killTree(child, { platform: 'win32', spawnFn: () => killer, timers, capMs: 700 });
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].ms, 700, 'the cap of the wait is the one of the caller');
+  pending[0].handler();
+  assert.deepEqual(killed, ['SIGKILL'], 'the child dies when the cap passes');
+  assert.equal(killer.kills, 1, 'the killer that got stuck is stopped');
+  // The answer of taskkill after the cap changes nothing.
+  assert.doesNotThrow(() => killer.handlers.exit(1));
+  assert.deepEqual(killed, ['SIGKILL'], 'the child dies once, not twice');
 });
 
 // The fallback of the Windows kill runs once, whatever the events say: an
 // error and an exit that failed together kill the child a single time.
 test('the fallback of the Windows kill of the child happens at most once', async () => {
-  const killer = { handlers: {}, on: (event, handler) => { killer.handlers[event] = handler; return killer; },
-    unref: () => {} };
+  const { timers, pending } = fakeTimers();
+  const killer = fakeKiller();
   const killed = [];
   const child = { pid: 4545, kill: (signal) => killed.push(signal) };
-  killTree(child, { platform: 'win32', spawnFn: () => killer });
+  killTree(child, { platform: 'win32', spawnFn: () => killer, timers });
   assert.doesNotThrow(() => killer.handlers.error(new Error('taskkill is gone')));
   assert.deepEqual(killed, ['SIGKILL'], 'the child dies when taskkill failed');
+  assert.equal(pending[0].cleared, true, 'the cap is cleared when taskkill answers');
   assert.doesNotThrow(() => killer.handlers.exit(1));
   assert.deepEqual(killed, ['SIGKILL'], 'the child dies once, not twice');
   // A kill that throws never reaches the caller.
   const stubborn = { pid: 4646, kill: () => { throw new Error('the child is gone'); } };
-  const other = { handlers: {}, on: (event, handler) => { other.handlers[event] = handler; return other; },
-    unref: () => {} };
-  killTree(stubborn, { platform: 'win32', spawnFn: () => other });
+  const other = fakeKiller();
+  const otherTimers = fakeTimers();
+  killTree(stubborn, { platform: 'win32', spawnFn: () => other, timers: otherTimers.timers });
   assert.doesNotThrow(() => other.handlers.exit(1));
 });
+
+// A taskkill that could not even start falls back at once and leaves no cap
+// behind: there is no answer to wait for.
+test('a taskkill that could not start kills the child at once and waits for nothing', async () => {
+  const { timers, pending } = fakeTimers();
+  const gone = [];
+  const third = { pid: 4444, kill: (signal) => gone.push(signal) };
+  assert.doesNotThrow(() => killTree(third, { platform: 'win32',
+    spawnFn: () => { throw new Error('no taskkill'); }, timers }));
+  assert.deepEqual(gone, ['SIGKILL'], 'a taskkill that could not start falls back to the kill of the child');
+  assert.equal(pending.length, 0, 'no cap is pending without a taskkill');
+});
+
+// The collector waits for the answer of taskkill: an unreferenced killer would
+// let the collector go before the fallback of a failed taskkill ran, and the
+// previous command would stay alive. The test is a real process: the collector
+// is a node subprocess that kills the tree and then does nothing else, so
+// only the reference to the killer and the cap hold it.
+test('the collector waits for the answer of taskkill and runs the fallback before it goes',
+  { skip: process.platform === 'win32' }, async (t) => {
+    const root = await rootFor(t);
+    const pidFile = join(root, 'sleep.pid');
+    const script = join(root, 'collector.mjs');
+    const source = new URL('../src/quota/statusline-collector.js', import.meta.url).href;
+    await writeFile(script, [
+      "import { spawn } from 'node:child_process';",
+      "import { writeFileSync } from 'node:fs';",
+      `import { killTree } from ${JSON.stringify(source)};`,
+      // The command the collector started: a detached `sleep 30` of its own.
+      "const sleeper = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' });",
+      'sleeper.unref();',
+      `writeFileSync(${JSON.stringify(pidFile)}, String(sleeper.pid));`,
+      // The stand-in of taskkill: it fails after 300 ms, as a taskkill that
+      // found nothing to kill does.
+      "killTree(sleeper, { platform: 'win32', capMs: 2000, spawnFn: () => spawn(process.execPath,",
+      "  ['-e', 'setTimeout(()=>process.exit(1),300)'], { stdio: 'ignore' }) });",
+    ].join('\n'));
+    const started = performance.now();
+    const collector = spawn(process.execPath, [script], { stdio: 'ignore' });
+    t.after(() => { try { collector.kill('SIGKILL'); } catch { /* it is already gone */ } });
+    const ended = new Promise((resolve) => collector.once('exit', () => resolve(performance.now() - started)));
+    // The collector reports the pid of the command it started.
+    let pid = null;
+    for (let attempt = 0; attempt < 40 && pid === null; attempt += 1) {
+      try { pid = Number((await readFile(pidFile, 'utf8')).trim()); } catch { await new Promise((r) => setTimeout(r, 50)); }
+    }
+    assert.ok(pid, 'the collector reported the pid of the command');
+    t.after(() => { try { process.kill(pid, 'SIGKILL'); } catch { /* it is already gone */ } });
+    // The command dies with the fallback of the taskkill that failed: the
+    // collector stayed alive long enough to hear the answer of taskkill.
+    let alive = true;
+    for (let attempt = 0; attempt < 30 && alive; attempt += 1) {
+      try { process.kill(pid, 0); } catch { alive = false; }
+      if (alive) await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(alive, false, 'the previous command died with the fallback');
+    assert.ok(performance.now() - started < 1500, 'the fallback ran before the cap of the wait');
+    // The collector goes by itself once the answer came: it does not wait for
+    // anything else.
+    const elapsed = await ended;
+    assert.ok(elapsed >= 200, `the collector waited for the answer of taskkill (${Math.round(elapsed)} ms)`);
+    assert.ok(elapsed < 1500, `the collector exited by itself in ${Math.round(elapsed)} ms`);
+  });
 
 // On POSIX the kill of the tree reaches the whole group of the command: the
 // descendant that inherited the output dies with it.

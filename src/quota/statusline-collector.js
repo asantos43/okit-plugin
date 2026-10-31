@@ -11,6 +11,9 @@ export const READING_FILE = 'claude-code.json';
 /** The file the collector writes under the state root: the client's JSON as it came; the core reads it. */
 export const STATUSLINE_FILE = 'claude-code-statusline.json';
 
+/** The cap of the wait for the answer of taskkill: past it the child dies by hand. */
+export const KILL_TREE_CAP_MS = 2000;
+
 const plain = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
@@ -19,10 +22,13 @@ const plain = (value) => typeof value === 'object' && value !== null && !Array.i
  * touched, and a kill that fails never throws to the caller.
  *
  * @param {object} child the child process of the collector
- * @param {{platform?: string, spawnFn?: Function}} [options] the platform and
- *   the spawn function, injectable for the test
+ * @param {{platform?: string, spawnFn?: Function, capMs?: number,
+ *   timers?: {set: Function, clear: Function}}} [options] the platform, the
+ *   spawn function, the cap of the wait for taskkill and the timers,
+ *   injectable for the test
  */
-export function killTree(child, { platform = process.platform, spawnFn = spawn } = {}) {
+export function killTree(child, { platform = process.platform, spawnFn = spawn,
+  capMs = KILL_TREE_CAP_MS, timers = { set: setTimeout, clear: clearTimeout } } = {}) {
   if (!Number.isInteger(child?.pid)) return;
   if (platform === 'win32') {
     // Windows has no group of our own: the tree of the command is killed by
@@ -39,10 +45,32 @@ export function killTree(child, { platform = process.platform, spawnFn = spawn }
     try {
       const killer = spawnFn('taskkill', ['/pid', String(child.pid), '/T', '/F'],
         { stdio: 'ignore', windowsHide: true });
-      killer.on('error', () => fallback());
-      killer.on('exit', (code) => { if (code !== 0) fallback(); });
-      killer.on('close', (code) => { if (code !== 0) fallback(); });
-      killer.unref();
+      // The killer is not unreferenced: the collector waits for its answer, so
+      // the fallback of a taskkill that failed runs before the collector goes.
+      // The cap of the wait is referenced too: it holds the collector until
+      // taskkill answers or the cap passes, and it ends the wait of a taskkill
+      // that got stuck.
+      let cap = null;
+      const clearCap = () => {
+        if (cap === null) return;
+        try { timers.clear(cap); } catch { /* the timer is already gone */ }
+        cap = null;
+      };
+      // The answer of taskkill comes first (the cap is cleared), the rule
+      // after: the child dies by hand only for a taskkill that failed.
+      const ended = (failed) => {
+        clearCap();
+        if (failed) fallback();
+      };
+      killer.on('error', () => ended(true));
+      killer.on('exit', (code) => ended(code !== 0));
+      killer.on('close', (code) => ended(code !== 0));
+      cap = timers.set(() => {
+        // The cap passed: the child dies by hand and the killer is stopped.
+        fallback();
+        try { killer.kill(); } catch { /* the killer is already gone */ }
+        cap = null;
+      }, capMs);
     } catch { fallback(); }
     return;
   }
