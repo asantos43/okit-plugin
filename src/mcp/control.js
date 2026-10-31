@@ -96,9 +96,11 @@ export async function startControl({
     if (isPosix) await filesystem.rm(endpoint, { force: true });
 
     const token = newToken();
-    const stop = async () => {
-      // Stopping twice is not a failure: the API is already gone.
-      if (state.stopped) return;
+    // The shutdown of the api: one promise for every stop, so a caller that
+    // stops the api twice waits for the same shutdown and never hears that
+    // the api is gone before it is.
+    let stopping = null;
+    const shutdown = async () => {
       state.stopped = true;
       for (const socket of connections) socket.destroy();
       connections.clear();
@@ -113,6 +115,10 @@ export async function startControl({
       }
       // The socket file and the record of the API go with it.
       await removeRecord(root, pid, { platform });
+    };
+    const stop = () => {
+      stopping ??= shutdown();
+      return stopping;
     };
 
     server = net.createServer();
@@ -274,7 +280,9 @@ function handleConnection(socket, {
       reply({ id, ok: false, error: 'invalid frame' });
       return;
     }
-    const args = frame.arguments ?? {};
+    // The arguments go to the tool as they came, the way the mcp hands them
+    // over: a null stays a null and an absent one stays nothing.
+    const args = frame.arguments;
     // The clock of the idle time stops while the call runs: a call that takes
     // its time is not an idle connection.
     disarm();

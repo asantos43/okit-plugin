@@ -2,6 +2,7 @@
 // that opens it, the frames it takes and the answers it gives.
 
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import * as filesystem from 'node:fs/promises';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
@@ -12,6 +13,9 @@ import { after, test } from 'node:test';
 import { startControl } from '../src/mcp/control.js';
 import { endpointFor } from '../src/mcp/control-endpoint.js';
 import { respond } from '../src/mcp/server.js';
+// The table the mcp publishes: the real tools, so the api answers the same
+// call the mcp answers.
+import { TOOLS as MCP_TOOLS } from '../src/mcp/tools.js';
 import { paths } from '../src/store.js';
 
 // A socket path is limited to a hundred bytes, so the folders of these tests are
@@ -152,6 +156,54 @@ test('a call over the api answers the text the mcp gives for the same call', asy
   assert.equal(answer.id, 1);
   assert.equal(answer.ok, true);
   assert.equal(answer.text, expected.result.content[0].text);
+  client.socket.destroy();
+});
+
+test('the arguments of a frame reach the tool as they came', async () => {
+  const root = await tempRoot();
+  const tools = [{
+    name: 'shape',
+    description: 'a tool that says what it received',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: async (args) => JSON.stringify({ type: typeof args, isNull: args === null }),
+  }];
+  const control = await start({ root, tools });
+  const client = await open(control.endpoint);
+
+  send(client, { id: 1, token: control.token, tool: 'shape', arguments: null });
+  const nothing = JSON.parse(JSON.parse(await nextLine(client)).text);
+  assert.equal(nothing.type, 'object');
+  assert.equal(nothing.isNull, true);
+
+  send(client, { id: 2, token: control.token, tool: 'shape' });
+  const absent = JSON.parse(JSON.parse(await nextLine(client)).text);
+  assert.equal(absent.type, 'undefined');
+  assert.equal(absent.isNull, false);
+
+  send(client, { id: 3, token: control.token, tool: 'shape', arguments: {} });
+  const object = JSON.parse(JSON.parse(await nextLine(client)).text);
+  assert.equal(object.type, 'object');
+  assert.equal(object.isNull, false);
+
+  client.socket.destroy();
+});
+
+test('a null argument is refused the way the mcp refuses it', async () => {
+  const root = await tempRoot();
+  const control = await start({ root, tools: MCP_TOOLS });
+  const client = await open(control.endpoint);
+
+  send(client, { id: 1, token: control.token, tool: 'config_set', arguments: null });
+  const answer = JSON.parse(await nextLine(client));
+
+  const expected = await respond(
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'config_set', arguments: null } },
+    { tools: MCP_TOOLS, ctx: { root }, version: '0.0.0' },
+  );
+
+  assert.equal(answer.ok, false);
+  assert.equal(answer.error, expected.result.content[0].text);
+  assert.equal(answer.error, 'config_set: arguments must be an object');
   client.socket.destroy();
 });
 
@@ -368,6 +420,29 @@ test('stop takes the socket and the record away and can be called twice', async 
 
   // Stopping twice is not a failure.
   await control.stop();
+});
+
+test('two stops at once wait for the same shutdown', async () => {
+  const root = await tempRoot();
+  const control = await start({ root });
+  const record = join(paths(root).control, `${process.pid}.json`);
+  await stat(record);
+
+  const first = control.stop();
+  const second = control.stop();
+  await within(second);
+  // The second stop waits for the shutdown: the api is already gone.
+  assert.equal(existsSync(record), false, 'the record must be gone when the second stop resolves');
+  await within(first);
+  await assert.rejects(stat(record), { code: 'ENOENT' });
+
+  // The api does not take another caller.
+  await assert.rejects(open(control.endpoint),
+    (error) => error.code === 'ENOENT' || error.code === 'ECONNREFUSED');
+
+  // Stopping again after the shutdown is not a failure.
+  await within(control.stop());
+  await within(control.stop());
 });
 
 test('a root whose path is too long does not open the api', { skip: POSIX_ONLY }, async () => {
