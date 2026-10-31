@@ -9,6 +9,7 @@ import process from 'node:process';
 import { installConfig } from '../install/config.js';
 import { detectKit } from '../install/kit.js';
 import { paths } from '../store.js';
+import { runCommand } from '../spawn-process.js';
 import { readJson } from '../state.js';
 import { argsOf } from './arguments.js';
 
@@ -25,5 +26,8 @@ export async function kitDetect(root, args = {}, deps = {}) {
   const stored = await readJson(paths(root).config, {});
   // The probe reads the installer's settings, the ones that name the kit.
   const install = installConfig(stored?.install);
-  return detectKit({ fs: filesystem, platform: process.platform, env: process.env, ...deps, config: install });
+  // The runner of a command is the one of the command line, so a kit that is
+  // found is probed the same way in both.
+  return detectKit({ fs: filesystem, platform: process.platform, env: process.env, ...deps,
+    run: deps.run ?? runCommand, config: install });
 }

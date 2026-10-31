@@ -11,7 +11,7 @@ import { configuredClientsOf, configOf, DEFAULT_CONFIG, PROFILE_EFFORTS } from '
 import { installConfig } from '../install/config.js';
 import { paths } from '../store.js';
 import { readJson, withLock, writeJsonAtomic } from '../state.js';
-import { argsOf, optionalText, requiredText } from './arguments.js';
+import { argsOf, optionalName, optionalText, requiredText } from './arguments.js';
 import { Refusal } from './refusal.js';
 
 export { CONFIG_SCHEMA };
@@ -325,7 +325,7 @@ async function mutateState(root, mutate, write) {
  */
 export async function configGet(root, args = {}) {
   const given = argsOf('config_get', args, ['key']);
-  const key = optionalText('config_get', given, 'key');
+  const key = optionalName('config_get', given, 'key');
   const { raw, config } = await readState(root);
   if (key === undefined) {
     return {

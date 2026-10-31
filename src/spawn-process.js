@@ -393,6 +393,35 @@ function catalogAnswer(client, installed, reason, detail) {
 const execFileAsync = promisify(child_process.execFile);
 
 /**
+ * Runs one command object: an argument array and no shell, like every spawn.
+ *
+ * The command line and the probe of the kit run their commands through this
+ * one, so a command behaves the same in both.
+ *
+ * @param {{command: string, args?: string[], cwd?: string, timeout?: number,
+ *   signal?: AbortSignal, timeoutMs?: number, env?: object, input?: string}} call
+ * @returns {Promise<{command: string, args: string[], stdout: string, stderr: string}>}
+ */
+export async function runCommand({ command, args = [], cwd, timeout, signal, timeoutMs, env, input }) {
+  const pending = execFileAsync(command, args, {
+    windowsHide: true, cwd, timeout: timeoutMs ?? timeout, killSignal: 'SIGKILL', env,
+  });
+  // The text a command reads on its standard input (a status bar and a hook read their JSON there); a command that
+  // exits without reading it is not an error of ours.
+  if (input !== undefined) {
+    pending.child.stdin?.on('error', () => {});
+    pending.child.stdin?.end(input);
+  }
+  const kill = () => pending.child.kill('SIGKILL');
+  signal?.addEventListener('abort', kill, { once: true });
+  if (signal?.aborted) kill();
+  try {
+    const { stdout, stderr } = await pending;
+    return { command, args, stdout, stderr };
+  } finally { signal?.removeEventListener('abort', kill); }
+}
+
+/**
  * Runs one listing command and answers what it printed. The command is a
  * value and is run without a shell, so nothing in it is read as shell syntax.
  *

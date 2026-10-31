@@ -3,7 +3,7 @@
 // effect is a parameter, so a test drives the whole CLI without starting a
 // client, a daemon or a `systemctl`.
 
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { rm, stat } from 'node:fs/promises';
 import * as filesystem from 'node:fs/promises';
@@ -11,7 +11,6 @@ import { createInterface } from 'node:readline/promises';
 import { join, resolve, basename } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { homedir, tmpdir } from 'node:os';
 
 const collectorEntry = process.argv[2] === 'statusline-collector';
@@ -32,7 +31,7 @@ import { configOf, DEFAULT_CONFIG, localeOf } from './profiles.js';
 const { listActors, formatActors } = collectorEntry ? {} : await import('./actors.js');
 const { environmentReport, formatEnvironmentReport } = collectorEntry
   ? {} : await import('./env/report.js');
-const { CLIENTS, makeSpawner } = collectorEntry ? {} : await import('./spawn-process.js');
+const { CLIENTS, makeSpawner, runCommand } = collectorEntry ? {} : await import('./spawn-process.js');
 const { adapterQuotaReader, clientsOf, LABELS, quotaOrigin, setupPendingLine, statusTable } = collectorEntry
   ? {} : await import('./status.js');
 import { readJson, writeJsonAtomic } from './state.js';
@@ -227,27 +226,9 @@ function usageOf(locale, command) {
 }
 
 
-const execFileAsync = promisify(execFile);
-
-/** Runs one command object: an argument array and no shell, like every spawn. */
-export async function runCommand({ command, args = [], cwd, timeout, signal, timeoutMs, env, input }) {
-  const pending = execFileAsync(command, args, {
-    windowsHide: true, cwd, timeout: timeoutMs ?? timeout, killSignal: 'SIGKILL', env,
-  });
-  // The text a command reads on its standard input (a status bar and a hook read their JSON there); a command that
-  // exits without reading it is not an error of ours.
-  if (input !== undefined) {
-    pending.child.stdin?.on('error', () => {});
-    pending.child.stdin?.end(input);
-  }
-  const kill = () => pending.child.kill('SIGKILL');
-  signal?.addEventListener('abort', kill, { once: true });
-  if (signal?.aborted) kill();
-  try {
-    const { stdout, stderr } = await pending;
-    return { command, args, stdout, stderr };
-  } finally { signal?.removeEventListener('abort', kill); }
-}
+// The runner of a command is the one of `src/spawn-process.js`, shared with the
+// probe of the kit, so a command behaves the same in both.
+export { runCommand };
 
 /** `--kind systemd`, `--kind=systemd` or nothing; an unknown flag is refused. */
 function readKind(args) {

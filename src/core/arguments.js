@@ -8,39 +8,69 @@ import { Refusal } from './refusal.js';
 /**
  * The arguments as an object, with no key the operation does not take.
  *
+ * Only a plain object is taken: an operation reads the own keys of the
+ * arguments, so an object that hides a value in its prototype (or a class
+ * instance that carries one) is refused instead of read.
+ *
  * @param {string} name the operation, for the message of the refusal
  * @param {unknown} args the arguments as they arrived
  * @param {string[]} allowed the keys the operation takes
  * @returns {object} the arguments
  */
 export function argsOf(name, args, allowed) {
-  const value = args === undefined || args === null ? {} : args;
-  if (typeof value !== 'object' || Array.isArray(value)) throw new Refusal(`${name}: arguments must be an object`);
-  const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (args === undefined) return {};
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) throw new Refusal(`${name}: arguments must be an object`);
+  const prototype = Object.getPrototypeOf(args);
+  if (prototype !== Object.prototype && prototype !== null) throw new Refusal(`${name}: arguments must be a plain object`);
+  const unknown = Object.keys(args).filter((key) => !allowed.includes(key));
   if (unknown.length > 0) {
     throw new Refusal(`${name}: unknown argument ${unknown.join(', ')}; expected ${allowed.join('|')}`);
   }
-  return value;
+  return args;
 }
 
-/** The value of an argument that must be a non-empty string. */
+/** The value of an argument the caller owns, or undefined when it owns none. */
+function own(args, key) {
+  return Object.hasOwn(args, key) ? args[key] : undefined;
+}
+
+/**
+ * The value of an argument that must be a non-empty string.
+ *
+ * The value is taken as it came: a name with a space around it is a different
+ * name, so it is refused here instead of being read as the name it looks like.
+ */
 export function requiredText(name, args, key) {
-  const value = args[key];
+  const value = own(args, key);
   if (typeof value !== 'string' || value.trim() === '') throw new Refusal(`${name}: ${key} must be a non-empty string`);
-  return value.trim();
+  if (value !== value.trim()) throw new Refusal(`${name}: ${key} must not have leading or trailing spaces`);
+  return value;
 }
 
 /** The value of an argument that may be a string, or nothing when it is absent. */
 export function optionalText(name, args, key) {
+  if (!Object.hasOwn(args, key) || args[key] === undefined) return undefined;
   const value = args[key];
-  if (value === undefined || value === null) return undefined;
   if (typeof value !== 'string') throw new Refusal(`${name}: ${key} must be a string when given`);
+  return value;
+}
+
+/**
+ * The value of an argument that names something, or nothing when it is absent.
+ *
+ * The name is exact: a name with a space around it is a different name, so it
+ * is refused here, the same way the required names are.
+ */
+export function optionalName(name, args, key) {
+  const value = optionalText(name, args, key);
+  if (value === undefined) return undefined;
+  if (value !== value.trim()) throw new Refusal(`${name}: ${key} must not have leading or trailing spaces`);
   return value;
 }
 
 /** The value of an argument that must be a number inside a range. */
 export function requiredNumber(name, args, key, { min, max, above, integer = false } = {}) {
-  const value = args[key];
+  const value = own(args, key);
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new Refusal(`${name}: ${key} must be a number`);
   if (integer && !Number.isInteger(value)) throw new Refusal(`${name}: ${key} must be an integer`);
   if (min !== undefined && value < min) throw new Refusal(`${name}: ${key} must be ${range(min, max)}`);
@@ -58,21 +88,21 @@ function range(min, max) {
 
 /** The value of an argument that may be a number, or nothing when it is absent. */
 export function optionalNumber(name, args, key, options = {}) {
-  if (args[key] === undefined || args[key] === null) return undefined;
+  if (!Object.hasOwn(args, key) || args[key] === undefined) return undefined;
   return requiredNumber(name, args, key, options);
 }
 
 /** The value of an argument that must be one of the choices. */
 export function requiredChoice(name, args, key, allowed) {
-  const value = args[key];
+  const value = own(args, key);
   if (!allowed.includes(value)) throw new Refusal(`${name}: ${key} must be one of ${allowed.join('|')}`);
   return value;
 }
 
 /** The value of an argument that is a switch: true, false or nothing. */
 export function optionalSwitch(name, args, key) {
+  if (!Object.hasOwn(args, key) || args[key] === undefined) return undefined;
   const value = args[key];
-  if (value === undefined || value === null) return undefined;
   if (typeof value !== 'boolean') throw new Refusal(`${name}: ${key} must be a boolean when given`);
   return value;
 }

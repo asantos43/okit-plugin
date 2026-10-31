@@ -3,12 +3,14 @@
 // data. Nothing here prints and nothing here reads the machine.
 
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import * as filesystem from 'node:fs/promises';
 import { join } from 'node:path';
+import process from 'node:process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { inboxAdd } from '../src/inbox.js';
 import { OPERATIONS, operation, run } from '../src/core/operations.js';
 
 // Scratch state lives inside the repository, never in the system temp folder.
@@ -183,4 +185,117 @@ test('todo_check compares the task lists of a root with the work it holds', asyn
   assert.deepEqual(checked.reports, []);
   await assert.rejects(run('todo_check', root, { project: 42 }, deps()), TypeError);
   await assert.rejects(run('todo_check', root, { other: 1 }, deps()), TypeError);
+});
+
+test('todo_check reports the work without a task and the tasks without work', async (t) => {
+  await mkdir(TMP, { recursive: true });
+  const base = await mkdtemp(join(TMP, 'core-todo-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = join(base, 'state');
+  const project = join(base, 'project');
+  await mkdir(root);
+  await mkdir(project);
+  await writeFile(join(root, 'config.json'),
+    JSON.stringify({ todo: { projects: { [project]: { enabled: true } } } }), 'utf8');
+  await writeFile(join(project, 'TODO.md'), '# Tasks\n\n## Inbox\n- [ ] Add search\n- [ ] Export report\n');
+  await inboxAdd(root, { title: 'Missing work', appliesTo: project });
+
+  const checked = await run('todo_check', root, {}, deps());
+  assert.equal(checked.reports.length, 1);
+  const report = checked.reports[0];
+  assert.equal(report.project, project);
+  assert.equal(report.enabled, true);
+  assert.deepEqual(report.demandsWithoutItem.map((item) => item.title), ['Missing work']);
+  assert.deepEqual(report.itemsWithoutDemand.map((item) => item.text), ['Add search', 'Export report']);
+  assert.deepEqual(report.changes, []);
+
+  // A project the root does not know is disabled, the way the command has
+  // always answered for one: the report says so and nothing changes.
+  const outside = join(base, 'outside');
+  await mkdir(outside);
+  const elsewhere = await run('todo_check', root, { project: outside }, deps());
+  assert.equal(elsewhere.reports.length, 1);
+  assert.equal(elsewhere.reports[0].project, outside);
+  assert.equal(elsewhere.reports[0].enabled, false);
+  assert.deepEqual(elsewhere.reports[0].demandsWithoutItem, []);
+  assert.deepEqual(elsewhere.reports[0].itemsWithoutDemand, []);
+  assert.deepEqual(elsewhere.reports[0].changes, []);
+});
+
+test('quota_set refuses a client name that is a path and writes nothing outside the root', async (t) => {
+  const root = await tempRoot(t, {
+    limits: { global: 3, clients: {} },
+    profiles: { '../../escape': { simple: { model: 'haiku', effort: 'low', maxTurns: 4 } } },
+  });
+  await assert.rejects(run('quota_set', root, { client: '../../escape', pct: 80 }, deps()), TypeError);
+  await assert.rejects(run('quota_show', root, { client: '../../escape' }, deps()), TypeError);
+  await assert.rejects(readFile(join(TMP, 'escape.json'), 'utf8'), { code: 'ENOENT' });
+  assert.deepEqual(await readdir(join(root, 'quota')).catch(() => []), []);
+});
+
+test('an explicit null is refused instead of passing for an absent value', async (t) => {
+  const root = await tempRoot(t);
+  await assert.rejects(run('config_set', root, { key: 'limits.global', value: null }), TypeError);
+  const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8'));
+  assert.equal(saved.limits.global, 3, 'a refused set leaves the setting as it was');
+  await assert.rejects(run('quota_set', root, { client: 'claude-code', pct: 80, windowMinutes: null }, deps()), TypeError);
+  await assert.rejects(run('daemon', root, { action: 'status', table: null }, deps()), TypeError);
+});
+
+test('the arguments are a plain object and only their own keys are read', async (t) => {
+  const root = await tempRoot(t);
+  await assert.rejects(run('daemon', root, Object.create({ action: 'status', unexpected: 1 }), deps()), TypeError);
+  class Call { constructor() { this.action = 'status'; } }
+  await assert.rejects(run('daemon', root, new Call(), deps()), TypeError);
+  await assert.rejects(run('config_get', root, null), TypeError);
+  const all = await run('config_get', root, undefined);
+  assert.ok(all.entries.length > 10, 'no arguments is the whole table');
+});
+
+test('a name with a space around it is refused by the four operations the same way', async (t) => {
+  const root = await tempRoot(t);
+  const calls = [
+    () => run('config_get', root, { key: ' limits.global ' }, deps()),
+    () => run('config_set', root, { key: ' limits.global ', value: '7' }, deps()),
+    () => run('quota_show', root, { client: ' claude-code ' }, deps()),
+    () => run('quota_set', root, { client: ' claude-code ', pct: 80 }, deps()),
+  ];
+  for (const call of calls) {
+    await assert.rejects(call(), (error) => {
+      assert.equal(error.name, 'Refusal');
+      assert.match(error.message, /must not have leading or trailing spaces/);
+      return true;
+    });
+  }
+  const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8'));
+  assert.equal(saved.limits.global, 3, 'a refused set writes nothing');
+});
+
+test('kit_detect probes a kit it finds with the runner of the command line', async (t) => {
+  const root = await tempRoot(t);
+  const folder = join(TMP, 'kit-probe');
+  await mkdir(folder, { recursive: true });
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const executable = join(folder, 'kit');
+  await writeFile(executable, `#!${process.execPath}\nconsole.log('kit v1.2.3');\n`, { mode: 0o755 });
+  await writeFile(join(root, 'config.json'),
+    JSON.stringify({ ...CONFIG, install: { kit: { path: executable } } }), 'utf8');
+  const kit = await run('kit_detect', root, {});
+  assert.doesNotMatch(kit.message, /deps\.run is not a function/);
+  assert.equal(kit.state, 'installed');
+  assert.equal(kit.path, executable);
+  assert.equal(kit.version, 'kit v1.2.3');
+});
+
+test('the component index says what the registry holds today', async () => {
+  const english = await readFile(new URL('../docs/components/README.md', import.meta.url), 'utf8');
+  const portuguese = await readFile(new URL('../docs/components/README.pt-BR.md', import.meta.url), 'utf8');
+  const names = ['config_get', 'config_set', 'quota_show', 'quota_set', 'daemon', 'kit_detect', 'todo_check'];
+  for (const text of [english, portuguese]) {
+    for (const name of names) assert.ok(text.includes(name), name);
+  }
+  assert.match(english, /seven operations/);
+  assert.match(portuguese, /sete operações/);
+  assert.doesNotMatch(english, /MCP tools call the same entries/);
+  assert.doesNotMatch(portuguese, /ferramentas MCP chamam as mesmas entradas/);
 });
