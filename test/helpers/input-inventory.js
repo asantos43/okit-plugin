@@ -406,7 +406,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/install/bootstrap.js', arg: /^hashes$/, rule: 'the release manifest (checksums)' },
   { file: 'src/install/bootstrap.js', arg: /^(value|text)$/, excluded: 'an OKIT_* environment variable (value) or the text of config.json read above (text): the variables are proved by the OKIT_* table, the file by CONFIG_JSON' },
   { file: 'src/install/bootstrap.js', arg: /^'\/dev\/tty'$/, excluded: 'the terminal, to ask a question; not a file of data' },
-  { file: 'src/config.js', arg: /^trimmed$/, excluded: 'the text of a `config set` value, a command-line argument; parseValue refuses what is not a value of its entry' },
+  { file: 'src/core/config.js', arg: /^trimmed$/, excluded: 'the text of a `config set` value, a command-line argument; parseValue refuses what is not a value of its entry' },
   // Hooks and processes that read what the client hands them, not a file of the person.
   { file: 'src/hook-post-compact.js', arg: /^(file|typeof stdin|await readFile)/, excluded: 'the transcript file or the standard input a client hook hands to the program (a hook, not a command of this inventory); a reader that never stops' },
   { file: 'src/hook-session-start.js', arg: /^(raw|files\.(inbox|orders))$/, excluded: 'the standard input of a client hook and the orchestration state of other commands (inbox, orders)' },

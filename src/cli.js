@@ -3,7 +3,7 @@
 // effect is a parameter, so a test drives the whole CLI without starting a
 // client, a daemon or a `systemctl`.
 
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { rm, stat } from 'node:fs/promises';
 import * as filesystem from 'node:fs/promises';
@@ -11,15 +11,15 @@ import { createInterface } from 'node:readline/promises';
 import { join, resolve, basename } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { homedir, tmpdir } from 'node:os';
 
 const collectorEntry = process.argv[2] === 'statusline-collector';
 const { AUTOSTART_KINDS, applyAutostart, autostartPlan, detectAutostart } = collectorEntry
   ? {} : await import('./autostart.js');
 const { configCommand } = collectorEntry ? {} : await import('./config.js');
+const { run } = collectorEntry ? {} : await import('./core/operations.js');
 const { todoRun } = collectorEntry ? {} : await import('./todo/index.js');
-const { daemonPause, daemonResume, daemonRun, daemonStatus, tick } = collectorEntry
+const { daemonRun, daemonStatus } = collectorEntry
   ? {} : await import('./daemon.js');
 const { limitsStatus } = collectorEntry ? {} : await import('./limits.js');
 const { inboxClaim, inboxRelease, inboxProducerTakeover, inboxList, holdText, holdIsStale } = collectorEntry
@@ -31,13 +31,12 @@ import { configOf, DEFAULT_CONFIG, localeOf } from './profiles.js';
 const { listActors, formatActors } = collectorEntry ? {} : await import('./actors.js');
 const { environmentReport, formatEnvironmentReport } = collectorEntry
   ? {} : await import('./env/report.js');
-const { environmentSnapshot, refreshEnvironmentSnapshot } = collectorEntry
-  ? {} : await import('./env/snapshot.js');
-const { CLIENTS, makeSpawner } = collectorEntry ? {} : await import('./spawn-process.js');
+const { CLIENTS, makeSpawner, runCommand } = collectorEntry ? {} : await import('./spawn-process.js');
 const { adapterQuotaReader, clientsOf, LABELS, quotaOrigin, setupPendingLine, statusTable } = collectorEntry
   ? {} : await import('./status.js');
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
+import { Refusal } from './core/refusal.js';
 const { installerCommand, kitLine, recordIgnoredLines } = collectorEntry ? {} : await import('./install/index.js');
 const { createPresenter, localizeReason, redactingWriter, resolveLocale } = collectorEntry ? {} : await import('./install/present.js');
 const { exitCodeFor, kindOf } = collectorEntry ? {} : await import('./install/exit.js');
@@ -83,7 +82,9 @@ async function todoCommand(ctx, action, args) {
     else if (args[i] === '--project' && args[i + 1]) project = args[++i];
     else return ctx.unknown();
   }
-  const result = await todoRun(ctx.root, { project, dryRun, check: action === 'check' });
+  const result = action === 'check'
+    ? await run('todo_check', ctx.root, { project })
+    : await todoRun(ctx.root, { project, dryRun, check: false });
   for (const report of result.reports) {
     ctx.out(`${report.project}: ${report.enabled ? 'Task list enabled / Lista de tarefas ligada' : 'Task list disabled / Lista de tarefas desligada'}`);
     for (const change of report.changes) ctx.out(dryRun ? change.diff : `Updated / Atualizada: ${change.title} (${change.file}:${change.line})`);
@@ -225,27 +226,9 @@ function usageOf(locale, command) {
 }
 
 
-const execFileAsync = promisify(execFile);
-
-/** Runs one command object: an argument array and no shell, like every spawn. */
-export async function runCommand({ command, args = [], cwd, timeout, signal, timeoutMs, env, input }) {
-  const pending = execFileAsync(command, args, {
-    windowsHide: true, cwd, timeout: timeoutMs ?? timeout, killSignal: 'SIGKILL', env,
-  });
-  // The text a command reads on its standard input (a status bar and a hook read their JSON there); a command that
-  // exits without reading it is not an error of ours.
-  if (input !== undefined) {
-    pending.child.stdin?.on('error', () => {});
-    pending.child.stdin?.end(input);
-  }
-  const kill = () => pending.child.kill('SIGKILL');
-  signal?.addEventListener('abort', kill, { once: true });
-  if (signal?.aborted) kill();
-  try {
-    const { stdout, stderr } = await pending;
-    return { command, args, stdout, stderr };
-  } finally { signal?.removeEventListener('abort', kill); }
-}
+// The runner of a command is the one of `src/spawn-process.js`, shared with the
+// probe of the kit, so a command behaves the same in both.
+export { runCommand };
 
 /** `--kind systemd`, `--kind=systemd` or nothing; an unknown flag is refused. */
 function readKind(args) {
@@ -420,43 +403,40 @@ async function runSetupCommand(ctx, { stored, locale, found }, io) {
   }
 }
 
+// The number of an argument, or NaN when it is not one: an empty argument is not a number.
+const numberOf = (text) => (typeof text === 'string' && text.trim() !== '' ? Number(text) : Number.NaN);
+
 async function quotaCommand(ctx, action, args) {
+  // The settings of this root are read first, as they always were.
   const config = await readConfig(ctx.root);
-  const readers = adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env, now: ctx.now, config });
-  // The clients of this root, the same list the quota table shows: the ones
-  // the configuration names, or the known clients when it names none. A
-  // client outside that list has no reading and no record.
-  const known = clientsOf(config, ctx.clients);
   const invalid = () => {
     ctx.err('Invalid quota arguments / Argumentos de cota inválidos');
     return ctx.unknown();
   };
-  if (action === 'show') {
-    if (args.length > 1 || (args.length && !known.includes(args[0]))) return invalid();
-    const snapshot = await environmentSnapshot({ ...ctx, config, view: 'selected', all: true,
-      clients: args.length ? args : known, readQuota: readers, cache: ctx.quotaCache ?? new Map() });
-    for (const { client, reading } of snapshot.clients) {
-      const origin = ['automatic', 'manual', 'user'].includes(reading.source)
-        ? ` — ${quotaOrigin(reading, snapshot.now, LABELS.en)} / ${quotaOrigin(reading, snapshot.now, LABELS['pt-BR'])}` : '';
-      ctx.out(`Quota / Cota ${client}: ${JSON.stringify(reading)}${origin}`);
+  try {
+    if (action === 'show') {
+      if (args.length > 1) return invalid();
+      const result = await run('quota_show', ctx.root, { client: args[0] }, { ...ctx, config });
+      for (const { client, reading } of result.clients) {
+        const origin = ['automatic', 'manual', 'user'].includes(reading.source)
+          ? ` — ${quotaOrigin(reading, result.now, LABELS.en)} / ${quotaOrigin(reading, result.now, LABELS['pt-BR'])}` : '';
+        ctx.out(`Quota / Cota ${client}: ${JSON.stringify(reading)}${origin}`);
+      }
+      return 0;
     }
-    return 0;
+    if (action === 'set') {
+      if ((args.length !== 2 && args.length !== 4) || (args.length === 4 && args[2] !== '--window-minutes')) return invalid();
+      const result = await run('quota_set', ctx.root, { client: args[0], pct: numberOf(args[1]),
+        ...(args.length === 4 ? { windowMinutes: numberOf(args[3]) } : {}) }, { ...ctx, config });
+      ctx.snapshot = result.snapshot;
+      ctx.out(`Quota recorded / Cota registrada: ${result.client} ${result.pct}%`);
+      return 0;
+    }
+  } catch (error) {
+    if (error instanceof Refusal) return invalid();
+    throw error;
   }
-  if (action !== 'set' || !known.includes(args[0])) return invalid();
-  const pct = Number(args[1]);
-  if (!args[1]?.trim() || !Number.isFinite(pct) || pct < 0 || pct > 100) return invalid();
-  const value = { remainingPct: pct, recordedAt: new Date(ctx.now()).toISOString() };
-  if (args.length !== 2) {
-    const window = Number(args[3]);
-    if (args.length !== 4 || args[2] !== '--window-minutes' || !args[3]?.trim()
-      || !Number.isFinite(window) || window <= 0) return invalid();
-    value.windowMinutes = window;
-  }
-  await writeJsonAtomic(join(paths(ctx.root).quota, `${args[0]}.json`), value);
-  ctx.snapshot = await refreshEnvironmentSnapshot({ ...ctx, config, view: 'selected', all: true,
-    clients: known, readQuota: readers, cache: ctx.quotaCache });
-  ctx.out(`Quota recorded / Cota registrada: ${args[0]} ${pct}%`);
-  return 0;
+  return invalid();
 }
 
 /**
@@ -612,7 +592,7 @@ async function daemonCommand(ctx, action, args) {
   }
 
   if (action === 'pause' || action === 'resume') {
-    const paused = action === 'pause' ? await daemonPause(ctx.root) : await daemonResume(ctx.root);
+    const paused = await run('daemon', ctx.root, { action }, { ...ctx });
     ctx.out(`paused: ${paused.paused}`);
     return 0;
   }
@@ -626,9 +606,8 @@ async function daemonCommand(ctx, action, args) {
       return ctx.unknown();
     }
 
-    const options = { now: ctx.now() };
-    if (table) options.table = await tableDeps(ctx, locale);
-    const status = await daemonStatus(ctx.root, options);
+    const deps = { ...ctx, table: table ? await tableDeps(ctx, locale) : undefined };
+    const status = await run('daemon', ctx.root, { action, table }, deps);
     report(ctx.out, [
       `running: ${status.running}`,
       `pid: ${dash(status.pid)}`,
@@ -647,7 +626,7 @@ async function daemonCommand(ctx, action, args) {
   }
 
   if (action === 'run-once') {
-    const record = await tick(ctx.root, depsOf(ctx));
+    const record = await run('daemon', ctx.root, { action }, { ...ctx });
     report(ctx.out, [
       `opened: ${record.opened.length}`,
       `spawned: ${record.spawned.length}`,
@@ -808,7 +787,7 @@ export async function main(argv = [], io = {}) {
       return await setupCommand(ctx, flags, io);
     }
     if (group === 'config') {
-      return await configCommand(ctx, action, args, { write: ctx.writeConfig });
+      return await configCommand(ctx, action, args, { write: ctx.writeConfig, run });
     }
     if (group === 'trajectory') {
       const { trajectoryCommand } = await import('./trajectory/cli.js');
@@ -829,7 +808,9 @@ export async function main(argv = [], io = {}) {
           if (kindOf(error) === 'usage') return refuse(ctx, locale, error.message);
           throw error;
         }
-        const result = await detectKit({ ...ctx, config });
+        const result = await run('kit_detect', ctx.root, {}, {
+          fs: ctx.fs, platform: ctx.platform, run: ctx.run, env: ctx.env, home: ctx.home, command: ctx.command,
+        });
         out(kitLine(result, config.kit, locale));
         return exitCodeFor((found['--require'] || config.kit.require) && result.state !== 'installed' ? 'operational' : 'ok');
       });

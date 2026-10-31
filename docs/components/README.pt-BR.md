@@ -27,4 +27,6 @@ Hooks → contexto/cota → cliente       daemon → agendas → adaptadores
 
 As skills orientam o modelo; as ferramentas validam argumentos e chamam o núcleo. Adaptadores conectam os clientes. O daemon executa trabalho agendado; a CLI permite consultar e controlar esses mesmos recursos.
 
+Algumas funções do núcleo vivem no registro de operações (`src/core/operations.js`): um nome, uma descrição nos dois idiomas, o esquema dos argumentos e um único executor. O registro tem hoje sete operações (`config_get`, `config_set`, `quota_show`, `quota_set`, `daemon`, `kit_detect`, `todo_check`); a linha de comando as chama, e as ferramentas MCP serão geradas a partir do registro em uma etapa posterior. Uma operação devolve dados e nunca imprime.
+
 [Guia](../guide/README.pt-BR.md) · [English](README.md)

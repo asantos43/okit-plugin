@@ -27,4 +27,6 @@ Hooks → context/quota → client       daemon → schedules → adapters
 
 Skills guide the model; tools validate arguments and call the core. Adapters connect clients. The daemon handles scheduled work; the CLI exposes inspection and control of these resources.
 
+Some core functions live in the operations registry (`src/core/operations.js`): a name, a description in both languages, the schema of its arguments and one handler. The registry holds seven operations today (`config_get`, `config_set`, `quota_show`, `quota_set`, `daemon`, `kit_detect`, `todo_check`); the command line calls them, and the MCP tools will be generated from the registry in a later slice. An operation returns data and never prints.
+
 [Guide](../guide/README.md) · [Português](README.pt-BR.md)
