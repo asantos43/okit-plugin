@@ -13,14 +13,21 @@
 import { EFFORT_CLASSES } from '../classify.js';
 import { STATUSES } from '../inbox.js';
 import { SCOPES } from '../orders.js';
+import { DEFAULT_CONFIG } from '../profiles.js';
+import { CLIENTS } from '../spawn-process.js';
 import { configGet, configSet } from './config.js';
 import { daemonOperation, DAEMON_ACTIONS } from './daemon.js';
 import {
   inboxAddOperation, inboxClaimOperation, inboxListOperation, inboxReleaseOperation, inboxSetStatusOperation,
 } from './inbox-operations.js';
 import { kitDetect } from './kit.js';
+import { acquireSlotOperation, limitsStatusOperation, releaseSlotOperation } from './limits-operations.js';
 import { orderAddOperation, orderListOperation, orderRemoveOperation } from './orders-operations.js';
+import { classifyOperation, profilePickOperation } from './profile-operations.js';
 import { quotaSet, quotaShow } from './quota.js';
+import {
+  actorsListOperation, envReportOperation, quotaNoticeOperation, SIZES, statusOperation,
+} from './status-operations.js';
 import { LOCALE_SCHEMA } from './tool-arguments.js';
 import { todoCheck } from './todo.js';
 
@@ -282,6 +289,160 @@ export const OPERATIONS = [
       additionalProperties: false,
     },
     handler: (root, args, deps) => orderRemoveOperation(root, args, deps),
+  },
+  // The operations of the limits, of the view of the machine and of the choice
+  // of the work: they were tools of the table of the server before, with the
+  // validation they always had. Their description is the one the tool
+  // published, in the language it published it.
+  {
+    name: 'acquire_slot',
+    description: {
+      en: 'Reserves one concurrency slot for a run, or reports the cap that refuses it. Take it before the work starts and call release_slot when it ends.',
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        runId: { type: 'string', description: 'Identifier of the run that owns the slot.' },
+        client: { type: 'string', description: 'Client the run belongs to.' },
+        waitMs: { type: 'number', description: 'Milliseconds to wait for a free slot; 0 reports busy at once.' },
+      },
+      required: ['runId', 'client'],
+      additionalProperties: false,
+    },
+    handler: (root, args, deps) => acquireSlotOperation(root, args, deps),
+  },
+  {
+    name: 'release_slot',
+    description: {
+      en: 'Frees the slot of a run, so the next one fits under the cap.',
+    },
+    schema: {
+      type: 'object',
+      properties: { runId: { type: 'string', description: 'Identifier of the run to free.' } },
+      required: ['runId'],
+      additionalProperties: false,
+    },
+    handler: (root, args, deps) => releaseSlotOperation(root, args, deps),
+  },
+  {
+    name: 'limits_status',
+    description: {
+      en: 'Reports the concurrency caps and the live runs per client.',
+    },
+    schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
+    handler: (root, args, deps) => limitsStatusOperation(root, args, deps),
+  },
+  {
+    name: 'status',
+    description: {
+      en: 'Shows recorded quota, its age and available executors for the detected client. Use all for every client or client to choose one. If no value is recorded, shows the command to record it. Send size, slices and executors to also receive showBefore.',
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        locale: LOCALE_SCHEMA,
+        all: { type: 'boolean', description: 'Show every client.' },
+        client: { type: 'string', enum: CLIENTS, description: 'Choose a client; overrides all and detection.' },
+        size: { type: 'string', enum: SIZES, description: 'Size of the task about to start.' },
+        slices: { type: 'integer', minimum: 0, description: 'How many steps the demand was split into.' },
+        executors: { type: 'integer', minimum: 0, description: 'How many executors would run at once.' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    handler: (root, args, deps) => statusOperation(root, args, deps),
+  },
+  {
+    name: 'quota_notice',
+    description: {
+      en: 'Turns the kit\'s quota-back event into a plain sentence for the user, in their language. Without that event, says the notice is not available.',
+      'pt-BR': 'Transforma o evento de cota liberada do kit em uma frase simples para o usuário, no idioma dele. Sem esse evento, diz que o aviso não está disponível.',
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        locale: LOCALE_SCHEMA,
+        event: { type: 'object', description: 'The quota-back event the kit delivered. / O evento de cota liberada entregue pelo kit.' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    handler: (root, args, deps) => quotaNoticeOperation(root, args, deps),
+  },
+  {
+    name: 'actors_list',
+    description: {
+      en: DEFAULT_CONFIG.actors.messages.en.description,
+    },
+    schema: {
+      type: 'object', properties: {
+        locale: LOCALE_SCHEMA,
+        all: { type: 'boolean' }, client: { type: 'string', enum: CLIENTS },
+      }, required: [], additionalProperties: false,
+    },
+    handler: (root, args, deps) => actorsListOperation(root, args, deps),
+  },
+  {
+    name: 'env_report',
+    description: {
+      en: 'Shows which environment is in use, installed clients, active models, quota, folders and what is missing with commands to fix it.',
+      'pt-BR': 'Mostra o ambiente em uso e o que falta com comandos para corrigir.',
+    },
+    schema: {
+      type: 'object', properties: {
+        client: { type: 'string' }, locale: LOCALE_SCHEMA,
+      }, required: [], additionalProperties: false,
+    },
+    handler: (root, args, deps) => envReportOperation(root, args, deps),
+  },
+  {
+    name: 'classify',
+    description: {
+      en: 'Classifies a demand as simple, normal or hard and says why.',
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'What the demand is about.' },
+        body: { type: 'string', description: 'The demand in full.' },
+        kind: { type: 'string', description: 'Free text: research, writing, code, data, ...' },
+      },
+      required: ['title'],
+      additionalProperties: false,
+    },
+    handler: (root, args, deps) => classifyOperation(root, args, deps),
+  },
+  {
+    name: 'profile_pick',
+    description: {
+      en: 'Chooses an assistant for the work, using built-in choices before setup. Low allowance selects a lighter choice.',
+      'pt-BR': 'Escolhe um assistente para o trabalho, usando as escolhas incluídas antes da configuração. Com pouca cota, usa uma escolha mais leve.',
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        client: { type: 'string', description: 'Client the work runs on.' },
+        effort: { type: 'string', enum: [...EFFORT_CLASSES], description: 'Effort class to pick the profile for.' },
+        quota: {
+          description: 'Quota reading: the percent left, or {source, remainingPct}.',
+          anyOf: [
+            { type: 'number' },
+            {
+              type: 'object',
+              properties: {
+                source: { type: 'string' },
+                remainingPct: { type: 'number' },
+              },
+              required: [],
+              additionalProperties: false,
+            },
+          ],
+        },
+      },
+      required: ['client', 'effort'],
+      additionalProperties: false,
+    },
+    handler: (root, args, deps) => profilePickOperation(root, args, deps),
   },
 ];
 

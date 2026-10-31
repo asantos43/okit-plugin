@@ -40,8 +40,11 @@ const deps = (extra = {}) => ({
   ...extra,
 });
 
+// The tools that came from the table of the server and kept the description
+// they always had: the one in English alone.
 const MOVED = [
   'inbox_add', 'inbox_list', 'inbox_claim', 'inbox_release', 'inbox_set_status', 'order_add', 'order_list', 'order_remove',
+  'acquire_slot', 'release_slot', 'limits_status', 'status', 'actors_list', 'classify',
 ];
 
 // | operation | must pass | must refuse |
@@ -55,8 +58,9 @@ const MOVED = [
 
 test('the registry holds one entry per operation of the core', () => {
   assert.deepEqual(OPERATIONS.map((entry) => entry.name).sort(), [
-    'config_get', 'config_set', 'daemon', 'inbox_add', 'inbox_claim', 'inbox_list', 'inbox_release',
-    'inbox_set_status', 'kit_detect', 'order_add', 'order_list', 'order_remove', 'quota_set', 'quota_show',
+    'acquire_slot', 'actors_list', 'classify', 'config_get', 'config_set', 'daemon', 'env_report', 'inbox_add',
+    'inbox_claim', 'inbox_list', 'inbox_release', 'inbox_set_status', 'kit_detect', 'limits_status', 'order_add',
+    'order_list', 'order_remove', 'profile_pick', 'quota_notice', 'quota_set', 'quota_show', 'release_slot', 'status',
     'todo_check',
   ]);
   assert.equal(new Set(OPERATIONS.map((entry) => entry.name)).size, OPERATIONS.length, 'no name is twice');
@@ -393,12 +397,12 @@ test('kit_detect probes a kit it finds with the runner of the command line', asy
 test('the component index says what the registry holds today', async () => {
   const english = await readFile(new URL('../docs/components/README.md', import.meta.url), 'utf8');
   const portuguese = await readFile(new URL('../docs/components/README.pt-BR.md', import.meta.url), 'utf8');
-  const names = ['config_get', 'config_set', 'quota_show', 'quota_set', 'daemon', 'kit_detect', 'todo_check', ...MOVED];
+  const names = OPERATIONS.map((entry) => entry.name);
   for (const text of [english, portuguese]) {
     for (const name of names) assert.ok(text.includes(name), name);
   }
-  assert.match(english, /fifteen operations/);
-  assert.match(portuguese, /quinze operações/);
+  assert.match(english, /twenty-four operations/);
+  assert.match(portuguese, /vinte e quatro operações/);
   assert.doesNotMatch(english, /MCP tools call the same entries/);
   assert.doesNotMatch(portuguese, /ferramentas MCP chamam as mesmas entradas/);
 });
