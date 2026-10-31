@@ -1,0 +1,712 @@
+{
+  "trajectory_show": {
+    "description": "Read a saved run step by step on this computer. / Leia uma execução salva passo a passo neste computador.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "telemetry_status": {
+    "description": "See what measurements are saved and where. / Veja quais medições são salvas e onde.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "telemetry_export": {
+    "description": "Export saved measurements, optionally from a date. / Exporte medições salvas, opcionalmente a partir de uma data.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "since": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "todo_sync": {
+    "description": "Synchronize project tasks; preview with dryRun. Confirm suggested links explicitly. / Sincronize tarefas; veja antes com dryRun. Confirme vínculos sugeridos.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string"
+        },
+        "dryRun": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "link": {
+          "type": "object"
+        },
+        "confirm": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "acquire_slot": {
+    "description": "Reserves one concurrency slot for a run, or reports the cap that refuses it. Take it before the work starts and call release_slot when it ends.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "description": "Identifier of the run that owns the slot."
+        },
+        "client": {
+          "type": "string",
+          "description": "Client the run belongs to."
+        },
+        "waitMs": {
+          "type": "number",
+          "description": "Milliseconds to wait for a free slot; 0 reports busy at once."
+        }
+      },
+      "required": [
+        "runId",
+        "client"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "release_slot": {
+    "description": "Frees the slot of a run, so the next one fits under the cap.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "description": "Identifier of the run to free."
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "limits_status": {
+    "description": "Reports the concurrency caps and the live runs per client.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "status": {
+    "description": "Shows recorded quota, its age and available executors for the detected client. Use all for every client or client to choose one. If no value is recorded, shows the command to record it. Send size, slices and executors to also receive showBefore.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "locale": {
+          "type": "string",
+          "enum": [
+            "en",
+            "pt-BR"
+          ],
+          "default": "en",
+          "description": "Language / Idioma; language (en) when omitted / quando omitido."
+        },
+        "all": {
+          "type": "boolean",
+          "description": "Show every client."
+        },
+        "client": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "opencode"
+          ],
+          "description": "Choose a client; overrides all and detection."
+        },
+        "size": {
+          "type": "string",
+          "enum": [
+            "S",
+            "M",
+            "L"
+          ],
+          "description": "Size of the task about to start."
+        },
+        "slices": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many steps the demand was split into."
+        },
+        "executors": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many executors would run at once."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "quota_notice": {
+    "description": "Turns the kit's quota-back event into a plain sentence for the user, in their language. Without that event, says the notice is not available. / Transforma o evento de cota liberada do kit em uma frase simples para o usuário, no idioma dele. Sem esse evento, diz que o aviso não está disponível.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "locale": {
+          "type": "string",
+          "enum": [
+            "en",
+            "pt-BR"
+          ],
+          "default": "en",
+          "description": "Language / Idioma; language (en) when omitted / quando omitido."
+        },
+        "event": {
+          "type": "object",
+          "description": "The quota-back event the kit delivered. / O evento de cota liberada entregue pelo kit."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "actors_list": {
+    "description": "Read-only actors (model + effort available in a client), sizes, slots, quota and remedies. atores, executores, actors, executors, modelos, quem pode rodar, lista de executores. Somente leitura: ator = modelo + esforço disponível em um cliente; tamanhos, vagas, cota e soluções.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "locale": {
+          "type": "string",
+          "enum": [
+            "en",
+            "pt-BR"
+          ],
+          "default": "en",
+          "description": "Language / Idioma; language (en) when omitted / quando omitido."
+        },
+        "all": {
+          "type": "boolean"
+        },
+        "client": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "opencode"
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "env_report": {
+    "description": "Shows which environment is in use, installed clients, active models, quota, folders and what is missing with commands to fix it. / Mostra o ambiente em uso e o que falta com comandos para corrigir.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "client": {
+          "type": "string"
+        },
+        "locale": {
+          "type": "string",
+          "enum": [
+            "en",
+            "pt-BR"
+          ],
+          "default": "en",
+          "description": "Language / Idioma; language (en) when omitted / quando omitido."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "smoke_demo": {
+    "description": "Preview practice work and confirm its allowance ceiling. / Veja os trabalhos de exemplo e confirme o teto de cota.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "dryRun": {
+          "type": "boolean"
+        },
+        "client": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "opencode"
+          ]
+        },
+        "locale": {
+          "type": "string",
+          "enum": [
+            "en",
+            "pt-BR"
+          ],
+          "default": "en",
+          "description": "Language / Idioma; language (en) when omitted / quando omitido."
+        },
+        "confirm": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "classify": {
+    "description": "Classifies a demand as simple, normal or hard and says why.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "What the demand is about."
+        },
+        "body": {
+          "type": "string",
+          "description": "The demand in full."
+        },
+        "kind": {
+          "type": "string",
+          "description": "Free text: research, writing, code, data, ..."
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "profile_pick": {
+    "description": "Chooses an assistant for the work, using built-in choices before setup. Low allowance selects a lighter choice. / Escolhe um assistente para o trabalho, usando as escolhas incluídas antes da configuração. Com pouca cota, usa uma escolha mais leve.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "client": {
+          "type": "string",
+          "description": "Client the work runs on."
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "normal",
+            "hard"
+          ],
+          "description": "Effort class to pick the profile for."
+        },
+        "quota": {
+          "description": "Quota reading: the percent left, or {source, remainingPct}.",
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string"
+                },
+                "remainingPct": {
+                  "type": "number"
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "client",
+        "effort"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "inbox_add": {
+    "description": "Adds a demand to the shared inbox and returns the stored item, id included.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "What the demand is about."
+        },
+        "body": {
+          "type": "string",
+          "description": "The demand in full."
+        },
+        "kind": {
+          "type": "string",
+          "description": "Free text: research, writing, code, data, ..."
+        },
+        "accept": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Checks the demand must pass."
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "normal",
+            "hard"
+          ],
+          "description": "Effort class; call classify when it is absent."
+        },
+        "client": {
+          "type": "string",
+          "description": "Client the demand belongs to."
+        },
+        "appliesTo": {
+          "description": "Project the demand is about; absent or \"global\" means every project."
+        },
+        "todoLink": {
+          "type": "object",
+          "description": "Confirmed task link: project (absolute root), item (text or anchor), optional file."
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "inbox_list": {
+    "description": "Lists inbox items newest first, optionally filtered by status, client or project.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "delegated",
+            "criticised",
+            "consolidated",
+            "failed"
+          ],
+          "description": "Only items in this status."
+        },
+        "client": {
+          "type": "string",
+          "description": "Only items of this client."
+        },
+        "appliesTo": {
+          "type": "string",
+          "description": "Project name, or \"global\" for the shared items alone."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many items at most."
+        },
+        "locale": {
+          "type": "string",
+          "enum": [
+            "en",
+            "pt-BR"
+          ],
+          "default": "en",
+          "description": "Language / Idioma; language (en) when omitted / quando omitido."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "inbox_claim": {
+    "description": "Claims an inbox item atomically; refuses another active holder.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "client": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "worktree": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "client"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "inbox_release": {
+    "description": "Releases an owned or stale hold.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "client": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "client"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "inbox_set_status": {
+    "description": "Moves one inbox item along pending, delegated, criticised, consolidated or failed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Inbox item id, as returned by inbox_add."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "delegated",
+            "criticised",
+            "consolidated",
+            "failed"
+          ],
+          "description": "Status to move the item to."
+        },
+        "holder": {
+          "type": "object",
+          "properties": {
+            "client": {
+              "type": "string"
+            },
+            "session": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "client"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "status"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "order_add": {
+    "description": "Adds a standing order: one instruction the Director reads with every demand until it is revoked.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The instruction, in plain words."
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "all",
+            "effort:simple",
+            "effort:normal",
+            "effort:hard"
+          ],
+          "description": "Effort class the order applies to; \"all\" by default."
+        },
+        "until": {
+          "type": "string",
+          "description": "ISO date-time after which the order stops being active."
+        },
+        "appliesTo": {
+          "description": "Project the order binds; absent or \"global\" means every project."
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "order_list": {
+    "description": "Lists the standing orders that are active now, optionally for one project.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "appliesTo": {
+          "type": "string",
+          "description": "Project name, or \"global\" for the shared orders alone."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "order_remove": {
+    "description": "Revokes a standing order by id. Nothing is deleted, so the history survives.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Standing order id, as returned by order_add."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why the order is revoked."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "config_get": {
+    "description": "Reads the settings of a root: every entry of the schema, or one of them when a key is given. / Lê os ajustes de uma raiz: todas as entradas do esquema, ou uma delas quando a chave é informada.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "The key of one entry; every entry when it is absent."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "config_set": {
+    "description": "Writes one setting of a root and says what it was and what it is now; without a value the setting is removed. / Grava um ajuste de uma raiz e diz o que era e o que passou a ser; sem valor o ajuste é removido.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "The key of the entry to write."
+        },
+        "value": {
+          "type": "string",
+          "description": "The new value; the entry is removed when it is absent."
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "quota_show": {
+    "description": "Shows the recorded quota of the clients of a root, or of one client when it is named. / Mostra a cota registrada dos clientes de uma raiz, ou de um cliente quando ele é nomeado.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "client": {
+          "type": "string",
+          "description": "One client of the root; every client when it is absent."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "quota_set": {
+    "description": "Records the quota of one client: the percentage that is left, and the window it belongs to when it is given. / Registra a cota de um cliente: a porcentagem que resta, e a janela a que ela pertence quando é informada.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "client": {
+          "type": "string",
+          "description": "The client the reading belongs to."
+        },
+        "pct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "The percentage of the quota that is left."
+        },
+        "windowMinutes": {
+          "type": "number",
+          "description": "The length of the window the reading belongs to, in minutes."
+        }
+      },
+      "required": [
+        "client",
+        "pct"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "daemon": {
+    "description": "The state of the daemon of a root: whether it runs, whether it is paused, the last pass it made, or one pass now. / O estado do daemon de uma raiz: se roda, se está pausado, a última passagem que fez, ou uma passagem agora.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "status",
+            "pause",
+            "resume",
+            "run-once"
+          ],
+          "description": "What to do with the daemon."
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "kit_detect": {
+    "description": "Probes the orchestration kit of a root: whether it is installed, which version it is, and why it is broken. / Investiga o kit de orquestração de uma raiz: se está instalado, qual versão tem e por que está com defeito.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "todo_check": {
+    "description": "Compares the task lists of a project with the work a root holds: the work without a task and the tasks without work. / Compara as listas de tarefas de um projeto com o trabalho de uma raiz: o trabalho sem tarefa e as tarefas sem trabalho.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "The absolute folder of the project; every project of the root when it is absent."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,4 +1,4 @@
-// The tools built from the registry of the operations: the seven the server
+// The tools built from the registry of the operations: the ones the server
 // announces, the answers they give, the refusals they make and the shape of
 // the schema the client reads.
 
@@ -122,12 +122,13 @@ const WRONG = {
   todo_check: { project: 42 },
 };
 
-test('the server announces the seven tools of the registry', async () => {
+test('the server announces the tools of the registry', async () => {
   const server = harness({ root: await tempRoot() });
   const list = await server.request('tools/list');
   const names = list.result.tools.map((tool) => tool.name);
-  for (const name of SEVEN) assert.ok(names.includes(name), name);
-  assert.deepEqual(names.slice(-SEVEN.length), SEVEN, 'the tools of the registry are the last ones');
+  const registry = OPERATIONS.map((entry) => entry.name);
+  for (const name of registry) assert.ok(names.includes(name), name);
+  assert.deepEqual(names.slice(-registry.length), registry, 'the tools of the registry are the last ones');
   await server.stop();
 });
 
@@ -219,6 +220,18 @@ test('the daemon does not publish the key only the command line takes', async ()
   const refused = await server.call('daemon', { action: 'status', table: true });
   assert.equal(refused.result.isError, true);
   assert.match(server.text(refused), /unknown argument table/);
+
+  // The refusal names the keys the tool publishes and never the one only the
+  // command line takes, and a primitive is refused like any other wrong type.
+  const unknown = await server.call('daemon', { junk: true });
+  assert.equal(unknown.result.isError, true);
+  assert.match(server.text(unknown), /expected action$/);
+  assert.doesNotMatch(server.text(unknown), /table/);
+  for (const primitive of ['bad', 42, true]) {
+    const wrong = await server.call('daemon', primitive);
+    assert.equal(wrong.result.isError, true, `${String(primitive)} is refused`);
+    assert.match(server.text(wrong), /arguments must be an object/);
+  }
   await server.stop();
 });
 
@@ -226,7 +239,7 @@ test('an entry that leaves the registry leaves the table of tools', () => {
   const fewer = OPERATIONS.filter((entry) => entry.name !== 'todo_check');
   const names = toolsFromRegistry(fewer).map((tool) => tool.name);
   assert.ok(!names.includes('todo_check'));
-  assert.equal(names.length, SEVEN.length - 1);
+  assert.equal(names.length, OPERATIONS.length - 1);
 
   // Every entry of the registry is a tool of the server, and every tool of the
   // registry is in the table.
@@ -242,6 +255,26 @@ test('a generated tool refuses null, an array, a hidden key and an inherited one
   for (const args of [null, [], hidden, inherited, { client: 'claude-code', pct: 50, [Symbol('x')]: 1 }]) {
     await assert.rejects(tool.handler(args, { root, ...DETECT }), TypeError);
   }
+});
+
+test('inbox_add, inbox_list, inbox_claim and inbox_release carry one demand from arrival to release', async () => {
+  const server = harness({ root: await tempRoot(), ...DETECT });
+
+  const added = server.data(await server.call('inbox_add', { title: 'a demand from the registry' }));
+  assert.equal(added.status, 'pending');
+
+  const listed = server.data(await server.call('inbox_list', {}));
+  assert.deepEqual(listed.map((item) => item.id), [added.id]);
+
+  const claimed = server.data(await server.call('inbox_claim', { id: added.id, client: 'claude-code', session: 's1' }));
+  assert.equal(claimed.id, added.id);
+  const refused = await server.call('inbox_claim', { id: added.id, client: 'codex' });
+  assert.equal(refused.result.isError, true, 'another holder is refused while the hold is active');
+
+  await server.call('inbox_release', { id: added.id, client: 'claude-code', session: 's1' });
+  const again = server.data(await server.call('inbox_claim', { id: added.id, client: 'codex' }));
+  assert.equal(again.id, added.id);
+  await server.stop();
 });
 
 test('daemon answers the state it keeps: status, pause, status again and resume', async () => {

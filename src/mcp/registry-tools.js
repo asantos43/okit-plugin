@@ -7,6 +7,10 @@
 // client that mutates what it read changes nothing else. The keys only the
 // command line takes (`cliOnly`) are not published and are refused, the same
 // way a tool refuses an argument it does not have.
+//
+// The arguments are not checked here, except for an entry with keys only the
+// command line takes: every other handler checks its own, the way the tool
+// always did.
 
 import { argsOf } from '../core/arguments.js';
 import { OPERATIONS } from '../core/operations.js';
@@ -42,17 +46,27 @@ export function publishedSchema(entry) {
   return schema;
 }
 
-// The dependencies of the call: what the context of the server offers and the
-// operation asks for. The table of the daemon is not among them, because only
-// the command line builds it.
+// The dependencies of the call: what the context of the server offers. The
+// root is not among them (the handler takes it apart) and the table of the
+// daemon is not either, because only the command line builds it.
 function depsOf(ctx) {
-  const deps = {};
-  const source = ctx ?? {};
-  for (const key of ['config', 'env', 'now', 'quotaCache', 'spawn', 'run', 'fs', 'platform',
-    'detectClients', 'versions', 'plugin']) {
-    if (source[key] !== undefined) deps[key] = source[key];
-  }
+  const deps = { ...(ctx ?? {}) };
+  delete deps.root;
   return deps;
+}
+
+/**
+ * Checks the arguments of an entry that has keys only the command line takes,
+ * with the strict rules of the core and the keys the tool publishes, so the
+ * refusal of a `cliOnly` key is the one of an argument the tool does not have
+ * and never names a key the client cannot send. The other entries check their
+ * own arguments.
+ *
+ * @param {object} entry the entry of the registry
+ * @param {unknown} args the arguments as they arrived
+ */
+function checkCliOnly(entry, args) {
+  if ((entry.cliOnly ?? []).length > 0) argsOf(entry.name, args, publishedKeys(entry));
 }
 
 /**
@@ -62,16 +76,15 @@ function depsOf(ctx) {
  * @returns {{name: string, description: string, inputSchema: object, handler: Function}[]}
  */
 export function toolsFromRegistry(operations = OPERATIONS) {
-  return operations.map((entry) => {
-    const allowed = publishedKeys(entry);
-    return {
-      name: entry.name,
-      description: `${entry.description.en} / ${entry.description['pt-BR']}`,
-      inputSchema: publishedSchema(entry),
-      handler: async (args, ctx) => {
-        const given = argsOf(entry.name, args, allowed);
-        return reply(await entry.handler(ctx.root, given, depsOf(ctx)));
-      },
-    };
-  });
+  return operations.map((entry) => ({
+    name: entry.name,
+    description: entry.description['pt-BR'] === undefined
+      ? entry.description.en
+      : `${entry.description.en} / ${entry.description['pt-BR']}`,
+    inputSchema: publishedSchema(entry),
+    handler: async (args, ctx) => {
+      checkCliOnly(entry, args);
+      return reply(await entry.handler(ctx.root, args, depsOf(ctx)));
+    },
+  }));
 }

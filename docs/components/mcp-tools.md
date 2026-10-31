@@ -9,7 +9,7 @@ Every `locale` field is optional and lists default `en` from the built-in `langu
 <a id="tools"></a>
 ## Tool contract
 
-The server exposes 29 tools. Inputs are JSON objects; ? marks an optional field. Replies are JSON text containing a result or refusal; invalid arguments raise an error. Writing state does not itself launch a model or spend allowance. The list of the tools costs 14255 bytes of JSON, about 3564 tokens of context, and seven of them are generated from the operations registry (`src/core/operations.js`), so a core function is described once.
+The server exposes 29 tools. Inputs are JSON objects; ? marks an optional field. Replies are JSON text containing a result or refusal; invalid arguments raise an error. Writing state does not itself launch a model or spend allowance. The list of the tools costs 14255 bytes of JSON, about 3564 tokens of context, and twenty-four of them are generated from the operations registry (`src/core/operations.js`), so a core function is described once.
 
 | Name | Purpose and return | Inputs | Effect |
 | :- | :- | :- | :- |
