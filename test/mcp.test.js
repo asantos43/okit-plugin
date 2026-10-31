@@ -15,7 +15,6 @@ const NAMES = [
   'telemetry_status',
   'telemetry_export',
   'todo_sync',
-  'todo_status',
   'acquire_slot',
   'release_slot',
   'limits_status',
@@ -34,6 +33,13 @@ const NAMES = [
   'order_add',
   'order_list',
   'order_remove',
+  'config_get',
+  'config_set',
+  'quota_show',
+  'quota_set',
+  'daemon',
+  'kit_detect',
+  'todo_check',
 ];
 
 const roots = [];

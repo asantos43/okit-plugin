@@ -53,8 +53,9 @@ function initializeResult(params, version) {
 }
 
 // Only the three fields a client needs to advertise a tool; the handler stays
-// on this side.
-function toolListing(tools) {
+// on this side. The listing is exported so the cost of the list can be
+// measured without a second copy of it.
+export function toolListing(tools) {
   return tools.map((tool) => ({
     name: tool.name,
     description: tool.description,

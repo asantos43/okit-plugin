@@ -466,7 +466,6 @@ const TOOL_ARGS = {
   telemetry_export: () => ({}),
   trajectory_show: (state) => ({ run: state.trajectory }),
   todo_sync: () => ({ dryRun: true }),
-  todo_status: () => ({}),
   acquire_slot: () => ({ runId: 'smoke-e14', client: 'claude-code' }),
   release_slot: () => ({ runId: 'smoke-e14' }),
   limits_status: () => ({}),
@@ -485,6 +484,13 @@ const TOOL_ARGS = {
   order_add: () => ({ text: 'the smoke order' }),
   order_list: () => ({}),
   order_remove: (state) => ({ id: state.order, reason: 'the smoke run is over' }),
+  config_get: () => ({}),
+  config_set: () => ({ key: 'language', value: 'en' }),
+  quota_show: () => ({}),
+  quota_set: () => ({ client: 'claude-code', pct: 80 }),
+  daemon: () => ({ action: 'status' }),
+  kit_detect: () => ({}),
+  todo_check: () => ({}),
 };
 
 // E14: every tool answers `tools/call`, an unknown tool and a bad line are

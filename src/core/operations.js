@@ -4,6 +4,9 @@
 // (which arrive as `unknown` and are checked inside) and the dependencies of
 // the caller; it returns data and never prints.
 //
+// An entry may also name the keys only the command line takes (`cliOnly`): the
+// MCP tool built from the entry does not publish them and refuses them.
+//
 // The command line and the MCP server are two callers of the same operations:
 // this registry is what they share, so a function exists once.
 
@@ -96,6 +99,10 @@ export const OPERATIONS = [
       required: ['action'],
       additionalProperties: false,
     },
+    // The table needs the dependencies of the caller, and only the command line
+    // has them: the key stays in the registry for the command and the tool that
+    // reads the registry does not publish it.
+    cliOnly: ['table'],
     handler: (root, args, deps) => daemonOperation(root, args, deps),
   },
   {

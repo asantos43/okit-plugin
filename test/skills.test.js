@@ -20,7 +20,7 @@ const TOOLS = new Set([
   'telemetry_status',
   'telemetry_export',
   'todo_sync',
-  'todo_status',
+  'todo_check',
   'acquire_slot',
   'release_slot',
   'limits_status',
@@ -38,6 +38,12 @@ const TOOLS = new Set([
   'order_add',
   'order_list',
   'order_remove',
+  'config_get',
+  'config_set',
+  'quota_show',
+  'quota_set',
+  'daemon',
+  'kit_detect',
 ]);
 
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;

@@ -2,6 +2,7 @@
 // The inputSchema is documentation; every handler checks its own arguments
 // again, because a client is free to send whatever it likes.
 import { classify, EFFORT_CLASSES } from '../classify.js';
+import { OPERATIONS } from '../core/operations.js';
 import { projectName, withDemandRef } from '../demand-ref.js';
 import { inboxAdd, inboxClaim, inboxRelease, inboxList, inboxSetStatus, holdText, STATUSES } from '../inbox.js';
 import { acquireSlot, limitsStatus, releaseSlot } from '../limits.js';
@@ -16,6 +17,7 @@ import { readJson } from '../state.js';
 import { paths, stateRoot } from '../store.js';
 import { todoRun } from '../todo/index.js';
 import { status as telemetryStatus, exportTelemetry, record } from '../telemetry/index.js';
+import { toolsFromRegistry } from './registry-tools.js';
 
 const HOME_ENV = 'OKWORK_HOME';
 const DEFAULT_REASON = 'revoked by the mcp tool order_remove';
@@ -589,19 +591,17 @@ const smokeDemoTool = {
   },
 };
 
-function todoTool(name, check) {
-  return { name, description: check
-    ? 'Inspect project tasks and saved work without changing files. / Confira tarefas e trabalhos salvos sem alterar arquivos.'
-    : 'Synchronize project tasks; preview with dryRun. Confirm suggested links explicitly. / Sincronize tarefas; veja antes com dryRun. Confirme vínculos sugeridos.',
+function todoTool(name) {
+  return { name, description: 'Synchronize project tasks; preview with dryRun. Confirm suggested links explicitly. / Sincronize tarefas; veja antes com dryRun. Confirme vínculos sugeridos.',
   inputSchema: { type: 'object', properties: { project: { type: 'string' },
-    ...(!check ? { dryRun: { type: 'boolean' }, id: { type: 'string' }, link: { type: 'object' }, confirm: { type: 'boolean' } } : {}) },
+    dryRun: { type: 'boolean' }, id: { type: 'string' }, link: { type: 'object' }, confirm: { type: 'boolean' } },
   required: [], additionalProperties: false },
   handler: async (args, ctx) => {
-    const a = argsOf(name, args, check ? ['project'] : ['project', 'dryRun', 'id', 'link', 'confirm']);
+    const a = argsOf(name, args, ['project', 'dryRun', 'id', 'link', 'confirm']);
     for (const key of ['dryRun', 'confirm']) {
       if (a[key] !== undefined && typeof a[key] !== 'boolean') fail(`${name}: ${key} must be boolean`);
     }
-    return reply(await todoRun(ctx.root, { ...a, project: optionalText(name, a, 'project'), check }));
+    return reply(await todoRun(ctx.root, { ...a, project: optionalText(name, a, 'project'), check: false }));
   } };
 }
 
@@ -626,8 +626,7 @@ export const TOOLS = [
       return reply(await handler(ctx.root, { since: optionalText(name, a, 'since') }));
     },
   })),
-  todoTool('todo_sync', false),
-  todoTool('todo_status', true),
+  todoTool('todo_sync'),
   acquireSlotTool,
   releaseSlotTool,
   limitsStatusTool,
@@ -646,6 +645,9 @@ export const TOOLS = [
   orderAddTool,
   orderListTool,
   orderRemoveTool,
+  // The tools of the operations of the registry: the last ones of the table,
+  // in the order of the registry.
+  ...toolsFromRegistry(OPERATIONS),
 ];
 
 export const TOOL_NAMES = TOOLS.map((tool) => tool.name);
