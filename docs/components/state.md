@@ -20,6 +20,7 @@ The default root is ~/.okwork; OKWORK_HOME replaces the entire directory (it doe
 | `runs/<runId>.json` | Slot status, client and start/end times; process launches also record PID and outcome |
 | `runs/<runId>.out` | Process launcher stdout/stderr when no other log directory is supplied |
 | `locks/config.lock/owner.json`, `inbox.json.lock/owner.json`, `orders.json.lock/owner.json`, `templates.json.lock/owner.json`, `runs.lock/owner.json` | Writer lock owner, PID and timestamp; temporary claim files coordinate recovery |
+| `control/<pid>.json`, `control/<pid>.sock` | Record and socket of the [control API](control-api.md) of a running MCP server; private to the user |
 | `daemon.lock/owner.json` | Exclusive daemon loop lock |
 | `daemon.pid.json`, `daemon.paused`, `daemon.stop` | Loop owner and persisted pause/stop controls |
 | `logs/<date>.jsonl` | Daemon decisions and retention purges |

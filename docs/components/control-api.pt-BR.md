@@ -1,0 +1,39 @@
+# API de controle
+
+![okit-plugin: Componentes](../images/banners/components.svg)
+
+Um servidor MCP em execução também responde a chamadas de ferramenta de outros programas do mesmo computador, e de mais ninguém.
+
+<a id="what"></a>
+## O que é
+
+Quando o servidor MCP inicia, ele abre um ponto local ao lado do canal stdio. Um programa do mesmo usuário pode pedir a esse servidor que execute uma ferramenta e recebe o mesmo texto que o cliente receberia por MCP. O servidor nunca abre uma porta de rede.
+
+<a id="where"></a>
+## Onde ele escuta
+
+| Sistema | Ponto de acesso |
+| :- | :- |
+| Linux e macOS | Um arquivo de socket `control/<pid>.sock` na [raiz de estado](state.pt-BR.md), com no máximo 100 bytes |
+| Windows | Um pipe nomeado `okit-<hash da raiz>-<pid>`, para que duas raízes nunca dividam um |
+
+Ao lado dele o servidor grava `control/<pid>.json` com pid, ponto de acesso, hora de início, versão e um token aleatório. A pasta é privada do usuário (modo 0700), assim como o socket e o registro (modo 0600); uma pasta de outro usuário é recusada.
+
+<a id="protocol"></a>
+## Protocolo
+
+Um objeto JSON por linha. O pedido é `{"id", "token", "tool", "arguments"}`; a resposta é `{"id", "ok": true, "text"}` ou `{"id", "ok": false, "error"}`. Todo pedido leva o token do registro, comparado sem revelar quanto dele estava certo; token errado ou ausente é recusado e a conexão é fechada. Uma ferramenta que recusa responde `ok: false` com a própria mensagem, e um nome desconhecido responde `unknown tool <nome>`.
+
+Limites: um quadro acima de 1 MiB é recusado, a nona conexão simultânea é dispensada e uma conexão que fica 30 segundos calada é fechada. As chamadas de uma conexão são respondidas na ordem em que chegaram.
+
+<a id="life"></a>
+## Vida do ponto de acesso
+
+O servidor o abre depois que o canal stdio inicia e remove o socket e o registro quando sua entrada termina. O registro de um processo que morreu é podado quando o próximo servidor inicia ou quando um cliente procura. Se o ponto não puder ser criado (caminho de estado longo demais, pasta de outro usuário), o servidor MCP continua funcionando e escreve uma linha no fluxo de erro.
+
+<a id="client"></a>
+## Chamando
+
+`src/mcp/control-client.js` oferece `callControl({ root, tool, arguments })`. Ele tenta primeiro o servidor vivo mais novo, pula um que não aceita a conexão, espera 5 segundos por padrão e sempre devolve `{ ok, text }` ou `{ ok: false, error }` em palavras simples; nunca lança exceção.
+
+[Visão geral](README.pt-BR.md) · [Ferramentas MCP](mcp-tools.pt-BR.md) · [English](control-api.md)

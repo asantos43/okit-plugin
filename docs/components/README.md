@@ -9,6 +9,7 @@ Look up each component to understand how the plugin organizes and runs work.
 
 - [Skills](skills.md): instructions for each role and task.
 - [MCP tools](mcp-tools.md): inputs, replies and effects.
+- [Control API](control-api.md): local calls to a running server.
 - [Hooks](hooks.md): session context and quota collection.
 - [Adapters](adapters.md): client capabilities and installation.
 - [CLI](cli.md): commands and examples.
