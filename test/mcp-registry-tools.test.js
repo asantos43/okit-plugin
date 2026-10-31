@@ -220,6 +220,18 @@ test('the daemon does not publish the key only the command line takes', async ()
   const refused = await server.call('daemon', { action: 'status', table: true });
   assert.equal(refused.result.isError, true);
   assert.match(server.text(refused), /unknown argument table/);
+
+  // The refusal names the keys the tool publishes and never the one only the
+  // command line takes, and a primitive is refused like any other wrong type.
+  const unknown = await server.call('daemon', { junk: true });
+  assert.equal(unknown.result.isError, true);
+  assert.match(server.text(unknown), /expected action$/);
+  assert.doesNotMatch(server.text(unknown), /table/);
+  for (const primitive of ['bad', 42, true]) {
+    const wrong = await server.call('daemon', primitive);
+    assert.equal(wrong.result.isError, true, `${String(primitive)} is refused`);
+    assert.match(server.text(wrong), /arguments must be an object/);
+  }
   await server.stop();
 });
 

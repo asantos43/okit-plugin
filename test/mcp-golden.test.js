@@ -223,7 +223,12 @@ const CASES = [
   { tool: 'inbox_list', case: 'wrong-type', expect: 'refusal', args: { limit: -1 } },
   {
     tool: 'inbox_list', case: 'status-filter', expect: 'ok', args: { status: 'pending' },
-    prepare: async (ctx) => { await toolOf('inbox_add').handler({ title: 'x' }, ctx); },
+    // One item matches the filter and one does not, so a filter that is dropped changes the answer.
+    prepare: async (ctx) => {
+      await toolOf('inbox_add').handler({ title: 'stays pending' }, ctx);
+      const moved = JSON.parse(await toolOf('inbox_add').handler({ title: 'moves on' }, ctx));
+      await toolOf('inbox_set_status').handler({ id: moved.id, status: 'failed' }, ctx);
+    },
   },
   {
     tool: 'inbox_list', case: 'limit', expect: 'ok', args: { limit: 1 },
@@ -391,6 +396,7 @@ const CASES = [
     prepare: async (ctx) => {
       await toolOf('order_add').handler({ text: 'shared' }, ctx);
       await toolOf('order_add').handler({ text: 'scoped', appliesTo: 'mcp-server' }, ctx);
+      await toolOf('order_add').handler({ text: 'another project', appliesTo: 'other-project' }, ctx);
     },
   },
 

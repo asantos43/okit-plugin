@@ -8,12 +8,12 @@
 // command line takes (`cliOnly`) are not published and are refused, the same
 // way a tool refuses an argument it does not have.
 //
-// The arguments are not checked here: every handler checks its own, the way
-// the tool always did. The keys only the command line takes are the ones
-// refused by the tool, because the handler would never see them.
+// The arguments are not checked here, except for an entry with keys only the
+// command line takes: every other handler checks its own, the way the tool
+// always did.
 
+import { argsOf } from '../core/arguments.js';
 import { OPERATIONS } from '../core/operations.js';
-import { Refusal } from '../core/refusal.js';
 
 // A tool answers with the JSON of what the core returned, so a refusal
 // (`ok: false`) and a result (`ok: true`) read the same way.
@@ -56,20 +56,17 @@ function depsOf(ctx) {
 }
 
 /**
- * Refuses the keys only the command line takes. The refusal is the one of a
- * tool that gets an argument it does not have, and it names the keys the tool
- * does take.
+ * Checks the arguments of an entry that has keys only the command line takes,
+ * with the strict rules of the core and the keys the tool publishes, so the
+ * refusal of a `cliOnly` key is the one of an argument the tool does not have
+ * and never names a key the client cannot send. The other entries check their
+ * own arguments.
  *
  * @param {object} entry the entry of the registry
  * @param {unknown} args the arguments as they arrived
  */
-function refuseCliOnly(entry, args) {
-  const cliOnly = entry.cliOnly ?? [];
-  if (cliOnly.length === 0) return;
-  const source = args === undefined || args === null ? {} : args;
-  const forbidden = Reflect.ownKeys(source).filter((key) => cliOnly.includes(key));
-  if (forbidden.length === 0) return;
-  throw new Refusal(`${entry.name}: unknown argument ${forbidden.map((key) => String(key)).join(', ')}; expected ${publishedKeys(entry).join('|')}`);
+function checkCliOnly(entry, args) {
+  if ((entry.cliOnly ?? []).length > 0) argsOf(entry.name, args, publishedKeys(entry));
 }
 
 /**
@@ -86,7 +83,7 @@ export function toolsFromRegistry(operations = OPERATIONS) {
       : `${entry.description.en} / ${entry.description['pt-BR']}`,
     inputSchema: publishedSchema(entry),
     handler: async (args, ctx) => {
-      refuseCliOnly(entry, args);
+      checkCliOnly(entry, args);
       return reply(await entry.handler(ctx.root, args, depsOf(ctx)));
     },
   }));
