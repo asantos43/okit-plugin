@@ -21,7 +21,7 @@ import {
   tokenMatches,
   writeRecord,
 } from './control-endpoint.js';
-import { callTool } from './server.js';
+import { callTool } from './call-tool.js';
 
 // The platforms that answer on a socket file: it has a mode of its own.
 const POSIX_PLATFORMS = new Set(['linux', 'darwin']);
