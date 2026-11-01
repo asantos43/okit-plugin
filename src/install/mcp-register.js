@@ -13,8 +13,15 @@ import { detect } from './menu.js';
 export const MCP_CLIENTS = Object.freeze(Object.entries(DEFAULT_CONFIG.install.clients)
   .filter(([, settings]) => settings.mcp).map(([client]) => client));
 
-// The words of what the client printed: the path of the server is one of them, whole.
-const WORDS = /[\s"'`,\[\]{}()]+/;
+// The characters that may stand where our path stands in what the client printed: the path is a word of its own, and
+// these are the words that end it. A comma, a letter, a digit, a dot, a dash, an underscore or a separator at its
+// side means the path is a part of another one (a folder that ends with ours, our version against the one that
+// follows it), so it is not ours.
+const BEFORE = new Set(['"', "'", '`', '[', '=']);
+const AFTER = new Set(['"', "'", '`', ']']);
+const isSpace = (char) => char !== undefined && /\s/.test(char);
+const mayPrecede = (char) => char === undefined || isSpace(char) || BEFORE.has(char);
+const mayFollow = (char) => char === undefined || isSpace(char) || AFTER.has(char);
 
 /** The file the client starts, inside an installation. */
 const serverPath = (path, config) => join(path, config.mcp.server);
@@ -108,20 +115,34 @@ export async function registerMcp(record, deps, action = 'install') {
  * that an installation whose first add failed is fixed by the next one. A client that is not on the machine is left
  * alone, quietly: the manual command is listed by the registration itself.
  *
+ * Nothing of this step throws into the installer: a client that cannot even be looked for is a warning, and a client
+ * this step does not handle is never looked for.
+ *
  * @param {object} record the installation record (`path` is the retained folder)
  * @param {object} deps the dependencies of the installer (`config`, `run` and `detect`)
  * @returns {Promise<{status: string, detail: string, reason?: string}|null>} null when the client is not there
  */
 export async function ensureMcp(record, deps) {
-  const settings = deps.config.clients[record.client];
-  if (!settings) return null;
-  if (!await (deps.detect ?? detect)(settings.executable, deps)) return null;
-  return registerMcp(record, deps, 'install');
+  const ui = presenterOf(deps);
+  const client = clientLabel(record.client);
+  let plan = null;
+  try {
+    // The eligibility comes first: a client this step does not handle is never even looked for.
+    plan = mcpPlan(record, deps, 'install');
+    if (!plan) return null;
+    const settings = deps.config.clients[record.client];
+    if (!await (deps.detect ?? detect)(settings.executable, deps)) return null;
+    return await registerMcp(record, deps, 'install');
+  } catch (error) {
+    // A client that cannot be looked for is a warning, never a failure of the installation.
+    return failure(ui, client, reasonOf(error), plan ? plan.add : []);
+  }
 }
 
 /**
- * Whether what the client printed names one of our paths, whole: a path that is only a part of another one (a folder
- * that ends with ours, our version against the version that follows it) is not ours.
+ * Whether what the client printed names one of our paths, whole: the path is found in the text as it is written, and
+ * only when the words around it are the ones that end it (a path that is a part of another one, or that holds a
+ * comma, a letter, a digit, a dot, a dash, an underscore or a separator at its side, is not ours).
  *
  * @param {string} text what the client printed
  * @param {string[]} paths the paths of ours to look for
@@ -129,36 +150,68 @@ export async function ensureMcp(record, deps) {
  * @returns {boolean} whether one of the paths is named
  */
 export function pointsAt(text, paths, platform = process.platform) {
-  const wanted = paths.filter(Boolean).map((path) => normalize(path));
-  return String(text ?? '').split(WORDS).filter(Boolean)
-    .some((word) => wanted.some((path) => samePath(normalize(word), path, platform)));
+  const printed = String(text ?? '');
+  // On Windows the case and the separator do not matter: the whole text is folded before the search.
+  const haystack = platform === 'win32' ? folded(printed) : printed;
+  return paths.filter(Boolean).map((path) => normalize(path)).some((path) => {
+    const wanted = platform === 'win32' ? folded(path) : path;
+    if (!wanted) return false;
+    // Every occurrence counts: the first one may belong to another path, the second one to ours.
+    let at = haystack.indexOf(wanted);
+    while (at !== -1) {
+      const before = at === 0 ? undefined : haystack[at - 1];
+      const after = at + wanted.length === haystack.length ? undefined : haystack[at + wanted.length];
+      if (mayPrecede(before) && mayFollow(after)) return true;
+      at = haystack.indexOf(wanted, at + 1);
+    }
+    return false;
+  });
 }
 
-/** The paths as they are compared: on Windows the case and the separator do not matter. */
-const samePath = (one, other, platform) => {
-  const fold = (value) => (platform === 'win32' ? value.replaceAll('\\', '/').toLowerCase() : value);
-  return fold(one) === fold(other);
-};
+/** The paths as they are compared on Windows: the separator and the case do not matter. */
+const folded = (value) => value.replaceAll('\\', '/').toLowerCase();
 
 /** What the client answered about the entry: whether it holds one, and what it printed about it. */
 async function readEntry(plan, deps) {
-  presenterOf(deps).detail(plan.get.join(' '));
-  try {
-    const result = await deps.run({ ...command(plan.get), timeout: deps.config.timeoutMs });
-    if (result?.code) return saysAbsent(result) ? { status: 'absent' } : { status: 'failed', reason: reasonOf(result) };
-    return { status: 'exists', output: outputOf(result) };
-  } catch (error) {
+  const answer = await ask(plan.get, deps);
+  if (!answer.ok) {
     // Only the client that says it holds no entry with this name means an absent entry; every other failure is one.
-    if (error?.code === 1 && saysAbsent(error)) return { status: 'absent' };
-    return { status: 'failed', reason: reasonOf(error) };
+    if (answer.code === 1 && /no mcp server/i.test(answer.text)) return { status: 'absent' };
+    return { status: 'failed', reason: answer.reason };
+  }
+  return { status: 'exists', output: answer.text };
+}
+
+/**
+ * Runs one command of the client and answers in one shape: a runner that resolves a non-zero code failed as much as
+ * a runner that throws, and both answers are the same here.
+ *
+ * @param {string[]} words the argv of the command
+ * @param {object} deps the dependencies of the installer
+ * @returns {Promise<{ok: boolean, code: number|string|null, text: string, reason: string}>}
+ */
+async function ask(words, deps) {
+  presenterOf(deps).detail(words.join(' '));
+  try {
+    return answered(await deps.run({ ...command(words), timeout: deps.config.timeoutMs }));
+  } catch (error) {
+    return answered(error, true);
   }
 }
 
-/** What the client printed, in the two places it prints it. */
-const outputOf = (result) => `${result?.stdout ?? ''}\n${result?.stderr ?? ''}`;
+/** What a command answered: whether it worked, its code, what it printed and why it failed. */
+const answered = (result, thrown = false) => {
+  const code = result?.code ?? null;
+  const text = `${result?.stdout ?? ''}\n${result?.stderr ?? ''}`;
+  const ok = !thrown && (code === null || code === 0);
+  return { ok, code, text, reason: ok ? '' : reasonOf(result) };
+};
 
-/** Whether the client answered that it holds no entry with this name. */
-const saysAbsent = (result) => /no mcp server/i.test(outputOf(result));
+/** Runs one command of the plan: the reason of a failure is kept, the failure is never raised. */
+async function runPlan(words, deps) {
+  const answer = await ask(words, deps);
+  return answer.ok ? { ok: true } : { ok: false, reason: answer.reason };
+}
 
 /** Why a command of the client failed: its code and what it said. */
 const reasonOf = (failure) => {
@@ -166,13 +219,6 @@ const reasonOf = (failure) => {
   const code = failure?.code;
   return code === undefined || code === null ? String(message) : `${code}: ${String(message)}`;
 };
-
-/** Runs one command of the plan: the reason of a failure is kept, the failure is never raised. */
-async function runPlan(words, deps) {
-  presenterOf(deps).detail(words.join(' '));
-  try { await deps.run({ ...command(words), timeout: deps.config.timeoutMs }); return { ok: true }; }
-  catch (error) { return { ok: false, reason: reasonOf(error) }; }
-}
 
 /** A command that failed: the reason and the command the person can run by hand. */
 const failure = (ui, client, reason, words) => ({

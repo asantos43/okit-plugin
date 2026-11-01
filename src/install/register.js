@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { detect } from './menu.js';
 import { quote } from './link.js';
-import { presenterOf, pick } from './present.js';
+import { presenterOf, pick, clientLabel } from './present.js';
 import { mcpPlan, registerMcp } from './mcp-register.js';
 
 /**
@@ -58,12 +58,16 @@ export async function register(record, deps, action = 'install') {
   const mcp = mcpPlan(record, deps, action);
   if (action === 'uninstall') await registerRole(record, deps, true);
   if (settings.strategy === 'module' && action === 'uninstall') {
-    await removeOwnedModule(record, deps); return { status: 'ok', detail: ui.text('registerModule') };
+    // The MCP entry of the client goes out before the module it points at is gone.
+    const notes = [];
+    if (mcp && await clientThere(settings, deps)) notes.push(...await mcpStep(record, deps, action));
+    await removeOwnedModule(record, deps);
+    return { status: 'ok', detail: ui.text('registerModule'), notes };
   }
   if (!await (deps.detect ?? detect)(settings.executable, deps)) {
     const notes = [ui.text('registerMissingNext'), ...commands.map((item) => `  ${[item.command, ...item.args].join(' ')}`)];
     if (mcp) notes.push(...mcpManual(record, mcp, action).map((words) => `  ${words.join(' ')}`));
-    if (settings.strategy === 'module') notes.push(ui.text('registerModuleNext', { path: join(record.path, settings.module) }));
+    if (settings.strategy === 'module' && settings.module) notes.push(ui.text('registerModuleNext', { path: join(record.path, settings.module) }));
     return { status: 'skipped', detail: ui.text('registerMissing', { executable: settings.executable }), notes };
   }
   // The MCP entry of the client goes out before the plugin it points at is gone.
@@ -74,11 +78,13 @@ export async function register(record, deps, action = 'install') {
     await deps.run(command);
   }
   // The MCP entry is written after the client's own registration, which succeeded.
-  if (action !== 'uninstall') notes.push(...await mcpStep(record, deps, action));
+  if (action !== 'uninstall' && settings.strategy !== 'module') notes.push(...await mcpStep(record, deps, action));
   if (action !== 'uninstall') await registerRole(record, deps);
   if (settings.strategy === 'module') {
     await registerModule(record, deps, settings);
-    return { status: 'ok', detail: ui.text('registerModule') };
+    // The module is the client's own registration: the entry of the MCP goes after it.
+    if (action !== 'uninstall') notes.push(...await mcpStep(record, deps, action));
+    return { status: 'ok', detail: ui.text('registerModule'), notes };
   }
   const manual = settings.strategy === 'marketplace' && !settings[action] && action !== 'uninstall';
   return { status: 'ok', detail: ui.text(manual ? 'registerMarketplaceManual' : action === 'uninstall' ? 'registerRemoved' : 'registerMarketplace'), notes };
@@ -89,7 +95,29 @@ export async function register(record, deps, action = 'install') {
  * of the MCP registration never fails the installation (the same posture as the role).
  */
 export async function mcpStep(record, deps, action) {
-  return mcpNotes(await registerMcp(record, deps, action), deps, action);
+  try {
+    return mcpNotes(await registerMcp(record, deps, action), deps, action);
+  } catch (error) {
+    // Nothing of the MCP step throws into the installer: an unexpected failure is a warning.
+    const reason = String(error?.message ?? error);
+    const command = mcpWords(record, deps, action).join(' ');
+    return mcpNotes({ status: 'failed', reason,
+      detail: presenterOf(deps).text('mcpFailed', { client: clientLabel(record.client), reason, command }) }, deps, action);
+  }
+}
+
+/** The command the person can run by hand for the MCP step, when the plan of the step can be built at all. */
+function mcpWords(record, deps, action) {
+  try {
+    const plan = mcpPlan(record, deps, action);
+    return plan ? (action === 'uninstall' ? plan.remove : plan.add) : [];
+  } catch { return []; }
+}
+
+/** Whether the client is on the machine: a detection that fails is a client that is not there. */
+async function clientThere(settings, deps) {
+  try { return Boolean(await (deps.detect ?? detect)(settings.executable, deps)); }
+  catch { return false; }
 }
 
 /**
@@ -130,6 +158,8 @@ async function registerRole(record, deps, remove = false) {
 }
 
 async function registerModule(record, deps, settings) {
+  // A client with the module strategy and no module of ours has nothing to install.
+  if (!settings.module) return;
   const adapter = await (deps.loadAdapter ?? loadAdapter)(record);
   const opts = { env: deps.env, root: deps.clientRoot };
   if (record.previous) await removeOwnedModule(record.previous, deps);
@@ -149,9 +179,11 @@ async function registerModule(record, deps, settings) {
 }
 
 async function removeOwnedModule(record, deps) {
+  const settings = deps.config.clients[record.client];
+  // A client with the module strategy and no module of ours has nothing to take out.
+  if (!settings.module) return;
   const adapter = await (deps.loadAdapter ?? loadAdapter)(record);
   const path = join(adapter.configRoot({ env: deps.env, root: deps.clientRoot }), deps.config.pluginsDirectory, `${deps.config.entry}.js`);
-  const settings = deps.config.clients[record.client];
   const content = `export { default } from ${JSON.stringify(pathToFileURL(join(record.path, settings.module)).href)};\n`;
   const actual = await deps.fs.readFile(path, 'utf8').catch((error) => { if (error.code !== 'ENOENT') throw error; return null; });
   if (actual === content) await deps.fs.unlink(path);

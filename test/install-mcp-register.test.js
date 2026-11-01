@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../src/cli.js';
 import { installConfig } from '../src/install/config.js';
 import { ensureMcp, mcpPlan, pointsAt, registerMcp } from '../src/install/mcp-register.js';
+import { mcpStep, register } from '../src/install/register.js';
 import { TEXTS } from '../src/install/present.js';
-import { fixture } from './helpers/install-fixture.js';
+import { fixture, mcpWorld } from './helpers/install-fixture.js';
+import * as moduleAdapter from '../adapters/opencode/index.js';
 
 // D110 step 1: the installer registers one MCP server, named `okit`, in the client it installs, through the client's
 // own `mcp` commands. Only that entry is ever touched: an entry that is not ours is kept, and a failure of the
@@ -24,11 +28,18 @@ import { fixture } from './helpers/install-fixture.js';
 // D110 correction round 1: the entry is ours when the client names our path, whole (a path that only holds ours as a
 // part of it is not ours), a read that fails is not an absent entry (nothing is written), OpenCode is never asked,
 // the installation that is already there registers its entry again, and a rollback shows the plan.
+//
+// D110 correction round 2: the ownership of an entry is the whole path as the client printed it (a path with spaces
+// is ours, a path with a foreign word at its side is not), a runner that resolves a non-zero code failed as much as
+// one that throws, nothing of the MCP step throws into the installer, and the module strategy keeps the MCP step.
 
 const CONFIG = installConfig({});
 const RECORD = { client: 'claude-code', path: join('/opt', 'okit-plugin', '1.0.0-claude-code') };
 const SERVER = join(RECORD.path, 'src/mcp/server.js');
 const PREVIOUS = { client: 'claude-code', path: join('/opt', 'okit-plugin', '0.9.0-claude-code') };
+// An installation in a folder whose name holds a space: the path of the server holds it too.
+const SPACED = join('/Users/me/Library/Application Support/okit/1.0.0');
+const SPACED_SERVER = join(SPACED, 'src/mcp/server.js');
 
 /** The dependencies of the step: the installer's settings and the runner of the client. */
 const depsOf = (run, config = CONFIG) => ({ config, run, out: () => {} });
@@ -370,4 +381,211 @@ test('a failed read that says the entry is absent but exits with another code is
   const result = await registerMcp(RECORD, depsOf(run), 'install');
   assert.equal(result.status, 'failed');
   assert.deepEqual(client.argv(), []);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 2: the ownership of an entry is the whole path as the client printed it.
+
+test('a path with spaces is ours when the client prints it whole', () => {
+  const printed = [
+    `okit\n  Args: ${SPACED_SERVER}\n`,
+    `okit\n  args: ${SPACED_SERVER}\n`,
+    `okit\n  args: "${SPACED_SERVER}"\n`,
+    `okit\n  args: ["${SPACED_SERVER}"]\n`,
+    `okit\n  args: ${SPACED_SERVER}`,
+  ];
+  for (const text of printed) assert.equal(pointsAt(text, [SPACED_SERVER]), true, text);
+});
+
+test('a path with a foreign word at its side is not ours', () => {
+  const foreign = [
+    `/foreign,${SERVER}`,
+    `/backup${SERVER}`,
+    `${SERVER}.backup`,
+    `${SERVER}/x`,
+    `${SERVER}-old`,
+    `x${SERVER}`,
+    join('/opt', 'okit-plugin', '1.0.0', 'src/mcp/server.js'),
+  ];
+  for (const path of foreign) assert.equal(pointsAt(`okit\n  args: ${path}\n`, [SERVER]), false, path);
+});
+
+test('every occurrence of the path counts, not only the first', () => {
+  const text = `okit\n  args: /backup${SERVER}\n  args: ${SERVER}\n`;
+  assert.equal(pointsAt(text, [SERVER]), true);
+  // The other way around: the first one is ours, the second one is not.
+  const other = `okit\n  args: ${SERVER}\n  args: /backup${SERVER}\n`;
+  assert.equal(pointsAt(other, [SERVER]), true);
+});
+
+test('on Windows the path is ours in every spelling, and only then', () => {
+  const path = 'C:\\Users\\Jo Silva\\AppData\\okit\\src\\mcp\\server.js';
+  assert.equal(pointsAt(`okit\n  args: ${path}\n`, [path], 'win32'), true);
+  assert.equal(pointsAt(`okit\n  args: ${path.replaceAll('\\', '/')}\n`, [path], 'win32'), true);
+  assert.equal(pointsAt(`okit\n  args: ${path.toLowerCase()}\n`, [path], 'win32'), true);
+  assert.equal(pointsAt(`okit\n  args: "${path}"\n`, [path], 'win32'), true);
+  // A foreign word at its side is not ours.
+  assert.equal(pointsAt(`okit\n  args: /backup${path}\n`, [path], 'win32'), false);
+  assert.equal(pointsAt(`okit\n  args: ${path}.backup\n`, [path], 'win32'), false);
+  // On another system the case and the separator do matter.
+  assert.equal(pointsAt(`okit\n  args: ${path.toLowerCase()}\n`, [path], 'linux'), false);
+  assert.equal(pointsAt(`okit\n  args: ${path.replaceAll('\\', '/')}\n`, [path], 'linux'), false);
+});
+
+test('the entry that names our path with spaces is ours', async () => {
+  const client = fakeClient(`okit\n  args: ${SPACED_SERVER}\n`);
+  const result = await registerMcp({ ...RECORD, path: SPACED }, depsOf(client.run), 'install');
+  assert.equal(result.status, 'skipped');
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('the entry that names our path after a comma is not ours', async () => {
+  const client = fakeClient(`okit\n  args: /foreign,${SERVER}\n`);
+  const result = await registerMcp(RECORD, depsOf(client.run), 'install');
+  assert.equal(result.status, 'kept');
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 2: a runner that resolves a non-zero code failed as much as one that throws.
+
+test('a read that resolves a failure is a failure, not an absent entry', async () => {
+  const calls = [];
+  const run = async (input) => {
+    calls.push(input);
+    if (input.args[1] === 'get') return { code: 2, stdout: '', stderr: 'No MCP server named okit' };
+    return {};
+  };
+  const result = await registerMcp(RECORD, depsOf(run), 'install');
+  assert.equal(result.status, 'failed');
+  assert.match(result.reason, /2:/, result.reason);
+  // Nothing is written: the add that would replace a foreign entry never runs.
+  assert.deepEqual(calls.map((call) => call.args[1]), ['get']);
+});
+
+test('a read that resolves the code of an absent entry is an absent entry', async () => {
+  const calls = [];
+  const run = async (input) => {
+    calls.push(input);
+    if (input.args[1] === 'get') return { code: 1, stdout: '', stderr: 'No MCP server named okit' };
+    return {};
+  };
+  const result = await registerMcp(RECORD, depsOf(run), 'install');
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(calls.map((call) => call.args[1]), ['get', 'add']);
+});
+
+test('a remove that resolves a failure is not followed by an add', async () => {
+  const calls = [];
+  const run = async (input) => {
+    calls.push(input);
+    if (input.args[1] === 'get') return { stdout: `okit\n  args: ${join(PREVIOUS.path, 'src/mcp/server.js')}\n` };
+    if (input.args[1] === 'remove') return { code: 1, stdout: '', stderr: 'the client refused the removal' };
+    return {};
+  };
+  const result = await registerMcp({ ...RECORD, previous: PREVIOUS }, depsOf(run), 'update');
+  assert.equal(result.status, 'failed');
+  assert.match(result.reason, /the client refused the removal/, result.reason);
+  // The add never runs after a remove that failed.
+  assert.deepEqual(calls.map((call) => call.args[1]), ['get', 'remove']);
+});
+
+test('an add that resolves a failure is a failure', async () => {
+  const calls = [];
+  const run = async (input) => {
+    calls.push(input);
+    if (input.args[1] === 'get') return { code: 1, stdout: '', stderr: 'No MCP server named okit' };
+    if (input.args[1] === 'add') return { code: 1, stdout: '', stderr: 'the client refused the entry' };
+    return {};
+  };
+  const result = await registerMcp(RECORD, depsOf(run), 'install');
+  assert.equal(result.status, 'failed');
+  assert.match(result.reason, /the client refused the entry/, result.reason);
+  assert.deepEqual(calls.map((call) => call.args[1]), ['get', 'add']);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 2: nothing of the MCP step throws into the installer.
+
+test('a client that cannot be looked for is a warning, not an exception', async () => {
+  const deps = { config: CONFIG, run: async () => ({}), out: () => {},
+    detect: async () => { throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }); } };
+  const result = await ensureMcp(RECORD, deps);
+  assert.equal(result.status, 'failed');
+  assert.match(result.reason, /EACCES/, result.reason);
+});
+
+test('a client this step does not handle is never looked for', async () => {
+  let called = 0;
+  const deps = { config: CONFIG, run: async () => ({}), out: () => {},
+    detect: async () => { called += 1; return true; } };
+  const record = { client: 'opencode', path: RECORD.path };
+  assert.equal(await ensureMcp(record, deps), null);
+  assert.equal(called, 0);
+  // Even when the configuration of the person gives OpenCode an MCP block of its own.
+  const config = installConfig({ clients: { opencode: { mcp: { scope: 'user' } } } });
+  assert.equal(config.clients.opencode.mcp.scope, 'user');
+  assert.equal(await ensureMcp(record, { ...deps, config }), null);
+  assert.equal(called, 0);
+});
+
+test('the MCP step survives an unexpected failure and warns', async () => {
+  const lines = [];
+  const deps = { config: { ...CONFIG, mcp: undefined }, run: async () => ({}), out: (line) => lines.push(line) };
+  const notes = await mcpStep(RECORD, deps, 'install');
+  assert.deepEqual(notes, []);
+  assert.ok(lines.some((line) => /could not be changed/.test(line)), lines.join('\n'));
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 2: the module strategy keeps the MCP step.
+
+test('a client with the module strategy registers and removes the MCP entry', async (t) => {
+  const home = await fs.mkdtemp(join(tmpdir(), 'mcp-module-'));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const source = join(home, 'payload');
+  await fs.mkdir(join(source, 'skills', 'example'), { recursive: true });
+  await fs.writeFile(join(source, 'skills', 'example', 'SKILL.md'), 'skill');
+  const clientRoot = join(home, 'client');
+  const config = installConfig({ clients: { 'claude-code': { strategy: 'module', module: 'src/install/client-plugin.js' } } });
+  assert.equal(config.clients['claude-code'].strategy, 'module');
+  const commands = [];
+  const mcp = mcpWorld();
+  const deps = { config, fs, temporary: home, env: { HOME: home }, clientRoot, platform: 'linux',
+    detect: async () => true, loadAdapter: async () => moduleAdapter, out: () => {},
+    run: async (item) => { commands.push(item); return mcp.handles(item) ? mcp.run(item) : {}; } };
+  const record = { client: 'claude-code', path: source };
+  const installed = await register(record, deps, 'install');
+  // The note of the MCP step is in the result of the step.
+  assert.ok(installed.notes?.some((note) => /MCP server registered/.test(note)), JSON.stringify(installed.notes));
+  assert.deepEqual(commands.filter((item) => item.args[0] === 'mcp').map((item) => item.args[1]), ['get', 'add']);
+  // The module of the client is installed.
+  assert.match(await fs.readFile(join(clientRoot, 'plugins', 'okit-plugin.js'), 'utf8'), /file:/);
+  const removed = await register(record, deps, 'uninstall');
+  assert.deepEqual(commands.filter((item) => item.args[0] === 'mcp').map((item) => item.args[1]), ['get', 'add', 'get', 'remove']);
+  // The module is gone and the entry of the client is out.
+  assert.equal(await fs.readFile(join(clientRoot, 'plugins', 'okit-plugin.js'), 'utf8').catch(() => null), null);
+  assert.equal(mcp.entry('claude', 'okit'), undefined);
+});
+
+test('a client with the module strategy and no module of ours keeps the MCP step', async (t) => {
+  const home = await fs.mkdtemp(join(tmpdir(), 'mcp-module-'));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const source = join(home, 'payload');
+  await fs.mkdir(join(source, 'skills', 'example'), { recursive: true });
+  await fs.writeFile(join(source, 'skills', 'example', 'SKILL.md'), 'skill');
+  const config = installConfig({ clients: { 'claude-code': { strategy: 'module' } } });
+  assert.equal(config.clients['claude-code'].module, undefined);
+  const commands = [];
+  const mcp = mcpWorld();
+  const deps = { config, fs, temporary: home, env: { HOME: home }, clientRoot: join(home, 'client'), platform: 'linux',
+    detect: async () => true, loadAdapter: async () => moduleAdapter, out: () => {},
+    run: async (item) => { commands.push(item); return mcp.handles(item) ? mcp.run(item) : {}; } };
+  const record = { client: 'claude-code', path: source };
+  const installed = await register(record, deps, 'install');
+  assert.ok(installed.notes?.some((note) => /MCP server registered/.test(note)), JSON.stringify(installed.notes));
+  assert.deepEqual(commands.filter((item) => item.args[0] === 'mcp').map((item) => item.args[1]), ['get', 'add']);
+  const removed = await register(record, deps, 'uninstall');
+  assert.ok(removed.notes?.some((note) => /MCP server removed/.test(note)), JSON.stringify(removed.notes));
+  assert.deepEqual(commands.filter((item) => item.args[0] === 'mcp').map((item) => item.args[1]), ['get', 'add', 'get', 'remove']);
 });
