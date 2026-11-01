@@ -67,6 +67,12 @@ export function mcpPlan(record, deps, action = 'install') {
  * An entry at another scope than the configured one is not ours either: the client shows the entry of the highest
  * precedence it holds, and the entry of that scope is never written nor taken out.
  *
+ * The path of an installation that holds whitespace is another case where the display cannot tell our entry from a
+ * foreign one: the clients print the arguments of an entry joined by spaces, never quoted, so the entry of a foreign
+ * server whose arguments were split (`/opt/Jo` and `Silva/1.0.0/src/mcp/server.js`) is printed exactly like ours
+ * (`/opt/Jo Silva/1.0.0/src/mcp/server.js`). The installer never claims, replaces nor takes out such an entry: it
+ * only adds the entry that is missing and prints the commands to run by hand.
+ *
  * A client whose own `mcp get` does not say where an entry is kept (Codex) is the other side of the same coin: what it
  * shows is the entry of the highest precedence it holds (the one of a project, when the installation folder sits inside
  * one) while `mcp add` and `mcp remove` only ever touch the global entry. The installer cannot tell which one it is
@@ -92,14 +98,30 @@ export async function registerMcp(record, deps, action = 'install') {
   // The entry is at another scope than ours: it is not ours, and nothing of it is written nor taken out.
   if (entry.status === 'otherScope') return { status: 'kept', detail: ui.text('mcpKept', { client, name }) };
   const ours = (path) => pointsAt(entry.output, [path], deps.platform);
+  // The client prints the arguments of an entry joined by spaces, never quoted: an entry whose arguments were split
+  // is printed like ours when our path holds whitespace. Such an entry cannot be told apart from ours, so it is
+  // never claimed, replaced nor taken out: only the commands to run by hand are given.
+  const ambiguous = (path) => /\s/.test(path) && ours(path);
   // A client whose own `mcp get` does not say where an entry is kept (Codex): what it shows is the entry of the
   // highest precedence it holds (the one of a project, when the installation folder sits inside one), while `mcp add`
   // and `mcp remove` only ever touch the global entry. The installer cannot tell which one it is looking at, so for
   // such a client it only ever adds: an entry that is there is never replaced nor taken out by it, and the commands
   // to run by hand are given instead.
   const unscoped = plan.scope === null;
+  // An entry that is not there is added (on the uninstall there is nothing to do), whatever the paths are.
+  if (entry.status === 'absent') {
+    if (action === 'uninstall') return { status: 'skipped', detail: '' };
+    const added = await runPlan(plan.add, deps, plan.cwd);
+    if (!added.ok) return failure(ui, client, added.reason, plan.add);
+    return { status: 'ok', detail: ui.text('mcpRegistered', { client }) };
+  }
+  // The entry is there and the display matches a path of ours that holds whitespace: it cannot be told apart from a
+  // foreign entry whose arguments were split, so it is left as it is.
+  if (ambiguous(current) || (previous && ambiguous(previous))) {
+    const command = action === 'uninstall' ? plan.remove.join(' ') : `${plan.remove.join(' ')} ; ${plan.add.join(' ')}`;
+    return { status: 'kept', manual: true, detail: ui.text('mcpAmbiguous', { client, name, command }) };
+  }
   if (action === 'uninstall') {
-    if (entry.status === 'absent') return { status: 'skipped', detail: '' };
     if (!ours(current) && !(previous && ours(previous))) {
       return { status: 'kept', detail: ui.text('mcpKept', { client, name }) };
     }
@@ -107,11 +129,6 @@ export async function registerMcp(record, deps, action = 'install') {
     const removed = await runPlan(plan.remove, deps, plan.cwd);
     if (!removed.ok) return failure(ui, client, removed.reason, plan.remove);
     return { status: 'ok', detail: ui.text('mcpRemoved', { client }) };
-  }
-  if (entry.status === 'absent') {
-    const added = await runPlan(plan.add, deps, plan.cwd);
-    if (!added.ok) return failure(ui, client, added.reason, plan.add);
-    return { status: 'ok', detail: ui.text('mcpRegistered', { client }) };
   }
   // The entry is ours and it already points at this installation: there is nothing to write.
   if (ours(current)) return { status: 'skipped', detail: ui.text('mcpAlready', { client }) };

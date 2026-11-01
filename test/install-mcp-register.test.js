@@ -262,7 +262,7 @@ test('a dry run runs nothing and shows the plan of the MCP step', async (t) => {
 });
 
 test('every text of the MCP step is written in both languages', () => {
-  for (const key of ['mcpRegistered', 'mcpAlready', 'mcpReplaced', 'mcpRemoved', 'mcpKept', 'mcpManual', 'mcpFailed']) {
+  for (const key of ['mcpRegistered', 'mcpAlready', 'mcpReplaced', 'mcpRemoved', 'mcpKept', 'mcpManual', 'mcpAmbiguous', 'mcpFailed']) {
     assert.ok(TEXTS[key]?.en, key);
     assert.ok(TEXTS[key]?.['pt-BR'], key);
     assert.notEqual(TEXTS[key].en, TEXTS[key]['pt-BR'], key);
@@ -442,11 +442,16 @@ test('on Windows the path is ours in every spelling, and only then', () => {
   assert.equal(pointsAt(codexEntry(path.replaceAll('\\', '/')), [path], 'linux'), false);
 });
 
-test('the entry that names our path with spaces is ours', async () => {
+test('the entry that names our path with spaces is left as it is: the display cannot tell it from a foreign one', async () => {
   const client = fakeClient(codexEntry(SPACED_SERVER));
   const result = await registerMcp({ ...RECORD, path: SPACED }, depsOf(client.run), 'install');
-  assert.equal(result.status, 'skipped');
+  // The entry is not claimed: the printed arguments are ours, whole, but a foreign entry whose arguments were split
+  // prints the very same line.
+  assert.equal(result.status, 'kept');
+  assert.equal(result.manual, true);
   assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+  // The warning names the commands to run by hand.
+  assert.match(result.detail, /claude mcp remove okit --scope user ; claude mcp add --scope user okit --/, result.detail);
 });
 
 test('the entry that names our path after a comma is not ours', async () => {
@@ -639,7 +644,6 @@ test('our path is ours when the arguments line holds it alone', async () => {
   const ours = [
     [codexEntry(SERVER), SERVER, RECORD],
     [claudeEntry(SERVER), SERVER, RECORD],
-    [claudeEntry(SPACED_SERVER), SPACED_SERVER, { ...RECORD, path: SPACED }],
   ];
   for (const [text, path, record] of ours) {
     assert.equal(pointsAt(text, [path]), true, text);
@@ -648,6 +652,15 @@ test('our path is ours when the arguments line holds it alone', async () => {
     assert.equal(result.status, 'skipped', text);
     assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']], text);
   }
+  // A path that holds a space is our path too, but the display cannot tell it from a foreign entry whose arguments
+  // were split: the entry is left as it is.
+  const spaced = claudeEntry(SPACED_SERVER);
+  assert.equal(pointsAt(spaced, [SPACED_SERVER]), true);
+  const client = fakeClient(spaced);
+  const result = await registerMcp({ ...RECORD, path: SPACED }, depsOf(client.run), 'install');
+  assert.equal(result.status, 'kept');
+  assert.equal(result.manual, true);
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1194,4 +1207,114 @@ test('the header of a server that holds a scope is not the scope of the entry', 
   // The entry is ours: the scope of the header did not make it an entry of another scope.
   assert.equal(result.status, 'skipped');
   assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 10: the clients print the arguments of an entry joined by spaces, never quoted, so a path
+// that holds whitespace cannot be told apart from a foreign entry whose arguments were split. The installer only
+// adds the entry that is missing and leaves the one that is there, printing the commands to run by hand.
+//
+// Must pass / must refuse:
+// | case | must pass | must refuse |
+// | our path holds a space, the entry is there | the read alone; the commands by hand | the add and the remove |
+// | our path holds a space, the entry is missing | the add | -- |
+// | our path holds no space | the entry is ours, as before | -- |
+
+// The installation this one replaces, in a folder whose name holds a space too.
+const SPACED_PREVIOUS = join('/Users/me/Library/Application Support/okit/0.9.0');
+const SPACED_PREVIOUS_SERVER = join(SPACED_PREVIOUS, 'src/mcp/server.js');
+
+test('the arguments of a foreign entry that were split print the line of our path with a space', () => {
+  // The foreign entry whose arguments were split: the client prints them joined by spaces, exactly like ours.
+  const at = SPACED_SERVER.indexOf(' ');
+  const foreign = [SPACED_SERVER.slice(0, at), SPACED_SERVER.slice(at + 1)];
+  assert.equal(foreign.join(' '), SPACED_SERVER);
+  assert.equal(codexEntry(foreign.join(' ')), codexEntry(SPACED_SERVER));
+});
+
+test('an entry of ours whose path holds a space is left as it is: nothing is written nor taken out', async () => {
+  for (const action of ['install', 'update', 'uninstall']) {
+    const client = fakeClient(claudeEntry(SPACED_SERVER));
+    const record = { ...RECORD, path: SPACED, previous: { path: SPACED_PREVIOUS } };
+    const result = await registerMcp(record, depsOf(client.run), action);
+    // The entry is read and nothing else: no add, no remove.
+    assert.equal(result.status, 'kept', action);
+    assert.equal(result.manual, true, action);
+    assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']], action);
+    // The warning names the commands to run by hand.
+    assert.match(result.detail, /claude mcp remove okit --scope user/, result.detail);
+    if (action === 'uninstall') assert.doesNotMatch(result.detail, /mcp add/, result.detail);
+    else assert.match(result.detail, /claude mcp add --scope user okit --/, result.detail);
+  }
+});
+
+test('an entry of ours whose path holds a space is left as it is in Codex too', async () => {
+  for (const action of ['install', 'update', 'uninstall']) {
+    const client = fakeClient(codexEntry(SPACED_SERVER));
+    const record = { ...RECORD, client: 'codex', path: SPACED, previous: { path: SPACED_PREVIOUS } };
+    const result = await registerMcp(record, depsOf(client.run), action);
+    assert.equal(result.status, 'kept', action);
+    assert.equal(result.manual, true, action);
+    assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']], action);
+    assert.match(result.detail, /codex mcp remove okit/, result.detail);
+    if (action === 'uninstall') assert.doesNotMatch(result.detail, /mcp add/, result.detail);
+    else assert.match(result.detail, /codex mcp add okit --/, result.detail);
+  }
+});
+
+test('the entry of the installation with a space that this one replaces is left as it is', async () => {
+  const client = fakeClient(claudeEntry(SPACED_PREVIOUS_SERVER));
+  const record = { ...RECORD, path: SPACED, previous: { path: SPACED_PREVIOUS } };
+  const result = await registerMcp(record, depsOf(client.run), 'update');
+  // The entry is ours, but the display cannot tell it from a foreign one: it is neither replaced nor taken out.
+  assert.equal(result.status, 'kept');
+  assert.equal(result.manual, true);
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+  assert.match(result.detail, /claude mcp remove okit --scope user ; claude mcp add --scope user okit --/, result.detail);
+});
+
+test('an installation whose path holds a space still adds the entry that is missing', async () => {
+  const client = fakeClient(null);
+  const result = await registerMcp({ ...RECORD, path: SPACED }, depsOf(client.run), 'install');
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(argvOf(client), [
+    ['mcp', 'get', 'okit'],
+    ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SPACED_SERVER],
+  ]);
+  // On the uninstall there is no entry to take out.
+  const uninstalled = fakeClient(null);
+  const removed = await registerMcp({ ...RECORD, path: SPACED }, depsOf(uninstalled.run), 'uninstall');
+  assert.equal(removed.status, 'skipped');
+  assert.deepEqual(argvOf(uninstalled), [['mcp', 'get', 'okit']]);
+});
+
+test('an entry that names no path of ours is kept on an installation whose path holds a space, as before', async () => {
+  for (const action of ['install', 'update', 'uninstall']) {
+    const client = fakeClient(claudeEntry('/somewhere/else/src/mcp/server.js'));
+    const record = { ...RECORD, path: SPACED, previous: { path: SPACED_PREVIOUS } };
+    const result = await registerMcp(record, depsOf(client.run), action);
+    assert.equal(result.status, 'kept', action);
+    assert.match(result.detail, /not ours/, result.detail);
+    assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']], action);
+  }
+});
+
+test('an installation whose path holds no space owns its entry, as before', async () => {
+  const installed = fakeClient(claudeEntry(SERVER));
+  const already = await registerMcp(RECORD, depsOf(installed.run), 'install');
+  assert.equal(already.status, 'skipped');
+  assert.match(already.detail, /already registered/, already.detail);
+  assert.deepEqual(argvOf(installed), [['mcp', 'get', 'okit']]);
+  const replaced = fakeClient(claudeEntry(join(PREVIOUS.path, 'src/mcp/server.js')));
+  const updated = await registerMcp({ ...RECORD, previous: PREVIOUS }, depsOf(replaced.run), 'update');
+  assert.equal(updated.status, 'ok');
+  assert.deepEqual(argvOf(replaced), [
+    ['mcp', 'get', 'okit'],
+    ['mcp', 'remove', 'okit', '--scope', 'user'],
+    ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SERVER],
+  ]);
+  const removed = fakeClient(claudeEntry(SERVER));
+  const uninstalled = await registerMcp(RECORD, depsOf(removed.run), 'uninstall');
+  assert.equal(uninstalled.status, 'ok');
+  assert.deepEqual(argvOf(removed), [['mcp', 'get', 'okit'], ['mcp', 'remove', 'okit', '--scope', 'user']]);
 });

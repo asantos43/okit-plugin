@@ -511,6 +511,10 @@ test('every text of the presenter is written in both languages, by key', () => {
   assert.ok(TEXTS.mcpManual?.en, 'mcpManual');
   assert.ok(TEXTS.mcpManual?.['pt-BR'], 'mcpManual');
   assert.notEqual(TEXTS.mcpManual.en, TEXTS.mcpManual['pt-BR'], 'mcpManual');
+  // The text of the MCP step that leaves an entry as it is because the display cannot tell it from a foreign one.
+  assert.ok(TEXTS.mcpAmbiguous?.en, 'mcpAmbiguous');
+  assert.ok(TEXTS.mcpAmbiguous?.['pt-BR'], 'mcpAmbiguous');
+  assert.notEqual(TEXTS.mcpAmbiguous.en, TEXTS.mcpAmbiguous['pt-BR'], 'mcpAmbiguous');
 });
 
 test('every refusal the installer code can raise is translated into pt-BR', async () => {
