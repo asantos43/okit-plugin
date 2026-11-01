@@ -1,6 +1,7 @@
 import { UsageError } from './exit.js';
 import { readRecords, removeRecord } from './place.js';
 import { register, registrationPlan } from './register.js';
+import { mcpPlan, shown } from './mcp-register.js';
 import { applyLink } from './link.js';
 import { undoStatusline } from './statusline.js';
 import { presenterOf, headerValues, clientLabel, finish } from './present.js';
@@ -16,7 +17,10 @@ export async function uninstall(record, flags, deps) {
     { client: clientLabel(record.client) });
   ui.header(headerValues(deps, record.version, record.client));
   // A real run prints each command as it runs it (register); only a dry run shows the plan.
-  if (deps.dryRun) registrationPlan(record, deps, 'uninstall').forEach((item) => ui.detail([item.command, ...item.args].join(' ')));
+  if (deps.dryRun) {
+    registrationPlan(record, deps, 'uninstall').forEach((item) => ui.detail([item.command, ...item.args].join(' ')));
+    mcpPlan(record, deps, 'uninstall')?.steps.forEach((words) => ui.detail(shown(words, deps.platform)));
+  }
   deps.stage?.('quotaUndo');
   const quota = await undoStatusline(record, deps);
   if (quota) finish(next('quotaUndo'), quota);

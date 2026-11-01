@@ -18,7 +18,7 @@ import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { pick } from '../src/install/present.js';
 import { register } from '../src/install/register.js';
 import { installerCommand } from '../src/install/index.js';
-import { answerCheck } from './helpers/install-fixture.js';
+import { answerCheck, mcpWorld } from './helpers/install-fixture.js';
 import { rollback } from '../src/install/update.js';
 import * as moduleAdapter from '../adapters/opencode/index.js';
 import { execFile } from 'node:child_process';
@@ -471,6 +471,7 @@ async function fixture(t) {
   const config = installConfig({ repository: 'example/project', api: 'https://fake.invalid', destination, linkDirectory: bin });
   await fs.writeFile(join(root, 'config.json'), JSON.stringify({ install: config }));
   const output = [], commands = [], events = [];
+  const mcp = mcpWorld();
   const deps = { fs, home, root, destination, bin, temporary: home, config,
     env: { HOME: home, PATH: '' }, platform: 'linux', now: () => 1700000000000,
     out: (line) => output.push(line), detect: async () => false };
@@ -498,7 +499,7 @@ async function fixture(t) {
   deps.fetch = fetch;
   const io = { ...deps, pkg, arch: 'x64', tmpdir: home, tty: false, stdout: deps.out, stderr: deps.out,
     adapters: [], readQuota: async () => ({ source: 'off' }),
-    run: async (command) => { commands.push(command); return answerCheck(command, { bin }); },
+    run: async (command) => { commands.push(command); return mcp.handles(command) ? mcp.run(command) : answerCheck(command, { bin }); },
     stopDaemon: async () => { events.push('stop'); return true; },
     startDaemon: async () => { events.push('start'); }, autostart: async () => { events.push('autostart'); },
     smoke: async () => { events.push('smoke'); return { code: 0 }; } };
@@ -919,14 +920,23 @@ test('installer contains no fixed service, client executable or repository ident
 test('marketplace clients run configured commands; codex prints /plugins instruction', async (t) => {
   const f = await fixture(t);
   const commands = [];
-  const deps = { ...f.deps, detect: async () => true, run: async (item) => commands.push(item) };
+  const mcp = mcpWorld();
+  const deps = { ...f.deps, detect: async () => true, run: async (item) => { commands.push(item); return mcp.handles(item) ? mcp.run(item) : {}; } };
   const record = { client: 'claude-code', path: f.destination };
   await register(record, deps);
-  assert.deepEqual(commands.map((item) => item.args.slice(0, 3)), [['plugin', 'marketplace', 'add'], ['plugin', 'install', 'okit-plugin@okit-plugin']]);
+  // The plugin of the client, then the MCP server of the plugin, in this order.
+  assert.deepEqual(commands.map((item) => item.args.slice(0, 3)), [
+    ['plugin', 'marketplace', 'add'], ['plugin', 'install', 'okit-plugin@okit-plugin'],
+    ['mcp', 'get', 'okit'], ['mcp', 'add', '--scope'],
+  ]);
+  assert.deepEqual(commands.at(-1).args, ['mcp', 'add', '--scope', 'user', 'okit', '--', f.deps.config.node,
+    join(f.destination, 'src/mcp/server.js')]);
   const manual = await register({ ...record, client: 'codex' }, deps);
   assert.ok(manual.detail.includes('/plugins'), manual.detail);
   await register(record, deps, 'update');
-  assert.equal(commands.at(-1).args[1], 'update');
+  assert.equal(commands.filter((item) => item.args[0] === 'plugin').at(-1).args[1], 'update');
+  // The entry the client already holds is ours: it is read, not written again.
+  assert.deepEqual(commands.filter((item) => item.args[0] === 'mcp').at(-1).args, ['mcp', 'get', 'okit']);
 });
 
 test('module registration installs through adapter and preserves edited skills and module', async (t) => {

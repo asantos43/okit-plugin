@@ -47,6 +47,9 @@ const RULES = Object.freeze({
   xdgPair: { en: 'xdgEnv and xdgParts together, or neither', pt: 'xdgEnv e xdgParts juntos, ou nenhum dos dois', example: 'xdgEnv and xdgParts together, or neither' },
   differs: { en: 'a text different from install.path.begin', pt: 'um texto diferente de install.path.begin', example: 'a text different from install.path.begin' },
   knownShell: { en: 'the name of a shell listed in install.path.shells', pt: 'o nome de um shell listado em install.path.shells', example: 'the name of a shell listed in install.path.shells' },
+  mcpName: { en: 'a name that starts with a letter or a digit and holds only letters, digits, dashes and underscores', pt: 'um nome que começa com uma letra ou um dígito e só tem letras, dígitos, traços e sublinhados', example: 'a name that starts with a letter or a digit and holds only letters, digits, dashes and underscores' },
+  mcpServer: { en: 'a relative path with forward slashes and no .. segment', pt: 'um caminho relativo com barras normais e sem segmento ..', example: 'a relative path with forward slashes and no .. segment' },
+  mcpScope: { en: 'a scope only for a client whose own mcp commands take one', pt: 'um escopo só para um cliente cujos comandos mcp aceitam um', example: 'a scope only for a client whose own mcp commands take one' },
 });
 
 const fillRule = (template, parts) => template.replace(/%(\d)/g, (_, index) => parts[Number(index) - 1]);
@@ -127,8 +130,18 @@ const TEXTS = Object.freeze({
   registerRemoved: { en: 'marketplace and plugin removed', 'pt-BR': 'marketplace e plugin removidos' },
   registerModule: { en: 'module and skills', 'pt-BR': 'módulo e skills' },
   registerMissing: { en: '{executable} not found, so nothing was registered', 'pt-BR': '{executable} não encontrado, então nada foi registrado' },
+  registerNoModule: { en: '{client} is set to the module strategy but has no `module` setting, so nothing was registered', 'pt-BR': '{client} está com a estratégia de módulo, mas não tem a configuração `module`, então nada foi registrado' },
   registerMissingNext: { en: 'Install it, then run:', 'pt-BR': 'Instale e depois rode:' },
   registerModuleNext: { en: 'Then install the module {path} and its skills.', 'pt-BR': 'Depois instale o módulo {path} e suas skills.' },
+  mcpRegistered: { en: 'MCP server registered in {client}', 'pt-BR': 'Servidor MCP registrado no {client}' },
+  mcpAlready: { en: 'MCP server already registered in {client}', 'pt-BR': 'Servidor MCP já registrado no {client}' },
+  mcpReplaced: { en: 'MCP server of {client} replaced by this installation', 'pt-BR': 'Servidor MCP de {client} substituído por esta instalação' },
+  mcpRemoved: { en: 'MCP server removed from {client}', 'pt-BR': 'Servidor MCP removido do {client}' },
+  mcpKept: { en: 'an MCP server named {name} that is not ours is in {client}; kept', 'pt-BR': 'um servidor MCP chamado {name} que não é nosso está em {client}; mantido' },
+  mcpManual: { en: 'the MCP server {name} of {client} was left as it is: the client does not say where an entry is kept, so nothing is replaced or removed for you. If it is ours, run: {command}', 'pt-BR': 'o servidor MCP {name} do {client} foi mantido como está: o cliente não diz onde a entrada fica, então nada é trocado nem removido por você. Se for nossa, rode: {command}' },
+  mcpAmbiguous: { en: 'the client prints the arguments of the MCP server {name} of {client} joined by spaces, so it cannot tell whether the entry is ours when the installation folder has a space in its path; it was left as it is. If it is ours and needs to change, run: {command}', 'pt-BR': 'o cliente imprime os argumentos do servidor MCP {name} do {client} unidos por espaços, então não dá para saber se a entrada é nossa quando a pasta da instalação tem espaço no caminho; ela foi mantida como está. Se for nossa e precisar mudar, rode: {command}' },
+  mcpFailed: { en: 'the MCP server of {client} could not be changed: {reason}; to do it by hand: {command}', 'pt-BR': 'o servidor MCP de {client} não pôde ser alterado: {reason}; para fazer na mão: {command}' },
+  mcpClientMissing: { en: '{executable} was not found', 'pt-BR': '{executable} não foi encontrado' },
   roleUnsupported: { en: 'Role delivery unavailable', 'pt-BR': 'Entrega de papel indisponível' },
   keptModule: { en: 'Your edited module was kept: {path}', 'pt-BR': 'Seu módulo editado foi mantido: {path}' },
   keptSkill: { en: 'Your edited skill was kept: {path}', 'pt-BR': 'Sua skill editada foi mantida: {path}' },

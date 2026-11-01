@@ -398,6 +398,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/install/link.js', arg: /^import\.meta\.url$/, excluded: 'package.json of this package (code of the program itself)' },
   { file: 'src/install/register.js', arg: /^pathToFileURL\(join\(record\.path, 'adapters'/, excluded: 'the adapter module of the package the record names (code of the installed package, not data); record.path is a text checked by RECORD_FIELDS' },
   { file: 'src/install/register.js', arg: /^path$/, excluded: 'the module shim okit itself wrote in the client\'s folder, compared with what it would write; never parsed' },
+  { file: 'src/install/mcp-register.js', arg: /^String\(text \?\? ''\)$/, excluded: 'the answer of the client\'s own `mcp get` command (a process we start), not a file of the person: an answer that is not JSON is never ours (a try/catch around it, by design)' },
   { file: 'src/install/role-block.js', arg: /^path$/, excluded: 'text without a format: the client\'s role file, searched for okit\'s own block; never parsed' },
   { file: 'src/install/statusline.js', arg: /^(path|original\.toString\('utf8'\))$/, rule: 'settings of the client (statusline)' },
   { file: 'src/install/statusline.js', arg: /^(saved\.path|bytes\.toString\('utf8'\))$/, rule: 'settings of the client (statusline)' },

@@ -110,7 +110,9 @@ test('the defaults and the merge of valid settings pass the schema; an absent ke
     const config = JSON_ONLY(DEFAULT_CONFIG.install);
     const parts = path.split('.');
     let at = config;
-    for (const part of parts.slice(0, -1)) at = at[part];
+    for (const part of parts.slice(0, -1)) at = at?.[part];
+    // A key whose parent is not in the defaults (an optional field of a client that does not have it) is already absent.
+    if (!at) continue;
     delete at[parts.at(-1)];
     const value = installConfig(config);
     assert.ok(value, path);
@@ -131,6 +133,37 @@ test('every invalid value of every key is one refusal of usage that names the ke
   }
   for (const value of ['text', 5, [], true]) {
     assert.throws(() => installConfig(value), (error) => kindOf(error) === 'usage' && /^Invalid install: an object$/.test(error.message));
+  }
+});
+
+test('the MCP settings of the installer are refused when the client could not read them', () => {
+  const refused = [
+    ['mcp.name', '-okit'], ['mcp.name', '--scope'], ['mcp.name', 'okit plugin'], ['mcp.name', 'okit/other'],
+    // A dot is refused: the client refuses a name that holds one.
+    ['mcp.name', 'okit.extra'],
+    ['mcp.server', '../outside.js'], ['mcp.server', '/absolute/server.js'], ['mcp.server', 'C:/server.js'],
+    ['mcp.server', 'src/../server.js'], ['mcp.server', 'src\\server.js'], ['mcp.server', 'server with space.js'],
+    ['clients.claude-code.mcp.scope', 'global'], ['clients.claude-code.mcp.scope', ''],
+    ['clients.codex.mcp.scope', 'Project'],
+    // A client whose own `mcp` commands take no scope refuses one.
+    ['clients.codex.mcp.scope', 'user'],
+  ];
+  for (const [path, value] of refused) {
+    let thrown;
+    try { installConfig(withValue(path, value).install); } catch (error) { thrown = error; }
+    assert.ok(thrown, `${path} = ${JSON.stringify(value)} was accepted`);
+    assert.equal(kindOf(thrown), 'usage', `${path} = ${JSON.stringify(value)}: ${thrown.message}`);
+    assert.equal(exitCodeFor(kindOf(thrown)), 2);
+    assert.match(thrown.message, new RegExp(`^Invalid install\\.${escape(path)}: `), JSON.stringify(value));
+  }
+  // A configuration without the MCP keys is still valid: the defaults fill them in.
+  assert.doesNotThrow(() => installConfig({}));
+  assert.doesNotThrow(() => installConfig({ clients: { 'claude-code': { mcp: { scope: 'local' } } } }));
+  assert.doesNotThrow(() => installConfig({ clients: { codex: { mcp: { scope: null } } } }));
+  assert.equal(installConfig({ mcp: { name: 'other', server: 'src/mcp/other.js' } }).mcp.name, 'other');
+  // A name with letters, digits, dashes and underscores is accepted: the client takes it.
+  for (const name of ['okit', 'okit-2_x', 'OkIt2']) {
+    assert.equal(installConfig({ mcp: { name } }).mcp.name, name);
   }
 });
 

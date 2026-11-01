@@ -194,6 +194,12 @@ const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 // What `fetch` takes as the value of a header: single-byte characters (a ByteString), and no line break.
 const BYTE_STRING = /^[\u0000-\u00ff]*$/;
 
+// The clients whose own `mcp` commands take no scope: the defaults give them none, so a scope for them is refused (the
+// command of such a client would fail). The list is the defaults' own, and holds the clients the installer registers
+// with their own `mcp` commands: a client that is not one of them (OpenCode) is never asked, whatever its scope says.
+const CLIENTS_WITHOUT_SCOPE = Object.entries(DEFAULT_CONFIG.install.clients)
+  .filter(([, settings]) => settings.mcp && !settings.mcp.scope).map(([client]) => client);
+
 // The nodes. `kind` says how a value is read; `rule` names the RULES entry (or is worked out from the node); the flags
 // `nullable` (null is a value of the setting) and `optional` (the setting may be absent, with no default) are the only
 // ways a node accepts more.
@@ -216,6 +222,8 @@ const SHELL = record({ files: filled(word), login: word });
 const CLIENT = record({
   executable: word, strategy: { kind: 'choice', values: ['marketplace', 'module'] }, install: optional(flag), update: optional(flag),
   module: optional(word), configEnv: variable, rootParts: filled(word), xdgEnv: optional(variable), xdgParts: optional(filled(word)),
+  // The MCP server of the client: the scope its own `mcp` commands take (null: the client takes none).
+  mcp: optional(record({ scope: optional(nullable({ kind: 'choice', values: ['user', 'local', 'project'] })) })),
 }, {
   // The pair reads one folder: a variable that names it and the folders under it, both or neither.
   refine: (client) => ((client.xdgEnv === undefined) !== (client.xdgParts === undefined)
@@ -265,7 +273,21 @@ export const INSTALL_SCHEMA = Object.freeze(record({
   daemonPollMs: timer,
   name: nullable(word),
   manifest: word,
-  clients: table(CLIENT),
+  // The MCP server of the plugin: the name of the entry in the client and the file inside the installation.
+  mcp: record({
+    name: text({ pattern: /^[A-Za-z0-9][A-Za-z0-9_-]*$/, rule: 'mcpName' }),
+    server: text({ pattern: /^(?![\\/])(?![A-Za-z]:)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/, rule: 'mcpServer' }),
+  }),
+  clients: table(CLIENT, {
+    // A scope only for a client whose own `mcp` commands take one: the command of the others would fail.
+    refine: (clients) => {
+      for (const client of CLIENTS_WITHOUT_SCOPE) {
+        const scope = clients[client]?.mcp?.scope;
+        if (scope !== undefined && scope !== null) return { at: `${client}.mcp.scope`, rule: 'mcpScope' };
+      }
+      return null;
+    },
+  }),
   pathExtensions: list(text({ empty: true })),
   selfcheck: record({
     timeoutMs: timer, stateKeys: list(word), shells: table(filled(SELFCHECK_SHELL)), runner: table(word),

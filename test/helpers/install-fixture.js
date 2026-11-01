@@ -40,6 +40,71 @@ export async function answerCheck({ command = '', env, args = [] }, { bin } = {}
   return {};
 }
 
+/**
+ * The name of the entry in the words of the client's own command: the first word that is not a flag and not the
+ * value of one (`mcp add --scope user okit -- node server.js` and `mcp remove okit --scope user` both name `okit`).
+ */
+function mcpNameOf(args) {
+  const words = args.slice(2);
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index];
+    if (word === '--') break;
+    if (word.startsWith('-')) { index += 1; continue; }
+    return word;
+  }
+  return undefined;
+}
+
+/**
+ * The entry a client holds, as the client prints it: the client that prints text prints the fields of the server
+ * indented two spaces (`Scope`, `Type` and `Args` for Claude Code), and the client that answers with JSON (Codex)
+ * prints the entry as JSON, where the boundary of an argument is exact.
+ */
+const printedEntry = (executable, name, entry) => (/codex/i.test(executable)
+  ? JSON.stringify({ name, enabled: true, disabled_reason: null,
+    transport: { type: 'stdio', command: entry.command, args: entry.args, env: null, env_vars: [], cwd: null } }, null, 2)
+  : `${name}:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: ${entry.command}\n  Args: ${entry.args.join(' ')}\n`);
+
+/**
+ * The MCP registry of a client, as the fake world of the tests: the entry of each client and the file it points at.
+ * The client's own `mcp get`, `mcp add` and `mcp remove` commands are answered as the real clients answer them: the
+ * read of an entry that is not there fails, the read of one that is there prints the command and its arguments.
+ */
+export function mcpWorld() {
+  const registries = new Map();
+  const registryOf = (executable) => {
+    if (!registries.has(executable)) registries.set(executable, new Map());
+    return registries.get(executable);
+  };
+  return {
+    /** Whether the command is one of the MCP commands of a client. */
+    handles: ({ args = [] }) => args[0] === 'mcp',
+    /** The entry a client holds, as the client prints it. */
+    async run({ command: executable, args = [] }) {
+      const verb = args[1];
+      const name = mcpNameOf(args);
+      const registry = registryOf(executable);
+      if (verb === 'get') {
+        const entry = registry.get(name);
+        // The real clients answer that they hold no entry with this name, print it and exit with 1.
+        if (!entry) throw Object.assign(new Error(`Command failed: ${executable} mcp get ${name}`), { code: 1,
+          stdout: `No MCP server named "${name}" found.\n`, stderr: '' });
+        return { stdout: printedEntry(executable, name, entry) };
+      }
+      if (verb === 'add') {
+        const at = args.indexOf('--');
+        const [command, ...rest] = args.slice(at + 1);
+        registry.set(name, { command, args: rest });
+        return {};
+      }
+      if (verb === 'remove') { registry.delete(name); return {}; }
+      return {};
+    },
+    /** The entry a client holds now, as the tests read it back. */
+    entry: (executable, name) => registryOf(executable).get(name),
+  };
+}
+
 export async function fixture(t, platform = 'linux', { tty = false, ask, read } = {}) {
   const home = await fs.mkdtemp(join(tmpdir(), 'installer-output-'));
   t.after(() => fs.rm(home, { recursive: true, force: true }));
@@ -71,17 +136,19 @@ export async function fixture(t, platform = 'linux', { tty = false, ask, read } 
     throw new Error(`Unexpected request ${url}`);
   };
   const out = (line) => output.push(line);
+  const mcp = mcpWorld();
   const io = { home, root, destination, bin, config, fs, fetch, platform, now: () => 1700000000000,
     env: { HOME: home, PATH: platform === 'win32' ? '' : bin },
     pkg, arch: 'x64', tmpdir: scratch, tty, ask, read, outTty: false, clientRoot: join(home, 'client'),
     stdout: out, stderr: out, out, adapters: [], readQuota: async () => ({ source: 'off' }),
-    detect: async () => true, run: async (command) => { commands.push(command); return answerCheck(command, { bin }); },
+    detect: async () => true,
+    run: async (command) => { commands.push(command); return mcp.handles(command) ? mcp.run(command) : answerCheck(command, { bin }); },
     pathExecute: async () => ({ stdout: 'true\n' }),
     policyExecute: async () => ({ stdout: 'LocalMachine=RemoteSigned\n' }),
     stopDaemon: async () => true, startDaemon: async () => {}, autostart: async () => {}, smoke: async () => ({ code: 0 }) };
   // Goldens normalize folders and padding; assertStatusColumns checks raw padding.
   const lines = () => output.map((line) => line.replaceAll(destination, '<data>').replaceAll(bin, '<bin>').replaceAll(scratch, '<scratch>')
     .replaceAll(home, '<home>').replace(/ {2,}/g, '  ').trimEnd());
-  return { home, root, destination, bin, scratch, io, output, commands, lines, name,
+  return { home, root, destination, bin, scratch, io, output, commands, lines, name, mcp,
     setVersion: (value) => { version = value; }, clear: () => { output.length = 0; } };
 }
