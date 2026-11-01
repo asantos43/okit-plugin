@@ -56,18 +56,30 @@ export async function register(record, deps, action = 'install') {
   const ui = presenterOf(deps);
   const commands = registrationPlan(record, deps, action);
   const mcp = mcpPlan(record, deps, action);
+  // A client with the module strategy and no module of ours has nothing to register: nothing of the client is run.
+  if (settings.strategy === 'module' && !settings.module) {
+    return { status: 'skipped', detail: ui.text('registerNoModule', { client: clientLabel(record.client) }), notes: [] };
+  }
   if (action === 'uninstall') await registerRole(record, deps, true);
   if (settings.strategy === 'module' && action === 'uninstall') {
     // The MCP entry of the client goes out before the module it points at is gone.
     const notes = [];
-    if (mcp && await clientThere(settings, deps)) notes.push(...await mcpStep(record, deps, action));
+    if (mcp) {
+      if (await clientThere(settings, deps)) notes.push(...await mcpStep(record, deps, action));
+      else {
+        // The client is not on the machine: its entry cannot be taken out by us, so the command is given by hand.
+        ui.warn(ui.text('mcpFailed', { client: clientLabel(record.client),
+          reason: ui.text('mcpClientMissing', { executable: settings.executable }),
+          command: mcp.remove.join(' ') }));
+      }
+    }
     await removeOwnedModule(record, deps);
     return { status: 'ok', detail: ui.text('registerModule'), notes };
   }
   if (!await (deps.detect ?? detect)(settings.executable, deps)) {
     const notes = [ui.text('registerMissingNext'), ...commands.map((item) => `  ${[item.command, ...item.args].join(' ')}`)];
     if (mcp) notes.push(...mcpManual(record, mcp, action).map((words) => `  ${words.join(' ')}`));
-    if (settings.strategy === 'module' && settings.module) notes.push(ui.text('registerModuleNext', { path: join(record.path, settings.module) }));
+    if (settings.strategy === 'module') notes.push(ui.text('registerModuleNext', { path: join(record.path, settings.module) }));
     return { status: 'skipped', detail: ui.text('registerMissing', { executable: settings.executable }), notes };
   }
   // The MCP entry of the client goes out before the plugin it points at is gone.
@@ -158,8 +170,6 @@ async function registerRole(record, deps, remove = false) {
 }
 
 async function registerModule(record, deps, settings) {
-  // A client with the module strategy and no module of ours has nothing to install.
-  if (!settings.module) return;
   const adapter = await (deps.loadAdapter ?? loadAdapter)(record);
   const opts = { env: deps.env, root: deps.clientRoot };
   if (record.previous) await removeOwnedModule(record.previous, deps);
@@ -179,11 +189,9 @@ async function registerModule(record, deps, settings) {
 }
 
 async function removeOwnedModule(record, deps) {
-  const settings = deps.config.clients[record.client];
-  // A client with the module strategy and no module of ours has nothing to take out.
-  if (!settings.module) return;
   const adapter = await (deps.loadAdapter ?? loadAdapter)(record);
   const path = join(adapter.configRoot({ env: deps.env, root: deps.clientRoot }), deps.config.pluginsDirectory, `${deps.config.entry}.js`);
+  const settings = deps.config.clients[record.client];
   const content = `export { default } from ${JSON.stringify(pathToFileURL(join(record.path, settings.module)).href)};\n`;
   const actual = await deps.fs.readFile(path, 'utf8').catch((error) => { if (error.code !== 'ENOENT') throw error; return null; });
   if (actual === content) await deps.fs.unlink(path);

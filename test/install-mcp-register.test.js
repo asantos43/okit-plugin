@@ -7,7 +7,7 @@ import { main } from '../src/cli.js';
 import { installConfig } from '../src/install/config.js';
 import { ensureMcp, mcpPlan, pointsAt, registerMcp } from '../src/install/mcp-register.js';
 import { mcpStep, register } from '../src/install/register.js';
-import { TEXTS } from '../src/install/present.js';
+import { TEXTS, fill } from '../src/install/present.js';
 import { fixture, mcpWorld } from './helpers/install-fixture.js';
 import * as moduleAdapter from '../adapters/opencode/index.js';
 
@@ -568,7 +568,7 @@ test('a client with the module strategy registers and removes the MCP entry', as
   assert.equal(mcp.entry('claude', 'okit'), undefined);
 });
 
-test('a client with the module strategy and no module of ours keeps the MCP step', async (t) => {
+test('a client with the module strategy and no module of ours registers nothing', async (t) => {
   const home = await fs.mkdtemp(join(tmpdir(), 'mcp-module-'));
   t.after(() => fs.rm(home, { recursive: true, force: true }));
   const source = join(home, 'payload');
@@ -582,10 +582,108 @@ test('a client with the module strategy and no module of ours keeps the MCP step
     detect: async () => true, loadAdapter: async () => moduleAdapter, out: () => {},
     run: async (item) => { commands.push(item); return mcp.handles(item) ? mcp.run(item) : {}; } };
   const record = { client: 'claude-code', path: source };
-  const installed = await register(record, deps, 'install');
-  assert.ok(installed.notes?.some((note) => /MCP server registered/.test(note)), JSON.stringify(installed.notes));
-  assert.deepEqual(commands.filter((item) => item.args[0] === 'mcp').map((item) => item.args[1]), ['get', 'add']);
-  const removed = await register(record, deps, 'uninstall');
-  assert.ok(removed.notes?.some((note) => /MCP server removed/.test(note)), JSON.stringify(removed.notes));
-  assert.deepEqual(commands.filter((item) => item.args[0] === 'mcp').map((item) => item.args[1]), ['get', 'add', 'get', 'remove']);
+  for (const action of ['install', 'uninstall']) {
+    commands.length = 0;
+    const result = await register(record, deps, action);
+    // Nothing of the client ran: no command, no MCP step, no role, no module.
+    assert.equal(result.status, 'skipped', action);
+    assert.deepEqual(commands, [], `${action}: no command of the client ran`);
+    assert.deepEqual(result.notes, [], action);
+    // The detail says why, in the language of the run.
+    assert.equal(result.detail, fill(TEXTS.registerNoModule.en, { client: 'Claude Code' }), action);
+  }
+  // The text is written in both languages.
+  assert.ok(TEXTS.registerNoModule?.en);
+  assert.ok(TEXTS.registerNoModule?.['pt-BR']);
+  assert.notEqual(TEXTS.registerNoModule.en, TEXTS.registerNoModule['pt-BR']);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 4: the delimiters of our path are strict.
+
+test('a path a foreign character holds at its side is not ours, and nothing of it is removed', async () => {
+  const foreign = [
+    `/foreign=${SERVER}`,
+    `${SERVER}]backup`,
+    `x=${SERVER}`,
+    `[${SERVER}`,
+    `${SERVER}]`,
+  ];
+  for (const path of foreign) {
+    assert.equal(pointsAt(path, [SERVER]), false, path);
+    const client = fakeClient(`okit\n  args: ${path}\n`);
+    const result = await registerMcp(RECORD, depsOf(client.run), 'install');
+    assert.equal(result.status, 'kept', path);
+    assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']], path);
+    // The update and the uninstall leave the entry of somebody else alone.
+    for (const action of ['update', 'uninstall']) {
+      const other = fakeClient(`okit\n  args: ${path}\n`);
+      const answer = await registerMcp(RECORD, depsOf(other.run), action);
+      assert.equal(answer.status, 'kept', `${action}: ${path}`);
+      assert.deepEqual(argvOf(other), [['mcp', 'get', 'okit']], `${action}: ${path}`);
+    }
+  }
+});
+
+test('our path is ours when a quote or a space stands at its side', async () => {
+  const ours = [
+    [`["${SERVER}"]`, SERVER],
+    [`args = ["${SERVER}"]`, SERVER],
+    [`Args: ${SERVER}`, SERVER],
+    [`Args: ${SPACED_SERVER}`, SPACED_SERVER],
+  ];
+  for (const [text, path] of ours) {
+    assert.equal(pointsAt(text, [path]), true, text);
+    const client = fakeClient(`okit\n  ${text}\n`);
+    const record = path === SPACED_SERVER ? { ...RECORD, path: SPACED } : RECORD;
+    const result = await registerMcp(record, depsOf(client.run), 'install');
+    assert.equal(result.status, 'skipped', text);
+    assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']], text);
+  }
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 4: the uninstall of a module warns when the client is not there.
+
+test('the uninstall of a module warns with the manual command when the client is not there', async (t) => {
+  const home = await fs.mkdtemp(join(tmpdir(), 'mcp-module-'));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const source = join(home, 'payload');
+  await fs.mkdir(join(source, 'skills', 'example'), { recursive: true });
+  await fs.writeFile(join(source, 'skills', 'example', 'SKILL.md'), 'skill');
+  const clientRoot = join(home, 'client');
+  const config = installConfig({ clients: { 'claude-code': { strategy: 'module', module: 'src/install/client-plugin.js' } } });
+  const commands = [], lines = [];
+  const mcp = mcpWorld();
+  const deps = { config, fs, temporary: home, env: { HOME: home }, clientRoot, platform: 'linux',
+    detect: async () => true, loadAdapter: async () => moduleAdapter, out: (line) => lines.push(line),
+    run: async (item) => { commands.push(item); return mcp.handles(item) ? mcp.run(item) : {}; } };
+  const record = { client: 'claude-code', path: source };
+  await register(record, deps, 'install');
+  assert.match(await fs.readFile(join(clientRoot, 'plugins', 'okit-plugin.js'), 'utf8'), /file:/);
+  const cases = [
+    { detect: async () => false, warned: true },
+    { detect: async () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); }, warned: true },
+    { detect: async () => true, warned: false },
+  ];
+  for (const item of cases) {
+    commands.length = 0;
+    lines.length = 0;
+    deps.detect = item.detect;
+    const removed = await register(record, deps, 'uninstall');
+    // The uninstall succeeds and the module of ours is gone.
+    assert.equal(removed.status, 'ok');
+    assert.equal(await fs.readFile(join(clientRoot, 'plugins', 'okit-plugin.js'), 'utf8').catch(() => null), null);
+    const warnings = lines.filter((line) => /mcp remove okit/.test(line));
+    if (item.warned) {
+      // The entry of the client is left alone: no MCP command ran.
+      assert.deepEqual(commands.filter((call) => call.args[0] === 'mcp'), []);
+      assert.equal(warnings.length, 1, lines.join('\n'));
+      assert.match(warnings[0], /was not found/, warnings[0]);
+    } else {
+      // A client that is there: its entry goes out, and nothing is warned.
+      assert.deepEqual(commands.filter((call) => call.args[0] === 'mcp').map((call) => call.args[1]), ['get', 'remove']);
+      assert.deepEqual(warnings, [], lines.join('\n'));
+    }
+  }
 });

@@ -14,11 +14,12 @@ export const MCP_CLIENTS = Object.freeze(Object.entries(DEFAULT_CONFIG.install.c
   .filter(([, settings]) => settings.mcp).map(([client]) => client));
 
 // The characters that may stand where our path stands in what the client printed: the path is a word of its own, and
-// these are the words that end it. A comma, a letter, a digit, a dot, a dash, an underscore or a separator at its
-// side means the path is a part of another one (a folder that ends with ours, our version against the one that
-// follows it), so it is not ours.
-const BEFORE = new Set(['"', "'", '`', '[', '=']);
-const AFTER = new Set(['"', "'", '`', ']']);
+// only a quote may stand at its side (besides the end of the text and a space, which the code below allows on their
+// own). Any other character (a comma, a letter, a digit, a dot, a dash, an underscore, a separator, a bracket or an
+// equal sign) means the path is a part of another one (a folder that ends with ours, our version against the one that
+// follows it, a foreign assignment or a list that holds it), so it is not ours.
+const BEFORE = new Set(['"', "'", '`']);
+const AFTER = new Set(['"', "'", '`']);
 const isSpace = (char) => char !== undefined && /\s/.test(char);
 const mayPrecede = (char) => char === undefined || isSpace(char) || BEFORE.has(char);
 const mayFollow = (char) => char === undefined || isSpace(char) || AFTER.has(char);
@@ -142,7 +143,8 @@ export async function ensureMcp(record, deps) {
 /**
  * Whether what the client printed names one of our paths, whole: the path is found in the text as it is written, and
  * only when the words around it are the ones that end it (a path that is a part of another one, or that holds a
- * comma, a letter, a digit, a dot, a dash, an underscore or a separator at its side, is not ours).
+ * comma, a letter, a digit, a dot, a dash, an underscore, a separator, a bracket or an equal sign at its side, is not
+ * ours).
  *
  * @param {string} text what the client printed
  * @param {string[]} paths the paths of ours to look for
