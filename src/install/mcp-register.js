@@ -193,6 +193,38 @@ export async function registerMcp(record, deps, action = 'install') {
 }
 
 /**
+ * Reads the MCP entry of the client and says what it is, without writing anything.
+ *
+ * It is the read-only half of `registerMcp`: the same plan (`mcpPlan`), the same reading of the entry (`readEntry`) and
+ * the same ownership (`pointsAt`), so the two can never disagree about what the client holds. Only the `get` command of
+ * the client runs: the `add` and the `remove` are never even planned.
+ *
+ * The states are: `registered` (the entry names the server of this installation, or the one it replaces), `absent`
+ * (the client holds no entry of that name), `foreign` (the entry of that name is there, but it is not ours: at another
+ * scope, or pointing at another server), `unreadable` (the entry could not be read, with the reason) and `none` (this
+ * client has no MCP server of ours, so there is nothing of ours to look for).
+ *
+ * @param {object} record the installation record (`path` is the retained folder, `previous.path` the one before it)
+ * @param {object} deps the dependencies of the installer (`config` and `run`)
+ * @returns {Promise<{state: 'registered'|'absent'|'foreign'|'unreadable'|'none', reason?: string}>}
+ */
+export async function mcpStatus(record, deps) {
+  const plan = mcpPlan(record, deps, 'install');
+  if (!plan) return { state: 'none' };
+  const entry = await readEntry(plan, deps);
+  // An entry that could not be read is not an absent entry: nothing is said about what the client holds.
+  if (entry.status === 'failed') return { state: 'unreadable', reason: entry.reason };
+  if (entry.status === 'absent') return { state: 'absent' };
+  // The entry is at another scope than ours: it is the entry of somebody else.
+  if (entry.status === 'otherScope') return { state: 'foreign' };
+  const current = serverPath(record.path, deps.config);
+  const previous = record.previous?.path ? serverPath(record.previous.path, deps.config) : null;
+  const ours = (path) => pointsAt(entry.output, [path], deps.platform, entry.format);
+  if (ours(current) || (previous && ours(previous))) return { state: 'registered' };
+  return { state: 'foreign' };
+}
+
+/**
  * The MCP step of an installation that is already there: the entry is read and, when it is absent, added again, so
  * that an installation whose first add failed is fixed by the next one. A client that is not on the machine is left
  * alone, quietly: the manual command is listed by the registration itself.

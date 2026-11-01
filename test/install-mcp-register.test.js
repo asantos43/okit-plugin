@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { main } from '../src/cli.js';
 import { installConfig } from '../src/install/config.js';
-import { ensureMcp, mcpPlan, pointsAt, registerMcp, shown } from '../src/install/mcp-register.js';
+import { ensureMcp, mcpPlan, mcpStatus, pointsAt, registerMcp, shown } from '../src/install/mcp-register.js';
 import { mcpStep, register } from '../src/install/register.js';
 import { TEXTS, createPresenter, fill } from '../src/install/present.js';
 import { fixture, mcpWorld } from './helpers/install-fixture.js';
@@ -1957,4 +1957,54 @@ test('the JSON of the entry of the version it replaces is ours, and Codex still 
   assert.equal(result.manual, true);
   assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit', '--json']]);
   assert.match(result.detail, /codex mcp remove okit ; codex mcp add okit --/, result.detail);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D109 step 2: the status of the entry of a client, read and never written (the doctor reads it).
+
+test('the entry of ours is registered, and only the get command runs', async () => {
+  const client = fakeClient(claudeEntry(SERVER));
+  assert.deepEqual(await mcpStatus(RECORD, depsOf(client.run)), { state: 'registered' });
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('the entry of the version the installation replaces is ours too', async () => {
+  const client = fakeClient(claudeEntry(join(PREVIOUS.path, 'src/mcp/server.js')));
+  const answer = await mcpStatus({ ...RECORD, previous: PREVIOUS }, depsOf(client.run));
+  assert.equal(answer.state, 'registered');
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('an entry the client does not hold is absent', async () => {
+  const client = fakeClient(null);
+  assert.deepEqual(await mcpStatus(RECORD, depsOf(client.run)), { state: 'absent' });
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('an entry that is not ours is foreign', async () => {
+  const client = fakeClient(claudeEntry('/somewhere/else/src/mcp/server.js'));
+  assert.deepEqual(await mcpStatus(RECORD, depsOf(client.run)), { state: 'foreign' });
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('an entry at another scope is not ours either', async () => {
+  const client = fakeClient(LOCAL_SCOPE);
+  assert.deepEqual(await mcpStatus(RECORD, depsOf(client.run)), { state: 'foreign' });
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('an entry that cannot be read is unreadable, with its reason', async () => {
+  const client = fakeClient(null);
+  const run = async (input) => { client.calls.push(input); throw Object.assign(new Error('the client refused'), { code: 2 }); };
+  const answer = await mcpStatus(RECORD, depsOf(run));
+  assert.equal(answer.state, 'unreadable');
+  assert.match(answer.reason, /2:/, answer.reason);
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('a client with no MCP server of ours has no entry to look for', async () => {
+  const calls = [];
+  const deps = { config: CONFIG, run: async (input) => { calls.push(input); }, out: () => {} };
+  assert.deepEqual(await mcpStatus({ ...RECORD, client: 'opencode' }, deps), { state: 'none' });
+  assert.deepEqual(calls, []);
 });

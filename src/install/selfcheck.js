@@ -15,7 +15,7 @@ import { presenterOf, clientLabel } from './present.js';
 // so the person's own state is never written. Every check is { id, status: 'pass'|'fail'|'skip', shell?, reason, fix };
 // the texts are the presenter's (en and pt-BR), so a result is already in the language of the run.
 
-const LABELS = { version: 'selfcheckVersion', command: 'selfcheckCommand', statusline: 'selfcheckStatusline',
+export const LABELS = { version: 'selfcheckVersion', command: 'selfcheckCommand', statusline: 'selfcheckStatusline',
   hook: 'selfcheckHook', collector: 'selfcheckCollector', mcp: 'selfcheckMcp', api: 'selfcheckApi', path: 'selfcheckPath' };
 
 const QUOTE = {

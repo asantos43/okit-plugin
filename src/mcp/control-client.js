@@ -33,18 +33,20 @@ const refusal = (error) => ({ ok: false, error });
  *
  * The records of the processes that died are pruned by the endpoint module,
  * so what is left here is what may answer. A pid given asks for that server
- * alone.
+ * alone. With `prune: false` the records of the dead processes are only left
+ * out of the answer, never removed: a caller that only looks asks for that.
  *
  * @param {string} root the state root
- * @param {{isAlive?: (pid: number) => boolean, platform?: string, pid?: number}} [options]
+ * @param {{isAlive?: (pid: number) => boolean, platform?: string, pid?: number, prune?: boolean}} [options]
  * @returns {Promise<object[]>} the records of the servers, the newest first
  */
-export async function findServers(root, { isAlive, platform, pid } = {}) {
+export async function findServers(root, { isAlive, platform, pid, prune } = {}) {
   // The endpoint module has its own defaults, so a value that was not given
   // is not passed at all.
   const options = {};
   if (isAlive !== undefined) options.isAlive = isAlive;
   if (platform !== undefined) options.platform = platform;
+  if (prune !== undefined) options.prune = prune;
   const records = await listRecords(root, options);
   const chosen = pid === undefined
     ? records
@@ -68,6 +70,7 @@ export async function findServers(root, { isAlive, platform, pid } = {}) {
  * @param {number} [options.timeoutMs] how long one attempt may take
  * @param {(pid: number) => boolean} [options.isAlive] who is still alive
  * @param {string} [options.platform]
+ * @param {boolean} [options.prune] whether the records of the dead processes are removed (true, the default)
  * @returns {Promise<{ok: true, text: string}|{ok: false, error: string}>}
  */
 export async function callControl({
@@ -78,6 +81,7 @@ export async function callControl({
   timeoutMs = 5000,
   isAlive,
   platform,
+  prune,
 } = {}) {
   // The arguments are turned into JSON once, before any server is asked: a
   // cycle or a number too big is said here, and the call ends without
@@ -91,7 +95,7 @@ export async function callControl({
 
   let servers;
   try {
-    servers = await findServers(root, { isAlive, platform, pid });
+    servers = await findServers(root, { isAlive, platform, pid, prune });
   } catch (error) {
     return refusal(reason(error));
   }

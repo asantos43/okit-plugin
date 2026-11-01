@@ -39,7 +39,7 @@ Autostart também registra ~/.config/systemd/user/okit-daemon.service, ~/Library
 <a id="integrity"></a>
 ## Integridade e remoção
 
-Escritas JSON usam arquivo temporário, sincronização e rename; locks usam diretórios com dono e recuperação de processo morto. Arquivo ausente admite fallback, JSON inválido não vira configuração vazia silenciosamente. Não remova locks de um processo ativo. Consulte `okit-plugin env report` para localizar o estado efetivo e `okit-plugin config show` para ler ajustes.
+Escritas JSON usam arquivo temporário, sincronização e rename; locks usam diretórios com dono e recuperação de processo morto. Arquivo ausente admite fallback, JSON inválido não vira configuração vazia silenciosamente. Não remova locks de um processo ativo. Consulte `okit-plugin env report` para localizar o estado efetivo e `okit-plugin config show` para ler ajustes. O diagnóstico só lê: abre `config.json`, `inbox.json`, `orders.json`, os registros da pasta de controle, `daemon.pid.json` com o log do daemon, o arquivo do plano de início automático e o `package.json` do plugin (a versão mínima do Node); nunca grava, nunca remove o registro de um processo morto e nunca muda a instalação.
 Update conserva estado. Uninstall conserva estado por padrão; --purge --yes exige ausência de outros clientes e apaga a raiz. Faça cópia antes de apagar histórico.
 
 <a id="measurements"></a>

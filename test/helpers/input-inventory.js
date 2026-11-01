@@ -427,6 +427,8 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/spawn-process.js', arg: /^(file|stdout)$/, excluded: 'the run file okit wrote for a started executor and the output of a process we started' },
   { file: 'src/state.js', arg: /^(file|raw|join\(lockDir, LOCK_OWNER_FILE\)|claim)$/, excluded: 'the generic reader of state files (each caller is a row of this table) and the lock files okit writes in its own state folder' },
   { file: 'src/skills.js', arg: /^(file|source)$/, excluded: 'the skill files of the package being installed (code and text of the program), copied byte for byte' },
+  // The doctor (src/doctor/diagnose.js): it only looks, and every file it opens is one of the plugin's own.
+  { file: 'src/doctor/diagnose.js', arg: /^(file|stored\.text|read\.text)$/, excluded: 'the files the doctor reads: the package.json of the plugin (the minimum Node it runs on) and the state files (config.json, inbox.json, orders.json); a file that is not JSON, or one of another shape, is a row of the diagnosis with its fix, never a crash and never a write' },
   // Commands outside this inventory: orchestration state, read and written by okit itself.
   { file: 'src/daemon.js', arg: /^(logFile\(root, now\)|lines\[lines\.length - 1\]|pidFile\(root\))$/, excluded: 'the daemon\'s own log and pid file (the daemon command is outside this inventory)' },
   { file: 'src/demand-ref.js', arg: /^paths\(root\)\.project$/, excluded: STATE_OF_OTHER_COMMANDS },
