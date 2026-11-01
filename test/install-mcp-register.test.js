@@ -41,6 +41,11 @@ const PREVIOUS = { client: 'claude-code', path: join('/opt', 'okit-plugin', '0.9
 const SPACED = join('/Users/me/Library/Application Support/okit/1.0.0');
 const SPACED_SERVER = join(SPACED, 'src/mcp/server.js');
 
+// What the clients print for the entry they hold: Claude Code names the scope, the type and the command; Codex prints
+// the entry as a list of settings. Neither of them quotes the arguments: they join them with spaces.
+const claudeEntry = (args) => `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: node\n  Args: ${args}\n`;
+const codexEntry = (args) => `okit\n  enabled: true\n  command: node\n  args: ${args}\n`;
+
 /** The dependencies of the step: the installer's settings and the runner of the client. */
 const depsOf = (run, config = CONFIG) => ({ config, run, out: () => {} });
 
@@ -97,14 +102,14 @@ test('an entry the client does not hold is added', async () => {
 });
 
 test('our entry that already points at this installation is left alone', async () => {
-  const client = fakeClient(`okit\n  command: ${CONFIG.node}\n  args: ${SERVER}\n`);
+  const client = fakeClient(codexEntry(SERVER));
   const result = await registerMcp(RECORD, depsOf(client.run), 'install');
   assert.equal(result.status, 'skipped');
   assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
 });
 
 test('our entry that points at the installation this one replaces is taken out and written again', async () => {
-  const client = fakeClient(`okit\n  args: ${join(PREVIOUS.path, 'src/mcp/server.js')}\n`);
+  const client = fakeClient(codexEntry(join(PREVIOUS.path, 'src/mcp/server.js')));
   const result = await registerMcp({ ...RECORD, previous: PREVIOUS }, depsOf(client.run), 'update');
   assert.equal(result.status, 'ok');
   assert.deepEqual(argvOf(client), [
@@ -115,39 +120,19 @@ test('our entry that points at the installation this one replaces is taken out a
 });
 
 test('an entry that is not ours is kept, with a warning', async () => {
-  const client = fakeClient('okit\n  args: /somewhere/else/src/mcp/server.js\n');
+  const client = fakeClient(codexEntry('/somewhere/else/src/mcp/server.js'));
   const result = await registerMcp(RECORD, depsOf(client.run), 'install');
   assert.equal(result.status, 'kept');
   assert.match(result.detail, /not ours/, result.detail);
   assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
 });
 
-test('a path that only holds ours as a part of it is not ours', async () => {
-  const foreign = [
-    `/backup${SERVER}`,
-    `${SERVER}.backup`,
-    `${SERVER}/x`,
-    join('/opt', 'okit-plugin', '1.0.0', 'src/mcp/server.js'),
-  ];
-  for (const path of foreign) {
-    const client = fakeClient(`okit\n  args: ${path}\n`);
-    const result = await registerMcp(RECORD, depsOf(client.run), 'install');
-    assert.equal(result.status, 'kept', path);
-    assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']], path);
-    // The uninstall leaves it alone too.
-    const other = fakeClient(`okit\n  args: ${path}\n`);
-    const removed = await registerMcp(RECORD, depsOf(other.run), 'uninstall');
-    assert.equal(removed.status, 'kept', path);
-    assert.deepEqual(argvOf(other), [['mcp', 'get', 'okit']], path);
-  }
-});
-
 test('on Windows the case and the separator of the path do not matter', () => {
   const path = 'C:\\okit\\1.0.0-claude-code\\src\\mcp\\server.js';
-  assert.equal(pointsAt(`okit\n  args: ${path}\n`, [path], 'win32'), true);
-  assert.equal(pointsAt(`okit\n  args: ${path.toLowerCase().replaceAll('\\', '/')}\n`, [path], 'win32'), true);
-  assert.equal(pointsAt(`okit\n  args: ${path}.backup\n`, [path], 'win32'), false);
-  assert.equal(pointsAt(`okit\n  args: ${path.replace('1.0.0-claude-code', '1.0.0')}\n`, [path], 'win32'), false);
+  assert.equal(pointsAt(claudeEntry(path), [path], 'win32'), true);
+  assert.equal(pointsAt(claudeEntry(path.toLowerCase().replaceAll('\\', '/')), [path], 'win32'), true);
+  assert.equal(pointsAt(claudeEntry(`${path}.backup`), [path], 'win32'), false);
+  assert.equal(pointsAt(claudeEntry(path.replace('1.0.0-claude-code', '1.0.0')), [path], 'win32'), false);
 });
 
 test('a name or a scope the client would read as a flag never reaches its argv', () => {
@@ -197,11 +182,11 @@ test('a run that answers with the code of an absent entry is an absent entry too
 });
 
 test('the uninstall takes our entry out and leaves the entries that are not ours alone', async () => {
-  const ours = fakeClient(`okit\n  args: ${SERVER}\n`);
+  const ours = fakeClient(codexEntry(SERVER));
   const removed = await registerMcp(RECORD, depsOf(ours.run), 'uninstall');
   assert.equal(removed.status, 'ok');
   assert.deepEqual(argvOf(ours), [['mcp', 'get', 'okit'], ['mcp', 'remove', 'okit', '--scope', 'user']]);
-  const foreign = fakeClient('okit\n  args: /somewhere/else/src/mcp/server.js\n');
+  const foreign = fakeClient(codexEntry('/somewhere/else/src/mcp/server.js'));
   const kept = await registerMcp(RECORD, depsOf(foreign.run), 'uninstall');
   assert.equal(kept.status, 'kept');
   assert.deepEqual(argvOf(foreign), [['mcp', 'get', 'okit']]);
@@ -287,14 +272,14 @@ test('an entry that is not ours is a warning of the installation, which goes on'
   const f = await fixture(t);
   const run = f.io.run;
   f.io.run = async (input) => (input.args?.[0] === 'mcp' && input.args[1] === 'get'
-    ? { stdout: 'okit\n  args: /somewhere/else/src/mcp/server.js\n' } : run(input));
+    ? { stdout: codexEntry('/somewhere/else/src/mcp/server.js') } : run(input));
   assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
   assert.ok(f.output.some((line) => /warning: an MCP server named okit that is not ours/.test(line)), f.output.join('\n'));
   assert.deepEqual(f.commands.filter((item) => item.args[0] === 'mcp' && item.args[1] !== 'get'), []);
 });
 
 test('the uninstall takes out the entry that points at the installation this one replaced', async () => {
-  const client = fakeClient(`okit\n  args: ${join(PREVIOUS.path, 'src/mcp/server.js')}\n`);
+  const client = fakeClient(codexEntry(join(PREVIOUS.path, 'src/mcp/server.js')));
   const result = await registerMcp({ ...RECORD, previous: { path: PREVIOUS.path } }, depsOf(client.run), 'uninstall');
   assert.equal(result.status, 'ok');
   assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit'], ['mcp', 'remove', 'okit', '--scope', 'user']]);
@@ -384,63 +369,87 @@ test('a failed read that says the entry is absent but exits with another code is
 });
 
 // ---------------------------------------------------------------------------------------------------------------
-// D110 correction round 2: the ownership of an entry is the whole path as the client printed it.
+// D110 correction round 7: the ownership of an entry is the arguments of the entry, whole: the clients print the
+// arguments joined by spaces and never quoted, so the value of the arguments line is the whole argument list.
 
-test('a path with spaces is ours when the client prints it whole', () => {
+test('the entry whose arguments are our path, whole, is ours', () => {
   const printed = [
-    `okit\n  Args: ${SPACED_SERVER}\n`,
-    `okit\n  args: ${SPACED_SERVER}\n`,
-    `okit\n  args: "${SPACED_SERVER}"\n`,
-    `okit\n  args: ["${SPACED_SERVER}"]\n`,
-    `okit\n  args: ${SPACED_SERVER}`,
+    claudeEntry(SERVER),
+    codexEntry(SERVER),
+    claudeEntry(SPACED_SERVER),
+    codexEntry(SPACED_SERVER),
+    codexEntry(SERVER).trimEnd(),
   ];
-  for (const text of printed) assert.equal(pointsAt(text, [SPACED_SERVER]), true, text);
+  for (const text of printed) assert.equal(pointsAt(text, [SERVER, SPACED_SERVER]), true, text);
+  assert.equal(pointsAt(claudeEntry(SPACED_SERVER), [SPACED_SERVER]), true);
 });
 
-test('a path with a foreign word at its side is not ours', () => {
+test('the entry whose arguments are not our path alone is not ours', () => {
   const foreign = [
-    `/foreign,${SERVER}`,
-    `/backup${SERVER}`,
-    `${SERVER}.backup`,
-    `${SERVER}/x`,
-    `${SERVER}-old`,
-    `x${SERVER}`,
-    join('/opt', 'okit-plugin', '1.0.0', 'src/mcp/server.js'),
+    `${SERVER} backup.js`,
+    `${SERVER} extra`,
+    `extra ${SERVER}`,
+    `${SERVER}.bak`,
+    `/foreign/${SERVER}`,
+    `"${SERVER}"`,
+    '',
   ];
-  for (const path of foreign) assert.equal(pointsAt(`okit\n  args: ${path}\n`, [SERVER]), false, path);
+  for (const args of foreign) {
+    assert.equal(pointsAt(codexEntry(args), [SERVER]), false, args);
+    assert.equal(pointsAt(claudeEntry(args), [SERVER]), false, args);
+  }
+  // The path in another line is not the arguments of the entry: there is no arguments line at all.
+  const elsewhere = `okit:\n  Scope: User config (available in all your projects)\n  Command: ${SERVER}\n`;
+  assert.equal(pointsAt(elsewhere, [SERVER]), false, elsewhere);
 });
 
-test('every occurrence of the path counts, not only the first', () => {
-  const text = `okit\n  args: /backup${SERVER}\n  args: ${SERVER}\n`;
-  assert.equal(pointsAt(text, [SERVER]), true);
-  // The other way around: the first one is ours, the second one is not.
-  const other = `okit\n  args: ${SERVER}\n  args: /backup${SERVER}\n`;
-  assert.equal(pointsAt(other, [SERVER]), true);
+test('the entry that is not ours is kept: nothing is written nor taken out', async () => {
+  const foreign = [
+    `${SERVER} backup.js`,
+    `${SERVER} extra`,
+    `extra ${SERVER}`,
+    `${SERVER}.bak`,
+    `/foreign/${SERVER}`,
+    `"${SERVER}"`,
+    '',
+    `Command: ${SERVER}`,
+  ];
+  for (const args of foreign) {
+    const text = args.startsWith('Command:') ? `okit:\n  ${args}\n` : codexEntry(args);
+    assert.equal(pointsAt(text, [SERVER]), false, args);
+    // The install, the update and the uninstall leave the entry of somebody else alone.
+    for (const action of ['install', 'update', 'uninstall']) {
+      const client = fakeClient(text);
+      const record = action === 'update' ? { ...RECORD, previous: PREVIOUS } : RECORD;
+      const answer = await registerMcp(record, depsOf(client.run), action);
+      assert.equal(answer.status, 'kept', `${action}: ${args}`);
+      assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']], `${action}: ${args}`);
+    }
+  }
 });
 
 test('on Windows the path is ours in every spelling, and only then', () => {
   const path = 'C:\\Users\\Jo Silva\\AppData\\okit\\src\\mcp\\server.js';
-  assert.equal(pointsAt(`okit\n  args: ${path}\n`, [path], 'win32'), true);
-  assert.equal(pointsAt(`okit\n  args: ${path.replaceAll('\\', '/')}\n`, [path], 'win32'), true);
-  assert.equal(pointsAt(`okit\n  args: ${path.toLowerCase()}\n`, [path], 'win32'), true);
-  assert.equal(pointsAt(`okit\n  args: "${path}"\n`, [path], 'win32'), true);
+  assert.equal(pointsAt(codexEntry(path), [path], 'win32'), true);
+  assert.equal(pointsAt(codexEntry(path.replaceAll('\\', '/')), [path], 'win32'), true);
+  assert.equal(pointsAt(codexEntry(path.toLowerCase()), [path], 'win32'), true);
   // A foreign word at its side is not ours.
-  assert.equal(pointsAt(`okit\n  args: /backup${path}\n`, [path], 'win32'), false);
-  assert.equal(pointsAt(`okit\n  args: ${path}.backup\n`, [path], 'win32'), false);
+  assert.equal(pointsAt(codexEntry(`/backup${path}`), [path], 'win32'), false);
+  assert.equal(pointsAt(codexEntry(`${path}.backup`), [path], 'win32'), false);
   // On another system the case and the separator do matter.
-  assert.equal(pointsAt(`okit\n  args: ${path.toLowerCase()}\n`, [path], 'linux'), false);
-  assert.equal(pointsAt(`okit\n  args: ${path.replaceAll('\\', '/')}\n`, [path], 'linux'), false);
+  assert.equal(pointsAt(codexEntry(path.toLowerCase()), [path], 'linux'), false);
+  assert.equal(pointsAt(codexEntry(path.replaceAll('\\', '/')), [path], 'linux'), false);
 });
 
 test('the entry that names our path with spaces is ours', async () => {
-  const client = fakeClient(`okit\n  args: ${SPACED_SERVER}\n`);
+  const client = fakeClient(codexEntry(SPACED_SERVER));
   const result = await registerMcp({ ...RECORD, path: SPACED }, depsOf(client.run), 'install');
   assert.equal(result.status, 'skipped');
   assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
 });
 
 test('the entry that names our path after a comma is not ours', async () => {
-  const client = fakeClient(`okit\n  args: /foreign,${SERVER}\n`);
+  const client = fakeClient(codexEntry(`/foreign,${SERVER}`));
   const result = await registerMcp(RECORD, depsOf(client.run), 'install');
   assert.equal(result.status, 'kept');
   assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
@@ -599,9 +608,9 @@ test('a client with the module strategy and no module of ours registers nothing'
 });
 
 // ---------------------------------------------------------------------------------------------------------------
-// D110 correction round 4: the delimiters of our path are strict.
+// D110 correction round 7: the arguments of the entry are ours only when they are our path, whole.
 
-test('a path a foreign character holds at its side is not ours, and nothing of it is removed', async () => {
+test('an arguments line a foreign character holds at its side is not ours, and nothing of it is removed', async () => {
   const foreign = [
     `/foreign=${SERVER}`,
     `${SERVER}]backup`,
@@ -610,14 +619,14 @@ test('a path a foreign character holds at its side is not ours, and nothing of i
     `${SERVER}]`,
   ];
   for (const path of foreign) {
-    assert.equal(pointsAt(path, [SERVER]), false, path);
-    const client = fakeClient(`okit\n  args: ${path}\n`);
+    assert.equal(pointsAt(codexEntry(path), [SERVER]), false, path);
+    const client = fakeClient(codexEntry(path));
     const result = await registerMcp(RECORD, depsOf(client.run), 'install');
     assert.equal(result.status, 'kept', path);
     assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']], path);
     // The update and the uninstall leave the entry of somebody else alone.
     for (const action of ['update', 'uninstall']) {
-      const other = fakeClient(`okit\n  args: ${path}\n`);
+      const other = fakeClient(codexEntry(path));
       const answer = await registerMcp(RECORD, depsOf(other.run), action);
       assert.equal(answer.status, 'kept', `${action}: ${path}`);
       assert.deepEqual(argvOf(other), [['mcp', 'get', 'okit']], `${action}: ${path}`);
@@ -625,17 +634,15 @@ test('a path a foreign character holds at its side is not ours, and nothing of i
   }
 });
 
-test('our path is ours when a quote or a space stands at its side', async () => {
+test('our path is ours when the arguments line holds it alone', async () => {
   const ours = [
-    [`["${SERVER}"]`, SERVER],
-    [`args = ["${SERVER}"]`, SERVER],
-    [`Args: ${SERVER}`, SERVER],
-    [`Args: ${SPACED_SERVER}`, SPACED_SERVER],
+    [codexEntry(SERVER), SERVER, RECORD],
+    [claudeEntry(SERVER), SERVER, RECORD],
+    [claudeEntry(SPACED_SERVER), SPACED_SERVER, { ...RECORD, path: SPACED }],
   ];
-  for (const [text, path] of ours) {
+  for (const [text, path, record] of ours) {
     assert.equal(pointsAt(text, [path]), true, text);
-    const client = fakeClient(`okit\n  ${text}\n`);
-    const record = path === SPACED_SERVER ? { ...RECORD, path: SPACED } : RECORD;
+    const client = fakeClient(text);
     const result = await registerMcp(record, depsOf(client.run), 'install');
     assert.equal(result.status, 'skipped', text);
     assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']], text);
@@ -795,27 +802,27 @@ test('a client with the module strategy and a module of ours still has a plan', 
 });
 
 // ---------------------------------------------------------------------------------------------------------------
-// D110 correction round 6: the commands of the client run from a neutral directory, so that the configuration of a
-// project is never read nor changed.
+// D110 correction round 7: the commands of the client run from a folder the installer owns, so that the configuration
+// of a project is never read nor changed.
 
 const CODEX = { client: 'codex', path: join('/opt', 'okit-plugin', '1.0.0-codex') };
 const CODEX_PREVIOUS = { client: 'codex', path: join('/opt', 'okit-plugin', '0.9.0-codex') };
 const CODEX_SERVER = join(CODEX.path, 'src/mcp/server.js');
 const CODEX_PREVIOUS_SERVER = join(CODEX_PREVIOUS.path, 'src/mcp/server.js');
-// The neutral directory the commands of the client run from: in no project.
+// The directory the dependencies name: the one the commands of the client run from, when there is one.
 const NEUTRAL = join(tmpdir(), 'okit-mcp-neutral');
 // The entry of a project: ours (the installation this one replaces), so it looks like ours to the client.
-const PROJECT_ENTRY = `okit\n  command: node\n  args: ${CODEX_PREVIOUS_SERVER}\n`;
+const PROJECT_ENTRY = codexEntry(CODEX_PREVIOUS_SERVER);
 // The global entry of somebody else: not ours.
-const FOREIGN_GLOBAL = 'okit\n  command: node\n  args: /somewhere/else/src/mcp/server.js\n';
+const FOREIGN_GLOBAL = codexEntry('/somewhere/else/src/mcp/server.js');
 // The global entry of ours.
-const OUR_GLOBAL = `okit\n  command: node\n  args: ${CODEX_SERVER}\n`;
+const OUR_GLOBAL = codexEntry(CODEX_SERVER);
 
 /**
  * A client that reads the configuration of the project of the directory it runs in (Codex reads the `.codex/config.toml`
  * of the trusted project it finds from the current directory upward): inside a project it shows the entry of that
- * project, and from the neutral directory the global one. What `add` and `remove` write is the global entry, as the
- * real clients do.
+ * project, and from the folder of the installation the global one. What `add` and `remove` write is the global entry,
+ * as the real clients do.
  *
  * @param {{project: string, global: string|null, neutral: string}} world the two worlds of the client
  * @returns {{calls: object[], run: Function, state: {global: string|null}, argv: () => string[][]}}
@@ -833,7 +840,7 @@ function twoWorlds({ project, global, neutral }) {
         stdout: 'No MCP server named "okit" found.\n', stderr: '' });
       return { stdout: entry };
     }
-    if (verb === 'add') { state.global = `okit\n  command: node\n  args: ${input.args.at(-1)}\n`; return {}; }
+    if (verb === 'add') { state.global = codexEntry(input.args.at(-1)); return {}; }
     if (verb === 'remove') { state.global = null; return {}; }
     return {};
   };
@@ -844,7 +851,7 @@ test('the uninstall reads the global entry and leaves the foreign one alone', as
   const client = twoWorlds({ project: PROJECT_ENTRY, global: FOREIGN_GLOBAL, neutral: NEUTRAL });
   const result = await registerMcp({ ...CODEX, previous: CODEX_PREVIOUS }, { ...depsOf(client.run), mcpCwd: NEUTRAL }, 'uninstall');
   assert.equal(result.status, 'kept');
-  // Every command of the client ran from the neutral directory: no configuration of a project was read.
+  // Every command of the client ran from the directory of the dependencies: no configuration of a project was read.
   assert.deepEqual(client.calls.map((call) => call.cwd), [NEUTRAL]);
   // The global entry of somebody else is still there: nothing was taken out nor written.
   assert.deepEqual(client.argv().map((words) => words[1]), ['get']);
@@ -856,12 +863,12 @@ test('the update reads the global entry and leaves the foreign one alone', async
   const result = await registerMcp({ ...CODEX, previous: CODEX_PREVIOUS }, { ...depsOf(client.run), mcpCwd: NEUTRAL }, 'update');
   assert.equal(result.status, 'kept');
   assert.deepEqual(client.calls.map((call) => call.cwd), [NEUTRAL]);
-  // The entry of the project (ours) is not the one the client shows from the neutral directory: nothing is written.
+  // The entry of the project (ours) is not the one the client shows from that directory: nothing is written.
   assert.deepEqual(client.argv().map((words) => words[1]), ['get']);
   assert.equal(client.state.global, FOREIGN_GLOBAL);
 });
 
-test('the uninstall takes our global entry out, from the neutral directory', async () => {
+test('the uninstall takes our global entry out, from the directory of the dependencies', async () => {
   const client = twoWorlds({ project: PROJECT_ENTRY, global: OUR_GLOBAL, neutral: NEUTRAL });
   const result = await registerMcp(CODEX, { ...depsOf(client.run), mcpCwd: NEUTRAL }, 'uninstall');
   assert.equal(result.status, 'ok');
@@ -870,12 +877,71 @@ test('the uninstall takes our global entry out, from the neutral directory', asy
   assert.equal(client.state.global, null);
 });
 
-test('without a directory of its own, the commands run from the temporary folder of the system', async () => {
-  const client = twoWorlds({ project: PROJECT_ENTRY, global: FOREIGN_GLOBAL, neutral: tmpdir() });
+test('without a directory of its own, the commands run from the installation folder of the record', async () => {
+  const client = twoWorlds({ project: PROJECT_ENTRY, global: FOREIGN_GLOBAL, neutral: CODEX.path });
   const result = await registerMcp(CODEX, depsOf(client.run), 'uninstall');
   assert.equal(result.status, 'kept');
-  for (const call of client.calls) assert.equal(call.cwd, tmpdir());
+  for (const call of client.calls) assert.equal(call.cwd, CODEX.path);
   assert.deepEqual(client.argv().map((words) => words[1]), ['get']);
+});
+
+test('every command of the step runs from the installation folder of the record', async () => {
+  const client = twoWorlds({ project: PROJECT_ENTRY, global: null, neutral: CODEX.path });
+  const result = await registerMcp(CODEX, depsOf(client.run), 'install');
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(client.calls.map((call) => call.cwd), [CODEX.path, CODEX.path]);
+  assert.deepEqual(client.argv().map((words) => words[1]), ['get', 'add']);
+});
+
+test('the temporary folder of the system is never the directory of the commands', async () => {
+  const made = join(tmpdir(), 'okit-mcp-tmpdir');
+  const before = process.env.TMPDIR;
+  process.env.TMPDIR = made;
+  try {
+    const client = twoWorlds({ project: PROJECT_ENTRY, global: FOREIGN_GLOBAL, neutral: CODEX.path });
+    const result = await registerMcp(CODEX, depsOf(client.run), 'uninstall');
+    assert.equal(result.status, 'kept');
+    for (const call of client.calls) assert.equal(call.cwd, CODEX.path);
+    assert.deepEqual(client.argv().map((words) => words[1]), ['get']);
+  } finally {
+    if (before === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = before;
+  }
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 7: a scope only for a client whose own `mcp` commands take one.
+
+test('a scope for a client whose own mcp commands take none is refused, in both languages', async (t) => {
+  const f = await fixture(t);
+  const file = join(f.root, 'config.json');
+  for (const [locale, expected] of [
+    ['en', /Invalid install\.clients\.codex\.mcp\.scope: a scope only for a client whose own mcp commands take one/],
+    ['pt-BR', /install\.clients\.codex\.mcp\.scope inválido: um escopo só para um cliente cujos comandos mcp aceitam um/],
+  ]) {
+    await fs.writeFile(file, JSON.stringify({ language: locale,
+      install: { clients: { codex: { mcp: { scope: 'user' } } } } }));
+    f.clear();
+    const code = await main(['install', '--client', 'claude-code', '--dry-run'], f.io);
+    const text = f.output.join('\n');
+    assert.equal(code, 2, `${locale}\n${text}`);
+    assert.match(text, expected, `${locale}\n${text}`);
+  }
+});
+
+test('the defaults and a null scope for a client whose commands take none are accepted', () => {
+  assert.doesNotThrow(() => installConfig());
+  const config = installConfig({ clients: { codex: { mcp: { scope: null } } } });
+  assert.equal(config.clients.codex.mcp.scope, null);
+  assert.equal(mcpPlan({ ...RECORD, client: 'codex' }, depsOf(() => {}, config)).scope, null);
+});
+
+test('a scope for a client whose own mcp commands take one is accepted, and the plan carries it', () => {
+  const config = installConfig({ clients: { 'claude-code': { mcp: { scope: 'local' } } } });
+  assert.equal(config.clients['claude-code'].mcp.scope, 'local');
+  const plan = mcpPlan(RECORD, depsOf(() => {}, config));
+  assert.deepEqual(plan.add, ['claude', 'mcp', 'add', '--scope', 'local', 'okit', '--', config.node, SERVER]);
+  assert.deepEqual(plan.remove, ['claude', 'mcp', 'remove', 'okit', '--scope', 'local']);
 });
 
 test('the dry run shows the plan of the MCP step, with no directory of its own', () => {
@@ -884,5 +950,6 @@ test('the dry run shows the plan of the MCP step, with no directory of its own',
   assert.deepEqual(plan.add, ['codex', 'mcp', 'add', 'okit', '--', CONFIG.node, CODEX_SERVER]);
   assert.deepEqual(plan.remove, ['codex', 'mcp', 'remove', 'okit']);
   assert.deepEqual(plan.steps, [plan.get, plan.add]);
+  assert.equal(plan.cwd, CODEX.path);
   assert.deepEqual(mcpPlan(CODEX, depsOf(() => {}), 'uninstall').steps, [plan.get, plan.remove]);
 });

@@ -1,4 +1,3 @@
-import { tmpdir } from 'node:os';
 import { join, normalize } from 'node:path';
 import { DEFAULT_CONFIG } from '../profiles.js';
 import { clientLabel, presenterOf } from './present.js';
@@ -13,17 +12,6 @@ import { detect } from './menu.js';
 // by the installer yet).
 export const MCP_CLIENTS = Object.freeze(Object.entries(DEFAULT_CONFIG.install.clients)
   .filter(([, settings]) => settings.mcp).map(([client]) => client));
-
-// The characters that may stand where our path stands in what the client printed: the path is a word of its own, and
-// only a quote may stand at its side (besides the end of the text and a space, which the code below allows on their
-// own). Any other character (a comma, a letter, a digit, a dot, a dash, an underscore, a separator, a bracket or an
-// equal sign) means the path is a part of another one (a folder that ends with ours, our version against the one that
-// follows it, a foreign assignment or a list that holds it), so it is not ours.
-const BEFORE = new Set(['"', "'", '`']);
-const AFTER = new Set(['"', "'", '`']);
-const isSpace = (char) => char !== undefined && /\s/.test(char);
-const mayPrecede = (char) => char === undefined || isSpace(char) || BEFORE.has(char);
-const mayFollow = (char) => char === undefined || isSpace(char) || AFTER.has(char);
 
 /** The file the client starts, inside an installation. */
 const serverPath = (path, config) => join(path, config.mcp.server);
@@ -40,7 +28,7 @@ const plainWord = (value) => typeof value === 'string' && value !== '' && !value
  * @param {object} record the installation record (`path` is the retained folder, `previous.path` the one before it)
  * @param {object} deps the dependencies of the installer (`config` and `run`)
  * @param {'install'|'update'|'uninstall'} action what the run is doing
- * @returns {{get: string[], add: string[], remove: string[], steps: string[][], scope: string|null}|null} null for a
+ * @returns {{get: string[], add: string[], remove: string[], steps: string[][], scope: string|null, cwd: string}|null} null for a
  * client with no MCP server (or with the module strategy and no module of ours: nothing of it is ours to register)
  */
 export function mcpPlan(record, deps, action = 'install') {
@@ -61,15 +49,15 @@ export function mcpPlan(record, deps, action = 'install') {
   const add = [settings.executable, 'mcp', 'add', ...scopeWords, name, '--', deps.config.node, path];
   const remove = [settings.executable, 'mcp', 'remove', name, ...scopeWords];
   // What a dry run shows: the read and the write the action would do.
-  return { get, add, remove, steps: action === 'uninstall' ? [get, remove] : [get, add], scope };
+  return { get, add, remove, steps: action === 'uninstall' ? [get, remove] : [get, add], scope, cwd: mcpCwd(deps, record) };
 }
 
 /**
  * Registers the MCP server of the plugin in the client, or removes it: one entry, the one of `install.mcp.name`.
  *
- * Every command of the client runs from a neutral directory (the temporary folder of the system, unless the
- * dependencies name another one), so that the configuration of a project is never read nor changed: what the client
- * shows there is the global entry, the one this step owns.
+ * Every command of the client runs from the installation folder of the record being handled (or from the directory the
+ * dependencies name), a folder the installer owns and that holds no configuration of any project: the configuration of
+ * a project is never read nor changed, so what the client shows there is the global entry, the one this step owns.
  *
  * The entry the client holds is read first: an entry that is ours (the output of the client names the server of this
  * installation, or the one it replaced) is ours to write; an entry that is not ours is kept, and a failure is a
@@ -102,12 +90,12 @@ export async function registerMcp(record, deps, action = 'install') {
     if (!ours(current) && !(previous && ours(previous))) {
       return { status: 'kept', detail: ui.text('mcpKept', { client, name }) };
     }
-    const removed = await runPlan(plan.remove, deps);
+    const removed = await runPlan(plan.remove, deps, plan.cwd);
     if (!removed.ok) return failure(ui, client, removed.reason, plan.remove);
     return { status: 'ok', detail: ui.text('mcpRemoved', { client }) };
   }
   if (entry.status === 'absent') {
-    const added = await runPlan(plan.add, deps);
+    const added = await runPlan(plan.add, deps, plan.cwd);
     if (!added.ok) return failure(ui, client, added.reason, plan.add);
     return { status: 'ok', detail: ui.text('mcpRegistered', { client }) };
   }
@@ -115,9 +103,9 @@ export async function registerMcp(record, deps, action = 'install') {
   if (ours(current)) return { status: 'skipped', detail: ui.text('mcpAlready', { client }) };
   // The entry points at the installation this one replaces: it is taken out and the new one is written.
   if (previous && ours(previous)) {
-    const removed = await runPlan(plan.remove, deps);
+    const removed = await runPlan(plan.remove, deps, plan.cwd);
     if (!removed.ok) return failure(ui, client, removed.reason, plan.remove);
-    const added = await runPlan(plan.add, deps);
+    const added = await runPlan(plan.add, deps, plan.cwd);
     if (!added.ok) return failure(ui, client, added.reason, plan.add);
     return { status: 'ok', detail: ui.text('mcpReplaced', { client }) };
   }
@@ -154,41 +142,37 @@ export async function ensureMcp(record, deps) {
 }
 
 /**
- * Whether what the client printed names one of our paths, whole: the path is found in the text as it is written, and
- * only when the words around it are the ones that end it (a path that is a part of another one, or that holds a
- * comma, a letter, a digit, a dot, a dash, an underscore, a separator, a bracket or an equal sign at its side, is not
- * ours).
+ * Whether what the client printed names one of our paths: the arguments of the entry are one of our paths, whole.
+ *
+ * The clients print the arguments of an entry joined by spaces, never quoted (`Args: /path/server.js`), so the value
+ * of the arguments line is the whole argument list of the entry: a line that holds our path with another word at its
+ * side (a file name with a space, a second argument, a quote) names another entry, not ours. The first arguments line
+ * of the text is the one that is read.
  *
  * @param {string} text what the client printed
  * @param {string[]} paths the paths of ours to look for
  * @param {string} [platform] the system of the run (on Windows the case and the separator do not matter)
- * @returns {boolean} whether one of the paths is named
+ * @returns {boolean} whether the arguments of the entry are one of the paths
  */
 export function pointsAt(text, paths, platform = process.platform) {
-  const printed = String(text ?? '');
-  // On Windows the case and the separator do not matter: the whole text is folded before the search.
-  const haystack = platform === 'win32' ? folded(printed) : printed;
+  const value = argumentsOf(String(text ?? ''));
+  if (value === null) return false;
+  const printed = platform === 'win32' ? folded(value) : value;
   return paths.filter(Boolean).map((path) => normalize(path)).some((path) => {
     const wanted = platform === 'win32' ? folded(path) : path;
-    if (!wanted) return false;
-    // Every occurrence counts: the first one may belong to another path, the second one to ours.
-    let at = haystack.indexOf(wanted);
-    while (at !== -1) {
-      const before = at === 0 ? undefined : haystack[at - 1];
-      const after = at + wanted.length === haystack.length ? undefined : haystack[at + wanted.length];
-      if (mayPrecede(before) && mayFollow(after)) return true;
-      at = haystack.indexOf(wanted, at + 1);
-    }
-    return false;
+    return wanted !== '' && wanted === printed;
   });
 }
+
+/** The value of the arguments line the client printed: the first one, whole, as the client wrote it (null when there is none). */
+const argumentsOf = (text) => /^\s*args:\s*(.*?)\s*$/im.exec(text)?.[1] ?? null;
 
 /** The paths as they are compared on Windows: the separator and the case do not matter. */
 const folded = (value) => value.replaceAll('\\', '/').toLowerCase();
 
 /** What the client answered about the entry: whether it holds one, and what it printed about it. */
 async function readEntry(plan, deps) {
-  const answer = await ask(plan.get, deps);
+  const answer = await ask(plan.get, deps, plan.cwd);
   if (!answer.ok) {
     // Only the client that says it holds no entry with this name means an absent entry; every other failure is one.
     if (answer.code === 1 && /no mcp server/i.test(answer.text)) return { status: 'absent' };
@@ -209,18 +193,21 @@ const scopeOf = (text) => {
 };
 
 /**
- * The directory the commands of the client run from: a neutral one, in no project.
+ * The directory the commands of the client run from: the installation folder of the record being handled, or the one
+ * the dependencies name.
  *
  * The `mcp` commands of a client read the configuration of the project of the directory they run in (Codex reads the
  * `.codex/config.toml` of the trusted project it finds from the current directory upward), and they write or take out
  * the global entry. A run inside a project would therefore read the entry of that project and decide about the global
- * one: the entry of the project looks like ours, the global one is the one that goes. The temporary folder of the
- * system is in no project, so what the client shows there is the global entry, the one this step owns.
+ * one: the entry of the project looks like ours, the global one is the one that goes. The installation folder is one
+ * the installer owns: it holds the plugin and no configuration of any project, so what the client shows there is the
+ * global entry, the one this step owns.
  *
  * @param {object} deps the dependencies of the installer (`mcpCwd` is the directory to use, when there is one)
+ * @param {object} record the installation record (`path` is the installation folder)
  * @returns {string} the directory the commands of the client run from
  */
-const mcpCwd = (deps) => deps.mcpCwd || tmpdir();
+const mcpCwd = (deps, record) => deps.mcpCwd || record.path;
 
 /**
  * Runs one command of the client and answers in one shape: a runner that resolves a non-zero code failed as much as
@@ -228,12 +215,13 @@ const mcpCwd = (deps) => deps.mcpCwd || tmpdir();
  *
  * @param {string[]} words the argv of the command
  * @param {object} deps the dependencies of the installer
+ * @param {string} cwd the directory the command runs from
  * @returns {Promise<{ok: boolean, code: number|string|null, text: string, reason: string}>}
  */
-async function ask(words, deps) {
+async function ask(words, deps, cwd) {
   presenterOf(deps).detail(words.join(' '));
   try {
-    return answered(await deps.run({ ...command(words), timeout: deps.config.timeoutMs, cwd: mcpCwd(deps) }));
+    return answered(await deps.run({ ...command(words), timeout: deps.config.timeoutMs, cwd }));
   } catch (error) {
     return answered(error, true);
   }
@@ -248,8 +236,8 @@ const answered = (result, thrown = false) => {
 };
 
 /** Runs one command of the plan: the reason of a failure is kept, the failure is never raised. */
-async function runPlan(words, deps) {
-  const answer = await ask(words, deps);
+async function runPlan(words, deps, cwd) {
+  const answer = await ask(words, deps, cwd);
   return answer.ok ? { ok: true } : { ok: false, reason: answer.reason };
 }
 

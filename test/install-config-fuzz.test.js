@@ -143,6 +143,8 @@ test('the MCP settings of the installer are refused when the client could not re
     ['mcp.server', 'src/../server.js'], ['mcp.server', 'src\\server.js'], ['mcp.server', 'server with space.js'],
     ['clients.claude-code.mcp.scope', 'global'], ['clients.claude-code.mcp.scope', ''],
     ['clients.codex.mcp.scope', 'Project'],
+    // A client whose own `mcp` commands take no scope refuses one.
+    ['clients.codex.mcp.scope', 'user'],
   ];
   for (const [path, value] of refused) {
     let thrown;
