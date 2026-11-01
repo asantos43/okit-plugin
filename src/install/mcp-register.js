@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import { join, normalize } from 'node:path';
 import { DEFAULT_CONFIG } from '../profiles.js';
 import { clientLabel, presenterOf } from './present.js';
@@ -65,6 +66,10 @@ export function mcpPlan(record, deps, action = 'install') {
 
 /**
  * Registers the MCP server of the plugin in the client, or removes it: one entry, the one of `install.mcp.name`.
+ *
+ * Every command of the client runs from a neutral directory (the temporary folder of the system, unless the
+ * dependencies name another one), so that the configuration of a project is never read nor changed: what the client
+ * shows there is the global entry, the one this step owns.
  *
  * The entry the client holds is read first: an entry that is ours (the output of the client names the server of this
  * installation, or the one it replaced) is ours to write; an entry that is not ours is kept, and a failure is a
@@ -204,6 +209,20 @@ const scopeOf = (text) => {
 };
 
 /**
+ * The directory the commands of the client run from: a neutral one, in no project.
+ *
+ * The `mcp` commands of a client read the configuration of the project of the directory they run in (Codex reads the
+ * `.codex/config.toml` of the trusted project it finds from the current directory upward), and they write or take out
+ * the global entry. A run inside a project would therefore read the entry of that project and decide about the global
+ * one: the entry of the project looks like ours, the global one is the one that goes. The temporary folder of the
+ * system is in no project, so what the client shows there is the global entry, the one this step owns.
+ *
+ * @param {object} deps the dependencies of the installer (`mcpCwd` is the directory to use, when there is one)
+ * @returns {string} the directory the commands of the client run from
+ */
+const mcpCwd = (deps) => deps.mcpCwd || tmpdir();
+
+/**
  * Runs one command of the client and answers in one shape: a runner that resolves a non-zero code failed as much as
  * a runner that throws, and both answers are the same here.
  *
@@ -214,7 +233,7 @@ const scopeOf = (text) => {
 async function ask(words, deps) {
   presenterOf(deps).detail(words.join(' '));
   try {
-    return answered(await deps.run({ ...command(words), timeout: deps.config.timeoutMs }));
+    return answered(await deps.run({ ...command(words), timeout: deps.config.timeoutMs, cwd: mcpCwd(deps) }));
   } catch (error) {
     return answered(error, true);
   }

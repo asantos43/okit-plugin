@@ -793,3 +793,96 @@ test('a client with the module strategy and a module of ours still has a plan', 
   assert.deepEqual(plan.get, ['claude', 'mcp', 'get', 'okit']);
   assert.deepEqual(plan.add, ['claude', 'mcp', 'add', '--scope', 'user', 'okit', '--', config.node, SERVER]);
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 6: the commands of the client run from a neutral directory, so that the configuration of a
+// project is never read nor changed.
+
+const CODEX = { client: 'codex', path: join('/opt', 'okit-plugin', '1.0.0-codex') };
+const CODEX_PREVIOUS = { client: 'codex', path: join('/opt', 'okit-plugin', '0.9.0-codex') };
+const CODEX_SERVER = join(CODEX.path, 'src/mcp/server.js');
+const CODEX_PREVIOUS_SERVER = join(CODEX_PREVIOUS.path, 'src/mcp/server.js');
+// The neutral directory the commands of the client run from: in no project.
+const NEUTRAL = join(tmpdir(), 'okit-mcp-neutral');
+// The entry of a project: ours (the installation this one replaces), so it looks like ours to the client.
+const PROJECT_ENTRY = `okit\n  command: node\n  args: ${CODEX_PREVIOUS_SERVER}\n`;
+// The global entry of somebody else: not ours.
+const FOREIGN_GLOBAL = 'okit\n  command: node\n  args: /somewhere/else/src/mcp/server.js\n';
+// The global entry of ours.
+const OUR_GLOBAL = `okit\n  command: node\n  args: ${CODEX_SERVER}\n`;
+
+/**
+ * A client that reads the configuration of the project of the directory it runs in (Codex reads the `.codex/config.toml`
+ * of the trusted project it finds from the current directory upward): inside a project it shows the entry of that
+ * project, and from the neutral directory the global one. What `add` and `remove` write is the global entry, as the
+ * real clients do.
+ *
+ * @param {{project: string, global: string|null, neutral: string}} world the two worlds of the client
+ * @returns {{calls: object[], run: Function, state: {global: string|null}, argv: () => string[][]}}
+ */
+function twoWorlds({ project, global, neutral }) {
+  const calls = [];
+  const state = { global };
+  const run = async (input) => {
+    calls.push(input);
+    const verb = input.args[1];
+    if (verb === 'get') {
+      const entry = input.cwd === neutral ? state.global : project;
+      // The real clients answer that they hold no entry with this name, print it and exit with 1.
+      if (!entry) throw Object.assign(new Error(`Command failed: ${input.command} mcp get okit`), { code: 1,
+        stdout: 'No MCP server named "okit" found.\n', stderr: '' });
+      return { stdout: entry };
+    }
+    if (verb === 'add') { state.global = `okit\n  command: node\n  args: ${input.args.at(-1)}\n`; return {}; }
+    if (verb === 'remove') { state.global = null; return {}; }
+    return {};
+  };
+  return { calls, run, state, argv: () => calls.map((call) => call.args) };
+}
+
+test('the uninstall reads the global entry and leaves the foreign one alone', async () => {
+  const client = twoWorlds({ project: PROJECT_ENTRY, global: FOREIGN_GLOBAL, neutral: NEUTRAL });
+  const result = await registerMcp({ ...CODEX, previous: CODEX_PREVIOUS }, { ...depsOf(client.run), mcpCwd: NEUTRAL }, 'uninstall');
+  assert.equal(result.status, 'kept');
+  // Every command of the client ran from the neutral directory: no configuration of a project was read.
+  assert.deepEqual(client.calls.map((call) => call.cwd), [NEUTRAL]);
+  // The global entry of somebody else is still there: nothing was taken out nor written.
+  assert.deepEqual(client.argv().map((words) => words[1]), ['get']);
+  assert.equal(client.state.global, FOREIGN_GLOBAL);
+});
+
+test('the update reads the global entry and leaves the foreign one alone', async () => {
+  const client = twoWorlds({ project: PROJECT_ENTRY, global: FOREIGN_GLOBAL, neutral: NEUTRAL });
+  const result = await registerMcp({ ...CODEX, previous: CODEX_PREVIOUS }, { ...depsOf(client.run), mcpCwd: NEUTRAL }, 'update');
+  assert.equal(result.status, 'kept');
+  assert.deepEqual(client.calls.map((call) => call.cwd), [NEUTRAL]);
+  // The entry of the project (ours) is not the one the client shows from the neutral directory: nothing is written.
+  assert.deepEqual(client.argv().map((words) => words[1]), ['get']);
+  assert.equal(client.state.global, FOREIGN_GLOBAL);
+});
+
+test('the uninstall takes our global entry out, from the neutral directory', async () => {
+  const client = twoWorlds({ project: PROJECT_ENTRY, global: OUR_GLOBAL, neutral: NEUTRAL });
+  const result = await registerMcp(CODEX, { ...depsOf(client.run), mcpCwd: NEUTRAL }, 'uninstall');
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(client.calls.map((call) => call.cwd), [NEUTRAL, NEUTRAL]);
+  assert.deepEqual(client.argv().map((words) => words[1]), ['get', 'remove']);
+  assert.equal(client.state.global, null);
+});
+
+test('without a directory of its own, the commands run from the temporary folder of the system', async () => {
+  const client = twoWorlds({ project: PROJECT_ENTRY, global: FOREIGN_GLOBAL, neutral: tmpdir() });
+  const result = await registerMcp(CODEX, depsOf(client.run), 'uninstall');
+  assert.equal(result.status, 'kept');
+  for (const call of client.calls) assert.equal(call.cwd, tmpdir());
+  assert.deepEqual(client.argv().map((words) => words[1]), ['get']);
+});
+
+test('the dry run shows the plan of the MCP step, with no directory of its own', () => {
+  const plan = mcpPlan(CODEX, depsOf(() => {}));
+  assert.deepEqual(plan.get, ['codex', 'mcp', 'get', 'okit']);
+  assert.deepEqual(plan.add, ['codex', 'mcp', 'add', 'okit', '--', CONFIG.node, CODEX_SERVER]);
+  assert.deepEqual(plan.remove, ['codex', 'mcp', 'remove', 'okit']);
+  assert.deepEqual(plan.steps, [plan.get, plan.add]);
+  assert.deepEqual(mcpPlan(CODEX, depsOf(() => {}), 'uninstall').steps, [plan.get, plan.remove]);
+});
