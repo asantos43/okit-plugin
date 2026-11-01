@@ -139,7 +139,8 @@ async function clientThere(settings, deps) {
 export function mcpNotes(result, deps, action) {
   if (!result) return [];
   const ui = presenterOf(deps);
-  const warning = result.status === 'failed' || (result.status === 'kept' && action !== 'uninstall');
+  // An entry left for the person to take out by hand is a warning on an uninstall too: the entry stays behind.
+  const warning = result.status === 'failed' || (result.status === 'kept' && (action !== 'uninstall' || result.manual === true));
   if (warning) { ui.warn(result.detail); return []; }
   return result.detail ? [result.detail] : [];
 }

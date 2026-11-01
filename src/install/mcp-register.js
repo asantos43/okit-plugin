@@ -5,7 +5,8 @@ import { detect } from './menu.js';
 
 // The MCP server of the plugin, registered in the client with the client's own `mcp` commands: the installer never
 // writes the client's configuration itself, it asks the client to. Only the entry named in `install.mcp.name` is
-// ever touched: an entry that is not ours is kept, never replaced.
+// ever touched: an entry that is not ours is kept, never replaced. A client whose own `mcp get` does not say where an
+// entry is kept (Codex) is only ever added to: what it shows and what its `mcp add` writes are not the same entry.
 
 // The clients this step handles: the ones the defaults give an `mcp` setting. The list is the defaults' own, so a
 // client that is not one of them is never asked, whatever the user's configuration says (OpenCode is not registered
@@ -19,8 +20,8 @@ const serverPath = (path, config) => join(path, config.mcp.server);
 /** A command of the client: the words of its argv, never a shell string. */
 const command = (words) => ({ command: words[0], args: words.slice(1) });
 
-/** A value the client would read as a flag is never placed as one. */
-const plainWord = (value) => typeof value === 'string' && value !== '' && !value.startsWith('-');
+/** A value the client would read as a flag, or a name with a dot the client refuses, is never placed as one. */
+const plainWord = (value) => typeof value === 'string' && value !== '' && !value.startsWith('-') && !value.includes('.');
 
 /**
  * The commands of the client that register the MCP server: read the entry, add it, remove it.
@@ -66,6 +67,12 @@ export function mcpPlan(record, deps, action = 'install') {
  * An entry at another scope than the configured one is not ours either: the client shows the entry of the highest
  * precedence it holds, and the entry of that scope is never written nor taken out.
  *
+ * A client whose own `mcp get` does not say where an entry is kept (Codex) is the other side of the same coin: what it
+ * shows is the entry of the highest precedence it holds (the one of a project, when the installation folder sits inside
+ * one) while `mcp add` and `mcp remove` only ever touch the global entry. The installer cannot tell which one it is
+ * looking at, so for such a client it only ever adds: an entry that is there is never replaced nor taken out by it, and
+ * the warning gives the commands to run by hand.
+ *
  * @param {object} record the installation record (`path` is the retained folder, `previous.path` the one before it)
  * @param {object} deps the dependencies of the installer (`config` and `run`)
  * @param {'install'|'update'|'uninstall'} action what the run is doing
@@ -85,11 +92,18 @@ export async function registerMcp(record, deps, action = 'install') {
   // The entry is at another scope than ours: it is not ours, and nothing of it is written nor taken out.
   if (entry.status === 'otherScope') return { status: 'kept', detail: ui.text('mcpKept', { client, name }) };
   const ours = (path) => pointsAt(entry.output, [path], deps.platform);
+  // A client whose own `mcp get` does not say where an entry is kept (Codex): what it shows is the entry of the
+  // highest precedence it holds (the one of a project, when the installation folder sits inside one), while `mcp add`
+  // and `mcp remove` only ever touch the global entry. The installer cannot tell which one it is looking at, so for
+  // such a client it only ever adds: an entry that is there is never replaced nor taken out by it, and the commands
+  // to run by hand are given instead.
+  const unscoped = plan.scope === null;
   if (action === 'uninstall') {
     if (entry.status === 'absent') return { status: 'skipped', detail: '' };
     if (!ours(current) && !(previous && ours(previous))) {
       return { status: 'kept', detail: ui.text('mcpKept', { client, name }) };
     }
+    if (unscoped) return { status: 'kept', manual: true, detail: ui.text('mcpManual', { client, name, command: plan.remove.join(' ') }) };
     const removed = await runPlan(plan.remove, deps, plan.cwd);
     if (!removed.ok) return failure(ui, client, removed.reason, plan.remove);
     return { status: 'ok', detail: ui.text('mcpRemoved', { client }) };
@@ -103,6 +117,9 @@ export async function registerMcp(record, deps, action = 'install') {
   if (ours(current)) return { status: 'skipped', detail: ui.text('mcpAlready', { client }) };
   // The entry points at the installation this one replaces: it is taken out and the new one is written.
   if (previous && ours(previous)) {
+    if (unscoped) {
+      return { status: 'kept', manual: true, detail: ui.text('mcpManual', { client, name, command: `${plan.remove.join(' ')} ; ${plan.add.join(' ')}` }) };
+    }
     const removed = await runPlan(plan.remove, deps, plan.cwd);
     if (!removed.ok) return failure(ui, client, removed.reason, plan.remove);
     const added = await runPlan(plan.add, deps, plan.cwd);
@@ -146,8 +163,9 @@ export async function ensureMcp(record, deps) {
  *
  * The clients print the arguments of an entry joined by spaces, never quoted (`Args: /path/server.js`), so the value
  * of the arguments line is the whole argument list of the entry: a line that holds our path with another word at its
- * side (a file name with a space, a second argument, a quote) names another entry, not ours. The first arguments line
- * of the text is the one that is read.
+ * side (a file name with a space, a second argument, a quote) names another entry, not ours. The value is read as the
+ * client wrote it, so the space that ends it is part of it: a foreign file name that ends with a space is not our path.
+ * The first arguments line of the text is the one that is read.
  *
  * @param {string} text what the client printed
  * @param {string[]} paths the paths of ours to look for
@@ -164,8 +182,12 @@ export function pointsAt(text, paths, platform = process.platform) {
   });
 }
 
-/** The value of the arguments line the client printed: the first one, whole, as the client wrote it (null when there is none). */
-const argumentsOf = (text) => /^\s*args:\s*(.*?)\s*$/im.exec(text)?.[1] ?? null;
+/**
+ * The value of the arguments line the client printed: the first one, whole, as the client wrote it (null when there is
+ * none). The value is read exactly: the space that ends it is part of it, so a foreign file name that ends with a space
+ * is not our path. The line ends at the end of the line, and the `\r` of a CRLF output is not part of the value.
+ */
+const argumentsOf = (text) => /^[ \t]*args: ([^\r\n]*)/im.exec(text)?.[1] ?? null;
 
 /** The paths as they are compared on Windows: the separator and the case do not matter. */
 const folded = (value) => value.replaceAll('\\', '/').toLowerCase();

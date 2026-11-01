@@ -83,6 +83,7 @@ export const TEXTS = Object.freeze({
   mcpReplaced: { en: 'MCP server of {client} replaced by this installation', 'pt-BR': 'Servidor MCP de {client} substituído por esta instalação' },
   mcpRemoved: { en: 'MCP server removed from {client}', 'pt-BR': 'Servidor MCP removido do {client}' },
   mcpKept: { en: 'an MCP server named {name} that is not ours is in {client}; kept', 'pt-BR': 'um servidor MCP chamado {name} que não é nosso está em {client}; mantido' },
+  mcpManual: { en: 'the MCP server {name} of {client} was left as it is: the client does not say where an entry is kept, so nothing is replaced or removed for you. If it is ours, run: {command}', 'pt-BR': 'o servidor MCP {name} do {client} foi mantido como está: o cliente não diz onde a entrada fica, então nada é trocado nem removido por você. Se for nossa, rode: {command}' },
   mcpFailed: { en: 'the MCP server of {client} could not be changed: {reason}; to do it by hand: {command}', 'pt-BR': 'o servidor MCP de {client} não pôde ser alterado: {reason}; para fazer na mão: {command}' },
   mcpClientMissing: { en: '{executable} was not found', 'pt-BR': '{executable} não foi encontrado' },
   roleUnsupported: { en: 'Role delivery unavailable', 'pt-BR': 'Entrega de papel indisponível' },

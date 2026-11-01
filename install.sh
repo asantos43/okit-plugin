@@ -52,7 +52,7 @@ const RULES = Object.freeze({
   xdgPair: { en: 'xdgEnv and xdgParts together, or neither', pt: 'xdgEnv e xdgParts juntos, ou nenhum dos dois', example: 'xdgEnv and xdgParts together, or neither' },
   differs: { en: 'a text different from install.path.begin', pt: 'um texto diferente de install.path.begin', example: 'a text different from install.path.begin' },
   knownShell: { en: 'the name of a shell listed in install.path.shells', pt: 'o nome de um shell listado em install.path.shells', example: 'the name of a shell listed in install.path.shells' },
-  mcpName: { en: 'a name that starts with a letter or a digit and holds only letters, digits, dots, dashes and underscores', pt: 'um nome que começa com uma letra ou um dígito e só tem letras, dígitos, pontos, traços e sublinhados', example: 'a name that starts with a letter or a digit and holds only letters, digits, dots, dashes and underscores' },
+  mcpName: { en: 'a name that starts with a letter or a digit and holds only letters, digits, dashes and underscores', pt: 'um nome que começa com uma letra ou um dígito e só tem letras, dígitos, traços e sublinhados', example: 'a name that starts with a letter or a digit and holds only letters, digits, dashes and underscores' },
   mcpServer: { en: 'a relative path with forward slashes and no .. segment', pt: 'um caminho relativo com barras normais e sem segmento ..', example: 'a relative path with forward slashes and no .. segment' },
   mcpScope: { en: 'a scope only for a client whose own mcp commands take one', pt: 'um escopo só para um cliente cujos comandos mcp aceitam um', example: 'a scope only for a client whose own mcp commands take one' },
 });
@@ -143,6 +143,7 @@ const TEXTS = Object.freeze({
   mcpReplaced: { en: 'MCP server of {client} replaced by this installation', 'pt-BR': 'Servidor MCP de {client} substituído por esta instalação' },
   mcpRemoved: { en: 'MCP server removed from {client}', 'pt-BR': 'Servidor MCP removido do {client}' },
   mcpKept: { en: 'an MCP server named {name} that is not ours is in {client}; kept', 'pt-BR': 'um servidor MCP chamado {name} que não é nosso está em {client}; mantido' },
+  mcpManual: { en: 'the MCP server {name} of {client} was left as it is: the client does not say where an entry is kept, so nothing is replaced or removed for you. If it is ours, run: {command}', 'pt-BR': 'o servidor MCP {name} do {client} foi mantido como está: o cliente não diz onde a entrada fica, então nada é trocado nem removido por você. Se for nossa, rode: {command}' },
   mcpFailed: { en: 'the MCP server of {client} could not be changed: {reason}; to do it by hand: {command}', 'pt-BR': 'o servidor MCP de {client} não pôde ser alterado: {reason}; para fazer na mão: {command}' },
   mcpClientMissing: { en: '{executable} was not found', 'pt-BR': '{executable} não foi encontrado' },
   roleUnsupported: { en: 'Role delivery unavailable', 'pt-BR': 'Entrega de papel indisponível' },

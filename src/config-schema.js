@@ -275,7 +275,7 @@ export const INSTALL_SCHEMA = Object.freeze(record({
   manifest: word,
   // The MCP server of the plugin: the name of the entry in the client and the file inside the installation.
   mcp: record({
-    name: text({ pattern: /^[A-Za-z0-9][A-Za-z0-9._-]*$/, rule: 'mcpName' }),
+    name: text({ pattern: /^[A-Za-z0-9][A-Za-z0-9_-]*$/, rule: 'mcpName' }),
     server: text({ pattern: /^(?![\\/])(?![A-Za-z]:)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/, rule: 'mcpServer' }),
   }),
   clients: table(CLIENT, {

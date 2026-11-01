@@ -261,7 +261,7 @@ test('a dry run runs nothing and shows the plan of the MCP step', async (t) => {
 });
 
 test('every text of the MCP step is written in both languages', () => {
-  for (const key of ['mcpRegistered', 'mcpAlready', 'mcpReplaced', 'mcpRemoved', 'mcpKept', 'mcpFailed']) {
+  for (const key of ['mcpRegistered', 'mcpAlready', 'mcpReplaced', 'mcpRemoved', 'mcpKept', 'mcpManual', 'mcpFailed']) {
     assert.ok(TEXTS[key]?.en, key);
     assert.ok(TEXTS[key]?.['pt-BR'], key);
     assert.notEqual(TEXTS[key].en, TEXTS[key]['pt-BR'], key);
@@ -766,10 +766,11 @@ test('a client whose own command takes no scope is not told by the scope the cli
   const answer = await registerMcp(record, depsOf(installed.run), 'install');
   assert.equal(answer.status, 'skipped');
   assert.deepEqual(argvOf(installed), [['mcp', 'get', 'okit']]);
+  // The scope of the entry is of no use to a client that does not report one: nothing of it is taken out (round 8).
   const removed = fakeClient(LOCAL_SCOPE);
   const uninstalled = await registerMcp(record, depsOf(removed.run), 'uninstall');
-  assert.equal(uninstalled.status, 'ok');
-  assert.deepEqual(argvOf(removed), [['mcp', 'get', 'okit'], ['mcp', 'remove', 'okit']]);
+  assert.equal(uninstalled.status, 'kept');
+  assert.deepEqual(argvOf(removed), [['mcp', 'get', 'okit']]);
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -847,6 +848,36 @@ function twoWorlds({ project, global, neutral }) {
   return { calls, run, state, argv: () => calls.map((call) => call.args) };
 }
 
+test('every write of the step for Claude Code runs from the installation folder too', async () => {
+  const removing = fakeClient(claudeEntry(SERVER));
+  await registerMcp(RECORD, depsOf(removing.run), 'uninstall');
+  assert.deepEqual(argvOf(removing).map((words) => words[1]), ['get', 'remove']);
+  assert.deepEqual(removing.calls.map((call) => call.cwd), [RECORD.path, RECORD.path]);
+  const replacing = fakeClient(claudeEntry(join(PREVIOUS.path, 'src/mcp/server.js')));
+  await registerMcp({ ...RECORD, previous: PREVIOUS }, depsOf(replacing.run), 'update');
+  assert.deepEqual(argvOf(replacing).map((words) => words[1]), ['get', 'remove', 'add']);
+  assert.deepEqual(replacing.calls.map((call) => call.cwd), [RECORD.path, RECORD.path, RECORD.path]);
+});
+
+test('a name with a dot, which Claude Code refuses, has no plan even when the configuration is not validated', () => {
+  const config = { ...CONFIG, mcp: { ...CONFIG.mcp, name: 'okit.extra' } };
+  assert.equal(mcpPlan(RECORD, depsOf(() => {}, config)), null);
+});
+
+test('a Codex entry the uninstall leaves for the person is a warning, a foreign one stays a note', async () => {
+  const ours = twoWorlds({ project: PROJECT_ENTRY, global: OUR_GLOBAL, neutral: CODEX.path });
+  const lines = [];
+  const deps = { ...depsOf(ours.run), out: (line) => lines.push(line) };
+  const notes = await mcpStep(CODEX, deps, 'uninstall');
+  assert.deepEqual(notes, []);
+  assert.ok(lines.some((line) => /codex mcp remove okit/.test(line)), lines.join('\n'));
+  assert.deepEqual(ours.argv().map((words) => words[1]), ['get']);
+  const foreign = twoWorlds({ project: FOREIGN_GLOBAL, global: FOREIGN_GLOBAL, neutral: CODEX.path });
+  const other = [];
+  const notes2 = await mcpStep(CODEX, { ...depsOf(foreign.run), out: (line) => other.push(line) }, 'uninstall');
+  assert.equal(notes2.length, 1);
+});
+
 test('the uninstall reads the global entry and leaves the foreign one alone', async () => {
   const client = twoWorlds({ project: PROJECT_ENTRY, global: FOREIGN_GLOBAL, neutral: NEUTRAL });
   const result = await registerMcp({ ...CODEX, previous: CODEX_PREVIOUS }, { ...depsOf(client.run), mcpCwd: NEUTRAL }, 'uninstall');
@@ -868,13 +899,16 @@ test('the update reads the global entry and leaves the foreign one alone', async
   assert.equal(client.state.global, FOREIGN_GLOBAL);
 });
 
-test('the uninstall takes our global entry out, from the directory of the dependencies', async () => {
+test('the uninstall of a client that does not report a scope never takes our global entry out', async () => {
   const client = twoWorlds({ project: PROJECT_ENTRY, global: OUR_GLOBAL, neutral: NEUTRAL });
   const result = await registerMcp(CODEX, { ...depsOf(client.run), mcpCwd: NEUTRAL }, 'uninstall');
-  assert.equal(result.status, 'ok');
-  assert.deepEqual(client.calls.map((call) => call.cwd), [NEUTRAL, NEUTRAL]);
-  assert.deepEqual(client.argv().map((words) => words[1]), ['get', 'remove']);
-  assert.equal(client.state.global, null);
+  // The client does not say where the entry it shows is kept, so the installer does not take it out (round 8).
+  assert.equal(result.status, 'kept');
+  assert.deepEqual(client.calls.map((call) => call.cwd), [NEUTRAL]);
+  assert.deepEqual(client.argv().map((words) => words[1]), ['get']);
+  // The global entry of ours is still there, and the warning names the command to run by hand.
+  assert.equal(client.state.global, OUR_GLOBAL);
+  assert.match(result.detail, /codex mcp remove okit/, result.detail);
 });
 
 test('without a directory of its own, the commands run from the installation folder of the record', async () => {
@@ -952,4 +986,119 @@ test('the dry run shows the plan of the MCP step, with no directory of its own',
   assert.deepEqual(plan.steps, [plan.get, plan.add]);
   assert.equal(plan.cwd, CODEX.path);
   assert.deepEqual(mcpPlan(CODEX, depsOf(() => {}), 'uninstall').steps, [plan.get, plan.remove]);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 8: a client whose own `mcp get` does not say where an entry is kept (Codex) is only ever
+// added to: what it shows is the entry of the highest precedence it holds, while its `mcp add` and `mcp remove` only
+// ever touch the global entry. The installer cannot tell which one it is looking at, so an entry that is there is
+// never replaced nor taken out by it, and the warning gives the commands to run by hand.
+//
+// Must pass / must refuse:
+// | case | must pass | must refuse |
+// | Codex, our entry of the version it replaces | nothing is written; the commands by hand | the remove or the add |
+// | Codex, our entry, uninstall | nothing is written; the command by hand | the remove |
+// | Codex, no entry | the add | -- |
+// | Codex, our entry of this installation | nothing is written | the remove or the add |
+// | Claude Code, our entry of the version it replaces | the remove and then the add | -- |
+
+test('a client that does not say where an entry is kept never replaces our entry of the version it replaces', async () => {
+  const client = twoWorlds({ project: PROJECT_ENTRY, global: PROJECT_ENTRY, neutral: NEUTRAL });
+  const record = { ...CODEX, previous: CODEX_PREVIOUS };
+  const result = await registerMcp(record, { ...depsOf(client.run), mcpCwd: NEUTRAL }, 'update');
+  // Nothing at all is written: neither the remove nor the add.
+  assert.equal(result.status, 'kept');
+  assert.deepEqual(client.argv().map((words) => words[1]), ['get']);
+  assert.equal(client.state.global, PROJECT_ENTRY);
+  // The warning names the two commands, in the order they are to be run.
+  assert.match(result.detail, /codex mcp remove okit ; codex mcp add okit --/, result.detail);
+  assert.match(result.detail, new RegExp(`${CODEX_SERVER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), result.detail);
+});
+
+test('a client that does not say where an entry is kept never takes our entry out on the uninstall', async () => {
+  for (const [entry, name] of [[OUR_GLOBAL, 'this installation'], [PROJECT_ENTRY, 'the version it replaces']]) {
+    const client = twoWorlds({ project: PROJECT_ENTRY, global: entry, neutral: NEUTRAL });
+    const record = { ...CODEX, previous: CODEX_PREVIOUS };
+    const result = await registerMcp(record, { ...depsOf(client.run), mcpCwd: NEUTRAL }, 'uninstall');
+    assert.equal(result.status, 'kept', name);
+    // No remove ran: the entry the client shows may not be the one the remove would take out.
+    assert.deepEqual(client.argv().map((words) => words[1]), ['get'], name);
+    assert.equal(client.state.global, entry, name);
+    // The warning names the command to run by hand.
+    assert.match(result.detail, /codex mcp remove okit/, result.detail);
+    assert.doesNotMatch(result.detail, /mcp add/, result.detail);
+  }
+});
+
+test('a client that does not say where an entry is kept still adds the entry when there is none', async () => {
+  const client = twoWorlds({ project: PROJECT_ENTRY, global: null, neutral: NEUTRAL });
+  const result = await registerMcp(CODEX, { ...depsOf(client.run), mcpCwd: NEUTRAL }, 'install');
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(client.argv().map((words) => words[1]), ['get', 'add']);
+  assert.equal(client.state.global, codexEntry(CODEX_SERVER));
+});
+
+test('a client that does not say where an entry is kept writes nothing when the entry is ours already', async () => {
+  const client = twoWorlds({ project: PROJECT_ENTRY, global: OUR_GLOBAL, neutral: NEUTRAL });
+  const result = await registerMcp(CODEX, { ...depsOf(client.run), mcpCwd: NEUTRAL }, 'install');
+  assert.equal(result.status, 'skipped');
+  assert.deepEqual(client.argv().map((words) => words[1]), ['get']);
+  assert.equal(client.state.global, OUR_GLOBAL);
+});
+
+test('a client that says where an entry is kept replaces ours and takes it out, as before', async () => {
+  const replaced = fakeClient(claudeEntry(join(PREVIOUS.path, 'src/mcp/server.js')));
+  const updated = await registerMcp({ ...RECORD, previous: PREVIOUS }, depsOf(replaced.run), 'update');
+  assert.equal(updated.status, 'ok');
+  assert.deepEqual(argvOf(replaced), [
+    ['mcp', 'get', 'okit'],
+    ['mcp', 'remove', 'okit', '--scope', 'user'],
+    ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SERVER],
+  ]);
+  const removed = fakeClient(claudeEntry(SERVER));
+  const uninstalled = await registerMcp(RECORD, depsOf(removed.run), 'uninstall');
+  assert.equal(uninstalled.status, 'ok');
+  assert.deepEqual(argvOf(removed), [['mcp', 'get', 'okit'], ['mcp', 'remove', 'okit', '--scope', 'user']]);
+});
+
+test('a client that does not say where an entry is kept keeps an entry that is not ours, as before', async () => {
+  const client = twoWorlds({ project: PROJECT_ENTRY, global: FOREIGN_GLOBAL, neutral: NEUTRAL });
+  const result = await registerMcp({ ...CODEX, previous: CODEX_PREVIOUS }, { ...depsOf(client.run), mcpCwd: NEUTRAL }, 'update');
+  assert.equal(result.status, 'kept');
+  assert.match(result.detail, /not ours/, result.detail);
+  assert.deepEqual(client.argv().map((words) => words[1]), ['get']);
+  assert.equal(client.state.global, FOREIGN_GLOBAL);
+});
+
+test('the dry run of a client that does not say where an entry is kept shows the plan and writes nothing', () => {
+  const plan = mcpPlan({ ...CODEX, previous: CODEX_PREVIOUS }, depsOf(() => {}), 'update');
+  assert.deepEqual(plan.steps, [plan.get, plan.add]);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 8: the value of the arguments line is read exactly, as the client wrote it.
+
+test('an arguments line that ends with a space is not our path', async () => {
+  const text = claudeEntry(`${SERVER} `);
+  assert.equal(pointsAt(text, [SERVER]), false);
+  // A client that would take our entry out leaves the entry of somebody else alone.
+  const removed = fakeClient(text);
+  const uninstalled = await registerMcp(RECORD, depsOf(removed.run), 'uninstall');
+  assert.equal(uninstalled.status, 'kept');
+  assert.deepEqual(argvOf(removed), [['mcp', 'get', 'okit']]);
+  const updated = fakeClient(text);
+  const replaced = await registerMcp({ ...RECORD, previous: PREVIOUS }, depsOf(updated.run), 'update');
+  assert.equal(replaced.status, 'kept');
+  assert.deepEqual(argvOf(updated), [['mcp', 'get', 'okit']]);
+});
+
+test('an arguments line that ends with a carriage return is our path', () => {
+  const text = claudeEntry(SERVER).replaceAll('\n', '\r\n');
+  assert.equal(pointsAt(text, [SERVER]), true);
+  assert.equal(pointsAt(codexEntry(SERVER).replaceAll('\n', '\r\n'), [SERVER]), true);
+});
+
+test('a path with spaces inside it is still our path', () => {
+  assert.equal(pointsAt(claudeEntry(SPACED_SERVER), [SPACED_SERVER]), true);
+  assert.equal(pointsAt(codexEntry(SPACED_SERVER), [SPACED_SERVER]), true);
 });

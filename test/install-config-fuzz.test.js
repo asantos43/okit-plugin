@@ -139,6 +139,8 @@ test('every invalid value of every key is one refusal of usage that names the ke
 test('the MCP settings of the installer are refused when the client could not read them', () => {
   const refused = [
     ['mcp.name', '-okit'], ['mcp.name', '--scope'], ['mcp.name', 'okit plugin'], ['mcp.name', 'okit/other'],
+    // A dot is refused: the client refuses a name that holds one.
+    ['mcp.name', 'okit.extra'],
     ['mcp.server', '../outside.js'], ['mcp.server', '/absolute/server.js'], ['mcp.server', 'C:/server.js'],
     ['mcp.server', 'src/../server.js'], ['mcp.server', 'src\\server.js'], ['mcp.server', 'server with space.js'],
     ['clients.claude-code.mcp.scope', 'global'], ['clients.claude-code.mcp.scope', ''],
@@ -159,6 +161,10 @@ test('the MCP settings of the installer are refused when the client could not re
   assert.doesNotThrow(() => installConfig({ clients: { 'claude-code': { mcp: { scope: 'local' } } } }));
   assert.doesNotThrow(() => installConfig({ clients: { codex: { mcp: { scope: null } } } }));
   assert.equal(installConfig({ mcp: { name: 'other', server: 'src/mcp/other.js' } }).mcp.name, 'other');
+  // A name with letters, digits, dashes and underscores is accepted: the client takes it.
+  for (const name of ['okit', 'okit-2_x', 'OkIt2']) {
+    assert.equal(installConfig({ mcp: { name } }).mcp.name, name);
+  }
 });
 
 test('every invalid value of every key, in every command and language: exit 2, the key and rule in the language, the file intact', async (t) => {

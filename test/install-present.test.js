@@ -499,6 +499,20 @@ test('every REASONS entry matches its whole example and has pt-BR text different
   }
 });
 
+test('every text of the presenter is written in both languages, by key', () => {
+  // The texts that read the same in both languages carry no sentence: they are placeholders.
+  const same = ['plain'];
+  for (const [key, entry] of Object.entries(TEXTS)) {
+    if (typeof entry !== 'object' || !entry.en) continue;
+    assert.ok(entry['pt-BR'], `${key}: no pt-BR text`);
+    if (!same.includes(key)) assert.notEqual(entry.en, entry['pt-BR'], `${key}: the pt-BR text is the English one`);
+  }
+  // The text of the MCP step that leaves an entry of a client as it is (the client does not say where it is kept).
+  assert.ok(TEXTS.mcpManual?.en, 'mcpManual');
+  assert.ok(TEXTS.mcpManual?.['pt-BR'], 'mcpManual');
+  assert.notEqual(TEXTS.mcpManual.en, TEXTS.mcpManual['pt-BR'], 'mcpManual');
+});
+
 test('every refusal the installer code can raise is translated into pt-BR', async () => {
   const sites = [];
   for (const name of ['index.js', 'update.js', 'uninstall.js', 'menu.js', 'place.js', 'release.js', 'download.js', 'source.js', 'link.js',
