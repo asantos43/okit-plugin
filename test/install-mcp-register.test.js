@@ -687,3 +687,109 @@ test('the uninstall of a module warns with the manual command when the client is
     }
   }
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 5: the scope the client names is the scope the entry is at.
+
+const LOCAL_SCOPE = `okit:\n  Scope: Local config (private to you in this project)\n  Type: stdio\n  Command: node\n  Args: ${SERVER}\n`;
+const USER_SCOPE = `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: node\n  Args: ${SERVER}\n`;
+const PROJECT_SCOPE = `okit:\n  Scope: Project config (private to you in this project)\n  Type: stdio\n  Command: node\n  Args: ${SERVER}\n`;
+const NO_SCOPE = `okit:\n  Type: stdio\n  Command: node\n  Args: ${SERVER}\n`;
+
+test('the plan of each client names the scope of its own command', () => {
+  assert.equal(mcpPlan(RECORD, depsOf(() => {})).scope, 'user');
+  // A client whose own command takes no scope has none.
+  assert.equal(mcpPlan({ ...RECORD, client: 'codex' }, depsOf(() => {})).scope, null);
+});
+
+test('an entry at another scope than ours is kept: nothing is written nor taken out', async () => {
+  // The client shows the entry of the highest precedence it holds: the local one, while ours is at the user scope.
+  const installed = fakeClient(LOCAL_SCOPE);
+  const answer = await registerMcp(RECORD, depsOf(installed.run), 'install');
+  assert.equal(answer.status, 'kept');
+  assert.match(answer.detail, /not ours/, answer.detail);
+  assert.deepEqual(argvOf(installed), [['mcp', 'get', 'okit']]);
+  const updated = fakeClient(LOCAL_SCOPE);
+  const replaced = await registerMcp({ ...RECORD, previous: PREVIOUS }, depsOf(updated.run), 'update');
+  assert.equal(replaced.status, 'kept');
+  assert.deepEqual(argvOf(updated), [['mcp', 'get', 'okit']]);
+  const removed = fakeClient(LOCAL_SCOPE);
+  const uninstalled = await registerMcp(RECORD, depsOf(removed.run), 'uninstall');
+  assert.equal(uninstalled.status, 'kept');
+  assert.deepEqual(argvOf(removed), [['mcp', 'get', 'okit']]);
+});
+
+test('an entry at our scope is ours: the install leaves it alone and the uninstall takes it out', async () => {
+  const installed = fakeClient(USER_SCOPE);
+  const answer = await registerMcp(RECORD, depsOf(installed.run), 'install');
+  assert.equal(answer.status, 'skipped');
+  assert.match(answer.detail, /already registered/, answer.detail);
+  assert.deepEqual(argvOf(installed), [['mcp', 'get', 'okit']]);
+  const removed = fakeClient(USER_SCOPE);
+  const uninstalled = await registerMcp(RECORD, depsOf(removed.run), 'uninstall');
+  assert.equal(uninstalled.status, 'ok');
+  assert.deepEqual(argvOf(removed), [['mcp', 'get', 'okit'], ['mcp', 'remove', 'okit', '--scope', 'user']]);
+});
+
+test('an entry at the scope of a project is kept', async () => {
+  const installed = fakeClient(PROJECT_SCOPE);
+  const answer = await registerMcp(RECORD, depsOf(installed.run), 'install');
+  assert.equal(answer.status, 'kept');
+  assert.deepEqual(argvOf(installed), [['mcp', 'get', 'okit']]);
+  const removed = fakeClient(PROJECT_SCOPE);
+  const uninstalled = await registerMcp(RECORD, depsOf(removed.run), 'uninstall');
+  assert.equal(uninstalled.status, 'kept');
+  assert.deepEqual(argvOf(removed), [['mcp', 'get', 'okit']]);
+});
+
+test('an entry the client prints without a scope is ours, as before', async () => {
+  const installed = fakeClient(NO_SCOPE);
+  const answer = await registerMcp(RECORD, depsOf(installed.run), 'install');
+  assert.equal(answer.status, 'skipped');
+  assert.deepEqual(argvOf(installed), [['mcp', 'get', 'okit']]);
+  const removed = fakeClient(NO_SCOPE);
+  const uninstalled = await registerMcp(RECORD, depsOf(removed.run), 'uninstall');
+  assert.equal(uninstalled.status, 'ok');
+  assert.deepEqual(argvOf(removed), [['mcp', 'get', 'okit'], ['mcp', 'remove', 'okit', '--scope', 'user']]);
+});
+
+test('a client whose own command takes no scope is not told by the scope the client prints', async () => {
+  const record = { ...RECORD, client: 'codex' };
+  const installed = fakeClient(LOCAL_SCOPE);
+  const answer = await registerMcp(record, depsOf(installed.run), 'install');
+  assert.equal(answer.status, 'skipped');
+  assert.deepEqual(argvOf(installed), [['mcp', 'get', 'okit']]);
+  const removed = fakeClient(LOCAL_SCOPE);
+  const uninstalled = await registerMcp(record, depsOf(removed.run), 'uninstall');
+  assert.equal(uninstalled.status, 'ok');
+  assert.deepEqual(argvOf(removed), [['mcp', 'get', 'okit'], ['mcp', 'remove', 'okit']]);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 5: the module strategy without a module has no MCP step.
+
+test('a client with the module strategy and no module of ours has no MCP step at all', async () => {
+  for (const client of ['claude-code', 'codex']) {
+    const config = installConfig({ clients: { [client]: { strategy: 'module' } } });
+    assert.equal(config.clients[client].strategy, 'module');
+    assert.equal(config.clients[client].module, undefined);
+    const calls = [];
+    const deps = { config, out: () => {},
+      run: async (input) => { calls.push(input); return {}; },
+      detect: async () => { calls.push('detect'); return true; } };
+    const record = { client, path: RECORD.path };
+    assert.equal(mcpPlan(record, deps), null, client);
+    assert.equal(await ensureMcp(record, deps), null, client);
+    // Neither the client nor its MCP commands were touched.
+    assert.deepEqual(calls, [], client);
+  }
+});
+
+test('a client with the module strategy and a module of ours still has a plan', () => {
+  const config = installConfig({ clients: { 'claude-code': { strategy: 'module', module: 'src/install/client-plugin.js' } } });
+  assert.equal(config.clients['claude-code'].module, 'src/install/client-plugin.js');
+  const plan = mcpPlan(RECORD, depsOf(() => {}, config));
+  assert.ok(plan);
+  assert.deepEqual(plan.get, ['claude', 'mcp', 'get', 'okit']);
+  assert.deepEqual(plan.add, ['claude', 'mcp', 'add', '--scope', 'user', 'okit', '--', config.node, SERVER]);
+});

@@ -15,7 +15,7 @@ Review an update or removal before changing your installed plugin.
 ## Remove
 
 1. Run `okit-plugin uninstall --dry-run`. Expect the removal plan without writes. Use the same installation destination and `OKWORK_HOME` as before.
-2. Run `okit-plugin uninstall`. Expect client unregistration and removal of managed versions, startup registration and links; the daemon is stopped. Configuration and state remain. Add `--client codex` to remove only that client; other registered clients keep their shared command. It also removes the `okit` MCP entry from the client when it is ours; an entry that is not ours is kept.
+2. Run `okit-plugin uninstall`. Expect client unregistration and removal of managed versions, startup registration and links; the daemon is stopped. Configuration and state remain. Add `--client codex` to remove only that client; other registered clients keep their shared command. It also removes the `okit` MCP entry from the client when it is ours; an entry that is not ours is kept, and so is an entry the client shows at another scope than the configured one.
 3. Only if you also want to delete configuration and state, use `okit-plugin uninstall --purge --yes` instead of the previous command. Expect deletion of the state folder too. This refuses when another client would remain; `--yes` skips confirmation. Removal undoes only the installer's recorded PATH addition and preserves your other settings.
 
 Use the installed CLI for update/removal: older downloaded bootstrap scripts locate only the legacy single-client record. See [release lifecycle details](../maintainers/RELEASING.md#installer-and-updater).

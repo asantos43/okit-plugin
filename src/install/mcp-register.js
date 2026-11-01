@@ -39,24 +39,28 @@ const plainWord = (value) => typeof value === 'string' && value !== '' && !value
  * @param {object} record the installation record (`path` is the retained folder, `previous.path` the one before it)
  * @param {object} deps the dependencies of the installer (`config` and `run`)
  * @param {'install'|'update'|'uninstall'} action what the run is doing
- * @returns {{get: string[], add: string[], remove: string[], steps: string[][]}|null} null for a client with no MCP server
+ * @returns {{get: string[], add: string[], remove: string[], steps: string[][], scope: string|null}|null} null for a
+ * client with no MCP server (or with the module strategy and no module of ours: nothing of it is ours to register)
  */
 export function mcpPlan(record, deps, action = 'install') {
   if (!MCP_CLIENTS.includes(record.client)) return null;
   const settings = deps.config.clients[record.client];
+  // A client with the module strategy and no module of ours has nothing of ours in it: the MCP step is not its.
+  if (settings?.strategy === 'module' && !settings.module) return null;
   const mcp = settings?.mcp;
   if (!mcp) return null;
   const { name, server } = deps.config.mcp;
   if (!plainWord(name)) return null;
   // The scope the client's own command takes (`--scope user`); a client that takes none has none.
   if (mcp.scope && !plainWord(mcp.scope)) return null;
-  const scope = mcp.scope ? ['--scope', mcp.scope] : [];
+  const scope = mcp.scope ?? null;
+  const scopeWords = scope ? ['--scope', scope] : [];
   const path = join(record.path, server);
   const get = [settings.executable, 'mcp', 'get', name];
-  const add = [settings.executable, 'mcp', 'add', ...scope, name, '--', deps.config.node, path];
-  const remove = [settings.executable, 'mcp', 'remove', name, ...scope];
+  const add = [settings.executable, 'mcp', 'add', ...scopeWords, name, '--', deps.config.node, path];
+  const remove = [settings.executable, 'mcp', 'remove', name, ...scopeWords];
   // What a dry run shows: the read and the write the action would do.
-  return { get, add, remove, steps: action === 'uninstall' ? [get, remove] : [get, add] };
+  return { get, add, remove, steps: action === 'uninstall' ? [get, remove] : [get, add], scope };
 }
 
 /**
@@ -66,6 +70,8 @@ export function mcpPlan(record, deps, action = 'install') {
  * installation, or the one it replaced) is ours to write; an entry that is not ours is kept, and a failure is a
  * warning, never a failure of the installation. An entry that could not be read is not an absent entry: nothing is
  * written, because the `mcp add` of a client replaces the entry of the same name and the foreign one would be lost.
+ * An entry at another scope than the configured one is not ours either: the client shows the entry of the highest
+ * precedence it holds, and the entry of that scope is never written nor taken out.
  *
  * @param {object} record the installation record (`path` is the retained folder, `previous.path` the one before it)
  * @param {object} deps the dependencies of the installer (`config` and `run`)
@@ -83,6 +89,8 @@ export async function registerMcp(record, deps, action = 'install') {
   const entry = await readEntry(plan, deps);
   // The entry could not be read: nothing is written, not even the add that would replace a foreign entry.
   if (entry.status === 'failed') return failure(ui, client, entry.reason, action === 'uninstall' ? plan.remove : plan.add);
+  // The entry is at another scope than ours: it is not ours, and nothing of it is written nor taken out.
+  if (entry.status === 'otherScope') return { status: 'kept', detail: ui.text('mcpKept', { client, name }) };
   const ours = (path) => pointsAt(entry.output, [path], deps.platform);
   if (action === 'uninstall') {
     if (entry.status === 'absent') return { status: 'skipped', detail: '' };
@@ -181,8 +189,19 @@ async function readEntry(plan, deps) {
     if (answer.code === 1 && /no mcp server/i.test(answer.text)) return { status: 'absent' };
     return { status: 'failed', reason: answer.reason };
   }
-  return { status: 'exists', output: answer.text };
+  const output = answer.text;
+  // The scope the client names is the scope the entry is at: the client shows the entry of the highest precedence it
+  // holds, so an entry at another scope than ours is not ours, even when its arguments name our path.
+  const scope = scopeOf(output);
+  if (plan.scope && scope && scope.toLowerCase() !== plan.scope.toLowerCase()) return { status: 'otherScope', output };
+  return { status: 'exists', output };
 }
+
+/** The scope the client named about the entry it printed: the first word of its `Scope:` line (null when it names none). */
+const scopeOf = (text) => {
+  const named = /^\s*Scope:\s*(\w+)/im.exec(String(text ?? ''));
+  return named ? named[1] : null;
+};
 
 /**
  * Runs one command of the client and answers in one shape: a runner that resolves a non-zero code failed as much as
