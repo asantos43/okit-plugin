@@ -6,6 +6,7 @@ import { quote, binInPath, activationWarning, managedProfile, currentShell } fro
 import { collectorCommandIndex, collectorExecutable, commandWords, settingsPath } from './statusline.js';
 import { collectorArgsValid } from '../quota/statusline-collector.js';
 import { cliScript, hookScript, hookNode, isAnotherNode, isOurHook } from './register.js';
+import { mcpPlan } from './mcp-register.js';
 import { clientRoot } from './config.js';
 import { presenterOf, clientLabel } from './present.js';
 
@@ -15,7 +16,7 @@ import { presenterOf, clientLabel } from './present.js';
 // the texts are the presenter's (en and pt-BR), so a result is already in the language of the run.
 
 const LABELS = { version: 'selfcheckVersion', command: 'selfcheckCommand', statusline: 'selfcheckStatusline',
-  hook: 'selfcheckHook', collector: 'selfcheckCollector', path: 'selfcheckPath' };
+  hook: 'selfcheckHook', collector: 'selfcheckCollector', mcp: 'selfcheckMcp', api: 'selfcheckApi', path: 'selfcheckPath' };
 
 const QUOTE = {
   posix: quote,
@@ -397,7 +398,85 @@ function sampleOf(id, folder, deps) {
     .map((key) => [key, { [fields.usedPercentage]: sample.usedPercentage, [fields.resetsAt]: resets }])) });
 }
 
-/** 5. The link directory is on this terminal's PATH, or a new terminal is needed (said in the words the install already uses). */
+/**
+ * The answer of the probe: the last line it printed, as JSON; null when it printed nothing or something else.
+ *
+ * @param {string} stdout what the probe printed
+ * @returns {object|null}
+ */
+function readProbe(stdout) {
+  const lines = printedLines(stdout);
+  const last = lines.at(-1);
+  if (last === undefined) return null;
+  try {
+    const value = JSON.parse(last);
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 5. The MCP server of this installation starts and answers, and its own control API answers one tool call.
+ *
+ * The server is started by the probe (`src/mcp/selfcheck-probe.js`), a program of this installation, under a temporary
+ * state root: the person's own state is never touched. The probe answers one line of JSON and the installer reads it;
+ * what it says is in the row, in the language of the run.
+ *
+ * @param {object} record the installation record
+ * @param {object} deps the installer's dependencies
+ * @returns {Promise<object[]>} the two results, `mcp` and `api`
+ */
+async function mcpChecks(record, deps) {
+  const { ui, config } = deps;
+  const fix = ui.text('selfcheckFixMcp', { command: again(record, deps) });
+  // A client with no MCP server of ours has nothing of ours to ask.
+  if (!mcpPlan(record, deps)) {
+    return [skipCheck('mcp', ui.text('selfcheckNotUsed'), { quiet: true }),
+      skipCheck('api', ui.text('selfcheckNotUsed'), { quiet: true })];
+  }
+  const folder = await deps.fs.mkdtemp(join(deps.temporary, 'selfcheck-'));
+  try {
+    const outcome = await attempt(deps, { command: config.node,
+      args: [join(record.path, 'src/mcp/selfcheck-probe.js'), join(record.path, config.mcp.server),
+        String(config.selfcheck.probeMs)],
+      env: environment(deps, { [HOME_ENV]: folder, [SELFCHECK_ENV]: '1' }) });
+    // A node that is not on the machine is a skip, like a shell that is not installed.
+    if (outcome.state === 'missing') {
+      return [skipCheck('mcp', ui.text('selfcheckShellMissing', { shell: 'node' }), { shell: 'node' }),
+        skipCheck('api', ui.text('selfcheckShellMissing', { shell: 'node' }), { shell: 'node' })];
+    }
+    if (outcome.state !== 'ok') {
+      const why = outcome.why;
+      return [badCheck('mcp', ui.text('selfcheckMcpNoAnswer', { why }), fix, { output: outcome.output }),
+        badCheck('api', ui.text('selfcheckMcpNoAnswer', { why }), fix, { output: outcome.output })];
+    }
+    const answer = readProbe(outcome.stdout);
+    const mcp = answer?.mcp;
+    if (answer === null || mcp === null || typeof mcp !== 'object') {
+      // The probe printed nothing we can read: the check itself could not run.
+      const why = ui.text('selfcheckError');
+      return [badCheck('mcp', ui.text('selfcheckMcpNoAnswer', { why }), fix),
+        badCheck('api', ui.text('selfcheckMcpNoAnswer', { why }), fix)];
+    }
+    if (mcp.ok !== true) {
+      // There is no server to ask, so the API is not checked.
+      const why = String(mcp.error ?? '').trim() || ui.text('selfcheckError');
+      return [badCheck('mcp', ui.text('selfcheckMcpNoAnswer', { why }), fix),
+        skipCheck('api', ui.text('selfcheckApiSkipped'))];
+    }
+    const api = answer.api;
+    if (api === null || typeof api !== 'object' || api.ok !== true) {
+      const why = String(api?.error ?? '').trim() || ui.text('selfcheckError');
+      return [okCheck('mcp', ui.text('selfcheckMcpOk', { count: Number(mcp.tools ?? 0) })),
+        badCheck('api', ui.text('selfcheckApiFailed', { why }), fix)];
+    }
+    return [okCheck('mcp', ui.text('selfcheckMcpOk', { count: Number(mcp.tools ?? 0) })),
+      okCheck('api', ui.text('selfcheckApiOk'))];
+  } finally { await deps.fs.rm(folder, { recursive: true, force: true }); }
+}
+
+/** 6. The link directory is on this terminal's PATH, or a new terminal is needed (said in the words the install already uses). */
 async function pathCheck(record, deps) {
   const { ui, config } = deps;
   if (record.link === false) return skipCheck('path', ui.text('linkOff'), { quiet: true });
@@ -436,6 +515,7 @@ export async function selfCheck(record, expected, deps) {
     ...await guarded('command', deps, record, () => commandChecks(record, deps)),
     ...(applies ? await guarded('statusline', deps, record, () => runWritten(record, deps))
       : ['statusline', 'hook', 'collector'].map((id) => skipCheck(id, ui.text('selfcheckNotUsed'), { quiet: true }))),
+    ...await guarded('mcp', deps, record, () => mcpChecks(record, deps)),
     ...await guarded('path', deps, record, () => pathCheck(record, deps)),
   ];
   return results;

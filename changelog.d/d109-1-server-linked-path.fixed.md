@@ -1,0 +1,1 @@
+The MCP server no longer stays silent when a client starts it through a path that goes by a link (a data folder or a temporary folder that is a link); the install self-check found it / O servidor MCP não fica mais mudo quando um cliente o inicia por um caminho que passa por um link (uma pasta de dados ou temporária que é um link); a verificação da instalação o encontrou.

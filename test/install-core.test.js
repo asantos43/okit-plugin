@@ -811,8 +811,8 @@ test('install idempotent, fixed destination, missing client skipped, update same
   assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0);
   const record = await readRecord(f.destination, fs);
   assert.equal(record.path, join(f.destination, '1.0.0-claude-code'));
-  // Nothing was registered; the commands that ran are the self-check's (a shell finding the command).
-  assert.ok(f.commands.every(({ args }) => args.some((item) => item.includes('command -v'))), JSON.stringify(f.commands));
+  // Nothing was registered; the commands that ran are the self-check's (a shell finding the command, and the probe of the MCP server).
+  assert.ok(f.commands.every(({ args }) => args.some((item) => item.includes('command -v') || item.endsWith('selfcheck-probe.js'))), JSON.stringify(f.commands));
   assert.ok(f.output.some((line) => line.includes('not found, so nothing was registered')));
   assert.ok(f.output.some((line) => line.includes('does not authenticate')));
   const before = await tree(f.home);

@@ -290,7 +290,7 @@ export const INSTALL_SCHEMA = Object.freeze(record({
   }),
   pathExtensions: list(text({ empty: true })),
   selfcheck: record({
-    timeoutMs: timer, stateKeys: list(word), shells: table(filled(SELFCHECK_SHELL)), runner: table(word),
+    timeoutMs: timer, probeMs: timer, stateKeys: list(word), shells: table(filled(SELFCHECK_SHELL)), runner: table(word),
     sample: record({ usedPercentage: size, resetsInSeconds: size, hookInput: table(word) }),
   }),
 }));

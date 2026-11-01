@@ -140,6 +140,9 @@ export const DEFAULT_CONFIG = {
     // the point of it, as the profile may stop early), with the link folder taken off the PATH so only a profile can add it.
     selfcheck: {
       timeoutMs: 10000,
+      // How long the probe of the MCP server waits for the server to answer (it is always under `timeoutMs`, the limit of
+      // the process of the check that runs the probe).
+      probeMs: 6000,
       // The keys of config.json copied into the temporary state root: the ones the checked scripts need (the status bar's
       // collector, the session hook's limits). Everything else is dropped, so a setting that runs or writes is never copied.
       stateKeys: ['statuslineCollector', 'limits', 'staleMinutes'],

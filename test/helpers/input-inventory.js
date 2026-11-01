@@ -115,7 +115,8 @@ const SIZE = [1, Number.MAX_SAFE_INTEGER];
 /** `install.*` numbers (installConfig). */
 export const INSTALL_NUMBERS = Object.freeze({
   'kit.timeoutMs': TIMER, timeoutMs: TIMER, daemonPollMs: TIMER, maxDownloadBytes: SIZE, maxExtractBytes: SIZE,
-  'selfcheck.timeoutMs': TIMER, 'selfcheck.sample.usedPercentage': SIZE, 'selfcheck.sample.resetsInSeconds': SIZE,
+  'selfcheck.timeoutMs': TIMER, 'selfcheck.probeMs': TIMER,
+  'selfcheck.sample.usedPercentage': SIZE, 'selfcheck.sample.resetsInSeconds': SIZE,
 });
 /** The numbers `config set` takes; `integer` or `number`. */
 export const CONFIG_NUMBERS = Object.freeze({
@@ -406,6 +407,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/install/selfcheck.js', arg: /^(file|text)$/, excluded: 'package.json of the package just installed (code of the program itself), read back only to compare its version; a file that cannot be read or is not JSON is a failed check (a row with its fix, exit 1), never a crash' },
   { file: 'src/install/selfcheck.js', arg: /^saved$/, excluded: 'the person\'s config.json, read to copy only the allowed keys (install.selfcheck.stateKeys) into the temporary state root; a file that is not JSON, or whose root is not an object, copies nothing and the scripts use their defaults; never a crash, never a failed check' },
   { file: 'src/install/selfcheck.js', arg: /^path$/, excluded: 'the client\'s settings file, read back to run the status bar and hook strings the installer wrote; a file that cannot be read or is not JSON is a failed check with its fix (exit 1), JSON of another shape finds no status bar and is a skipped row; never a crash' },
+  { file: 'src/install/selfcheck.js', arg: /^last$/, excluded: 'the answer of the probe of the MCP server (one line of JSON a process of the check printed), not a file of the person: parsed inside a try/catch that fails the two checks of the MCP server, so no content makes a command crash' },
   { file: 'src/install/statusline.js', arg: /^saved\.backup$/, excluded: 'the copy of the client\'s settings that okit made before it changed them; restored byte for byte, never parsed' },
   { file: 'src/install/index.js', arg: /^join\(ctx\.root, 'config\.json'\)$/, rule: CONFIG_JSON },
   { file: 'src/install/bootstrap.js', arg: /^(metadata)$/, rule: 'the release metadata (API)' },
@@ -421,6 +423,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/mcp/control.js', arg: /^line$/, excluded: 'a line sent over the local control API: parsed inside a try/catch that answers "invalid frame", so no content makes a command fail; it is not an input of the user' },
   { file: 'src/mcp/control-client.js', arg: /^line$/, excluded: 'a line that a server of the local control API wrote: parsed inside a try/catch that answers "not understood", so no content makes a command fail; it is not an input of the user' },
   { file: 'src/mcp/control-endpoint.js', arg: /^file$/, excluded: 'a record of the control folder: parsed inside a try/catch, and a record that cannot be read is pruned, so no content makes a command fail; it is not an input of the user' },
+  { file: 'src/mcp/selfcheck-probe.js', arg: /^line$/, excluded: 'a frame of the MCP protocol the server wrote on its standard output: parsed inside a try/catch that ignores what is not a frame, so no content makes the probe crash; it is not an input of the user' },
   { file: 'src/spawn-process.js', arg: /^(file|stdout)$/, excluded: 'the run file okit wrote for a started executor and the output of a process we started' },
   { file: 'src/state.js', arg: /^(file|raw|join\(lockDir, LOCK_OWNER_FILE\)|claim)$/, excluded: 'the generic reader of state files (each caller is a row of this table) and the lock files okit writes in its own state folder' },
   { file: 'src/skills.js', arg: /^(file|source)$/, excluded: 'the skill files of the package being installed (code and text of the program), copied byte for byte' },

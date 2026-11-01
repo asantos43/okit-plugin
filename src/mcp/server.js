@@ -2,6 +2,7 @@
 // dependencies. Only protocol frames go to the output stream; anything a
 // human may need goes to stderr. A refused tool is an answer, not a crash, so
 // nothing in a handler ever leaves the loop.
+import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import process from 'node:process';
 import { StringDecoder } from 'node:string_decoder';
@@ -208,8 +209,11 @@ export async function main() {
   await server.stop();
 }
 
+// `import.meta.url` is the real path; `argv[1]` is the path the client was given, which may go through a link
+// (a data folder or a temporary folder that is a link), so compare real paths.
+const real = (path) => { try { return realpathSync(path); } catch { return path; } };
 const entry = process.argv[1];
-if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
+if (entry !== undefined && import.meta.url === pathToFileURL(real(entry)).href) {
   main().catch((error) => {
     // stdout carries protocol frames only, so a failure is written to stderr.
     process.stderr.write(`okit mcp server: ${error?.message ?? error}\n`);

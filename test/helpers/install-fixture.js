@@ -20,6 +20,10 @@ export const FORMAT = { linux: 'tar.gz', darwin: 'tar.gz', win32: 'zip' };
 export async function answerCheck({ command = '', env, args = [] }, { bin } = {}) {
   const folder = env?.[HOME_ENV];
   const text = args.map(String);
+  // The probe of the MCP server: the fake world says that the server answers and that its API answers too.
+  if (text.some((item) => item.endsWith('selfcheck-probe.js'))) {
+    return { stdout: `${JSON.stringify({ mcp: { ok: true, tools: 12, error: '' }, api: { ok: true, error: '' } })}\n` };
+  }
   if (folder && text.some((item) => item.includes('statusline-collector'))) {
     await fs.mkdir(paths(folder).quota, { recursive: true });
     await fs.writeFile(join(paths(folder).quota, STATUSLINE_FILE), '{}');
