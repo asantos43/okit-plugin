@@ -1,0 +1,271 @@
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs/promises';
+import { join } from 'node:path';
+import test from 'node:test';
+import { PassThrough, Writable } from 'node:stream';
+import { main } from '../src/cli.js';
+import { autostartPlan, detectAutostart } from '../src/autostart.js';
+import { readRecords } from '../src/install/place.js';
+import { fixture } from './helpers/install-fixture.js';
+
+async function world(t, { clients = ['codex'], platform = 'linux', installed = false } = {}) {
+  const f = await fixture(t, platform);
+  for (const client of clients) assert.equal(await main(['install', '--client', client], f.io), 0, f.output.join('\n'));
+  const records = await readRecords(f.destination, fs, f.io.config);
+  if (installed) {
+    for (const record of Object.values(records)) {
+      record.autostart = true;
+      await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', record.client)), JSON.stringify(record));
+    }
+  }
+  const first = Object.values(records)[0];
+  const plan = first && autostartPlan(detectAutostart(platform), {
+    root: f.root, home: f.home, node: first.settings.node,
+    script: join(first.path, first.bin), command: f.io.config.command,
+  });
+  const before = await snapshot(f);
+  const ran = [], written = [], questions = [], order = [];
+  f.clear();
+  Object.assign(f.io, {
+    fs: { ...fs, writeFile: async (...args) => { order.push('record'); return fs.writeFile(...args); } },
+    run: async (command) => { ran.push(command); order.push('run'); return {}; },
+    write: async (path, content) => { written.push({ path, content }); order.push('file'); },
+    ask: async (question) => {
+      questions.push(question);
+      assert.deepEqual(ran, []);
+      assert.deepEqual(written, []);
+      assert.deepEqual(order, []);
+      assert.deepEqual(await snapshot(f), before);
+      return 'yes';
+    },
+  });
+  return { ...f, records, plan, before, ran, written, questions, order };
+}
+async function snapshot(f) {
+  const files = (await fs.readdir(f.destination).catch(() => [])).filter((file) => file.endsWith('.json'));
+  return Object.fromEntries(await Promise.all(files.map(async (file) => [file, await fs.readFile(join(f.destination, file), 'utf8')])));
+}
+const explain = (f) => [
+  `Start the daemon with this machine using ${f.plan.kind}.`,
+  ...(f.plan.path === null ? [] : [`Autostart writes: ${f.plan.path}`]),
+];
+const stepLines = (f) => f.output.slice(1); // No detected models: the existing setup emits exactly one line.
+
+test('cancelled wizard never offers autostart or changes the installation', async (t) => {
+  const f = await world(t);
+  const configBefore = await fs.readFile(join(f.root, 'config.json'), 'utf8');
+  assert.equal(Object.values(f.records)[0].autostart, false);
+  f.io.setupAdapters = [{
+    CLIENT: 'claude-code',
+    listModels: async () => ({ client: 'claude-code', installed: true, models: ['other/model'], hidden: [], source: 'listing' }),
+  }];
+  f.io.ask = async (question) => {
+    f.questions.push(question);
+    assert.notEqual(question, 'Install autostart? [y/N]', 'cancelled setup asked about autostart');
+    assert.match(question, /^(Choose a model|Save these model settings\?)/);
+    return ''; // Accept the recommended models, then cancel the save confirmation.
+  };
+  assert.equal(await main(['setup'], f.io), 0);
+  assert.equal(f.questions.length, 4);
+  assert.ok(f.questions.slice(0, 3).every((question) => question.startsWith('Choose a model')));
+  assert.match(f.questions[3], /^Save these model settings\?/);
+  assert.deepEqual(f.output, ['Setup was cancelled and nothing was saved.']);
+  assert.deepEqual(f.ran, []);
+  assert.deepEqual(f.written, []);
+  assert.deepEqual(f.order, []);
+  assert.deepEqual(await snapshot(f), f.before);
+  assert.equal(await fs.readFile(join(f.root, 'config.json'), 'utf8'), configBefore);
+});
+
+for (const answer of ['y', 'Y', ' y ', 'yes', 's']) {
+  test(`affirmative answer ${JSON.stringify(answer)} installs autostart`, async (t) => {
+    const f = await world(t);
+    const ask = f.io.ask;
+    f.io.ask = async (question) => { await ask(question); return answer; };
+    assert.equal(await main(['setup'], f.io), 0);
+    assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+    assert.deepEqual(f.ran, f.plan.install);
+    assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
+    assert.deepEqual(await readRecords(f.destination, fs, f.io.config), {
+      codex: { ...f.records.codex, autostart: true },
+    });
+    assert.deepEqual(stepLines(f), [...explain(f), 'Autostart installed; okit-plugin uninstall removes it.']);
+  });
+}
+
+test('accepted plan uses the node executable from the installation record', async (t) => {
+  const f = await world(t);
+  const record = { ...f.records.codex, settings: { ...f.records.codex.settings, node: '/opt/custom/node' } };
+  await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', record.client)), JSON.stringify(record));
+  const before = await snapshot(f);
+  f.io.ask = async (question) => {
+    f.questions.push(question);
+    assert.deepEqual(await snapshot(f), before);
+    return 'yes';
+  };
+  const expected = autostartPlan(detectAutostart('linux'), {
+    root: f.root, home: f.home, node: '/opt/custom/node',
+    script: join(record.path, record.bin), command: f.io.config.command,
+  });
+  assert.equal(await main(['setup'], f.io), 0);
+  assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+  assert.deepEqual(f.ran, expected.install);
+  assert.deepEqual(f.written, [{ path: expected.path, content: expected.content }]);
+  assert.ok(f.written[0].content.includes('/opt/custom/node'));
+  assert.equal(f.written[0].content.includes(process.execPath), false);
+});
+
+test('accept saves the whole first record and propagates its link settings to both clients', async (t) => {
+  const f = await world(t, { clients: ['codex', 'claude-code'] });
+  const [first, second] = Object.values(f.records).map((record, index) => ({
+    ...record, link: index === 0, linkDirectory: index === 0 ? '/a' : null,
+  }));
+  for (const record of [first, second]) {
+    await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', record.client)), JSON.stringify(record));
+  }
+  const before = await snapshot(f);
+  f.io.ask = async (question) => {
+    f.questions.push(question);
+    assert.deepEqual(await snapshot(f), before);
+    return 'yes';
+  };
+  assert.equal(await main(['setup'], f.io), 0);
+  assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+  assert.deepEqual(f.ran, f.plan.install);
+  assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
+  assert.deepEqual(await readRecords(f.destination, fs, f.io.config), {
+    [first.client]: { ...first, autostart: true },
+    [second.client]: { ...second, autostart: true, link: true, linkDirectory: '/a' },
+  });
+});
+
+for (const platform of ['linux', 'darwin', 'win32']) {
+  test(`accept applies the exact ${platform} plan before saving both clients`, async (t) => {
+    const f = await world(t, { clients: ['codex', 'claude-code'], platform });
+    assert.equal(await main(['setup'], f.io), 0);
+    assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+    assert.deepEqual(f.ran, f.plan.install);
+    assert.deepEqual(f.written, f.plan.path === null ? [] : [{ path: f.plan.path, content: f.plan.content }]);
+    assert.deepEqual(f.order, [...(f.plan.path === null ? [] : ['file']), ...f.plan.install.map(() => 'run'), 'record', 'record']);
+    const records = await readRecords(f.destination, fs, f.io.config);
+    assert.deepEqual(records, Object.fromEntries(Object.entries(f.records).map(([client, record]) => [client, { ...record, autostart: true }])));
+    assert.deepEqual(stepLines(f), [...explain(f), 'Autostart installed; okit-plugin uninstall removes it.']);
+  });
+}
+for (const answer of ['', 'n', undefined, 'throw']) {
+  test(`decline (${String(answer)}) leaves records and machine untouched`, async (t) => {
+    const f = await world(t);
+    f.io.ask = async (question) => { f.questions.push(question); if (answer === 'throw') throw new Error('closed'); return answer; };
+    assert.equal(await main(['setup'], f.io), 0);
+    assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+    assert.deepEqual(f.ran, []);
+    assert.deepEqual(f.written, []);
+    assert.deepEqual(f.order, []);
+    assert.deepEqual(await snapshot(f), f.before);
+    assert.deepEqual(stepLines(f), [...explain(f), 'Autostart not installed; to do it later run: okit-plugin autostart install']);
+  });
+}
+test('--defaults never offers or installs autostart', async (t) => {
+  const f = await world(t);
+  f.io.ask = async () => { assert.fail('asked'); };
+  f.io.run = async () => { assert.fail('ran'); };
+  assert.equal(await main(['setup', '--defaults'], f.io), 0);
+  assert.equal(f.output.length, 1);
+  assert.doesNotMatch(f.output.join('\n'), /autostart/i);
+  assert.deepEqual(f.written, []);
+  assert.deepEqual(f.order, []);
+  assert.deepEqual(await snapshot(f), f.before);
+});
+test('already installed prints only the information and never asks', async (t) => {
+  const f = await world(t, { clients: ['codex', 'claude-code'], installed: true });
+  assert.equal(await main(['setup'], f.io), 0);
+  assert.deepEqual(stepLines(f), ['Autostart is already installed.']);
+  assert.deepEqual(f.questions, []);
+  assert.deepEqual(f.ran, []);
+  assert.deepEqual(f.written, []);
+  assert.deepEqual(await snapshot(f), f.before);
+});
+test('without records the step is silent', async (t) => {
+  const f = await world(t, { clients: [] });
+  assert.equal(await main(['setup'], f.io), 0);
+  assert.deepEqual(stepLines(f), []);
+  assert.deepEqual(f.questions, []);
+  assert.deepEqual(f.ran, []);
+  assert.deepEqual(f.written, []);
+  assert.deepEqual(await snapshot(f), f.before);
+});
+for (const failure of ['apply', 'write', 'save']) {
+  test(`${failure} failure prints one reason and exits operationally`, async (t) => {
+    const f = await world(t);
+    const errors = [];
+    f.io.stderr = (line) => errors.push(line);
+    if (failure === 'apply') f.io.run = async (command) => { f.ran.push(command); throw new Error('permission denied'); };
+    else if (failure === 'write') f.io.write = async () => { throw new Error('permission denied'); };
+    else f.io.fs = { ...fs, writeFile: async () => { throw new Error('permission denied'); } };
+    assert.equal(await main(['setup'], f.io), 1);
+    assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+    assert.deepEqual(f.ran, failure === 'write' ? [] : failure === 'apply' ? f.plan.install.slice(0, 1) : f.plan.install);
+    assert.deepEqual(f.written, failure === 'write' ? [] : [{ path: f.plan.path, content: f.plan.content }]);
+    assert.deepEqual(await snapshot(f), f.before);
+    assert.deepEqual(stepLines(f), explain(f));
+    assert.deepEqual(errors, ['Could not install autostart: permission denied']);
+    assert.doesNotMatch(f.output.join('\n'), /Could not install autostart|permission denied/);
+    assert.doesNotMatch(f.output.join('\n'), /\n\s+at |Error:/);
+  });
+}
+test('Portuguese explains, asks and confirms entirely in Portuguese', async (t) => {
+  const f = await world(t);
+  f.io.ask = async (question) => { f.questions.push(question); return 'sim'; };
+  assert.equal(await main(['setup', '--locale', 'pt-BR'], f.io), 0);
+  assert.deepEqual(f.questions, ['Instalar a inicialização automática? [s/N]']);
+  assert.deepEqual(stepLines(f), [
+    'Iniciar o daemon com esta máquina usando systemd.',
+    `A inicialização automática grava: ${f.plan.path}`,
+    'Inicialização automática instalada; okit-plugin uninstall a remove.',
+  ]);
+  assert.deepEqual(f.ran, f.plan.install);
+  assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
+  assert.equal((await readRecords(f.destination, fs, f.io.config)).codex.autostart, true);
+});
+test('uninstall removes the autostart accepted in setup', async (t) => {
+  const f = await world(t);
+  assert.equal(await main(['setup'], f.io), 0);
+  f.ran.length = 0;
+  f.written.length = 0;
+  delete f.io.autostart;
+  assert.equal(await main(['uninstall', '--client', 'codex'], f.io), 0, f.output.join('\n'));
+  assert.deepEqual(f.ran.filter((command) => command.command !== 'codex'), f.plan.uninstall);
+  assert.deepEqual(f.written, []);
+  assert.deepEqual(await snapshot(f), {});
+});
+
+test('the terminal reader stays open through the final step', async (t) => {
+  const f = await world(t);
+  const stdin = new PassThrough();
+  t.after(() => stdin.destroy());
+  delete f.io.ask;
+  f.io.stdin = stdin;
+  f.io.output = new Writable({ write(_chunk, _encoding, done) { done(); } });
+  f.io.stdout = (line) => {
+    f.output.push(line);
+    if (line === explain(f)[0]) stdin.end('yes\n');
+  };
+  assert.equal(await main(['setup'], f.io), 0);
+  assert.deepEqual(f.ran, f.plan.install);
+  assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
+  assert.deepEqual(stepLines(f), [...explain(f), 'Autostart installed; okit-plugin uninstall removes it.']);
+  assert.equal((await readRecords(f.destination, fs, f.io.config)).codex.autostart, true);
+});
+
+test('mixed autostart flags still offer once and use the first record', async (t) => {
+  const f = await world(t, { clients: ['claude-code', 'codex'] });
+  const first = Object.values(f.records)[0];
+  await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', first.client)), JSON.stringify({ ...first, autostart: true }));
+  f.io.ask = async (question) => { f.questions.push(question); return 's'; };
+  assert.equal(await main(['setup'], f.io), 0);
+  assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+  assert.deepEqual(f.ran, f.plan.install);
+  assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
+  assert.deepEqual(await readRecords(f.destination, fs, f.io.config),
+    Object.fromEntries(Object.entries(f.records).map(([client, record]) => [client, { ...record, autostart: true }])));
+});

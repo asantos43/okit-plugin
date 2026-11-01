@@ -42,6 +42,7 @@ const { installConfig, installPaths } = collectorEntry ? {} : await import('./in
 const { detectKit } = collectorEntry ? {} : await import('./install/kit.js');
 const { activationWarning } = collectorEntry ? {} : await import('./install/link.js');
 const { readRecords } = collectorEntry ? {} : await import('./install/place.js');
+const { setupAutostart } = collectorEntry ? {} : await import('./setup/autostart-step.js');
 const { runSetup, setupReader, formatUnreadable, isReadableConfig } = collectorEntry
   ? {} : await import('./setup/setup.js');
 
@@ -367,7 +368,7 @@ async function setupCommand(ctx, flags, io) {
   return enter(ctx, flags, flagsParser(['--defaults', '--again']), (entry) => runSetupCommand(ctx, entry, io));
 }
 
-async function runSetupCommand(ctx, { stored, locale, found }, io) {
+async function runSetupCommand(ctx, { stored, locale, found, install }, io) {
   const defaults = Boolean(found['--defaults']);
   const again = Boolean(found['--again']);
   // A configuration that cannot be read stops the command here: the same
@@ -394,6 +395,9 @@ async function runSetupCommand(ctx, { stored, locale, found }, io) {
       command: ctx.command,
     });
     for (const message of result.messages) ctx.out(message);
+    if (!defaults && result.code === 0 && !result.cancelled) {
+      return await setupAutostart(ctx, { config: install, locale, ask: reader.ask, plan: (record) => installationAutostartPlan(ctx, io, record) });
+    }
     return result.code;
   } finally {
     reader.close();
@@ -682,12 +686,15 @@ async function smokeCommand(ctx, args, io) {
   return smoke.usage === true ? ctx.unknown() : smoke.code;
 }
 
-function installerLifecycle(ctx, io) {
-  const plan = (record) => autostartPlan(detectAutostart(ctx.platform), {
+function installationAutostartPlan(ctx, io, record) {
+  return autostartPlan(detectAutostart(ctx.platform), {
     root: ctx.root, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE,
     node: record.settings.node, script: join(record.path, record.bin), command: ctx.command,
   });
-  const autostart = io.autostart ?? ((record, action) => applyAutostart(plan(record), { run: ctx.run, write: ctx.write, action }));
+}
+
+function installerLifecycle(ctx, io) {
+  const autostart = io.autostart ?? ((record, action) => applyAutostart(installationAutostartPlan(ctx, io, record), { run: ctx.run, write: ctx.write, action }));
   return {
     autostart,
     stopDaemon: io.stopDaemon ?? (async (record) => {

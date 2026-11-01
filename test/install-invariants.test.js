@@ -103,6 +103,9 @@ test('I1: the raw texts that are allowed still exist (an entry no code uses is r
 });
 
 const PROGRAMMER_ERRORS = new Map([
+  ['src/autostart.js: Unknown autostart kind x: expected x', 'the setup selects the kind with detectAutostart; an unknown kind is a bug of the caller'],
+  ['src/autostart.js: applyAutostart needs a run function', 'the CLI always supplies run; a missing executor is a bug of the caller'],
+  ['src/autostart.js: Unknown action x: expected install, uninstall', 'the setup supplies the literal install action; an unknown action is a bug of the caller'],
   ['src/state.js: x: x', 'faultError: the fault a test injects into a step of the state writer (a code, never a sentence for a person)'],
   ['src/env/models.js: listModels is not a function', 'an adapter without listModels: a bug of the caller'],
   ['src/env/snapshot.js: timeout', 'an internal timer rejection, coded ETIMEDOUT and caught by the snapshot'],
