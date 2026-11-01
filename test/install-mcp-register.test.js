@@ -1350,11 +1350,12 @@ test('a word that a shell would read differently is quoted', () => {
 });
 
 test('on Windows the quote of a word doubles the quote of the word', () => {
-  assert.equal(shown(["O'Brien"], 'win32'), "'O''Brien'");
+  // The word that is not the first one: the quote is doubled and the line has no call operator.
+  assert.equal(shown(['claude', "O'Brien"], 'win32'), "claude 'O''Brien'");
   // A path of Windows that holds no whitespace is left as it is.
   assert.equal(shown(['C:\\Program\\okit\\server.js'], 'win32'), 'C:\\Program\\okit\\server.js');
   // One that holds whitespace is quoted whole.
-  assert.equal(shown(['C:\\Program Files\\okit\\server.js'], 'win32'), "'C:\\Program Files\\okit\\server.js'");
+  assert.equal(shown(['C:\\Program Files\\okit\\server.js'], 'win32'), "& 'C:\\Program Files\\okit\\server.js'");
 });
 
 test('the shown command is parsed by a shell as the very same argv', { skip: process.platform === 'win32' }, () => {
@@ -1447,4 +1448,205 @@ test('the command of the step that ran is printed quoted for the shell', async (
     ['mcp', 'get', 'okit'],
     ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SPACED_SERVER],
   ]);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 12: every printed MCP command is quoted for the shell, the same way everywhere: the warnings,
+// the notes of a client that is not on the machine and the dry run. On PowerShell a quoted program name is a string
+// and not a command: the call operator (`&`) is what runs it.
+//
+// Must pass / must refuse:
+// | case | must pass | must refuse |
+// | a printed MCP command | the words quoted for the shell | the words joined by hand |
+// | a program name that needs quoting, on PowerShell | the call operator before it | the line as a string |
+// | a program name that needs no quoting | the line as it is | the call operator |
+// | the dry run of the install, the update and the uninstall | the quoted commands | the joined ones |
+
+// The program of the client in a folder whose name holds a space: every command of the client starts with it, so
+// every line printed for the person shows the quoting of the first word too.
+const SPACED_EXECUTABLE = join('/Applications', 'Claude Code', 'claude');
+
+/** The body of `shown`, the function that quotes the words: the one place that joins them by hand. */
+function bodyOfShown(lines) {
+  const start = lines.findIndex((line) => line.includes('export function shown'));
+  const end = lines.findIndex((line, index) => index > start && line === '}');
+  return lines.slice(start, end + 1).join('\n');
+}
+
+test('on PowerShell a quoted program name is called with the call operator', () => {
+  assert.equal(shown(['C:\\Program Files\\Claude\\claude.exe', 'mcp', 'get', 'okit'], 'win32'),
+    "& 'C:\\Program Files\\Claude\\claude.exe' mcp get okit");
+  // A program name that needs no quoting is called as it is.
+  assert.equal(shown(['claude', 'mcp', 'get', 'okit'], 'win32'), 'claude mcp get okit');
+  // A word that needs quoting and is not the first one does not change the line.
+  assert.equal(shown(['claude', 'mcp', 'add', 'okit', '--', 'node', 'C:\\Program Files\\okit\\server.js'], 'win32'),
+    "claude mcp add okit -- node 'C:\\Program Files\\okit\\server.js'");
+  // POSIX never has the call operator.
+  assert.equal(shown(['C:\\Program Files\\Claude\\claude.exe', 'mcp', 'get', 'okit'], 'linux'),
+    "'C:\\Program Files\\Claude\\claude.exe' mcp get okit");
+  assert.equal(shown(['a b'], 'linux'), "'a b'");
+});
+
+test('each command of a pair is called with the operator of its own', () => {
+  const words = ['C:\\Program Files\\Claude\\claude.exe', 'mcp', 'get', 'okit'];
+  const pair = `${shown(words, 'win32')} ; ${shown(words, 'win32')}`;
+  assert.equal(pair, "& 'C:\\Program Files\\Claude\\claude.exe' mcp get okit ; & 'C:\\Program Files\\Claude\\claude.exe' mcp get okit");
+});
+
+test('no place joins the argv of an MCP command by hand: every printed MCP command is quoted', async () => {
+  // The lines that join words by hand and are not MCP commands: the registration commands of the client (the plan of
+  // the plugin, not of the MCP server) and the one inside `shown`, which is the quote of the words themselves.
+  const allowed = [
+    /\[item\.command, \.\.\.item\.args\]\.join\(' '\)/,      // the registration commands of the client
+    /\[command\.command, \.\.\.command\.args\]\.join\(' '\)/, // the registration commands of the client
+  ];
+  const files = ['register.js', 'update.js', 'index.js', 'uninstall.js', 'mcp-register.js'];
+  const joined = [];
+  for (const file of files) {
+    const lines = (await fs.readFile(new URL(`../src/install/${file}`, import.meta.url), 'utf8')).split('\n');
+    lines.forEach((line, index) => {
+      if (!line.includes(".join(' ')")) return;
+      joined.push(`${file}:${index + 1}`);
+      // The one inside `shown` is the quote of the words themselves: nowhere else.
+      const inShown = file === 'mcp-register.js' && bodyOfShown(lines).includes(line);
+      assert.ok(inShown || allowed.some((pattern) => pattern.test(line)),
+        `src/install/${file}:${index + 1} joins words by hand: ${line.trim()}`);
+    });
+  }
+  // The allow-list holds these lines and no other: a new place has to be added here on purpose.
+  assert.equal(joined.length, 6, joined.join(' / '));
+});
+
+test('the uninstall with the client missing warns with the command quoted for the shell', async (t) => {
+  const home = await fs.mkdtemp(join(tmpdir(), 'mcp-module-'));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const source = join(home, 'payload');
+  await fs.mkdir(join(source, 'skills', 'example'), { recursive: true });
+  await fs.writeFile(join(source, 'skills', 'example', 'SKILL.md'), 'skill');
+  const config = installConfig({ clients: { 'claude-code': { strategy: 'module', module: 'src/install/client-plugin.js',
+    executable: SPACED_EXECUTABLE } } });
+  const lines = [];
+  const deps = { config, fs, temporary: home, env: { HOME: home }, clientRoot: join(home, 'client'), platform: 'linux',
+    detect: async () => false, loadAdapter: async () => moduleAdapter, out: (line) => lines.push(line), run: async () => ({}) };
+  const record = { client: 'claude-code', path: SPACED };
+  const result = await register(record, deps, 'uninstall');
+  const plan = mcpPlan(record, deps, 'uninstall');
+  // The warning gives the command to run by hand, quoted for the shell.
+  const warning = lines.find((line) => /could not be changed/.test(line));
+  assert.ok(warning, lines.join('\n'));
+  // The whole warning is the text of the step, with the command as `shown` builds it.
+  assert.ok(warning.includes(fill(TEXTS.mcpFailed.en, { client: 'Claude Code',
+    reason: fill(TEXTS.mcpClientMissing.en, { executable: SPACED_EXECUTABLE }),
+    command: shown(plan.remove, deps.platform) })), warning);
+  // The program of the client holds a space: the first word is quoted whole.
+  assert.ok(warning.includes(`'${SPACED_EXECUTABLE}'`), warning);
+  // Nothing of the client ran: the client is not on the machine.
+  assert.deepEqual(result.notes, []);
+});
+
+test('the client that is not on the machine leaves the MCP commands quoted for the shell in the notes', async (t) => {
+  const home = await fs.mkdtemp(join(tmpdir(), 'mcp-manual-'));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const source = join(home, 'payload');
+  await fs.mkdir(join(source, 'skills', 'example'), { recursive: true });
+  await fs.writeFile(join(source, 'skills', 'example', 'SKILL.md'), 'skill');
+  const config = installConfig({ clients: { 'claude-code': { executable: SPACED_EXECUTABLE } } });
+  const deps = { config, fs, temporary: home, env: { HOME: home }, clientRoot: join(home, 'client'), platform: 'linux',
+    detect: async () => false, loadAdapter: async () => moduleAdapter, out: () => {}, run: async () => ({}) };
+  const record = { client: 'claude-code', path: SPACED };
+  // The install: the note holds the add of the entry, with the path of the server quoted whole.
+  const installed = await register(record, deps, 'install');
+  const plan = mcpPlan(record, deps, 'install');
+  const note = installed.notes.find((line) => /mcp add/.test(line));
+  assert.ok(note, JSON.stringify(installed.notes));
+  assert.ok(note.includes(`  ${shown(plan.add, deps.platform)}`), note);
+  assert.ok(note.includes(`'${SPACED_SERVER}'`), note);
+  // The uninstall: the note holds the remove of the entry.
+  const removed = await register(record, deps, 'uninstall');
+  const removal = mcpPlan(record, deps, 'uninstall');
+  const other = removed.notes.find((line) => /mcp remove/.test(line));
+  assert.ok(other, JSON.stringify(removed.notes));
+  assert.ok(other.includes(`  ${shown(removal.remove, deps.platform)}`), other);
+  assert.ok(other.includes(`'${SPACED_EXECUTABLE}'`), other);
+});
+
+test('the command of the MCP step that failed unexpectedly is quoted for the shell', async () => {
+  const record = { ...RECORD, path: SPACED };
+  const lines = [];
+  const base = createPresenter({ write: (line) => lines.push(line), verbose: true });
+  // The presenter refuses the line of the command: the step throws and the warning gives the command by hand.
+  const ui = { ...base, detail: () => { throw new Error('the presenter refused the line'); } };
+  const client = fakeClient(null);
+  const notes = await mcpStep(record, { ...depsOf(client.run), ui, platform: 'linux' }, 'install');
+  const plan = mcpPlan(record, depsOf(() => {}), 'install');
+  assert.deepEqual(notes, []);
+  const warning = lines.find((line) => /could not be changed/.test(line));
+  assert.ok(warning, lines.join('\n'));
+  assert.ok(warning.includes(shown(plan.add, 'linux')), warning);
+  assert.ok(warning.includes(`'${SPACED_SERVER}'`), warning);
+});
+
+/** The world of the dry runs: the client whose program holds a space, in a destination that holds one too. */
+async function spacedWorld(t) {
+  const f = await fixture(t);
+  const destination = join(f.home, 'Application Support', 'data');
+  await fs.mkdir(destination, { recursive: true });
+  const saved = JSON.parse(await fs.readFile(join(f.root, 'config.json'), 'utf8'));
+  saved.install.destination = destination;
+  saved.install.clients = { 'claude-code': { executable: SPACED_EXECUTABLE } };
+  await fs.writeFile(join(f.root, 'config.json'), JSON.stringify(saved));
+  const config = installConfig(saved.install);
+  const path = join(destination, '1.0.0-claude-code');
+  return { ...f, destination, config, path, server: join(path, 'src/mcp/server.js') };
+}
+
+test('the dry run of the install shows the MCP commands quoted for the shell', async (t) => {
+  const f = await spacedWorld(t);
+  assert.equal(await main(['install', '--client', 'claude-code', '--dry-run', '--verbose'], f.io), 0, f.output.join('\n'));
+  const plan = mcpPlan({ client: 'claude-code', path: f.path }, { config: f.config }, 'install');
+  const lines = f.output.filter((line) => /mcp add/.test(line));
+  assert.equal(lines.length, 1, f.output.join('\n'));
+  assert.ok(lines[0].includes(shown(plan.add, 'linux')), lines[0]);
+  assert.ok(lines[0].includes(`'${f.server}'`), lines[0]);
+  // Nothing ran: the dry run shows the plan.
+  assert.deepEqual(f.commands.filter((item) => item.args[0] === 'mcp'), []);
+});
+
+test('the dry run of the installation that is already there shows the MCP commands quoted for the shell', async (t) => {
+  const f = await spacedWorld(t);
+  assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
+  f.clear();
+  assert.equal(await main(['install', '--client', 'claude-code', '--dry-run', '--verbose'], f.io), 0, f.output.join('\n'));
+  const plan = mcpPlan({ client: 'claude-code', path: f.path }, { config: f.config }, 'install');
+  const lines = f.output.filter((line) => /mcp add/.test(line));
+  assert.equal(lines.length, 1, f.output.join('\n'));
+  assert.ok(lines[0].includes(shown(plan.add, 'linux')), lines[0]);
+  assert.ok(lines[0].includes(`'${f.server}'`), lines[0]);
+});
+
+test('the dry run of the rollback shows the MCP commands quoted for the shell', async (t) => {
+  const f = await spacedWorld(t);
+  assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
+  f.setVersion('2.0.0');
+  assert.equal(await main(['update'], f.io), 0, f.output.join('\n'));
+  f.clear();
+  assert.equal(await main(['update', '--rollback', '--dry-run', '--verbose'], f.io), 0, f.output.join('\n'));
+  const plan = mcpPlan({ client: 'claude-code', path: f.path }, { config: f.config }, 'update');
+  const lines = f.output.filter((line) => /mcp add/.test(line));
+  assert.equal(lines.length, 1, f.output.join('\n'));
+  assert.ok(lines[0].includes(shown(plan.add, 'linux')), lines[0]);
+  assert.ok(lines[0].includes(`'${f.server}'`), lines[0]);
+});
+
+test('the dry run of the uninstall shows the MCP commands quoted for the shell', async (t) => {
+  const f = await spacedWorld(t);
+  assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
+  f.clear();
+  assert.equal(await main(['uninstall', '--dry-run', '--verbose'], f.io), 0, f.output.join('\n'));
+  const plan = mcpPlan({ client: 'claude-code', path: f.path }, { config: f.config }, 'uninstall');
+  const lines = f.output.filter((line) => /mcp remove/.test(line));
+  assert.equal(lines.length, 1, f.output.join('\n'));
+  assert.ok(lines[0].includes(shown(plan.remove, 'linux')), lines[0]);
+  // The remove never names the server: the program of the client holds a space, and it is quoted whole.
+  assert.ok(lines[0].includes(`'${SPACED_EXECUTABLE}'`), lines[0]);
 });

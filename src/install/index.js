@@ -12,7 +12,7 @@ import { latestRelease } from './release.js';
 import { downloadRelease } from './download.js';
 import { place, readRecords } from './place.js';
 import { registrationPlan, mcpNotes } from './register.js';
-import { mcpPlan, ensureMcp } from './mcp-register.js';
+import { mcpPlan, ensureMcp, shown } from './mcp-register.js';
 import { activate, backup, rollback } from './update.js';
 import { uninstall } from './uninstall.js';
 import { localSource } from './source.js';
@@ -271,7 +271,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
       const next = ui.sequence(planSteps({ upToDate: true, quota, link }), { client: label });
       ui.row(ui.text('upToDate'), 'ok', selected.version);
       // The MCP entry of this installation is read again: an installation whose first add failed is fixed by this one.
-      if (deps.dryRun) mcpPlan(current, deps, 'install')?.steps.forEach((words) => ui.detail(words.join(' ')));
+      if (deps.dryRun) mcpPlan(current, deps, 'install')?.steps.forEach((words) => ui.detail(shown(words, deps.platform)));
       else if (!flags.check) {
         const mcp = await ensureMcp(current, deps);
         for (const note of mcpNotes(mcp, deps, 'install')) ui.note(note);
@@ -306,7 +306,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
     // A real run prints each command as it runs it (register); only a dry run shows the plan.
     if (deps.dryRun) {
       registrationPlan(planned, deps, refreshing ? 'update' : 'install').forEach((item) => ui.detail([item.command, ...item.args].join(' ')));
-      mcpPlan(planned, deps, refreshing ? 'update' : 'install')?.steps.forEach((words) => ui.detail(words.join(' ')));
+      mcpPlan(planned, deps, refreshing ? 'update' : 'install')?.steps.forEach((words) => ui.detail(shown(words, deps.platform)));
     }
     if (deps.dryRun) {
       next(getKey).plan(getDetail, getNotes);

@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { detect } from './menu.js';
 import { quote } from './link.js';
 import { presenterOf, pick, clientLabel } from './present.js';
-import { mcpPlan, registerMcp } from './mcp-register.js';
+import { mcpPlan, registerMcp, shown } from './mcp-register.js';
 
 /**
  * The command of the SessionStart hook of an installation. The one source of the string: the installer writes it into the
@@ -70,7 +70,7 @@ export async function register(record, deps, action = 'install') {
         // The client is not on the machine: its entry cannot be taken out by us, so the command is given by hand.
         ui.warn(ui.text('mcpFailed', { client: clientLabel(record.client),
           reason: ui.text('mcpClientMissing', { executable: settings.executable }),
-          command: mcp.remove.join(' ') }));
+          command: shown(mcp.remove, deps.platform) }));
       }
     }
     await removeOwnedModule(record, deps);
@@ -78,7 +78,7 @@ export async function register(record, deps, action = 'install') {
   }
   if (!await (deps.detect ?? detect)(settings.executable, deps)) {
     const notes = [ui.text('registerMissingNext'), ...commands.map((item) => `  ${[item.command, ...item.args].join(' ')}`)];
-    if (mcp) notes.push(...mcpManual(record, mcp, action).map((words) => `  ${words.join(' ')}`));
+    if (mcp) notes.push(...mcpManual(record, mcp, action).map((words) => `  ${shown(words, deps.platform)}`));
     if (settings.strategy === 'module') notes.push(ui.text('registerModuleNext', { path: join(record.path, settings.module) }));
     return { status: 'skipped', detail: ui.text('registerMissing', { executable: settings.executable }), notes };
   }
@@ -112,7 +112,7 @@ export async function mcpStep(record, deps, action) {
   } catch (error) {
     // Nothing of the MCP step throws into the installer: an unexpected failure is a warning.
     const reason = String(error?.message ?? error);
-    const command = mcpWords(record, deps, action).join(' ');
+    const command = shown(mcpWords(record, deps, action), deps.platform);
     return mcpNotes({ status: 'failed', reason,
       detail: presenterOf(deps).text('mcpFailed', { client: clientLabel(record.client), reason, command }) }, deps, action);
   }

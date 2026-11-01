@@ -41,12 +41,20 @@ const quotedWord = (word, platform) => {
 /**
  * The argv of a command as one command line: the clients take an argv, a person pastes one line.
  *
+ * On PowerShell a quoted program name is a string and not a command: the call operator (`&`) is what runs it. So
+ * there, a first word that needed quoting is called with it; a first word that needs no quoting is called as it is,
+ * and POSIX never has the operator.
+ *
  * @param {string[]} words the argv of the command
  * @param {string} [platform] the system of the run (the shell of the person: POSIX or PowerShell)
  * @returns {string} the command line, every word a shell would read differently quoted
  */
 export function shown(words, platform = process.platform) {
-  return words.map((word) => quotedWord(word, platform)).join(' ');
+  const quoted = words.map((word) => quotedWord(word, platform));
+  const line = quoted.join(' ');
+  // The first word is the program: when it had to be quoted, PowerShell reads it as a string, not as a command.
+  if (platform === 'win32' && quoted.length > 0 && quoted[0] !== String(words[0])) return `& ${line}`;
+  return line;
 }
 
 /**
