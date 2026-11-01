@@ -2,6 +2,7 @@ import { UsageError } from './exit.js';
 import { join } from 'node:path';
 import { saveRecord } from './place.js';
 import { register, loadAdapter, registrationPlan } from './register.js';
+import { mcpPlan } from './mcp-register.js';
 import { applyLink } from './link.js';
 import { presenterOf, headerValues, clientLabel, finish, finishLink } from './present.js';
 
@@ -46,6 +47,7 @@ export async function rollback(current, deps) {
   const detail = `${current.version} -> ${record.version}`;
   // A real run prints each command as it runs it (register); only a dry run shows the plan.
   if (deps.dryRun) registrationPlan(record, deps, 'update').forEach((item) => ui.detail([item.command, ...item.args].join(' ')));
+  if (deps.dryRun) mcpPlan(record, deps, 'update')?.steps.forEach((words) => ui.detail(words.join(' ')));
   if (deps.dryRun) {
     next('rollback').plan(detail);
     next('register').plan();

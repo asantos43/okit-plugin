@@ -217,7 +217,7 @@ const CLIENT = record({
   executable: word, strategy: { kind: 'choice', values: ['marketplace', 'module'] }, install: optional(flag), update: optional(flag),
   module: optional(word), configEnv: variable, rootParts: filled(word), xdgEnv: optional(variable), xdgParts: optional(filled(word)),
   // The MCP server of the client: the scope its own `mcp` commands take (null: the client takes none).
-  mcp: optional(record({ scope: optional(nullable(word)) })),
+  mcp: optional(record({ scope: optional(nullable({ kind: 'choice', values: ['user', 'local', 'project'] })) })),
 }, {
   // The pair reads one folder: a variable that names it and the folders under it, both or neither.
   refine: (client) => ((client.xdgEnv === undefined) !== (client.xdgParts === undefined)
@@ -268,7 +268,10 @@ export const INSTALL_SCHEMA = Object.freeze(record({
   name: nullable(word),
   manifest: word,
   // The MCP server of the plugin: the name of the entry in the client and the file inside the installation.
-  mcp: record({ name: word, server: word }),
+  mcp: record({
+    name: text({ pattern: /^[A-Za-z0-9][A-Za-z0-9._-]*$/, rule: 'mcpName' }),
+    server: text({ pattern: /^(?![\\/])(?![A-Za-z]:)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/, rule: 'mcpServer' }),
+  }),
   clients: table(CLIENT),
   pathExtensions: list(text({ empty: true })),
   selfcheck: record({

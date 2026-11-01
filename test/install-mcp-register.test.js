@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { main } from '../src/cli.js';
 import { installConfig } from '../src/install/config.js';
-import { mcpPlan, registerMcp } from '../src/install/mcp-register.js';
+import { ensureMcp, mcpPlan, pointsAt, registerMcp } from '../src/install/mcp-register.js';
 import { TEXTS } from '../src/install/present.js';
 import { fixture } from './helpers/install-fixture.js';
 
@@ -20,6 +20,10 @@ import { fixture } from './helpers/install-fixture.js';
 // | an uninstall | the remove of our entry | the remove of an entry that is not ours |
 // | a client that refuses | the install goes on | a failed installation |
 // | a dry run | the plan, and nothing run | any command of the client |
+//
+// D110 correction round 1: the entry is ours when the client names our path, whole (a path that only holds ours as a
+// part of it is not ours), a read that fails is not an absent entry (nothing is written), OpenCode is never asked,
+// the installation that is already there registers its entry again, and a rollback shows the plan.
 
 const CONFIG = installConfig({});
 const RECORD = { client: 'claude-code', path: join('/opt', 'okit-plugin', '1.0.0-claude-code') };
@@ -27,7 +31,7 @@ const SERVER = join(RECORD.path, 'src/mcp/server.js');
 const PREVIOUS = { client: 'claude-code', path: join('/opt', 'okit-plugin', '0.9.0-claude-code') };
 
 /** The dependencies of the step: the installer's settings and the runner of the client. */
-const depsOf = (run) => ({ config: CONFIG, run, out: () => {} });
+const depsOf = (run, config = CONFIG) => ({ config, run, out: () => {} });
 
 /** The client of the test: what it holds for the entry `okit` and the commands it ran. */
 function fakeClient(entry) {
@@ -35,7 +39,10 @@ function fakeClient(entry) {
   const run = async (input) => {
     calls.push(input);
     if (input.args[0] === 'mcp' && input.args[1] === 'get') {
-      if (!entry) throw Object.assign(new Error('No MCP server found: okit'), { code: 1 });
+      const name = input.args[3];
+      // The real clients answer that they hold no entry with this name, print it and exit with 1.
+      if (!entry) throw Object.assign(new Error(`Command failed: ${input.command} mcp get ${name}`), { code: 1,
+        stdout: `No MCP server named "${name}" found.\n`, stderr: '' });
       return { stdout: entry };
     }
     return {};
@@ -59,6 +66,13 @@ test('the plan of each client is the argv of its own mcp commands', () => {
   // The dry run shows the read and the write of the action.
   assert.deepEqual(plan.steps, [plan.get, plan.add]);
   assert.deepEqual(mcpPlan(RECORD, depsOf(() => {}), 'uninstall').steps, [plan.get, plan.remove]);
+});
+
+test('the commands of the client run with the timeout of the installer', async () => {
+  const client = fakeClient(null);
+  await registerMcp(RECORD, depsOf(client.run), 'install');
+  assert.ok(client.calls.length >= 2);
+  for (const call of client.calls) assert.equal(call.timeout, CONFIG.timeoutMs);
 });
 
 test('an entry the client does not hold is added', async () => {
@@ -95,6 +109,80 @@ test('an entry that is not ours is kept, with a warning', async () => {
   assert.equal(result.status, 'kept');
   assert.match(result.detail, /not ours/, result.detail);
   assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('a path that only holds ours as a part of it is not ours', async () => {
+  const foreign = [
+    `/backup${SERVER}`,
+    `${SERVER}.backup`,
+    `${SERVER}/x`,
+    join('/opt', 'okit-plugin', '1.0.0', 'src/mcp/server.js'),
+  ];
+  for (const path of foreign) {
+    const client = fakeClient(`okit\n  args: ${path}\n`);
+    const result = await registerMcp(RECORD, depsOf(client.run), 'install');
+    assert.equal(result.status, 'kept', path);
+    assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']], path);
+    // The uninstall leaves it alone too.
+    const other = fakeClient(`okit\n  args: ${path}\n`);
+    const removed = await registerMcp(RECORD, depsOf(other.run), 'uninstall');
+    assert.equal(removed.status, 'kept', path);
+    assert.deepEqual(argvOf(other), [['mcp', 'get', 'okit']], path);
+  }
+});
+
+test('on Windows the case and the separator of the path do not matter', () => {
+  const path = 'C:\\okit\\1.0.0-claude-code\\src\\mcp\\server.js';
+  assert.equal(pointsAt(`okit\n  args: ${path}\n`, [path], 'win32'), true);
+  assert.equal(pointsAt(`okit\n  args: ${path.toLowerCase().replaceAll('\\', '/')}\n`, [path], 'win32'), true);
+  assert.equal(pointsAt(`okit\n  args: ${path}.backup\n`, [path], 'win32'), false);
+  assert.equal(pointsAt(`okit\n  args: ${path.replace('1.0.0-claude-code', '1.0.0')}\n`, [path], 'win32'), false);
+});
+
+test('a name or a scope the client would read as a flag never reaches its argv', () => {
+  const named = { ...CONFIG, mcp: { ...CONFIG.mcp, name: '--scope' } };
+  assert.equal(mcpPlan(RECORD, depsOf(() => {}, named)), null);
+  const scoped = { ...CONFIG, clients: { ...CONFIG.clients,
+    'claude-code': { ...CONFIG.clients['claude-code'], mcp: { scope: '-x' } } } };
+  assert.equal(mcpPlan(RECORD, depsOf(() => {}, scoped)), null);
+});
+
+test('a read that failed is not an absent entry: nothing is written', async () => {
+  const failures = [
+    Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' }),
+    Object.assign(new Error('no answer within 15000 ms'), { code: 'ETIMEDOUT', killed: true, signal: 'SIGKILL' }),
+    Object.assign(new Error('Command failed: claude mcp get okit'), { code: 2, stdout: '', stderr: 'permission denied' }),
+    Object.assign(new Error('Command failed: claude mcp get okit'), { code: 1, stdout: 'the client is broken\n', stderr: '' }),
+  ];
+  for (const error of failures) {
+    const client = fakeClient(null);
+    const run = async (input) => { client.calls.push(input); if (input.args[1] === 'get') throw error; return {}; };
+    const result = await registerMcp(RECORD, depsOf(run), 'install');
+    assert.equal(result.status, 'failed', error.message);
+    assert.match(result.reason, /ENOENT|ETIMEDOUT|2:|1:/, result.reason);
+    // The command the person can run by hand is in the warning.
+    assert.match(result.detail, /mcp add --scope user okit --/, result.detail);
+    assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']], error.message);
+  }
+});
+
+test('a read that answers that the client holds no entry is an absent entry', async () => {
+  const client = fakeClient(null);
+  const result = await registerMcp(RECORD, depsOf(client.run), 'install');
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(argvOf(client).map((words) => words[1]), ['get', 'add']);
+});
+
+test('a run that answers with the code of an absent entry is an absent entry too', async () => {
+  const calls = [];
+  const run = async (input) => {
+    calls.push(input);
+    if (input.args[1] === 'get') return { code: 1, stdout: 'No MCP server named "okit" found.\n', stderr: '' };
+    return {};
+  };
+  const result = await registerMcp(RECORD, depsOf(run), 'install');
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(calls.map((call) => call.args[1]), ['get', 'add']);
 });
 
 test('the uninstall takes our entry out and leaves the entries that are not ours alone', async () => {
@@ -199,4 +287,87 @@ test('the uninstall takes out the entry that points at the installation this one
   const result = await registerMcp({ ...RECORD, previous: { path: PREVIOUS.path } }, depsOf(client.run), 'uninstall');
   assert.equal(result.status, 'ok');
   assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit'], ['mcp', 'remove', 'okit', '--scope', 'user']]);
+});
+
+test('a user config that gives OpenCode an MCP scope still runs no MCP command', async () => {
+  const config = installConfig({ clients: { opencode: { mcp: { scope: 'user' } } } });
+  assert.equal(config.clients.opencode.mcp.scope, 'user');
+  const calls = [];
+  const deps = { config, run: async (input) => { calls.push(input); }, detect: async () => true, out: () => {} };
+  const record = { client: 'opencode', path: RECORD.path };
+  assert.equal(mcpPlan(record, deps), null);
+  assert.equal(await registerMcp(record, deps, 'install'), null);
+  assert.equal(await ensureMcp(record, deps), null);
+  assert.deepEqual(calls, []);
+});
+
+test('the installation that is already there registers its entry again', async (t) => {
+  const f = await fixture(t);
+  const run = f.io.run;
+  f.io.run = async (input) => {
+    if (input.args?.[0] === 'mcp' && input.args[1] === 'add') { f.commands.push(input); throw new Error('the client refused the entry'); }
+    return run(input);
+  };
+  assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
+  assert.deepEqual(f.commands.filter((item) => item.args[0] === 'mcp').map((item) => item.args[1]), ['get', 'add']);
+  // The same version again: the entry that failed to be added is added now.
+  f.io.run = run;
+  f.clear();
+  assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
+  assert.deepEqual(f.commands.filter((item) => item.args[0] === 'mcp').map((item) => item.args[1]), ['get', 'add', 'get', 'add']);
+});
+
+test('the installation that is already there and holds our entry reads it and writes nothing', async (t) => {
+  const f = await fixture(t);
+  assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
+  const before = f.commands.length;
+  f.clear();
+  assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
+  const commands = f.commands.slice(before).filter((item) => item.args[0] === 'mcp');
+  assert.deepEqual(commands.map((item) => item.args), [['mcp', 'get', 'okit']]);
+});
+
+test('a dry run of the installation that is already there shows the plan of the MCP step', async (t) => {
+  const f = await fixture(t);
+  assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
+  const before = f.commands.length;
+  f.clear();
+  assert.equal(await main(['install', '--client', 'claude-code', '--dry-run', '--verbose'], f.io), 0, f.output.join('\n'));
+  assert.deepEqual(f.commands.slice(before).filter((item) => item.args[0] === 'mcp'), []);
+  assert.ok(f.output.some((line) => /claude mcp get okit/.test(line)), f.output.join('\n'));
+  assert.ok(f.output.some((line) => /claude mcp add --scope user okit --/.test(line)), f.output.join('\n'));
+});
+
+test('a rollback points the MCP entry at the version it restores', async (t) => {
+  const f = await fixture(t);
+  assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
+  f.setVersion('2.0.0');
+  assert.equal(await main(['update'], f.io), 0, f.output.join('\n'));
+  assert.equal(f.mcp.entry('claude', 'okit').args.at(-1), join(f.destination, '2.0.0-claude-code', 'src/mcp/server.js'));
+  f.clear();
+  assert.equal(await main(['update', '--rollback'], f.io), 0, f.output.join('\n'));
+  assert.equal(f.mcp.entry('claude', 'okit').args.at(-1), join(f.destination, '1.0.0-claude-code', 'src/mcp/server.js'));
+});
+
+test('a rollback in a dry run shows the plan of the MCP step and runs nothing', async (t) => {
+  const f = await fixture(t);
+  assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
+  f.setVersion('2.0.0');
+  assert.equal(await main(['update'], f.io), 0, f.output.join('\n'));
+  const before = f.commands.length;
+  f.clear();
+  assert.equal(await main(['update', '--rollback', '--dry-run', '--verbose'], f.io), 0, f.output.join('\n'));
+  assert.deepEqual(f.commands.slice(before), []);
+  assert.ok(f.output.some((line) => /claude mcp get okit/.test(line)), f.output.join('\n'));
+});
+
+test('a failed read that says the entry is absent but exits with another code is a failure, not an absent entry', async () => {
+  const client = fakeClient(null);
+  const run = async (input) => {
+    if (input.args[1] === 'get') throw Object.assign(new Error('failed'), { code: 2, stderr: 'No MCP server named okit' });
+    return client.run(input);
+  };
+  const result = await registerMcp(RECORD, depsOf(run), 'install');
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(client.argv(), []);
 });

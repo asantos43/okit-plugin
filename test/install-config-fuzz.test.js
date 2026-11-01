@@ -136,6 +136,29 @@ test('every invalid value of every key is one refusal of usage that names the ke
   }
 });
 
+test('the MCP settings of the installer are refused when the client could not read them', () => {
+  const refused = [
+    ['mcp.name', '-okit'], ['mcp.name', '--scope'], ['mcp.name', 'okit plugin'], ['mcp.name', 'okit/other'],
+    ['mcp.server', '../outside.js'], ['mcp.server', '/absolute/server.js'], ['mcp.server', 'C:/server.js'],
+    ['mcp.server', 'src/../server.js'], ['mcp.server', 'src\\server.js'], ['mcp.server', 'server with space.js'],
+    ['clients.claude-code.mcp.scope', 'global'], ['clients.claude-code.mcp.scope', ''],
+    ['clients.codex.mcp.scope', 'Project'],
+  ];
+  for (const [path, value] of refused) {
+    let thrown;
+    try { installConfig(withValue(path, value).install); } catch (error) { thrown = error; }
+    assert.ok(thrown, `${path} = ${JSON.stringify(value)} was accepted`);
+    assert.equal(kindOf(thrown), 'usage', `${path} = ${JSON.stringify(value)}: ${thrown.message}`);
+    assert.equal(exitCodeFor(kindOf(thrown)), 2);
+    assert.match(thrown.message, new RegExp(`^Invalid install\\.${escape(path)}: `), JSON.stringify(value));
+  }
+  // A configuration without the MCP keys is still valid: the defaults fill them in.
+  assert.doesNotThrow(() => installConfig({}));
+  assert.doesNotThrow(() => installConfig({ clients: { 'claude-code': { mcp: { scope: 'local' } } } }));
+  assert.doesNotThrow(() => installConfig({ clients: { codex: { mcp: { scope: null } } } }));
+  assert.equal(installConfig({ mcp: { name: 'other', server: 'src/mcp/other.js' } }).mcp.name, 'other');
+});
+
 test('every invalid value of every key, in every command and language: exit 2, the key and rule in the language, the file intact', async (t) => {
   const f = await fixture(t);
   const file = join(f.root, 'config.json');

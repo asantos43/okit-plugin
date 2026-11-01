@@ -27,6 +27,8 @@ export const RULES = Object.freeze({
   xdgPair: { en: 'xdgEnv and xdgParts together, or neither', pt: 'xdgEnv e xdgParts juntos, ou nenhum dos dois', example: 'xdgEnv and xdgParts together, or neither' },
   differs: { en: 'a text different from install.path.begin', pt: 'um texto diferente de install.path.begin', example: 'a text different from install.path.begin' },
   knownShell: { en: 'the name of a shell listed in install.path.shells', pt: 'o nome de um shell listado em install.path.shells', example: 'the name of a shell listed in install.path.shells' },
+  mcpName: { en: 'a name that starts with a letter or a digit and holds only letters, digits, dots, dashes and underscores', pt: 'um nome que começa com uma letra ou um dígito e só tem letras, dígitos, pontos, traços e sublinhados', example: 'a name that starts with a letter or a digit and holds only letters, digits, dots, dashes and underscores' },
+  mcpServer: { en: 'a relative path with forward slashes and no .. segment', pt: 'um caminho relativo com barras normais e sem segmento ..', example: 'a relative path with forward slashes and no .. segment' },
 });
 
 export const fillRule = (template, parts) => template.replace(/%(\d)/g, (_, index) => parts[Number(index) - 1]);

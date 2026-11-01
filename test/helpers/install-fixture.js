@@ -76,7 +76,9 @@ export function mcpWorld() {
       const registry = registryOf(executable);
       if (verb === 'get') {
         const entry = registry.get(name);
-        if (!entry) throw Object.assign(new Error(`No MCP server found: ${name}`), { code: 1 });
+        // The real clients answer that they hold no entry with this name, print it and exit with 1.
+        if (!entry) throw Object.assign(new Error(`Command failed: ${executable} mcp get ${name}`), { code: 1,
+          stdout: `No MCP server named "${name}" found.\n`, stderr: '' });
         return { stdout: `${name}\n  command: ${entry.command}\n  args: ${entry.args.join(' ')}\n` };
       }
       if (verb === 'add') {
@@ -88,6 +90,8 @@ export function mcpWorld() {
       if (verb === 'remove') { registry.delete(name); return {}; }
       return {};
     },
+    /** The entry a client holds now, as the tests read it back. */
+    entry: (executable, name) => registryOf(executable).get(name),
   };
 }
 
@@ -135,6 +139,6 @@ export async function fixture(t, platform = 'linux', { tty = false, ask, read } 
   // Goldens normalize folders and padding; assertStatusColumns checks raw padding.
   const lines = () => output.map((line) => line.replaceAll(destination, '<data>').replaceAll(bin, '<bin>').replaceAll(scratch, '<scratch>')
     .replaceAll(home, '<home>').replace(/ {2,}/g, '  ').trimEnd());
-  return { home, root, destination, bin, scratch, io, output, commands, lines, name,
+  return { home, root, destination, bin, scratch, io, output, commands, lines, name, mcp,
     setVersion: (value) => { version = value; }, clear: () => { output.length = 0; } };
 }

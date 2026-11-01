@@ -88,8 +88,15 @@ export async function register(record, deps, action = 'install') {
  * The MCP step of the registration: what it did is a note of the step, what it could not do is a warning. A failure
  * of the MCP registration never fails the installation (the same posture as the role).
  */
-async function mcpStep(record, deps, action) {
-  const result = await registerMcp(record, deps, action);
+export async function mcpStep(record, deps, action) {
+  return mcpNotes(await registerMcp(record, deps, action), deps, action);
+}
+
+/**
+ * What the MCP step says: a note of the step when it did what it should, a warning when it could not (the entry that
+ * is not ours, or the one that could not be read). The warning never fails the installation.
+ */
+export function mcpNotes(result, deps, action) {
   if (!result) return [];
   const ui = presenterOf(deps);
   const warning = result.status === 'failed' || (result.status === 'kept' && action !== 'uninstall');
