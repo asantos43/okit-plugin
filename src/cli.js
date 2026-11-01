@@ -146,6 +146,7 @@ const USAGE_LINES = [
   '       {command} daemon status [--table [--locale en|pt-BR]]',
   '       {command} autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       {command} status [--all] [--client <name>] [--locale en|pt-BR]',
+  '       {command} doctor [--client <c>] [--verbose] [--locale en|pt-BR]',
   '       {command} env report [--client <name>] [--locale en|pt-BR]',
   '       {command} actors [--all] [--client <name>] [--json] [--locale en|pt-BR]',
   '       {command} config show',
@@ -553,6 +554,23 @@ async function statusCommand(ctx, rawArgs) {
   });
 }
 
+/** Flags of `doctor`: `--client <name>` or `--client=<name>`, `--verbose`, and `--locale <value>` (read by `resolveLocale`). */
+function doctorFlags(flags) {
+  const found = { verbose: false };
+  for (let index = 0; index < flags.length; index += 1) {
+    const flag = flags[index];
+    if (flag === '--locale') {
+      if (flags[index + 1] === undefined || flags[index + 1].startsWith('--')) return { unknown: 'Missing value for --locale' };
+      index += 1;
+    } else if (flag === '--verbose') found.verbose = true;
+    else if (flag === '--client' || flag.startsWith('--client=')) {
+      found.client = flag === '--client' ? flags[++index] ?? '' : flag.slice('--client='.length);
+      if (!CLIENTS.includes(found.client)) return { unknown: `Unknown flag: ${flag}` };
+    } else return { unknown: `Unknown flag: ${flag}` };
+  }
+  return { found };
+}
+
 // The daemon half runs with the process spawner, so a headless pass starts the
 // clients themselves; an injected spawner replaces it in a test.
 function depsOf(ctx) {
@@ -698,7 +716,7 @@ function installerLifecycle(ctx, io) {
 const separateLocale = (args) => args.flatMap((arg) => (arg.startsWith('--locale=') ? ['--locale', arg.slice('--locale='.length)] : [arg]));
 
 const HELP_FLAGS = ['--help', '-h'];
-const HELPED_GROUPS = ['setup', 'install', 'update', 'uninstall', 'kit', 'status'];
+const HELPED_GROUPS = ['setup', 'install', 'update', 'uninstall', 'kit', 'status', 'doctor'];
 
 /** Whether the line asks for the help text: a help flag where a group or an action would be, or anywhere after an installer's group. */
 function wantsHelp([group, action, ...rest]) {
@@ -747,6 +765,8 @@ export async function main(argv = [], io = {}) {
     fs: io.fs ?? filesystem,
     spawn: io.spawn,
     run: io.run ?? runCommand,
+    // The scratch folder of the caller: the doctor runs its own checks there, never in the system one.
+    tmpdir: io.tmpdir,
     write: io.write,
     writeConfig: io.writeConfig,
     signal: io.signal,
@@ -833,6 +853,14 @@ export async function main(argv = [], io = {}) {
     if (group === 'status') {
       // `okit-plugin status` takes no action, so the flag lands where one would be.
       return await statusCommand(ctx, action === undefined ? args : [action, ...args]);
+    }
+    if (group === 'doctor') {
+      // `okit-plugin doctor` takes no action either, so its first flag lands where one would be.
+      const flags = action === undefined ? args : [action, ...args];
+      return await enter(ctx, separateLocale(flags), doctorFlags, async ({ locale, found, install: config }) => {
+        const { doctorCommand } = await import('./doctor/command.js');
+        return await doctorCommand(ctx, { locale, config, verbose: found.verbose, client: found.client });
+      });
     }
     // `okit-plugin smoke` takes no action either, so its first flag lands where one would be.
     if (group === 'smoke') return await smokeCommand(ctx, action === undefined ? args : [action, ...args], io);

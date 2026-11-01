@@ -291,7 +291,7 @@ test('I9: a saved language that is not one is exit 2 in the standalone setup', a
 // Round 12: help, status, the wrapper and the exit codes, asked of every language source, not of one example.
 
 const HELP_LINES = [['--help'], ['-h'], ['setup', '--help'], ['install', '--help'], ['update', '-h'], ['uninstall', '--help'],
-  ['kit', '--help'], ['status', '--help'], ['daemon', '--help'], ['config', '--help']];
+  ['kit', '--help'], ['status', '--help'], ['doctor', '--help'], ['daemon', '--help'], ['config', '--help']];
 // What only one language's usage text says: its head, the default of --locale, the state-root line and the advice.
 const USAGE_WORDS = {
   en: { has: [/^usage: /m, /— default: language/, /OKWORK_HOME names the state root/, /Choose the language once/], not: /\buso:|padrão|OKWORK_HOME indica|Escolha o idioma/ },

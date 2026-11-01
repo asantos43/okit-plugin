@@ -17,7 +17,8 @@ import { fixture } from './helpers/install-fixture.js';
 
 const LOCALES = ['en', 'pt-BR'];
 const COMMANDS = [
-  ['install', '--client', 'claude-code', '--dry-run'], ['update'], ['uninstall'], ['setup', '--defaults'], ['kit'], ['status'], ['config', 'show'],
+  ['install', '--client', 'claude-code', '--dry-run'], ['update'], ['uninstall'], ['setup', '--defaults'], ['kit'], ['status'],
+  ['doctor'], ['config', 'show'],
 ];
 const LEAK = /TypeError|RangeError|undefined|\bat .*\(.*:\d+:\d+\)|node:internal/;
 const ENGLISH_RULE = /\b(non-empty|an integer from|a list of|true or false|an object|a name without|text, which may|an HTTP header|environment variable name|an address that)/;

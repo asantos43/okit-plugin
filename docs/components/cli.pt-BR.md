@@ -20,6 +20,7 @@ Cada linha mostra o comando e um exemplo; substitua <id> pelo identificador reto
 | `okit-plugin env report` | Consulta cliente, modelos, cota, pastas e soluções | `okit-plugin env report` |
 | `okit-plugin actors` | Consulta opções de modelo/esforço | `okit-plugin actors --all --json` |
 | `okit-plugin status` | Consulta cota e vagas livres | `okit-plugin status --all` |
+| `okit-plugin doctor` | Diagnostica a instalação (Node, registro do MCP, autoverificação, arquivos de estado, sessão, início automático, daemon) com uma linha de correção por falha; só lê | `okit-plugin doctor --client codex` |
 | `okit-plugin config show` | Mostra ajustes efetivos, origem e efeito | `okit-plugin config show` |
 | `okit-plugin config get` | Lê um ajuste | `okit-plugin config get limits.global` |
 | `okit-plugin config set` | Valida e salva um ajuste permitido | `okit-plugin config set limits.global 3` |

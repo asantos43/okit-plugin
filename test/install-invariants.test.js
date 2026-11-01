@@ -34,6 +34,8 @@ async function installerSources() {
   for (const folder of ['src/install', 'src/setup']) {
     for (const file of await walkJs(folder)) files.push({ file, source: await read(file) });
   }
+  // The doctor of the command line prints through the same presenter and the same door.
+  files.push({ file: 'src/doctor/command.js', source: await read('src/doctor/command.js') });
   // src/cli.js is the whole program; the installer owns the parts that install, set up and probe the kit.
   const cli = await read('src/cli.js');
   const slice = (from, to) => {
@@ -57,7 +59,7 @@ async function installerSources() {
 /** The calls that put text on the screen: the presenter's lines and the writers the commands hold. */
 const OUTPUT = new Set(['row', 'detail', 'warn', 'explain', 'note', 'summary', 'header', 'out', 'err', 'say', 'ok', 'skip', 'plan', 'fail', 'question']);
 // Words that are not text: the status keys of a row and the verb of a request line.
-const NOT_TEXT = new Set(['ok', 'info', 'skipped', 'failed', 'plan', 'GET', 'operational', 'usage', 'language']);
+const NOT_TEXT = new Set(['ok', 'info', 'skipped', 'failed', 'warn', 'plan', 'GET', 'operational', 'usage', 'language']);
 // Output calls that may carry a raw text (what a process or the system said) and why. The key is "file: callee: member".
 const RAW_ALLOWED = new Map([
   ['src/install/policy.js: detail: error.message', 'the text PowerShell raised, shown only with --verbose, after our own label'],
@@ -427,7 +429,7 @@ function exitLiterals(file, tokens) {
 
 test('round 12: no exit code is a number written in the installer\'s path; they all come from exitCodeFor', async () => {
   const raised = [];
-  const files = (await allSources()).filter(({ file }) => (/^src\/(install|setup)\//.test(file) || ['src/cli.js', 'src/config.js', 'src/config-schema.js', 'src/release/install-scripts.js'].includes(file)) && file !== 'src/install/exit.js');
+  const files = (await allSources()).filter(({ file }) => (/^src\/(install|setup)\//.test(file) || ['src/cli.js', 'src/config.js', 'src/config-schema.js', 'src/doctor/command.js', 'src/release/install-scripts.js'].includes(file)) && file !== 'src/install/exit.js');
   assert.ok(files.length > 15);
   for (const { file, tokens } of files) raised.push(...exitLiterals(file, tokens));
   const pkg = JSON.parse(await read('package.json'));

@@ -16,6 +16,7 @@ It works with Claude Code, Codex and opencode, using the client's own assistants
 ## First thing to try
 
 Run `okit-plugin env report --locale en`. Expect installed clients, confirmed models, remaining allowance and room for helpers; missing information comes with repair instructions.
+Run `okit-plugin doctor` when something is not right: it reads the whole installation and answers one row per thing it looked at, with the command that repairs each failure.
 Then [ask the Director for work](docs/guide/ask-the-director.md).
 
 <a id="documentation"></a>

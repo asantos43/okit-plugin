@@ -71,6 +71,7 @@ const SECTION_READERS = Object.freeze({
   }),
   files: Object.freeze({
     'src/cli.js': ['command', 'kit'],
+    'src/doctor/command.js': ['command'],
     'src/env/path.js': ['windowsPlatform', 'pathExtensions', 'command'],
     'src/env/snapshot.js': ['clients', 'kit'],
     'src/todo/index.js': ['projects'],
@@ -137,7 +138,7 @@ const INSTALL_BASE = ['install', '--client', 'claude-code', '--dry-run'];
 /** One argv that starts each command, valid by itself. */
 export const COMMAND_BASES = Object.freeze({
   install: INSTALL_BASE, update: ['update', '--dry-run'], uninstall: ['uninstall', '--dry-run'], setup: ['setup', '--defaults'],
-  kit: ['kit'], status: ['status'], config: ['config', 'show'], 'telemetry status': ['telemetry', 'status'],
+  kit: ['kit'], status: ['status'], doctor: ['doctor'], config: ['config', 'show'], 'telemetry status': ['telemetry', 'status'],
   'telemetry export': ['telemetry', 'export'], 'quota set': ['quota', 'set', 'codex', '10'], 'autostart show': ['autostart', 'show'],
   actors: ['actors'], 'daemon status': ['daemon', 'status'],
 });
@@ -149,19 +150,19 @@ const NAMES = ['no-such-name', '', ' ', 'a\nb'];
  * tried with no value after it ("missing value") and in the `--flag=value` form where the command accepts it.
  */
 export const FLAG_TABLE = Object.freeze([
-  { flag: '--client', value: 'client name', commands: ['install', 'update', 'uninstall', 'status', 'actors'], invalid: NAMES },
+  { flag: '--client', value: 'client name', commands: ['install', 'update', 'uninstall', 'status', 'actors', 'doctor'], invalid: NAMES },
   { flag: '--from', value: 'folder of a package', commands: ['install'], invalid: ['/nonexistent/okit-from', ''] },
   { flag: '--repo', value: 'owner/repository', commands: ['install'], invalid: ['invalid', 'a b/c', '../x', './y', '..', '', '/'] },
   { flag: '--dest', value: 'folder', commands: ['install'], invalid: [' ', 'a\nb', ''] },
   { flag: '--asset', value: 'file name', commands: ['install'], invalid: [], missing: true },
-  { flag: '--locale', value: 'en | pt-BR', commands: ['install', 'update', 'uninstall', 'setup', 'kit', 'status', 'actors', 'daemon status'], invalid: ['xx', 'EN', 'pt_BR', ' '] },
+  { flag: '--locale', value: 'en | pt-BR', commands: ['install', 'update', 'uninstall', 'setup', 'kit', 'status', 'actors', 'daemon status', 'doctor'], invalid: ['xx', 'EN', 'pt_BR', ' '] },
   { flag: '--kind', value: 'autostart kind', commands: ['autostart show'], invalid: ['invalid', 'SYSTEMD', ' '] },
   { flag: '--since', value: 'ISO date', commands: ['telemetry export'], invalid: ['nope', '2026-13-45', '', 'yesterday', '5'] },
   { flag: '--window-minutes', value: 'number > 0', commands: ['quota set'], invalid: ['NaN', 'Infinity', '-1', '0', 'abc', '', '1e999'] },
   { flag: '--dry-run', value: 'none', commands: ['install', 'update', 'uninstall'], invalid: [] },
   { flag: '--yes', value: 'none', commands: ['install', 'uninstall'], invalid: [] },
   { flag: '--prerelease', value: 'none', commands: ['install'], invalid: [] },
-  { flag: '--verbose', value: 'none', commands: ['install', 'update', 'uninstall'], invalid: [] },
+  { flag: '--verbose', value: 'none', commands: ['install', 'update', 'uninstall', 'doctor'], invalid: [] },
   { flag: '--defaults', value: 'none', commands: ['setup'], invalid: [] },
   { flag: '--again', value: 'none', commands: ['setup'], invalid: [] },
   { flag: '--require', value: 'none', commands: ['kit'], invalid: [] },

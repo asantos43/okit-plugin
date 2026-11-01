@@ -229,6 +229,10 @@ export const TEXTS = Object.freeze({
   doctorDaemonOk: { en: 'running', 'pt-BR': 'rodando' },
   doctorDaemonDown: { en: 'not running', 'pt-BR': 'não está rodando' },
   doctorFixDaemon: { en: 'Start it: {command} daemon start', 'pt-BR': 'Inicie: {command} daemon start' },
+  // The doctor of the command line (src/doctor/command.js): the title of the run and its one line of summary.
+  doctorHeader: { en: '{command} doctor: the state of the installation', 'pt-BR': '{command} doctor: o estado da instalação' },
+  doctorSummaryOk: { en: 'everything looks right ({count} checks)', 'pt-BR': 'tudo está certo ({count} verificações)' },
+  doctorSummary: { en: '{failed} failed, {warnings} to look at', 'pt-BR': '{failed} falharam, {warnings} para olhar' },
 });
 
 // Reasons raised by the installer in English: [pattern, pt-BR text, an example].
