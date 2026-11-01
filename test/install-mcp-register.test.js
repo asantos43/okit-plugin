@@ -45,11 +45,11 @@ const SPACED_SERVER = join(SPACED, 'src/mcp/server.js');
 // What the clients print for the entry they hold: Claude Code names the scope, the type and the command, and prints
 // the arguments joined by spaces; Codex answers with JSON (`mcp get --json`), where the boundary of an argument is
 // exact. The fields of the server are indented two spaces, the nested lists (the headers, the environment) four.
-const claudeEntry = (args) => `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: node\n  Args: ${args}\n`;
-const textEntry = (args) => `okit\n  enabled: true\n  transport: stdio\n  command: node\n  args: ${args}\n`;
+const claudeEntry = (args) => `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: ${CONFIG.node}\n  Args: ${args}\n`;
+const textEntry = (args) => `okit\n  enabled: true\n  transport: stdio\n  command: ${CONFIG.node}\n  args: ${args}\n`;
 /** The JSON the Codex client prints for the entry it holds: the boundary of an argument is exact. */
 const codexJson = (args) => JSON.stringify({ name: 'okit', enabled: true, disabled_reason: null,
-  transport: { type: 'stdio', command: 'node', args, env: null, env_vars: [], cwd: null } }, null, 2);
+  transport: { type: 'stdio', command: CONFIG.node, args, env: null, env_vars: [], cwd: null } }, null, 2);
 /** The same JSON, with a transport of its own (a type that is not stdio, arguments that are missing, and the like). */
 const codexJsonOf = (transport) => JSON.stringify({ name: 'okit', enabled: true, disabled_reason: null, transport }, null, 2);
 
@@ -2007,4 +2007,85 @@ test('a client with no MCP server of ours has no entry to look for', async () =>
   const deps = { config: CONFIG, run: async (input) => { calls.push(input); }, out: () => {} };
   assert.deepEqual(await mcpStatus({ ...RECORD, client: 'opencode' }, deps), { state: 'none' });
   assert.deepEqual(calls, []);
+});
+
+// D109 step 5: an entry that is ours but cannot work is broken, never registered.
+
+test('an entry the client has disabled is broken, with its reason', async () => {
+  const disabled = JSON.stringify({ name: 'okit', enabled: false, disabled_reason: 'the server is off',
+    transport: { type: 'stdio', command: CONFIG.node, args: [SERVER], env: null, env_vars: [], cwd: null } }, null, 2);
+  const client = fakeClient(disabled);
+  const answer = await mcpStatus({ ...RECORD, client: 'codex' }, depsOf(client.run));
+  assert.equal(answer.state, 'broken');
+  assert.equal(answer.reason, 'disabled');
+  // The text of a client that says the entry is off in its own words.
+  const text = fakeClient(`okit:\n  enabled: false\n  transport: stdio\n  command: ${CONFIG.node}\n  args: ${SERVER}\n`);
+  assert.equal((await mcpStatus(RECORD, depsOf(text.run))).reason, 'disabled');
+});
+
+test('an entry that launches another program than the node of the installation is broken', async () => {
+  const entry = `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: /other/node\n  Args: ${SERVER}\n`;
+  const client = fakeClient(entry);
+  const answer = await mcpStatus(RECORD, depsOf(client.run));
+  assert.equal(answer.state, 'broken');
+  assert.equal(answer.reason, 'other-executable');
+  assert.equal(answer.command, '/other/node');
+});
+
+test('an entry that launches a program that is not on this machine is broken', async () => {
+  const missing = join('/nowhere', 'node');
+  // The node of the installation is that program: the entry launches it, and it is not there.
+  const config = installConfig({ node: missing });
+  const entry = `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: ${missing}\n  Args: ${SERVER}\n`;
+  const client = fakeClient(entry);
+  const deps = { ...depsOf(client.run, config), fs: { access: async () => { throw Object.assign(new Error('no'), { code: 'ENOENT' }); } } };
+  const answer = await mcpStatus(RECORD, deps);
+  assert.equal(answer.state, 'broken');
+  assert.equal(answer.reason, 'missing-executable');
+  assert.equal(answer.command, missing);
+});
+
+test('an entry that is ours and works is still registered, whatever the program it launches is', async () => {
+  // A bare name is looked up by the client in its own PATH: the doctor cannot say it is not there.
+  const config = installConfig({ node: 'node' });
+  const entry = `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: node\n  Args: ${SERVER}\n`;
+  const client = fakeClient(entry);
+  const deps = { ...depsOf(client.run, config), fs: { access: async () => { throw Object.assign(new Error('no'), { code: 'ENOENT' }); } } };
+  assert.deepEqual(await mcpStatus(RECORD, deps), { state: 'registered' });
+});
+
+// D109 step 5: the entry that the client has off is broken, in the two ways a client says it: the JSON of Codex and
+// the text of Claude Code.
+
+test('the JSON of the entry says whether the client has it off', async () => {
+  // The shape the real `codex mcp get --json` answers with.
+  const json = (enabled, reason) => JSON.stringify({ name: 'okit', enabled, disabled_reason: reason,
+    transport: { type: 'stdio', command: CONFIG.node, args: [CODEX_SERVER], env: null, env_vars: [], cwd: null } }, null, 2);
+  // (a) The client has the entry off and names no reason: the entry is ours and cannot work.
+  const off = fakeClient(json(false, null));
+  const broken = await mcpStatus(CODEX, depsOf(off.run));
+  assert.equal(broken.state, 'broken');
+  assert.equal(broken.reason, 'disabled');
+  // (b) The client says the entry is on, but names the reason why it is off: it is off all the same.
+  const policy = fakeClient(json(true, 'policy'));
+  const offByPolicy = await mcpStatus(CODEX, depsOf(policy.run));
+  assert.equal(offByPolicy.state, 'broken');
+  assert.equal(offByPolicy.reason, 'disabled');
+  // (c) The client has the entry on, with no reason: the entry is registered.
+  const on = fakeClient(json(true, null));
+  assert.deepEqual(await mcpStatus(CODEX, depsOf(on.run)), { state: 'registered' });
+});
+
+test('the text of the entry says whether the client has it off', async () => {
+  // The fields of the entry of Claude Code, with the status of the entry in the words of the client.
+  const entry = (status) => `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n`
+    + `  Status: ${status}\n  Command: ${CONFIG.node}\n  Args: ${SERVER}\n`;
+  // A disabled entry is broken, never registered.
+  const off = fakeClient(entry('✘ Disabled'));
+  const broken = await mcpStatus(RECORD, depsOf(off.run));
+  assert.equal(broken.state, 'broken');
+  assert.equal(broken.reason, 'disabled');
+  // An entry that is connected is ours and works: it is registered.
+  const on = fakeClient(entry('✔ Connected'));
+  assert.deepEqual(await mcpStatus(RECORD, depsOf(on.run)), { state: 'registered' });
 });

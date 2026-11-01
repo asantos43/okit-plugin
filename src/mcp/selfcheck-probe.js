@@ -13,9 +13,16 @@
 // it a temporary folder and removes it afterwards.
 //
 // The answer is one line of JSON on the standard output:
-//   {"mcp":{"ok":true,"tools":12,"error":""},"api":{"ok":true,"error":""}}
-// The exit code says whether the probe could run the experiment at all (0),
-// not whether the server answered: what the server said is in the line.
+//   {"mcp":{"ok":true,"tools":12,"error":null},"api":{"ok":true,"error":null},"stderr":"","answers":2}
+// `answers` is how many answers of the protocol were kept (never more than the
+// two of the questions of the probe). The exit code says whether the probe
+// could run the experiment at all (0), not whether the server answered: what
+// the server said is in the line.
+//
+// A failure is a CODE and its data, never a sentence: the installer maps each
+// code to the text of the language of the run (src/install/selfcheck.js). The
+// codes are: `start-failed`, `stopped`, `timeout`, `init-error`, `list-error`,
+// `no-tools`, `bad-frame`, `long-line`, `no-control-api` and `control-error`.
 
 import { spawn } from 'node:child_process';
 import process from 'node:process';
@@ -36,6 +43,13 @@ const STOP_MS = 1500;
 const READ_TOOL = 'inbox_list';
 // The version of the protocol the probe speaks.
 const PROTOCOL = '2025-06-18';
+// The most of the error stream that is kept: the last 4 KiB of it.
+const STDERR_LIMIT = 4096;
+// The most a line of the output may hold without a newline: past it the server
+// is writing a line that never ends.
+const LINE_LIMIT = 1024 * 1024;
+// The ids of the two questions of the probe; no other answer is kept.
+const QUESTION_IDS = new Set([1, 2]);
 
 const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
@@ -45,11 +59,19 @@ class Refusal extends Error {}
 /** The reason of a failure, in plain words. */
 const reason = (error) => (error instanceof Error ? error.message : String(error));
 
-/** The words of the error stream of the server: what it said before it stopped. */
-function withStderr(message, stderr) {
-  const value = String(stderr ?? '').trim();
-  return value === '' ? message : `${message} (stderr: ${value.slice(-200)})`;
-}
+/** The codes of the failures of the probe, with the data each one carries. */
+export const CODES = Object.freeze({
+  startFailed: 'start-failed',
+  stopped: 'stopped',
+  timeout: 'timeout',
+  initError: 'init-error',
+  listError: 'list-error',
+  noTools: 'no-tools',
+  badFrame: 'bad-frame',
+  longLine: 'long-line',
+  noControlApi: 'no-control-api',
+  controlError: 'control-error',
+});
 
 /** One frame of the protocol, or null when the line is not one. */
 function parseFrame(line) {
@@ -65,6 +87,14 @@ function parseFrame(line) {
  * Ends the server: its input is closed, it may take a moment to go, and it is
  * killed when it does not. The probe never leaves a server behind.
  *
+ * On POSIX the server is started in a group of its own, so the whole group is
+ * killed: a server that started a process of its own takes it with it. On
+ * Windows there is no group, so the process itself is killed.
+ *
+ * The group is killed once more after the server is gone: a server that ends
+ * by itself may have left a process of its own behind, and that process is
+ * still in the group.
+ *
  * @param {import('node:child_process').ChildProcess|null} child
  * @returns {Promise<void>}
  */
@@ -76,11 +106,49 @@ async function stop(child) {
     child.once('exit', resolve);
     child.once('error', resolve);
   });
-  const kill = setTimeout(() => {
-    try { child.kill('SIGKILL'); } catch { /* it is already gone */ }
-  }, STOP_MS);
+  const kill = setTimeout(() => killGroup(child), STOP_MS);
   await gone;
   clearTimeout(kill);
+  // The server may have left a process of its own behind: the group is killed once more, always.
+  killGroup(child);
+}
+
+/** Kills the server and every process of its group (POSIX), or the server itself (Windows). */
+function killGroup(child) {
+  try {
+    if (process.platform === 'win32') child.kill('SIGKILL');
+    else process.kill(-child.pid, 'SIGKILL');
+  } catch { /* it is already gone */ }
+}
+
+/**
+ * Whether the frame is the answer of the protocol the probe speaks: a JSON-RPC
+ * 2.0 frame whose id is the one of the question.
+ */
+function isOurFrame(frame, id) {
+  return frame !== null && frame.jsonrpc === '2.0' && frame.id === id;
+}
+
+/**
+ * Whether the answer of `initialize` is the one of a server: an object with a
+ * protocol version and a server (its name or what it can do).
+ */
+function initializeOk(result) {
+  if (result === null || typeof result !== 'object' || Array.isArray(result)) return false;
+  if (typeof result.protocolVersion !== 'string' || result.protocolVersion === '') return false;
+  const server = result.serverInfo ?? result.capabilities;
+  return server !== null && typeof server === 'object' && !Array.isArray(server);
+}
+
+/**
+ * Whether the answer of `tools/list` is the one of a server: a list of tools,
+ * each one an object with a name of its own.
+ */
+function toolsOk(result) {
+  if (result === null || typeof result !== 'object' || Array.isArray(result)) return false;
+  if (!Array.isArray(result.tools)) return false;
+  return result.tools.every((tool) => tool !== null && typeof tool === 'object' && !Array.isArray(tool)
+    && typeof tool.name === 'string' && tool.name !== '');
 }
 
 /**
@@ -90,31 +158,58 @@ async function stop(child) {
  * @param {string} serverPath the file of the MCP server
  * @param {number} budget how long the whole experiment may take, in ms
  * @param {string} root the state root the server works on
- * @returns {Promise<{mcp: {ok: boolean, tools: number, error: string}, api: {ok: boolean, error: string}}>}
+ * @returns {Promise<{mcp: {ok: boolean, tools: number, error: object|null},
+ *   api: {ok: boolean, error: object|null}, stderr: string, answers: number}>}
  */
 async function probe(serverPath, budget, root) {
   const answers = new Map();
-  const mcp = { ok: false, tools: 0, error: '' };
-  const api = { ok: false, error: '' };
+  const mcp = { ok: false, tools: 0, error: null };
+  const api = { ok: false, error: null };
   let stderr = '';
   let stopped = false;
-  let broken = '';
+  let broken = null;
+  let overflow = false;
 
-  const child = spawn(process.execPath, [serverPath], { stdio: ['pipe', 'pipe', 'pipe'], env: process.env });
+  const child = spawn(process.execPath, [serverPath], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: process.env,
+    // Its own group of processes, so the whole group can be killed at the end.
+    detached: process.platform !== 'win32',
+  });
+  // A signal (or the end of the pipe of the parent) ends the server first: the
+  // probe never leaves a server behind, not even when it is killed.
+  const shutdown = () => {
+    killGroup(child);
+    process.exit(0);
+  };
+  for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, shutdown);
+  process.on('disconnect', shutdown);
   try {
-    child.on('error', (error) => { broken = `the server could not start (${error?.code ?? reason(error)})`; });
+    child.on('error', (error) => { broken = { code: CODES.startFailed, why: error?.code ?? reason(error) }; });
     child.on('exit', () => { stopped = true; });
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.stderr.on('data', (chunk) => {
+      // Only the last of it is kept: the error stream of a server may be endless.
+      stderr = `${stderr}${chunk.toString()}`.slice(-STDERR_LIMIT);
+    });
 
     let pending = '';
     const decoder = new StringDecoder('utf8');
     child.stdout.on('data', (chunk) => {
+      if (overflow) return;
       pending += decoder.write(chunk);
       for (let index = pending.indexOf('\n'); index >= 0; index = pending.indexOf('\n')) {
         const line = pending.slice(0, index);
         pending = pending.slice(index + 1);
         const frame = parseFrame(line);
-        if (frame !== null && typeof frame.id === 'number') answers.set(frame.id, frame);
+        // Only the answers of the two questions are kept.
+        if (frame !== null && QUESTION_IDS.has(frame.id)) answers.set(frame.id, frame);
+      }
+      // A line that never ends is a line the server is not able to write: the
+      // probe stops it instead of waiting for a newline that will not come.
+      if (pending.length > LINE_LIMIT) {
+        overflow = true;
+        pending = '';
+        killGroup(child);
       }
     });
 
@@ -128,21 +223,21 @@ async function probe(serverPath, budget, root) {
     } catch { /* the server is already gone; the answers below say so */ }
 
     const deadline = Date.now() + budget;
-    while (!answers.has(2) && !stopped && Date.now() < deadline) await sleep(20);
+    while (!answers.has(2) && !stopped && !overflow && Date.now() < deadline) await sleep(20);
 
     const one = answers.get(1);
     const two = answers.get(2);
-    const late = stopped ? 'the server stopped before it answered' : `the server did not answer in ${budget} ms`;
-    if (broken !== '') mcp.error = broken;
-    else if (one === undefined) mcp.error = withStderr(late, stderr);
-    else if (two === undefined) mcp.error = withStderr(late, stderr);
-    else if (one.error !== undefined) mcp.error = `the server answered initialize with an error (${one.error?.message ?? 'unknown'})`;
-    else if (two.error !== undefined) mcp.error = `the server answered tools/list with an error (${two.error?.message ?? 'unknown'})`;
-    else {
-      const tools = two.result?.tools;
-      if (!Array.isArray(tools) || tools.length === 0) mcp.error = 'the server answered tools/list with no tools';
-      else { mcp.ok = true; mcp.tools = tools.length; }
-    }
+    if (broken !== null) mcp.error = broken;
+    else if (overflow) mcp.error = { code: CODES.longLine, limit: LINE_LIMIT };
+    else if (stopped) mcp.error = { code: CODES.stopped };
+    else if (one === undefined || two === undefined) mcp.error = { code: CODES.timeout, ms: budget };
+    else if (!isOurFrame(one, 1) || !isOurFrame(two, 2)) mcp.error = { code: CODES.badFrame, why: 'jsonrpc' };
+    else if (one.error !== undefined) mcp.error = { code: CODES.initError, why: one.error?.message ?? 'unknown' };
+    else if (two.error !== undefined) mcp.error = { code: CODES.listError, why: two.error?.message ?? 'unknown' };
+    else if (!initializeOk(one.result)) mcp.error = { code: CODES.badFrame, why: 'initialize' };
+    else if (!toolsOk(two.result)) mcp.error = { code: CODES.badFrame, why: 'tools/list' };
+    else if (two.result.tools.length === 0) mcp.error = { code: CODES.noTools };
+    else { mcp.ok = true; mcp.tools = two.result.tools.length; }
 
     // The control API of the server, while it is still alive.
     if (mcp.ok) {
@@ -152,22 +247,34 @@ async function probe(serverPath, budget, root) {
         found = servers.find((server) => server.pid === child.pid) ?? null;
         if (found === null) await sleep(POLL_MS);
       }
-      if (found === null) api.error = withStderr('the server did not open its control API', stderr);
+      if (found === null) api.error = { code: CODES.noControlApi };
       else {
-        const answer = await callControl({ root, tool: READ_TOOL, arguments: {}, pid: child.pid,
-          timeoutMs: Math.max(1000, deadline - Date.now()) });
-        if (answer.ok) api.ok = true;
-        else api.error = withStderr(String(answer.error ?? ''), stderr);
+        // The budget is the budget: no new wait is granted past it.
+        const left = deadline - Date.now();
+        if (left <= 0) api.error = { code: CODES.timeout, ms: budget };
+        else {
+          const answer = await callControl({ root, tool: READ_TOOL, arguments: {}, pid: child.pid, timeoutMs: left });
+          if (answer.ok) api.ok = true;
+          else api.error = { code: CODES.controlError, why: String(answer.error ?? '') };
+        }
       }
     }
   } finally {
+    // The handlers of the signals are ours only while the experiment runs: nothing of them leaks past it.
+    for (const signal of ['SIGTERM', 'SIGINT']) process.off(signal, shutdown);
+    process.off('disconnect', shutdown);
     await stop(child);
   }
-  return { mcp, api };
+  return { mcp, api, stderr, answers: answers.size };
 }
 
 /** The answer of a failure of the probe itself: the two checks say it did not run. */
-const failure = (why) => ({ mcp: { ok: false, tools: 0, error: why }, api: { ok: false, error: why } });
+const failure = (code, why) => ({
+  mcp: { ok: false, tools: 0, error: { code, ...(why === undefined ? {} : { why }) } },
+  api: { ok: false, error: { code, ...(why === undefined ? {} : { why }) } },
+  stderr: '',
+  answers: 0,
+});
 
 async function main() {
   try {
@@ -189,7 +296,7 @@ async function main() {
       process.exitCode = 2;
       return;
     }
-    process.stdout.write(`${JSON.stringify(failure(`the probe could not run (${reason(error)})`))}\n`);
+    process.stdout.write(`${JSON.stringify(failure('start-failed', reason(error)))}\n`);
   }
 }
 

@@ -204,11 +204,15 @@ for (const failure of ['apply', 'write', 'save']) {
     else f.io.fs = { ...fs, writeFile: async () => { throw new Error('permission denied'); } };
     assert.equal(await main(['setup'], f.io), 1);
     assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
-    assert.deepEqual(f.ran, failure === 'write' ? [] : failure === 'apply' ? f.plan.install.slice(0, 1) : f.plan.install);
+    // A save that fails after the service is installed takes the service back.
+    assert.deepEqual(f.ran, failure === 'write' ? [] : failure === 'apply' ? f.plan.install.slice(0, 1)
+      : [...f.plan.install, ...f.plan.uninstall]);
     assert.deepEqual(f.written, failure === 'write' ? [] : [{ path: f.plan.path, content: f.plan.content }]);
     assert.deepEqual(await snapshot(f), f.before);
     assert.deepEqual(stepLines(f), explain(f));
-    assert.deepEqual(errors, ['Could not install autostart: permission denied']);
+    assert.deepEqual(errors, [failure === 'save'
+      ? 'Could not install autostart: the autostart was taken back: permission denied'
+      : 'Could not install autostart: permission denied']);
     assert.doesNotMatch(f.output.join('\n'), /Could not install autostart|permission denied/);
     assert.doesNotMatch(f.output.join('\n'), /\n\s+at |Error:/);
   });
@@ -268,4 +272,35 @@ test('mixed autostart flags still offer once and use the first record', async (t
   assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
   assert.deepEqual(await readRecords(f.destination, fs, f.io.config),
     Object.fromEntries(Object.entries(f.records).map(([client, record]) => [client, { ...record, autostart: true }])));
+});
+
+test('a record that the save cannot read stops the step before the service is installed', async (t) => {
+  const f = await world(t, { clients: ['codex', 'claude-code'] });
+  // The record of the other client is not a JSON object: the lenient reader leaves it out, the save would refuse it.
+  const other = join(f.destination, f.io.config.recordName.replace('{client}', 'claude-code'));
+  await fs.writeFile(other, '[]');
+  const errors = [];
+  f.io.stderr = (line) => errors.push(line);
+  const before = await snapshot(f);
+  assert.equal(await main(['setup'], f.io), 1);
+  // Nothing was installed, and the machine is as it was.
+  assert.deepEqual(f.ran, []);
+  assert.deepEqual(f.written, []);
+  assert.deepEqual(await snapshot(f), before);
+  assert.equal(errors.length, 1, errors.join('\n'));
+  assert.match(errors[0], /^Could not install autostart: /, errors[0]);
+});
+
+test('a save that fails after the service is installed takes the service back', async (t) => {
+  const f = await world(t);
+  const errors = [];
+  f.io.stderr = (line) => errors.push(line);
+  // The record cannot be written: the service is installed and the record is not.
+  f.io.fs = { ...fs, writeFile: async () => { throw new Error('permission denied'); } };
+  assert.equal(await main(['setup'], f.io), 1);
+  // The service was installed and then taken back.
+  assert.deepEqual(f.ran, [...f.plan.install, ...f.plan.uninstall]);
+  assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
+  assert.equal(errors.length, 1, errors.join('\n'));
+  assert.match(errors[0], /^Could not install autostart: the autostart was taken back: permission denied$/, errors[0]);
 });

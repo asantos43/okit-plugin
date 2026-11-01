@@ -116,7 +116,7 @@ const SIZE = [1, Number.MAX_SAFE_INTEGER];
 /** `install.*` numbers (installConfig). */
 export const INSTALL_NUMBERS = Object.freeze({
   'kit.timeoutMs': TIMER, timeoutMs: TIMER, daemonPollMs: TIMER, maxDownloadBytes: SIZE, maxExtractBytes: SIZE,
-  'selfcheck.timeoutMs': TIMER, 'selfcheck.probeMs': TIMER,
+  'selfcheck.timeoutMs': [2501, 2147483647], 'selfcheck.probeMs': [1, 2147481147],
   'selfcheck.sample.usedPercentage': SIZE, 'selfcheck.sample.resetsInSeconds': SIZE,
 });
 /** The numbers `config set` takes; `integer` or `number`. */
@@ -284,7 +284,7 @@ export const FILE_RULES = Object.freeze([
     note: 'a folder the person named that has no package is a wrong argument (--from), told as such' },
   { file: 'install.json / install.<client>.json (the record)', readBy: 'src/install/place.js, src/install/bootstrap.js', unreadable: 1, wrongType: 2,
     proof: 'test/input-inventory.test.js#${record} ${body}',
-    note: 'every field is checked by RECORD_FIELDS (src/config-schema.js), also in the record the record replaced (`previous`); a wrong type names the field' },
+    note: 'every field is checked by RECORD_FIELDS (src/config-schema.js), also in the record the record replaced (`previous`); a wrong type names the field; the doctor reads the records leniently (readRecordsLenient), so a record it cannot read is a failed row of the diagnosis (exit 1) and never a refusal of the whole run' },
   { file: 'managed-path.json (the PATH state)', readBy: 'src/install/link.js (pathState)', unreadable: 1, wrongType: 2, proof: 'test/input-inventory.test.js#managed-path.json ${body}',
     note: 'the profile blocks and the Windows PATH entry the installer added; checked by PATH_STATE_SCHEMA (src/config-schema.js)' },
   { file: 'package.json of the downloaded package', readBy: 'src/install/place.js', unreadable: 1, wrongType: 1, proof: 'test/install-invariants.test.js#Package metadata version differs from release',
@@ -389,7 +389,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/telemetry/index.js', arg: /^await readFile\(join\(config\.dir, name\)|^join\(config\.dir, name\)$/, excluded: 'the measurement files okit wrote in telemetry.dir; a damaged one is reported by `telemetry check` as damaged, never as the person\'s usage' },
   { file: 'src/telemetry/index.js', arg: /^(join\(root, 'telemetry-export\.json'\)|file)$/, excluded: 'telemetry-export.json is written by okit (atomic write) and read back for the last-export line (a non-text `at`, from a hand edit, counts as no export time: input inventory test); `file` is the configuration file of `telemetry on|off` (CONFIG_JSON above)' },
   // The installer.
-  { file: 'src/install/place.js', arg: /^(text|join\(destination, 'install\.json'\)|recordPath\(destination, client, config\))$/, rule: RECORD },
+  { file: 'src/install/place.js', arg: /^(text|file|legacy|legacyText|join\(destination, 'install\.json'\)|recordPath\(destination, client, config\))$/, rule: RECORD },
   { file: 'src/install/bootstrap.js', arg: /^(path|recordFile)$/, rule: RECORD },
   { file: 'src/install/place.js', arg: /^join\(staging, 'package\.json'\)$/, rule: 'package.json of the downloaded package' },
   { file: 'src/install/source.js', arg: /^join\(source, 'package\.json'\)$/, rule: 'package.json of --from' },

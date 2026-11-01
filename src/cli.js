@@ -324,6 +324,33 @@ function refuse(ctx, locale, reason) {
 }
 
 /**
+ * The entry of the doctor: the language of the run is decided first (a valid `--locale`, then the environment, then
+ * the saved language, then English), then the flags.
+ *
+ * The configuration is read leniently: a `config.json` that is not JSON, or settings of the installer that the
+ * runtime refuses, do not stop the run. The doctor works with the defaults and its row of the configuration says
+ * what is wrong, with the fix. A flag or a language that is not known is still a refusal of usage (exit 2).
+ *
+ * @param {object} ctx the context of the command line
+ * @param {string[]} flags the flags of the doctor
+ * @returns {Promise<number>} the exit code
+ */
+async function doctorEntry(ctx, flags) {
+  let stored = {};
+  try { stored = await readJson(paths(ctx.root).config, {}); } catch { stored = {}; }
+  const chosen = resolveLocale({ args: flags, env: ctx.env, saved: stored?.language });
+  if (chosen.invalid) return refuse(ctx, chosen.locale, 'Choose a language: en, pt-BR.');
+  const parsed = doctorFlags(flags);
+  if (parsed.unknown !== undefined) return refuse(ctx, chosen.locale, parsed.unknown);
+  // The settings of the installer that the runtime refuses are not used: the doctor runs with the defaults and says
+  // so in the row of the configuration.
+  let config;
+  try { config = installConfig(stored?.install); } catch { config = installConfig(); }
+  const { doctorCommand } = await import('./doctor/command.js');
+  return await doctorCommand(ctx, { locale: chosen.locale, config, verbose: parsed.found.verbose, client: parsed.found.client });
+}
+
+/**
  * The entry of `setup` and `kit`, in the installer's order: read the configuration, decide the language with the
  * installer's one function (a valid --locale, then OKIT_LANGUAGE, then the saved language, then English), and only
  * then read the flags. `parse` reads them (`{ found }`, or `{ unknown }` with the reason it refuses a flag);
@@ -864,10 +891,7 @@ export async function main(argv = [], io = {}) {
     if (group === 'doctor') {
       // `okit-plugin doctor` takes no action either, so its first flag lands where one would be.
       const flags = action === undefined ? args : [action, ...args];
-      return await enter(ctx, separateLocale(flags), doctorFlags, async ({ locale, found, install: config }) => {
-        const { doctorCommand } = await import('./doctor/command.js');
-        return await doctorCommand(ctx, { locale, config, verbose: found.verbose, client: found.client });
-      });
+      return await doctorEntry(ctx, separateLocale(flags));
     }
     // `okit-plugin smoke` takes no action either, so its first flag lands where one would be.
     if (group === 'smoke') return await smokeCommand(ctx, action === undefined ? args : [action, ...args], io);

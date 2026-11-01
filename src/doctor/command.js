@@ -2,8 +2,7 @@ import { homedir } from 'node:os';
 
 import { installPaths } from '../install/config.js';
 import { exitCodeFor } from '../install/exit.js';
-import { recordIgnoredLines } from '../install/index.js';
-import { readRecords } from '../install/place.js';
+import { readRecordsLenient } from '../install/place.js';
 import { clientLabel, createPresenter } from '../install/present.js';
 
 import { diagnose } from './diagnose.js';
@@ -14,6 +13,10 @@ import { diagnose } from './diagnose.js';
 // It only reads. The state of the person is the same before and after the run: no file is written, no record is
 // removed and nothing is registered. The rows come from the diagnosis (src/doctor/diagnose.js), which is the only
 // place that knows what to look at; this file only tells the rows and decides the exit code.
+//
+// The contract of the run: the doctor never writes to the state of the person (the state root, the records of the
+// installation, the settings of the client); the only folder it creates is the temporary one of the check, under the
+// temporary folder of the caller, and it is removed when the run ends.
 
 /**
  * Runs the doctor and tells what it found.
@@ -31,14 +34,12 @@ export async function doctorCommand(ctx, { locale, config, verbose = false, clie
   const ui = createPresenter({ locale, verbose, write: ctx.out });
   const home = ctx.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir();
   const { destination } = installPaths(config, { ...ctx, home });
-  // The records of the installation, read the way `status` reads them: a record that is not a JSON object is left out
-  // and named, never a failure.
-  const unreadable = [];
-  const records = Object.values(await readRecords(destination, ctx.fs, config, { unreadable }));
-  for (const line of recordIgnoredLines(unreadable, locale)) ctx.out(line);
+  // The records of the installation, read leniently: a record that cannot be read is a row of the diagnosis, and the
+  // other clients are still diagnosed.
+  const { records, invalid } = await readRecordsLenient(destination, ctx.fs, config);
   ctx.out(ui.text('doctorHeader', { command: config.command }));
   const result = await diagnose({
-    root: ctx.root, config, records, ui,
+    root: ctx.root, config, records: Object.values(records), invalid, ui,
     command: config.command, platform: ctx.platform, env: ctx.env, home,
     fs: ctx.fs, run: ctx.run, now: ctx.now, client, temporary: ctx.tmpdir, readers,
   });

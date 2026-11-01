@@ -17,6 +17,9 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
       ctx.out(text('autostartAlready'));
       return exitCodeFor('ok');
     }
+    // The record has to be writable: the save reads the records with the strict reader, so a record that cannot be
+    // read is told now, before the service of the machine is installed (never after it).
+    await readRecords(destination, ctx.fs, config);
     const selected = plan(records[0]);
     ctx.out(text('autostartExplain', { kind: selected.kind }));
     if (selected.path !== null) ctx.out(text('autostartFile', { path: selected.path }));
@@ -27,7 +30,14 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
       return exitCodeFor('ok');
     }
     await applyAutostart(selected, { run: ctx.run, write: ctx.write, action: 'install' });
-    await saveRecord(destination, { ...records[0], autostart: true }, { fs: ctx.fs, config });
+    try {
+      await saveRecord(destination, { ...records[0], autostart: true }, { fs: ctx.fs, config });
+    } catch (error) {
+      // The service is installed and the record is not: the service is taken back, so the machine is as it was.
+      await applyAutostart(selected, { run: ctx.run, write: ctx.write, action: 'uninstall' }).catch(() => {});
+      ctx.err(text('autostartFailed', { reason: text('autostartRolledBack', { reason: error.message }) }));
+      return exitCodeFor('operational');
+    }
     ctx.out(text('autostartInstalled', { command: ctx.command }));
     return exitCodeFor('ok');
   } catch (error) {

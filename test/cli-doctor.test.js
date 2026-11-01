@@ -45,7 +45,7 @@ async function world(t, { clients = ['claude-code'], inbox, orders } = {}) {
       linkDirectory: null, settings: { node: process.execPath } };
     await fs.writeFile(join(f.destination, `install.${client}.json`), JSON.stringify(record));
     await f.io.run({ command: f.io.config.clients[client].executable,
-      args: ['mcp', 'add', 'okit', '--', 'node', join(path, SERVER)] });
+      args: ['mcp', 'add', 'okit', '--', f.io.config.node, join(path, SERVER)] });
   }
   await fs.writeFile(paths(f.root).inbox, inbox ?? '{"version":1,"seq":0,"items":[]}');
   await fs.writeFile(paths(f.root).orders, orders ?? '{"version":1,"seq":0,"orders":[]}');
@@ -221,19 +221,26 @@ test('a foreign MCP registration warns and prints its exact Fix on the next line
   assert.equal(f.output[index + 1], '      Fix: Remove the entry by hand: claude mcp remove okit --scope user');
 });
 
-test('a non-object installation record is named on its own line in both languages without failing', async (t) => {
+test('a record that cannot be read is a failed row, in both languages, and the other clients are still diagnosed', async (t) => {
   for (const locale of LOCALES) {
-    const f = await world(t);
+    const f = await world(t, { clients: ['claude-code', 'codex'] });
     const file = join(f.destination, 'install.codex.json');
     await fs.writeFile(file, '[]');
-    // Select the ignored client so the unrelated Claude self-check does not strictly re-read every record.
-    assert.equal(await main(['doctor', '--client', 'codex', '--locale', locale], f.io), 0, f.output.join('\n'));
+    f.clear();
+    // The client whose record is broken is not diagnosed; the other one is.
+    assert.equal(await main(['doctor', '--locale', locale], f.io), 1, f.output.join('\n'));
+    const text = f.output.join('\n');
     const expected = locale === 'en'
-      ? `Installation record ignored (not a JSON object): ${file}`
-      : `Registro de instalação ignorado (não é um objeto JSON): ${file}`;
-    assert.deepEqual(f.output.filter((line) => line.includes(file)), [expected]);
-    assert.equal(f.output[0], expected);
-    assert.match(summaryOf(f.output.join('\n')), locale === 'en' ? /0 failed,/ : /0 falharam,/);
+      ? `installation record unreadable: ${file}`
+      : `registro de instalação ilegível: ${file}`;
+    assert.ok(text.includes(expected), text);
+    const fix = locale === 'en'
+      ? 'Fix: Install it again: okit-plugin install --client codex'
+      : 'Correção: Instale de novo: okit-plugin install --client codex';
+    assert.ok(text.includes(fix), text);
+    // The client whose record is whole is still diagnosed.
+    assert.match(text, /Claude Code: /, text);
+    assert.match(summaryOf(text), locale === 'en' ? /1 failed,/ : /1 falharam,/);
   }
 });
 
@@ -333,4 +340,133 @@ test('help after other doctor flags prints usage and never diagnoses', async (t)
     assert.deepEqual(f.commands, []);
     assert.ok(!reads.includes(paths(f.root).inbox), `diagnosis read inbox: ${reads}`);
   }
+});
+
+// D109 step 5: the doctor tells the truth. A broken entry, a client that is not installed, a configuration that
+// cannot be read: every one of them is a row of the diagnosis, never a silent success.
+
+test('an entry that is broken is a failed row, with the fix that registers it again', async (t) => {
+  for (const locale of LOCALES) {
+    const f = await world(t);
+    f.clear();
+    const readers = { mcpEntry: async () => ({ state: 'broken', reason: 'disabled', command: '/other/node' }) };
+    const code = await doctorCommand(f.io, { locale, config: f.io.config, readers });
+    assert.equal(code, 1, f.output.join('\n'));
+    const text = f.output.join('\n');
+    assert.match(text, /MCP registration|Registro do MCP/, text);
+    assert.match(text, locale === 'en' ? /the MCP entry of Claude Code is disabled in the client/
+      : /a entrada MCP do Claude Code está desligada no cliente/, text);
+    assert.match(text, locale === 'en' ? /Fix: Register it: okit-plugin install --client claude-code/
+      : /Correção: Registre: okit-plugin install --client claude-code/, text);
+  }
+});
+
+test('a client that was named and is not installed is a failed row, with the command that installs it', async (t) => {
+  for (const locale of LOCALES) {
+    const f = await world(t, { clients: ['claude-code'] });
+    f.clear();
+    const code = await main(['doctor', '--client', 'codex', '--locale', locale], f.io);
+    assert.equal(code, 1, f.output.join('\n'));
+    const text = f.output.join('\n');
+    assert.match(text, locale === 'en' ? /Installation\s+failed\s+Codex is not installed/
+      : /Instalação\s+falhou\s+Codex não está instalado/, text);
+    assert.match(text, locale === 'en' ? /Fix: Install it: okit-plugin install --client codex/
+      : /Correção: Instale: okit-plugin install --client codex/, text);
+  }
+});
+
+test('a configuration that is not JSON does not stop the doctor: the row says what is wrong', async (t) => {
+  const f = await world(t);
+  await fs.writeFile(paths(f.root).config, '{not json at all');
+  f.clear();
+  const code = await main(['doctor'], f.io);
+  const text = f.output.join('\n');
+  assert.equal(code, 1, text);
+  assert.match(text, /Configuration\s+failed/, text);
+  assert.match(text, /^ {6}Fix: /m, text);
+});
+
+test('a setting of the installer that the runtime refuses does not stop the doctor: the row names the key', async (t) => {
+  const f = await world(t);
+  const file = paths(f.root).config;
+  const stored = JSON.parse(await fs.readFile(file, 'utf8'));
+  stored.install.kit = null;
+  await fs.writeFile(file, JSON.stringify(stored));
+  f.clear();
+  const code = await main(['doctor'], f.io);
+  const text = f.output.join('\n');
+  assert.equal(code, 1, text);
+  assert.match(text, /Configuration\s+failed\s+the configuration is not valid: Invalid install\.kit: /, text);
+  assert.match(text, /^ {6}Fix: /m, text);
+});
+
+test('a setting of the whole configuration that the runtime refuses is a failed row too', async (t) => {
+  const f = await world(t);
+  const file = paths(f.root).config;
+  const stored = JSON.parse(await fs.readFile(file, 'utf8'));
+  stored.inbox = { gitTimeoutMs: 0 };
+  await fs.writeFile(file, JSON.stringify(stored));
+  f.clear();
+  const code = await main(['doctor'], f.io);
+  const text = f.output.join('\n');
+  assert.equal(code, 1, text);
+  assert.match(text, /Configuration\s+failed\s+the configuration is not valid: inbox\.gitTimeoutMs must be an integer >= 1$/m, text);
+  assert.match(text, /^ {6}Fix: /m, text);
+});
+
+test('the installation row tells about the clients of the run alone: the version of another client is not in it', async (t) => {
+  const f = await fixture(t);
+  const records = [
+    { client: 'claude-code', version: '1.0.0', path: join(f.destination, '1.0.0-claude-code'), bin: 'okit-plugin',
+      autostart: false, settings: { node: process.execPath } },
+    { client: 'codex', version: '2.0.0', path: join(f.destination, '2.0.0-codex'), bin: 'okit-plugin',
+      autostart: false, settings: { node: process.execPath } },
+  ];
+  const readers = {
+    nodeVersion: () => 'v99.0.0',
+    readText: (file) => fs.readFile(file, 'utf8'),
+    servers: async () => [],
+    callRead: async () => ({ ok: false, error: 'no server of ours is running' }),
+    daemon: async () => ({ running: true }),
+    autostartPresent: async () => true,
+    mcpEntry: async () => ({ state: 'registered' }),
+    selfCheck: async () => [],
+  };
+  const result = await diagnose({ ...f.io, records, client: 'codex', readers,
+    ui: createPresenter({ locale: 'en', write: () => {} }) });
+  const row = result.rows.find((each) => each.id === 'install');
+  assert.equal(row.status, 'ok', JSON.stringify(result.rows));
+  // The version of the client that was chosen, and only it.
+  assert.match(row.detail, /2\.0\.0/, row.detail);
+  assert.doesNotMatch(row.detail, /1\.0\.0/, row.detail);
+});
+
+test('the doctor writes nothing outside the temporary folder of the caller: the state is byte for byte the same', async (t) => {
+  const f = await world(t);
+  const pid = await deadPid();
+  await writeRecord(f.root, { pid, endpoint: join(paths(f.root).control, `${pid}.sock`), token: 'tk', startedAt: 1 },
+    { platform: 'linux' });
+  // Every write, every folder created and every removal is recorded, with the path it touched.
+  const writes = [];
+  const record = (path) => { writes.push(String(path)); };
+  const fsSpy = {
+    ...f.io.fs,
+    writeFile: async (file, ...rest) => { record(file); return f.io.fs.writeFile(file, ...rest); },
+    appendFile: async (file, ...rest) => { record(file); return f.io.fs.appendFile(file, ...rest); },
+    mkdir: async (dir, ...rest) => { record(dir); return f.io.fs.mkdir(dir, ...rest); },
+    rm: async (file, ...rest) => { record(file); return f.io.fs.rm(file, ...rest); },
+    rename: async (from, to, ...rest) => { record(from); record(to); return f.io.fs.rename(from, to, ...rest); },
+  };
+  const before = await listing(f.root);
+  const code = await main(['doctor'], { ...f.io, fs: fsSpy });
+  assert.equal(code, 0, f.output.join('\n'));
+  assert.deepEqual(await listing(f.root), before, 'the doctor wrote a file or removed a record');
+  // Every path it touched is under the temporary folder of the caller (the folder of the check).
+  assert.ok(writes.length > 0, 'the doctor touched nothing: the check did not run');
+  for (const path of writes) {
+    assert.ok(path.startsWith(f.scratch), `the doctor touched ${path}, outside the temporary folder`);
+  }
+  // And the folder of the check is gone.
+  const left = await fs.readdir(f.scratch);
+  assert.deepEqual(left, [], `the temporary folder holds ${left.join(', ')}`);
 });

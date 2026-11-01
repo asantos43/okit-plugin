@@ -30,6 +30,7 @@ export const RULES = Object.freeze({
   mcpName: { en: 'a name that starts with a letter or a digit and holds only letters, digits, dashes and underscores', pt: 'um nome que começa com uma letra ou um dígito e só tem letras, dígitos, traços e sublinhados', example: 'a name that starts with a letter or a digit and holds only letters, digits, dashes and underscores' },
   mcpServer: { en: 'a relative path with forward slashes and no .. segment', pt: 'um caminho relativo com barras normais e sem segmento ..', example: 'a relative path with forward slashes and no .. segment' },
   mcpScope: { en: 'a scope only for a client whose own mcp commands take one', pt: 'um escopo só para um cliente cujos comandos mcp aceitam um', example: 'a scope only for a client whose own mcp commands take one' },
+  probeBudget: { en: 'at most install.selfcheck.timeoutMs minus 2500', pt: 'no máximo install.selfcheck.timeoutMs menos 2500', example: 'at most install.selfcheck.timeoutMs minus 2500' },
 });
 
 export const fillRule = (template, parts) => template.replace(/%(\d)/g, (_, index) => parts[Number(index) - 1]);

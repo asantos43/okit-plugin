@@ -211,6 +211,10 @@ const nullable = (node) => ({ ...node, nullable: true });
 const optional = (node) => ({ ...node, optional: true });
 const timer = { kind: 'integer', min: 1, max: MAX_TIMER_MS };
 const size = { kind: 'integer', min: 1, max: Number.MAX_SAFE_INTEGER };
+// The time of the check that runs the probe of the MCP server, and the budget of the probe itself: the budget of the
+// probe, the time the server takes to go (STOP_MS of the probe) and a margin fit in the time of the check.
+const checkTime = { kind: 'integer', min: 2501, max: MAX_TIMER_MS };
+const probeTime = { kind: 'integer', min: 1, max: MAX_TIMER_MS - 2500 };
 const flag = { kind: 'boolean' };
 const variable = { kind: 'text', pattern: ENV_NAME, rule: 'variable' };
 const list = (item, extra = {}) => ({ kind: 'list', item, ...extra });
@@ -290,8 +294,14 @@ export const INSTALL_SCHEMA = Object.freeze(record({
   }),
   pathExtensions: list(text({ empty: true })),
   selfcheck: record({
-    timeoutMs: timer, probeMs: timer, stateKeys: list(word), shells: table(filled(SELFCHECK_SHELL)), runner: table(word),
+    timeoutMs: checkTime, probeMs: probeTime, stateKeys: list(word), shells: table(filled(SELFCHECK_SHELL)), runner: table(word),
     sample: record({ usedPercentage: size, resetsInSeconds: size, hookInput: table(word) }),
+  }, {
+    // The probe of the MCP server has a budget of its own, and the process that runs it has a longer one: the budget
+    // of the probe, the time the server takes to go and a margin must fit in the time of the process.
+    refine: (selfcheck) => (selfcheck.probeMs > selfcheck.timeoutMs - 2500
+      ? { at: 'probeMs', rule: 'probeBudget' }
+      : null),
   }),
 }));
 

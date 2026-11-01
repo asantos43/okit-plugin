@@ -43,6 +43,23 @@ function withValue(path, value) {
   return config;
 }
 
+// Two numbers of the check are bound to each other (the budget of the probe may not pass the time of the check minus
+// the margin): the other one is set with them, so the pair is always a valid one.
+const BOUND = {
+  'selfcheck.timeoutMs': { 'selfcheck.probeMs': 1 },
+  'selfcheck.probeMs': { 'selfcheck.timeoutMs': 2147483647 },
+};
+/** The value of a path of the settings, with the values its pair needs. */
+function withBound(path, value) {
+  const config = withValue(path, value);
+  for (const [other, otherValue] of Object.entries(BOUND[path] ?? {})) {
+    let at = config;
+    for (const part of parts(other).slice(0, -1)) at = at[part] ??= {};
+    at[parts(other).at(-1)] = otherValue;
+  }
+  return config;
+}
+
 test('input inventory: no configuration key is read that the inventory does not name', () => {
   assert.deepEqual(configReadsOutsideTheInventory(), []);
   // The scanner is alive: it sees the keys we know are read.
@@ -125,9 +142,9 @@ test('input inventory: a number of the installer settings passes at its maximum 
   const nodes = installNodes().filter((entry) => entry.node.kind === 'integer').map((entry) => entry.path).sort();
   assert.deepEqual(Object.keys(INSTALL_NUMBERS).sort(), nodes, 'every integer of INSTALL_SCHEMA has its limits in the inventory');
   for (const [path, [min, max]] of Object.entries(INSTALL_NUMBERS)) {
-    for (const ok of [min, max]) assert.doesNotThrow(() => installConfig(withValue(path, ok)), `${path} = ${ok}`);
+    for (const ok of [min, max]) assert.doesNotThrow(() => installConfig(withBound(path, ok)), `${path} = ${ok}`);
     for (const bad of [min - 1, max + 1]) {
-      assert.throws(() => installConfig(withValue(path, bad)), (error) => kindOf(error) === 'usage' && error.message.startsWith(`Invalid install.${path}: `), `${path} = ${bad}`);
+      assert.throws(() => installConfig(withBound(path, bad)), (error) => kindOf(error) === 'usage' && error.message.startsWith(`Invalid install.${path}: `), `${path} = ${bad}`);
     }
   }
 });

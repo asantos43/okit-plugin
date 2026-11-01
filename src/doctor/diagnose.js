@@ -7,7 +7,7 @@ import { autostartPlan, detectAutostart } from '../autostart.js';
 import { daemonStatus } from '../daemon.js';
 import { installConfig, installPaths } from '../install/config.js';
 import { mcpPlan, mcpStatus, shown } from '../install/mcp-register.js';
-import { clientLabel } from '../install/present.js';
+import { clientLabel, localizeReason } from '../install/present.js';
 import { LABELS, selfCheck } from '../install/selfcheck.js';
 import { callControl, findServers } from '../mcp/control-client.js';
 import { configOf, DEFAULT_CONFIG } from '../profiles.js';
@@ -107,18 +107,32 @@ async function readThrough(readers, file) {
 /** Whether a value is a plain object (a list, a number, a text and null are not). */
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/** Whether the configuration file holds a configuration the plugin can use. */
+/**
+ * Whether the configuration file holds a configuration the plugin can use.
+ *
+ * The settings of the installer are read first, because their refusal names the key of the setting. Then the whole
+ * stored value is read, through the one reader of the runtime (`configOf`): a value the runtime would refuse (a
+ * setting of the wrong type, a key that is not known) is a configuration that is not valid, and the row says so, with
+ * the reason of the reader.
+ *
+ * @param {unknown} value the stored configuration
+ * @returns {{ok: boolean, reason?: string}}
+ */
 function configShape(value) {
-  if (!isReadableConfig(value)) return false;
-  try { installConfig(value.install); } catch { return false; }
-  return true;
+  if (!isReadableConfig(value)) return { ok: false };
+  // The settings of the installer are read first: their refusal names the key of the setting.
+  try { installConfig(value?.install); } catch (error) { return { ok: false, reason: error?.message }; }
+  // The whole stored value is read, through the one reader of the runtime (`configOf`): a value the runtime would
+  // refuse (a setting of the wrong type, a key that is not known) is a configuration that is not valid.
+  try { configOf(value); } catch (error) { return { ok: false, reason: error?.message }; }
+  return { ok: true };
 }
 
 /** The shape of the inbox: a store with its list of items. */
-const inboxShape = (value) => plain(value) && Array.isArray(value.items);
+const inboxShape = (value) => ({ ok: plain(value) && Array.isArray(value.items) });
 
 /** The shape of the orders: a store with its list of orders. */
-const ordersShape = (value) => plain(value) && Array.isArray(value.orders);
+const ordersShape = (value) => ({ ok: plain(value) && Array.isArray(value.orders) });
 
 /**
  * The diagnosis of one installation: the rows of what it looked at, and how many of them failed or warned.
@@ -180,35 +194,48 @@ export async function diagnose(input) {
       detail: ui.text('doctorNodeOld', { version, minimum }), fix: ui.text('doctorFixNode', { minimum, command }) });
   }
 
-  // 2. The installation itself: no record at all is one failed row, and no row of a client follows.
-  if (!records.length) {
+  // 2. The installation itself: no record at all is one failed row, and no row of a client follows. A client that was
+  // named and has no record is a failed row too: the installation of that client is not there.
+  const chosen = input.client ? records.filter((record) => record.client === input.client) : records;
+  if (input.client && !chosen.length) {
+    rows.push({ id: 'install', status: 'failed', label: ui.text('doctorInstall'),
+      detail: ui.text('doctorClientNone', { client: clientLabel(input.client) }),
+      fix: ui.text('doctorFixClientInstall', { command, client: input.client }) });
+  } else if (!records.length) {
     rows.push({ id: 'install', status: 'failed', label: ui.text('doctorInstall'),
       detail: ui.text('doctorInstallNone'), fix: ui.text('doctorFixInstall', { command }) });
   } else {
-    const versions = [...new Set(records.map((record) => record.version).filter(Boolean))].join(', ');
+    // The row tells about the clients the run looked at, not about every record of the machine.
+    const versions = [...new Set(chosen.map((record) => record.version).filter(Boolean))].join(', ');
     rows.push({ id: 'install', status: 'ok', label: ui.text('doctorInstall'),
       detail: ui.text('doctorInstallOk', { versions: versions || '?' }) });
   }
 
-  // 3. One group per client: the registration of the MCP server and the checks of the install self-check.
-  const chosen = input.client ? records.filter((record) => record.client === input.client) : records;
+  // 3. The records that could not be read: one failed row each, and the other clients are still diagnosed.
+  for (const one of input.invalid ?? []) {
+    rows.push({ id: 'record', status: 'failed', label: ui.text('doctorRecord'),
+      detail: ui.text('doctorRecordUnreadable', { file: one.file }),
+      fix: ui.text('doctorFixRecord', { command, client: one.client }) });
+  }
+
+  // 4. One group per client: the registration of the MCP server and the checks of the install self-check.
   const selfCheckDeps = selfCheckDependencies({ input, settings, env, home, platform, fs, run, now, ui, records, statuslineConfig, collectorConfig });
   for (const record of chosen) {
     rows.push(await registrationRow(record, { deps, readers, settings, platform, command, ui }));
     rows.push(...await selfCheckRows(record, { readers, selfCheckDeps, ui }));
   }
 
-  // 4. The state files: the configuration, the inbox and the orders.
+  // 5. The state files: the configuration, the inbox and the orders.
   rows.push(...await stateRows({ readers, root, ui, command, stored }));
 
-  // 5. The session: the server of the state folder, asked one question.
+  // 6. The session: the server of the state folder, asked one question.
   rows.push(await sessionRow({ readers, root, ui, command }));
 
-  // 6. The autostart: the plan of this machine, seen from the first record.
+  // 7. The autostart: the plan of this machine, seen from the first record.
   const autostart = await autostartRow({ readers, records, root, home, command, platform, ui });
   if (autostart) rows.push(autostart);
 
-  // 7. The daemon: it runs, or it should (the autostart is there) and does not.
+  // 8. The daemon: it runs, or it should (the autostart is there) and does not.
   rows.push(await daemonRow({ readers, root, ui, command, autostart }));
 
   const failed = rows.filter((row) => row.status === 'failed').length;
@@ -248,6 +275,13 @@ function selfCheckDependencies({ input, settings, env, home, platform, fs, run, 
   };
 }
 
+/** The text of each reason an entry of ours can be broken by. */
+const BROKEN_TEXTS = Object.freeze({
+  disabled: 'doctorRegistrationDisabled',
+  'other-executable': 'doctorRegistrationOther',
+  'missing-executable': 'doctorRegistrationMissing',
+});
+
 /** The row of the registration of the MCP server of one client: read, never written. */
 async function registrationRow(record, { deps, readers, settings, platform, command, ui }) {
   const label = ui.text('doctorRegistration');
@@ -267,6 +301,12 @@ async function registrationRow(record, { deps, readers, settings, platform, comm
     const remove = plan ? shown(plan.remove, platform) : '';
     return { ...base, status: 'warn', detail: ui.text('doctorRegistrationForeign', { name: settings.mcp?.name ?? 'okit', client }),
       fix: ui.text('doctorFixForeign', { remove }) };
+  }
+  if (entry?.state === 'broken') {
+    // The entry is ours, but it cannot work: the client has it off, or it launches another program.
+    const key = BROKEN_TEXTS[entry.reason] ?? 'doctorRegistrationBroken';
+    return { ...base, status: 'failed', detail: ui.text(key, { client, command: entry.command ?? '' }),
+      fix: ui.text('doctorFixRegistration', { command, client: record.client }) };
   }
   if (entry?.state === 'unreadable') {
     return { ...base, status: 'warn', detail: ui.text('doctorRegistrationUnreadable', { client, reason: entry.reason ?? '' }) };
@@ -313,8 +353,13 @@ async function stateRows({ readers, root, ui, command, stored }) {
     }
     let value;
     try { value = JSON.parse(read.text); } catch { value = undefined; }
-    if (value === undefined || !entry.shape(value)) {
-      rows.push({ id: entry.id, status: 'failed', label, detail: ui.text('doctorStateBad', { path: entry.file }),
+    // The configuration says why it is not valid (the reason of the reader of the runtime); the other two do not.
+    const problem = value === undefined ? { ok: false } : entry.shape(value);
+    if (!problem.ok) {
+      const detail = problem.reason
+        ? ui.text('doctorConfigInvalid', { reason: localizeReason(problem.reason, ui.locale) })
+        : ui.text('doctorStateBad', { path: entry.file });
+      rows.push({ id: entry.id, status: 'failed', label, detail,
         fix: ui.text('doctorFixState', { path: entry.file, command }) });
       continue;
     }

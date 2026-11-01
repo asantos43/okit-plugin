@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { HOME_ENV, SELFCHECK_ENV, paths } from '../store.js';
 import { STATUSLINE_FILE } from '../quota/statusline-collector.js';
-import { readRecord } from './place.js';
+import { readRecordsLenient } from './place.js';
 import { quote, binInPath, activationWarning, managedProfile, currentShell } from './link.js';
 import { collectorCommandIndex, collectorExecutable, commandWords, settingsPath } from './statusline.js';
 import { collectorArgsValid } from '../quota/statusline-collector.js';
@@ -120,7 +120,9 @@ const again = (record, deps) => `${deps.config.command} install --client ${recor
 async function versionCheck(record, expected, deps) {
   const { ui } = deps;
   const fix = ui.text('selfcheckFixVersion', { again: again(record, deps) });
-  const saved = await readRecord(deps.destination, record.client, deps.fs, deps.config).catch(() => null);
+  // The records are read leniently: a record of another client that cannot be read is not this client's failure.
+  const read = await readRecordsLenient(deps.destination, deps.fs, deps.config).catch(() => ({ records: {} }));
+  const saved = read.records[record.client] ?? null;
   if (!saved) return badCheck('version', ui.text('selfcheckUnreadable', { path: deps.destination }), fix);
   if (saved.version !== expected) return badCheck('version', ui.text('selfcheckVersionRecord', { found: saved.version, expected }), fix);
   const file = join(saved.path, 'package.json');
@@ -416,6 +418,48 @@ function readProbe(stdout) {
   }
 }
 
+// The code of a failure of the probe, and the text of the language of the run that says it. The probe never carries an
+// English sentence into a row: it carries a code and its data, and the text is here.
+const PROBE_TEXTS = Object.freeze({
+  'start-failed': 'selfcheckProbeStart',
+  stopped: 'selfcheckProbeStopped',
+  timeout: 'selfcheckProbeTimeout',
+  'init-error': 'selfcheckProbeInit',
+  'list-error': 'selfcheckProbeList',
+  'no-tools': 'selfcheckProbeNoTools',
+  'bad-frame': 'selfcheckProbeBadFrame',
+  'long-line': 'selfcheckProbeLongLine',
+  'no-control-api': 'selfcheckProbeNoControl',
+  'control-error': 'selfcheckProbeControl',
+});
+
+/**
+ * What a failure of the probe says, in the language of the run.
+ *
+ * A failure with a code is the text of that code, with the data of the failure (the time of the budget, the name of
+ * the frame that was wrong, the words of the server). A failure with no code (an answer of an older probe) is the
+ * generic text of the check, with the words of the failure as raw detail. The tail of the error stream of the server
+ * follows, as raw data with a word of the language of the run in front of it.
+ *
+ * @param {object} ui the presenter of the run
+ * @param {unknown} error what the probe said
+ * @param {string} [stderr] the tail of the error stream of the server
+ * @returns {string} the sentence of the row
+ */
+function probeReason(ui, error, stderr = '') {
+  let sentence;
+  if (error === null || error === undefined || error === '') sentence = ui.text('selfcheckError');
+  else if (typeof error === 'string') sentence = `${ui.text('selfcheckError')}: ${error}`;
+  else {
+    const key = PROBE_TEXTS[String(error.code ?? '')];
+    sentence = key
+      ? ui.text(key, { ms: error.ms, why: error.why, limit: error.limit })
+      : `${ui.text('selfcheckError')}: ${error.code ?? error.why ?? 'unknown'}`;
+  }
+  const tail = String(stderr ?? '').trim();
+  return tail === '' ? sentence : `${sentence} (${ui.text('selfcheckProbeStderr', { tail: tail.slice(-400) })})`;
+}
+
 /**
  * 5. The MCP server of this installation starts and answers, and its own control API answers one tool call.
  *
@@ -441,10 +485,12 @@ async function mcpChecks(record, deps) {
       args: [join(record.path, 'src/mcp/selfcheck-probe.js'), join(record.path, config.mcp.server),
         String(config.selfcheck.probeMs)],
       env: environment(deps, { [HOME_ENV]: folder, [SELFCHECK_ENV]: '1' }) });
-    // A node that is not on the machine is a skip, like a shell that is not installed.
+    // A node that is not on the machine is a failure, not a skip: the client uses our MCP server, and it cannot work
+    // without the node the installation is configured to run.
     if (outcome.state === 'missing') {
-      return [skipCheck('mcp', ui.text('selfcheckShellMissing', { shell: 'node' }), { shell: 'node' }),
-        skipCheck('api', ui.text('selfcheckShellMissing', { shell: 'node' }), { shell: 'node' })];
+      const why = ui.text('selfcheckNodeMissing', { node: config.node });
+      return [badCheck('mcp', why, ui.text('selfcheckFixNodeMissing', { node: config.node, command: again(record, deps) })),
+        badCheck('api', why, ui.text('selfcheckFixNodeMissing', { node: config.node, command: again(record, deps) }))];
     }
     if (outcome.state !== 'ok') {
       const why = outcome.why;
@@ -461,13 +507,13 @@ async function mcpChecks(record, deps) {
     }
     if (mcp.ok !== true) {
       // There is no server to ask, so the API is not checked.
-      const why = String(mcp.error ?? '').trim() || ui.text('selfcheckError');
+      const why = probeReason(ui, mcp.error, answer.stderr);
       return [badCheck('mcp', ui.text('selfcheckMcpNoAnswer', { why }), fix),
         skipCheck('api', ui.text('selfcheckApiSkipped'))];
     }
     const api = answer.api;
     if (api === null || typeof api !== 'object' || api.ok !== true) {
-      const why = String(api?.error ?? '').trim() || ui.text('selfcheckError');
+      const why = probeReason(ui, api?.error, answer.stderr);
       return [okCheck('mcp', ui.text('selfcheckMcpOk', { count: Number(mcp.tools ?? 0) })),
         badCheck('api', ui.text('selfcheckApiFailed', { why }), fix)];
     }

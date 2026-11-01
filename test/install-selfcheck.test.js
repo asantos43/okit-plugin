@@ -1557,7 +1557,7 @@ test('D109: the probe answers both questions: the MCP server and its control API
 });
 
 test('D109: a server that does not answer fails the MCP row and skips the API row (there is no server to ask)', async (t) => {
-  const answer = { mcp: { ok: false, tools: 0, error: 'the server did not answer in 6000 ms' }, api: { ok: false, error: '' } };
+  const answer = { mcp: { ok: false, tools: 0, error: { code: 'timeout', ms: 6000 } }, api: { ok: false, error: null } };
   const w = await probeWorld(t, { run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
   const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
   assert.equal(rows.mcp.status, 'fail', JSON.stringify(rows));
@@ -1566,13 +1566,54 @@ test('D109: a server that does not answer fails the MCP row and skips the API ro
   assert.equal(rows.api.reason, 'not checked: the MCP server did not answer');
 });
 
+test('D109: an answer of an older probe (a plain error) is the generic error and the raw detail', async (t) => {
+  const answer = { mcp: { ok: false, tools: 0, error: 'the server did not answer in 6000 ms' }, api: { ok: false, error: '' } };
+  const w = await probeWorld(t, { run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
+  const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+  assert.equal(rows.mcp.status, 'fail', JSON.stringify(rows));
+  assert.equal(rows.mcp.reason,
+    'the MCP server did not answer (the check itself could not run: the server did not answer in 6000 ms)');
+});
+
+test('D109: every code of the probe has a text of the language of the run', async (t) => {
+  const codes = [
+    { code: 'start-failed', why: 'ENOENT', en: 'the server could not start (ENOENT)' },
+    { code: 'stopped', en: 'the server stopped before it answered' },
+    { code: 'timeout', ms: 6000, en: 'the server did not answer in 6000 ms' },
+    { code: 'init-error', why: 'no initialize here', en: 'the server answered initialize with an error (no initialize here)' },
+    { code: 'list-error', why: 'no tools/list here', en: 'the server answered tools/list with an error (no tools/list here)' },
+    { code: 'no-tools', en: 'the server answered tools/list with no tools' },
+    { code: 'bad-frame', why: 'jsonrpc', en: 'the server answered the protocol wrong (jsonrpc)' },
+    { code: 'long-line', en: 'the server wrote an over-long line' },
+    { code: 'no-control-api', en: 'the server did not open its control API' },
+    { code: 'control-error', why: 'no answer', en: 'the call failed (no answer)' },
+  ];
+  for (const one of codes) {
+    const answer = { mcp: { ok: false, tools: 0, error: one }, api: { ok: false, error: null } };
+    const w = await probeWorld(t, { run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
+    const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+    assert.equal(rows.mcp.status, 'fail', JSON.stringify(rows));
+    assert.equal(rows.mcp.reason, `the MCP server did not answer (${one.en})`, JSON.stringify(one));
+  }
+});
+
+test('D109: the tail of the error stream of the server follows the row, labelled', async (t) => {
+  const answer = { mcp: { ok: false, tools: 0, error: { code: 'timeout', ms: 6000 } }, api: { ok: false, error: null },
+    stderr: 'the server said no' };
+  const w = await probeWorld(t, { run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
+  const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+  assert.equal(rows.mcp.reason,
+    'the MCP server did not answer (the server did not answer in 6000 ms (stderr: the server said no))');
+});
+
 test('D109: an API that does not answer fails only the API row', async (t) => {
-  const answer = { mcp: { ok: true, tools: 12, error: '' }, api: { ok: false, error: 'no okit server is running for this state folder' } };
+  const answer = { mcp: { ok: true, tools: 12, error: null },
+    api: { ok: false, error: { code: 'control-error', why: 'no okit server is running for this state folder' } } };
   const w = await probeWorld(t, { run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
   const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
   assert.equal(rows.mcp.status, 'pass', JSON.stringify(rows));
   assert.equal(rows.api.status, 'fail', JSON.stringify(rows));
-  assert.equal(rows.api.reason, 'the control API did not answer (no okit server is running for this state folder)');
+  assert.equal(rows.api.reason, 'the control API did not answer (the call failed (no okit server is running for this state folder))');
 });
 
 test('D109: an answer the installer cannot read fails both rows', async (t) => {
@@ -1584,15 +1625,19 @@ test('D109: an answer the installer cannot read fails both rows', async (t) => {
   }
 });
 
-test('D109: a node that is not on the machine skips both rows, like a shell that is not installed', async (t) => {
+test('D109: a node that is not on the machine fails both rows: the client uses our MCP server', async (t) => {
   const w = await probeWorld(t, { run: async (spec) => {
     if (!isProbe(spec)) return { stdout: '' };
     throw Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
   } });
   const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
-  assert.equal(rows.mcp.status, 'skip', JSON.stringify(rows));
-  assert.equal(rows.mcp.reason, 'node is not installed');
-  assert.equal(rows.api.status, 'skip', JSON.stringify(rows));
+  assert.equal(rows.mcp.status, 'fail', JSON.stringify(rows));
+  assert.match(rows.mcp.reason, /node of the installation is not on this machine/, rows.mcp.reason);
+  assert.match(rows.mcp.reason, new RegExp(w.deps.config.node.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), rows.mcp.reason);
+  assert.ok(rows.mcp.fix, 'the failed row has no fix');
+  assert.match(rows.mcp.fix, /install --client claude-code/, rows.mcp.fix);
+  assert.equal(rows.api.status, 'fail', JSON.stringify(rows));
+  assert.equal(rows.api.reason, rows.mcp.reason);
 });
 
 test('D109: a probe that answers too late fails both rows with the timeout of the check', async (t) => {
@@ -1640,11 +1685,13 @@ test('D109: a failure of the MCP check says what to do, in the language of the r
   const wanted = {
     en: { row: 'MCP server  failed  the MCP server did not answer (the server did not answer in 6000 ms)',
       fix: 'Fix: Install again to register the MCP server: okit-plugin install --client claude-code' },
-    'pt-BR': { row: 'Servidor MCP  falhou  o servidor MCP não respondeu (the server did not answer in 6000 ms)',
+    'pt-BR': { row: 'Servidor MCP  falhou  o servidor MCP não respondeu (o servidor não respondeu em 6000 ms)',
       fix: 'Correção: Instale de novo para registrar o servidor MCP: okit-plugin install --client claude-code' },
   };
+  // The sentences of the probe are English: none of them may show in a row of another language.
+  const ENGLISH_PROBE = /the server (did not answer|could not start|stopped|answered|wrote)|the control API (did not answer|of ours)|its control API|the check itself could not run/;
   for (const locale of LOCALES) {
-    const answer = { mcp: { ok: false, tools: 0, error: 'the server did not answer in 6000 ms' }, api: { ok: false, error: '' } };
+    const answer = { mcp: { ok: false, tools: 0, error: { code: 'timeout', ms: 6000 } }, api: { ok: false, error: null } };
     const w = await probeWorld(t, { locale, run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
     const results = await selfCheck(w.record, '1.0.0', w.deps);
     assert.equal(reportSelfCheck(w.deps.ui, results, 'Claude Code'), true);
@@ -1652,6 +1699,24 @@ test('D109: a failure of the MCP check says what to do, in the language of the r
     const at = rows.findIndex((row) => row.includes(wanted[locale].row));
     assert.ok(at >= 0, `${locale}\n${rows.join('\n')}`);
     assert.equal(rows[at + 1].trim(), wanted[locale].fix, `${locale}\n${rows.join('\n')}`);
+    if (locale === 'pt-BR') {
+      assert.doesNotMatch(rows[at], ENGLISH_PROBE, rows.join('\n'));
+    }
+  }
+});
+
+test('D109: a failure of the probe in Portuguese never shows an English sentence of the probe', async (t) => {
+  const ENGLISH_PROBE = /the server (did not answer|could not start|stopped|answered|wrote)|the control API (did not answer|of ours)|its control API|the check itself could not run/;
+  const codes = ['start-failed', 'stopped', 'timeout', 'init-error', 'list-error', 'no-tools', 'bad-frame',
+    'long-line', 'no-control-api', 'control-error'];
+  for (const code of codes) {
+    const answer = { mcp: { ok: false, tools: 0, error: { code, ms: 6000, why: 'jsonrpc' } }, api: { ok: false, error: null } };
+    const w = await probeWorld(t, { locale: 'pt-BR', run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
+    const results = await selfCheck(w.record, '1.0.0', w.deps);
+    reportSelfCheck(w.deps.ui, results, 'Claude Code');
+    const text = plain(w.lines);
+    assert.doesNotMatch(text, ENGLISH_PROBE, `${code}\n${text}`);
+    assert.match(text, /Servidor MCP {2}falhou/, `${code}\n${text}`);
   }
 });
 
@@ -1676,6 +1741,20 @@ test('D109: a probe time that is not a whole number of milliseconds is refused',
       (error) => kindOf(error) === 'usage' && error.message.startsWith('Invalid install.selfcheck.probeMs: '),
       JSON.stringify(value));
   }
+});
+
+test('D109: a probe time that does not fit in the time of the check is refused, naming both keys', () => {
+  const { timeoutMs, probeMs } = DEFAULT_CONFIG.install.selfcheck;
+  // The default is a valid pair: the budget of the probe, the time the server takes to go and a margin fit in it.
+  assert.ok(probeMs <= timeoutMs - 2500, `${probeMs} does not fit in ${timeoutMs}`);
+  assert.doesNotThrow(() => installConfig({ selfcheck: { probeMs } }));
+  assert.throws(() => installConfig({ selfcheck: { probeMs: timeoutMs - 2499 } }),
+    (error) => kindOf(error) === 'usage'
+      && error.message.startsWith('Invalid install.selfcheck.probeMs: ')
+      && error.message.includes('install.selfcheck.timeoutMs'),
+    `${timeoutMs - 2499} must be refused`);
+  // A longer check takes the same budget: the pair is valid again.
+  assert.equal(installConfig({ selfcheck: { timeoutMs: 20000, probeMs: 17500 } }).selfcheck.probeMs, 17500);
 });
 
 // D109: the answer of the probe is read, not guessed: the last line it printed is the answer, and a row passes only

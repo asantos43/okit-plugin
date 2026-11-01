@@ -208,8 +208,11 @@ test('install/update summaries and status contain kit; dry-run writes nothing', 
   const pkg = { name: 'okit-plugin', version: '1.0.0', bin: { 'okit-plugin': 'src/cli.js' } };
   await fs.writeFile(join(source, 'package.json'), JSON.stringify(pkg));
   await fs.writeFile(join(source, 'src/cli.js'), '// fixture');
-  // The package of this test is a fixture without the MCP server of ours: the probe of the check is answered here, so
-  // the row of the kit is what this test is about.
+  await fs.mkdir(join(source, 'src/mcp'), { recursive: true });
+  await fs.writeFile(join(source, 'src/mcp/server.js'), '// fixture of the MCP server');
+  await fs.writeFile(join(source, 'src/mcp/selfcheck-probe.js'), '// fixture of the probe');
+  // The payload of the MCP server and the probe of the check are there: the probe itself is answered by the fake
+  // runner below, so the row of the kit is what this test is about.
   const run = async (input) => (String(input?.args?.[0] ?? '').endsWith('selfcheck-probe.js')
     ? { stdout: `${JSON.stringify({ mcp: { ok: true, tools: 1, error: '' }, api: { ok: true, error: '' } })}\n` }
     : f.deps.run(input));

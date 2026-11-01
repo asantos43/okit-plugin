@@ -10,7 +10,7 @@ import { installConfig, installPaths, clientRoot } from './config.js';
 import { chooseClient } from './menu.js';
 import { latestRelease } from './release.js';
 import { downloadRelease } from './download.js';
-import { place, readRecords } from './place.js';
+import { payloadComplete, place, readRecords } from './place.js';
 import { registrationPlan, mcpNotes } from './register.js';
 import { mcpPlan, ensureMcp, shown } from './mcp-register.js';
 import { activate, backup, rollback } from './update.js';
@@ -265,7 +265,10 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
     deps.stage(null);
     const quota = appliesStatusline({ client }, flags, deps);
     ui.header(headerValues(deps, selected.version, client));
-    if (current?.version === selected.version && current.client === client) {
+    // An installation whose payload is not whole (the server of the MCP server was deleted) is not the installation
+    // of that version: it is written again, so the fix the doctor advertises really repairs.
+    const whole = current && await payloadComplete(current, deps.config, deps.fs);
+    if (current?.version === selected.version && current.client === client && whole) {
       // The same steps in a dry run as in the run itself: the command link is planned, not skipped.
       const link = !flags.check && Boolean(current.link);
       const next = ui.sequence(planSteps({ upToDate: true, quota, link }), { client: label });
