@@ -159,13 +159,19 @@ export async function ensureMcp(record, deps) {
 }
 
 /**
- * Whether what the client printed names one of our paths: the arguments of the entry are one of our paths, whole.
+ * Whether what the client printed names one of our paths: the arguments of a stdio entry are one of our paths, whole.
  *
  * The clients print the arguments of an entry joined by spaces, never quoted (`Args: /path/server.js`), so the value
- * of the arguments line is the whole argument list of the entry: a line that holds our path with another word at its
+ * of the arguments field is the whole argument list of the entry: a line that holds our path with another word at its
  * side (a file name with a space, a second argument, a quote) names another entry, not ours. The value is read as the
  * client wrote it, so the space that ends it is part of it: a foreign file name that ends with a space is not our path.
- * The first arguments line of the text is the one that is read.
+ * The first arguments field of the text is the one that is read.
+ *
+ * Only a stdio entry is ours. The fields of an entry are the lines indented by exactly two spaces (the nested lists,
+ * such as the headers or the environment, are indented four), and the first field that names the type of the server
+ * (`Type` for Claude Code, `transport` for Codex) has to be `stdio`: a server of another type never runs our server,
+ * even when one of its headers holds a line that looks like the arguments field. An entry that names no type is not
+ * ours either: the safe side is the one where the entry of somebody else is kept.
  *
  * @param {string} text what the client printed
  * @param {string[]} paths the paths of ours to look for
@@ -183,11 +189,27 @@ export function pointsAt(text, paths, platform = process.platform) {
 }
 
 /**
- * The value of the arguments line the client printed: the first one, whole, as the client wrote it (null when there is
- * none). The value is read exactly: the space that ends it is part of it, so a foreign file name that ends with a space
- * is not our path. The line ends at the end of the line, and the `\r` of a CRLF output is not part of the value.
+ * The value of the arguments field of a stdio entry: the value of the first `args` field of the entry, whole, as the
+ * client wrote it (null when there is none, or when the entry is not a stdio one). The value is read exactly: the
+ * space that ends it is part of it, so a foreign file name that ends with a space is not our path. The line ends at
+ * the end of the line, and the `\r` of a CRLF output is not part of the value.
  */
-const argumentsOf = (text) => /^[ \t]*args: ([^\r\n]*)/im.exec(text)?.[1] ?? null;
+const argumentsOf = (text) => {
+  const fields = fieldsOf(text);
+  // The type of the server decides: only a stdio one runs our server.
+  const type = fields.find((field) => /^(type|transport)$/i.test(field.key));
+  if (!type || type.value !== 'stdio') return null;
+  const args = fields.find((field) => /^args$/i.test(field.key));
+  return args ? args.value : null;
+};
+
+/**
+ * The fields of the entry the client printed: the lines indented by exactly two spaces, as the clients print them (the
+ * fields of the server are indented two spaces, the values of the nested lists, such as the headers or the environment,
+ * four). A line with three or more spaces is a value of a nested list, never a field of the entry.
+ */
+const fieldsOf = (text) => [...String(text ?? '').matchAll(/^ {2}(?! )([A-Za-z_]+): ([^\r\n]*)/gm)]
+  .map((match) => ({ key: match[1], value: match[2] }));
 
 /** The paths as they are compared on Windows: the separator and the case do not matter. */
 const folded = (value) => value.replaceAll('\\', '/').toLowerCase();
@@ -208,10 +230,14 @@ async function readEntry(plan, deps) {
   return { status: 'exists', output };
 }
 
-/** The scope the client named about the entry it printed: the first word of its `Scope:` line (null when it names none). */
+/**
+ * The scope the client named about the entry it printed: the first word of its `Scope` field (null when it names none).
+ * The scope is a field of the entry, at the two spaces indent: a header of an HTTP server that holds a line named
+ * `Scope` is not the scope of the entry.
+ */
 const scopeOf = (text) => {
-  const named = /^\s*Scope:\s*(\w+)/im.exec(String(text ?? ''));
-  return named ? named[1] : null;
+  const field = fieldsOf(text).find((item) => /^scope$/i.test(item.key));
+  return field ? /^\s*(\w+)/.exec(field.value)?.[1] ?? null : null;
 };
 
 /**

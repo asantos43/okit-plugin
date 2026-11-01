@@ -56,6 +56,14 @@ function mcpNameOf(args) {
 }
 
 /**
+ * The entry a client holds, as the client prints it: the fields of the server are indented two spaces, and each client
+ * prints its own names (`Scope`, `Type` and `Args` for Claude Code, `transport` and `args` for Codex).
+ */
+const printedEntry = (executable, name, entry) => (/codex/i.test(executable)
+  ? `${name}\n  enabled: true\n  transport: stdio\n  command: ${entry.command}\n  args: ${entry.args.join(' ')}\n`
+  : `${name}:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: ${entry.command}\n  Args: ${entry.args.join(' ')}\n`);
+
+/**
  * The MCP registry of a client, as the fake world of the tests: the entry of each client and the file it points at.
  * The client's own `mcp get`, `mcp add` and `mcp remove` commands are answered as the real clients answer them: the
  * read of an entry that is not there fails, the read of one that is there prints the command and its arguments.
@@ -79,7 +87,7 @@ export function mcpWorld() {
         // The real clients answer that they hold no entry with this name, print it and exit with 1.
         if (!entry) throw Object.assign(new Error(`Command failed: ${executable} mcp get ${name}`), { code: 1,
           stdout: `No MCP server named "${name}" found.\n`, stderr: '' });
-        return { stdout: `${name}\n  command: ${entry.command}\n  args: ${entry.args.join(' ')}\n` };
+        return { stdout: printedEntry(executable, name, entry) };
       }
       if (verb === 'add') {
         const at = args.indexOf('--');

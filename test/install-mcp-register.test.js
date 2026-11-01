@@ -42,9 +42,10 @@ const SPACED = join('/Users/me/Library/Application Support/okit/1.0.0');
 const SPACED_SERVER = join(SPACED, 'src/mcp/server.js');
 
 // What the clients print for the entry they hold: Claude Code names the scope, the type and the command; Codex prints
-// the entry as a list of settings. Neither of them quotes the arguments: they join them with spaces.
+// the entry as a list of settings. Neither of them quotes the arguments: they join them with spaces. The fields of the
+// server are indented two spaces, the nested lists (the headers, the environment) four.
 const claudeEntry = (args) => `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: node\n  Args: ${args}\n`;
-const codexEntry = (args) => `okit\n  enabled: true\n  command: node\n  args: ${args}\n`;
+const codexEntry = (args) => `okit\n  enabled: true\n  transport: stdio\n  command: node\n  args: ${args}\n`;
 
 /** The dependencies of the step: the installer's settings and the runner of the client. */
 const depsOf = (run, config = CONFIG) => ({ config, run, out: () => {} });
@@ -488,7 +489,7 @@ test('a remove that resolves a failure is not followed by an add', async () => {
   const calls = [];
   const run = async (input) => {
     calls.push(input);
-    if (input.args[1] === 'get') return { stdout: `okit\n  args: ${join(PREVIOUS.path, 'src/mcp/server.js')}\n` };
+    if (input.args[1] === 'get') return { stdout: `okit\n  transport: stdio\n  args: ${join(PREVIOUS.path, 'src/mcp/server.js')}\n` };
     if (input.args[1] === 'remove') return { code: 1, stdout: '', stderr: 'the client refused the removal' };
     return {};
   };
@@ -1101,4 +1102,96 @@ test('an arguments line that ends with a carriage return is our path', () => {
 test('a path with spaces inside it is still our path', () => {
   assert.equal(pointsAt(claudeEntry(SPACED_SERVER), [SPACED_SERVER]), true);
   assert.equal(pointsAt(codexEntry(SPACED_SERVER), [SPACED_SERVER]), true);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 9: the ownership of an entry needs the real stdio arguments field. The fields of an entry are
+// the lines indented by exactly two spaces (the nested lists, such as the headers or the environment, are indented
+// four), and only a stdio entry (the `Type` field of Claude Code, the `transport` field of Codex) can be ours: a server
+// of another type never runs our server, even when one of its headers holds a line that looks like the arguments.
+//
+// Must pass / must refuse:
+// | case | must pass | must refuse |
+// | a stdio entry of ours | our path, whole | the arguments of somebody else |
+// | an HTTP server whose header holds our path | the entry is kept | the remove and the add |
+// | an HTTP server whose header holds a `Type: stdio` | the entry is kept | the remove and the add |
+// | an entry that names no type | the entry is kept | the remove and the add |
+// | a nested line that looks like the arguments | the field of the entry | the nested line |
+
+// The entry of an HTTP server of Claude Code: the fields of the server are indented two spaces, the headers four.
+const HTTP_ENTRY = `okit:\n  Scope: User config (available in all your projects)\n  Status: Connected\n  Type: http\n  URL: https://example.com/mcp\n  Headers:\n    Args: ${SERVER}\n`;
+// The same server, with a header that holds the type of a stdio server and our path.
+const HTTP_WITH_STDIO_HEADER = `okit:\n  Scope: User config (available in all your projects)\n  Type: http\n  URL: https://example.com/mcp\n  Headers:\n    Type: stdio\n    Args: ${SERVER}\n`;
+// The entry of an HTTP server of Codex: it names no arguments line at all.
+const CODEX_HTTP = 'okit\n  enabled: true\n  transport: streamable_http\n  url: https://example.com/mcp\n';
+// The entry of a server that names our path as its arguments, but is not a stdio one.
+const NOT_STDIO_WITH_OUR_PATH = `okit\n  enabled: true\n  transport: streamable_http\n  args: ${SERVER}\n`;
+// The entry that names our path in a nested line only.
+const NO_TYPE = `okit:\n  Command: node\n  Args: ${SERVER}\n`;
+
+test('the header of an HTTP server that looks like the arguments field is not ours', async () => {
+  assert.equal(pointsAt(HTTP_ENTRY, [SERVER]), false);
+  for (const action of ['install', 'update', 'uninstall']) {
+    const client = fakeClient(HTTP_ENTRY);
+    const record = action === 'update' ? { ...RECORD, previous: PREVIOUS } : RECORD;
+    const result = await registerMcp(record, depsOf(client.run), action);
+    // The entry of somebody else is kept: nothing is written nor taken out.
+    assert.equal(result.status, 'kept', action);
+    assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']], action);
+  }
+});
+
+test('the header of an HTTP server that holds the type of a stdio server is not ours', async () => {
+  assert.equal(pointsAt(HTTP_WITH_STDIO_HEADER, [SERVER]), false);
+  const client = fakeClient(HTTP_WITH_STDIO_HEADER);
+  const result = await registerMcp(RECORD, depsOf(client.run), 'uninstall');
+  assert.equal(result.status, 'kept');
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('the entry of a server that is not a stdio one is not ours, whatever its arguments hold', async () => {
+  assert.equal(pointsAt(CODEX_HTTP, [SERVER]), false);
+  assert.equal(pointsAt(NOT_STDIO_WITH_OUR_PATH, [SERVER]), false);
+  const client = fakeClient(NOT_STDIO_WITH_OUR_PATH);
+  const result = await registerMcp({ ...RECORD, client: 'codex' }, depsOf(client.run), 'uninstall');
+  assert.equal(result.status, 'kept');
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('the entry that names no type is not ours', async () => {
+  assert.equal(pointsAt(NO_TYPE, [SERVER]), false);
+  const client = fakeClient(NO_TYPE);
+  const result = await registerMcp(RECORD, depsOf(client.run), 'install');
+  assert.equal(result.status, 'kept');
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('the nested line that looks like the arguments is not the arguments of the entry', () => {
+  // The environment holds a line that looks like the arguments of the entry, before the field of the entry.
+  const nested = `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: node\n  Environment:\n    Args: ${SERVER}\n`;
+  assert.equal(pointsAt(nested, [SERVER]), false);
+  // The field of the entry is the one that is read, not the nested one.
+  const ours = `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: node\n  Environment:\n    Args: /somewhere/else/server.js\n  Args: ${SERVER}\n`;
+  assert.equal(pointsAt(ours, [SERVER]), true);
+  const foreign = `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: node\n  Environment:\n    Args: ${SERVER}\n  Args: /somewhere/else/server.js\n`;
+  assert.equal(pointsAt(foreign, [SERVER]), false);
+});
+
+test('our own entries are still ours, the carriage returns of a CRLF output too', () => {
+  const claude = `okit:\n  Scope: User config (available in all your projects)\n  Status: Failed to connect\n  Issue: CONNECTION_CLOSED: Connection closed\n  Type: stdio\n  Command: node\n  Args: ${SERVER}\n  Environment:\n`;
+  assert.equal(pointsAt(claude, [SERVER]), true);
+  assert.equal(pointsAt(claude.replaceAll('\n', '\r\n'), [SERVER]), true);
+  assert.equal(pointsAt(codexEntry(SERVER), [SERVER]), true);
+  assert.equal(pointsAt(codexEntry(SERVER).replaceAll('\n', '\r\n'), [SERVER]), true);
+});
+
+test('the header of a server that holds a scope is not the scope of the entry', async () => {
+  // The scope of the entry is a field of the entry: a header that holds one is not it.
+  const header = `okit:\n  Type: stdio\n  Command: node\n  Args: ${SERVER}\n  Headers:\n    Scope: Project config\n`;
+  assert.equal(pointsAt(header, [SERVER]), true);
+  const client = fakeClient(header);
+  const result = await registerMcp(RECORD, depsOf(client.run), 'install');
+  // The entry is ours: the scope of the header did not make it an entry of another scope.
+  assert.equal(result.status, 'skipped');
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
 });
