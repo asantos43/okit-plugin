@@ -56,11 +56,13 @@ function mcpNameOf(args) {
 }
 
 /**
- * The entry a client holds, as the client prints it: the fields of the server are indented two spaces, and each client
- * prints its own names (`Scope`, `Type` and `Args` for Claude Code, `transport` and `args` for Codex).
+ * The entry a client holds, as the client prints it: the client that prints text prints the fields of the server
+ * indented two spaces (`Scope`, `Type` and `Args` for Claude Code), and the client that answers with JSON (Codex)
+ * prints the entry as JSON, where the boundary of an argument is exact.
  */
 const printedEntry = (executable, name, entry) => (/codex/i.test(executable)
-  ? `${name}\n  enabled: true\n  transport: stdio\n  command: ${entry.command}\n  args: ${entry.args.join(' ')}\n`
+  ? JSON.stringify({ name, enabled: true, disabled_reason: null,
+    transport: { type: 'stdio', command: entry.command, args: entry.args, env: null, env_vars: [], cwd: null } }, null, 2)
   : `${name}:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: ${entry.command}\n  Args: ${entry.args.join(' ')}\n`);
 
 /**

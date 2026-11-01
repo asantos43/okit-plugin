@@ -8,6 +8,11 @@ import { detect } from './menu.js';
 // ever touched: an entry that is not ours is kept, never replaced. A client whose own `mcp get` does not say where an
 // entry is kept (Codex) is only ever added to: what it shows and what its `mcp add` writes are not the same entry.
 
+// The clients whose own `mcp get` answers with JSON: a fact of the client, not a setting. Codex answers with clean
+// JSON on stdout (its warnings go to stderr), where the boundary of an argument is exact, so its entry is read as
+// JSON and never as text.
+const GET_JSON = new Set(['codex']);
+
 // The clients this step handles: the ones the defaults give an `mcp` setting. The list is the defaults' own, so a
 // client that is not one of them is never asked, whatever the user's configuration says (OpenCode is not registered
 // by the installer yet).
@@ -63,8 +68,9 @@ export function shown(words, platform = process.platform) {
  * @param {object} record the installation record (`path` is the retained folder, `previous.path` the one before it)
  * @param {object} deps the dependencies of the installer (`config` and `run`)
  * @param {'install'|'update'|'uninstall'} action what the run is doing
- * @returns {{get: string[], add: string[], remove: string[], steps: string[][], scope: string|null, cwd: string}|null} null for a
- * client with no MCP server (or with the module strategy and no module of ours: nothing of it is ours to register)
+ * @returns {{get: string[], add: string[], remove: string[], steps: string[][], scope: string|null, cwd: string, format: 'json'|'text'}|null}
+ * null for a client with no MCP server (or with the module strategy and no module of ours: nothing of it is ours to
+ * register); `format` is how the client prints the entry it holds (JSON has exact boundaries, text joins them)
  */
 export function mcpPlan(record, deps, action = 'install') {
   if (!MCP_CLIENTS.includes(record.client)) return null;
@@ -80,38 +86,41 @@ export function mcpPlan(record, deps, action = 'install') {
   const scope = mcp.scope ?? null;
   const scopeWords = scope ? ['--scope', scope] : [];
   const path = join(record.path, server);
-  const get = [settings.executable, 'mcp', 'get', name];
+  // A client whose own `mcp get` answers with JSON is asked for it: the entry is then read as JSON, where the
+  // boundary of an argument is exact.
+  const format = GET_JSON.has(record.client) ? 'json' : 'text';
+  const get = format === 'json'
+    ? [settings.executable, 'mcp', 'get', name, '--json']
+    : [settings.executable, 'mcp', 'get', name];
   const add = [settings.executable, 'mcp', 'add', ...scopeWords, name, '--', deps.config.node, path];
   const remove = [settings.executable, 'mcp', 'remove', name, ...scopeWords];
   // What a dry run shows: the read and the write the action would do.
-  return { get, add, remove, steps: action === 'uninstall' ? [get, remove] : [get, add], scope, cwd: mcpCwd(deps, record) };
+  return { get, add, remove, steps: action === 'uninstall' ? [get, remove] : [get, add], scope, cwd: mcpCwd(deps, record), format };
 }
 
 /**
  * Registers the MCP server of the plugin in the client, or removes it: one entry, the one of `install.mcp.name`.
  *
  * Every command of the client runs from the installation folder of the record being handled (or from the directory the
- * dependencies name), a folder the installer owns and that holds no configuration of any project: the configuration of
- * a project is never read nor changed, so what the client shows there is the global entry, the one this step owns.
- *
- * The entry the client holds is read first: an entry that is ours (the output of the client names the server of this
- * installation, or the one it replaced) is ours to write; an entry that is not ours is kept, and a failure is a
+ * dependencies name). The entry the client holds is read first: an entry that is ours (the client names the server of
+ * this installation, or the one it replaced) is ours to write; an entry that is not ours is kept, and a failure is a
  * warning, never a failure of the installation. An entry that could not be read is not an absent entry: nothing is
  * written, because the `mcp add` of a client replaces the entry of the same name and the foreign one would be lost.
- * An entry at another scope than the configured one is not ours either: the client shows the entry of the highest
- * precedence it holds, and the entry of that scope is never written nor taken out.
  *
- * The path of an installation that holds whitespace is another case where the display cannot tell our entry from a
- * foreign one: the clients print the arguments of an entry joined by spaces, never quoted, so the entry of a foreign
+ * The scope of the entry is what the client itself tells. Claude Code names it: an entry at another scope than the
+ * configured one is not ours either (the client shows the entry of the highest precedence it holds, and the entry of
+ * that scope is never written nor taken out). Codex does not name it: its `mcp get` searches the ancestors of the
+ * folder it runs in for a trusted project, so the entry it shows can be the one of that project, while its `mcp add`
+ * and `mcp remove` only ever touch the global entry. The installer cannot tell which one it is looking at, so for
+ * Codex it only ever adds: an entry that is there is never replaced nor taken out by it, and the warning gives the
+ * commands to run by hand.
+ *
+ * The path of an installation that holds whitespace is another case where the text of a client cannot tell our entry
+ * from a foreign one: the text joins the arguments of an entry with spaces, never quoted, so the entry of a foreign
  * server whose arguments were split (`/opt/Jo` and `Silva/1.0.0/src/mcp/server.js`) is printed exactly like ours
  * (`/opt/Jo Silva/1.0.0/src/mcp/server.js`). The installer never claims, replaces nor takes out such an entry: it
- * only adds the entry that is missing and prints the commands to run by hand.
- *
- * A client whose own `mcp get` does not say where an entry is kept (Codex) is the other side of the same coin: what it
- * shows is the entry of the highest precedence it holds (the one of a project, when the installation folder sits inside
- * one) while `mcp add` and `mcp remove` only ever touch the global entry. The installer cannot tell which one it is
- * looking at, so for such a client it only ever adds: an entry that is there is never replaced nor taken out by it, and
- * the warning gives the commands to run by hand.
+ * only adds the entry that is missing and prints the commands to run by hand. Codex does not print text: its entry is
+ * read as JSON, where the boundary of an argument is exact, so a path that holds whitespace is ours there.
  *
  * @param {object} record the installation record (`path` is the retained folder, `previous.path` the one before it)
  * @param {object} deps the dependencies of the installer (`config` and `run`)
@@ -131,11 +140,12 @@ export async function registerMcp(record, deps, action = 'install') {
   if (entry.status === 'failed') return failure(ui, client, entry.reason, action === 'uninstall' ? plan.remove : plan.add, deps.platform);
   // The entry is at another scope than ours: it is not ours, and nothing of it is written nor taken out.
   if (entry.status === 'otherScope') return { status: 'kept', detail: ui.text('mcpKept', { client, name }) };
-  const ours = (path) => pointsAt(entry.output, [path], deps.platform);
-  // The client prints the arguments of an entry joined by spaces, never quoted: an entry whose arguments were split
-  // is printed like ours when our path holds whitespace. Such an entry cannot be told apart from ours, so it is
-  // never claimed, replaced nor taken out: only the commands to run by hand are given.
-  const ambiguous = (path) => /\s/.test(path) && ours(path);
+  const ours = (path) => pointsAt(entry.output, [path], deps.platform, entry.format);
+  // The text of a client joins the arguments with spaces, never quoted: an entry whose arguments were split is
+  // printed like ours when our path holds whitespace. Such an entry cannot be told apart from ours, so it is never
+  // claimed, replaced nor taken out: only the commands to run by hand are given. The JSON of a client has exact
+  // boundaries: nothing is ambiguous there.
+  const ambiguous = (path) => entry.format !== 'json' && /\s/.test(path) && ours(path);
   // A client whose own `mcp get` does not say where an entry is kept (Codex): what it shows is the entry of the
   // highest precedence it holds (the one of a project, when the installation folder sits inside one), while `mcp add`
   // and `mcp remove` only ever touch the global entry. The installer cannot tell which one it is looking at, so for
@@ -214,33 +224,78 @@ export async function ensureMcp(record, deps) {
 /**
  * Whether what the client printed names one of our paths: the arguments of a stdio entry are one of our paths, whole.
  *
- * The clients print the arguments of an entry joined by spaces, never quoted (`Args: /path/server.js`), so the value
- * of the arguments field is the whole argument list of the entry: a line that holds our path with another word at its
- * side (a file name with a space, a second argument, a quote) names another entry, not ours. The value is read as the
- * client wrote it, so the space that ends it is part of it: a foreign file name that ends with a space is not our path.
- * The first arguments field of the text is the one that is read. A value that continues on another line is a value the
- * display cannot prove: the entry is not ours.
+ * A client whose own `mcp get` answers with JSON (Codex) is read as JSON: the boundary of an argument is exact there
+ * (a newline in it is part of it), so the text of the entry cannot be forged into an argument of ours. The entry is
+ * ours when its transport is a stdio one whose `args` holds exactly one element, and that element is our path, whole.
+ * An answer that is not JSON, or a JSON that is not an object, names nothing: it is never ours.
  *
- * Only a stdio entry is ours. The fields of an entry are the lines indented by exactly two spaces (the nested lists,
- * such as the headers or the environment, are indented four), and the first field that names the type of the server
- * (`Type` for Claude Code, `transport` for Codex) has to be `stdio`: a server of another type never runs our server,
- * even when one of its headers holds a line that looks like the arguments field. An entry that names no type is not
- * ours either: the safe side is the one where the entry of somebody else is kept.
+ * A client whose own `mcp get` answers with text (Claude Code) is read as text: the arguments of an entry are one of
+ * our paths, whole. The clients print the arguments of an entry joined by spaces, never quoted (`Args: /path/server.js`),
+ * so the value of the arguments field is the whole argument list of the entry: a line that holds our path with another
+ * word at its side (a file name with a space, a second argument, a quote) names another entry, not ours. The value is
+ * read as the client wrote it, so the space that ends it is part of it: a foreign file name that ends with a space is
+ * not our path. The first arguments field of the text is the one that is read. A value that continues on another line
+ * is a value the display cannot prove: the entry is not ours.
+ *
+ * Only a stdio entry is ours. The fields of the text of an entry are the lines indented by exactly two spaces (the
+ * nested lists, such as the headers or the environment, are indented four), and the first field that names the type
+ * of the server (`Type` for Claude Code) has to be `stdio`: a server of another type never runs our server, even when
+ * one of its headers holds a line that looks like the arguments field. An entry that names no type is not ours
+ * either: the safe side is the one where the entry of somebody else is kept.
  *
  * @param {string} text what the client printed
  * @param {string[]} paths the paths of ours to look for
  * @param {string} [platform] the system of the run (on Windows the case and the separator do not matter)
+ * @param {'json'|'text'} [format] how the client printed the entry (JSON has exact boundaries, text joins them)
  * @returns {boolean} whether the arguments of the entry are one of the paths
  */
-export function pointsAt(text, paths, platform = process.platform) {
+export function pointsAt(text, paths, platform = process.platform, format = 'text') {
+  return format === 'json' ? jsonPointsAt(text, paths, platform) : textPointsAt(text, paths, platform);
+}
+
+/**
+ * Whether the JSON the client printed names one of our paths: a stdio transport whose `args` holds exactly one
+ * element, and that element is our path, whole. The boundary of an argument of a JSON is exact (a newline in it is
+ * part of it), so the text of the entry cannot be forged into it. An answer that is not JSON, or a JSON that is not
+ * an object, names nothing: it is never ours, and it never throws.
+ */
+const jsonPointsAt = (text, paths, platform) => {
+  let entry;
+  try {
+    entry = JSON.parse(String(text ?? ''));
+  } catch {
+    return false;
+  }
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+  const transport = entry.transport;
+  if (!transport || typeof transport !== 'object' || Array.isArray(transport)) return false;
+  // Only a stdio transport runs our server.
+  if (transport.type !== 'stdio') return false;
+  const args = transport.args;
+  if (!Array.isArray(args) || args.length !== 1) return false;
+  const argument = args[0];
+  if (typeof argument !== 'string') return false;
+  return isOneOf(paths, argument, platform);
+};
+
+/**
+ * Whether the text the client printed names one of our paths: the value of the arguments field of a stdio entry is
+ * the whole argument list of the entry, read as the client wrote it.
+ */
+const textPointsAt = (text, paths, platform) => {
   const value = argumentsOf(String(text ?? ''));
   if (value === null) return false;
-  const printed = platform === 'win32' ? folded(value) : value;
+  return isOneOf(paths, value, platform);
+};
+
+/** Whether what the client printed is one of our paths, whole (the space that ends it is part of it). */
+const isOneOf = (paths, printed, platform) => {
+  const value = platform === 'win32' ? folded(printed) : printed;
   return paths.filter(Boolean).map((path) => normalize(path)).some((path) => {
     const wanted = platform === 'win32' ? folded(path) : path;
-    return wanted !== '' && wanted === printed;
+    return wanted !== '' && wanted === value;
   });
-}
+};
 
 /**
  * The value of the arguments field of a stdio entry: the value of the first `args` field of the entry, whole, as the
@@ -300,12 +355,14 @@ async function readEntry(plan, deps) {
     if (answer.code === 1 && /no mcp server/i.test(answer.text)) return { status: 'absent' };
     return { status: 'failed', reason: answer.reason };
   }
-  const output = answer.text;
+  // A client that answers with JSON prints it clean on stdout (its warnings go to stderr): the JSON is what is read.
+  const output = plan.format === 'json' ? answer.stdout : answer.text;
   // The scope the client names is the scope the entry is at: the client shows the entry of the highest precedence it
-  // holds, so an entry at another scope than ours is not ours, even when its arguments name our path.
-  const scope = scopeOf(output);
+  // holds, so an entry at another scope than ours is not ours, even when its arguments name our path. A client that
+  // answers with JSON names no scope (Codex), so there is no scope to read.
+  const scope = plan.format === 'json' ? null : scopeOf(output);
   if (plan.scope && scope && scope.toLowerCase() !== plan.scope.toLowerCase()) return { status: 'otherScope', output };
-  return { status: 'exists', output };
+  return { status: 'exists', output, format: plan.format };
 }
 
 /**
@@ -328,9 +385,10 @@ const scopeOf = (text) => {
  * The `mcp` commands of a client read the configuration of the project of the directory they run in (Codex reads the
  * `.codex/config.toml` of the trusted project it finds from the current directory upward), and they write or take out
  * the global entry. A run inside a project would therefore read the entry of that project and decide about the global
- * one: the entry of the project looks like ours, the global one is the one that goes. The installation folder is one
- * the installer owns: it holds the plugin and no configuration of any project, so what the client shows there is the
- * global entry, the one this step owns.
+ * one: the entry of the project looks like ours, the global one is the one that goes. The installation folder is the
+ * folder the installer owns, but it can sit inside a trusted project: the commands run from there, and a client that
+ * reads the configuration of a project (Codex) can show the entry of that project. The installer never writes nor
+ * takes out an entry it cannot place: for such a client it only ever adds.
  *
  * @param {object} deps the dependencies of the installer (`mcpCwd` is the directory to use, when there is one)
  * @param {object} record the installation record (`path` is the installation folder)
@@ -359,9 +417,11 @@ async function ask(words, deps, cwd) {
 /** What a command answered: whether it worked, its code, what it printed and why it failed. */
 const answered = (result, thrown = false) => {
   const code = result?.code ?? null;
-  const text = `${result?.stdout ?? ''}\n${result?.stderr ?? ''}`;
+  const stdout = result?.stdout ?? '';
+  const stderr = result?.stderr ?? '';
+  const text = `${stdout}\n${stderr}`;
   const ok = !thrown && (code === null || code === 0);
-  return { ok, code, text, reason: ok ? '' : reasonOf(result) };
+  return { ok, code, text, stdout, stderr, reason: ok ? '' : reasonOf(result) };
 };
 
 /** Runs one command of the plan: the reason of a failure is kept, the failure is never raised. */
