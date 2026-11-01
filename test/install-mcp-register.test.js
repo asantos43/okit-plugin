@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { main } from '../src/cli.js';
 import { installConfig } from '../src/install/config.js';
-import { ensureMcp, mcpPlan, pointsAt, registerMcp } from '../src/install/mcp-register.js';
+import { ensureMcp, mcpPlan, pointsAt, registerMcp, shown } from '../src/install/mcp-register.js';
 import { mcpStep, register } from '../src/install/register.js';
-import { TEXTS, fill } from '../src/install/present.js';
+import { TEXTS, createPresenter, fill } from '../src/install/present.js';
 import { fixture, mcpWorld } from './helpers/install-fixture.js';
 import * as moduleAdapter from '../adapters/opencode/index.js';
 
@@ -1317,4 +1318,133 @@ test('an installation whose path holds no space owns its entry, as before', asyn
   const uninstalled = await registerMcp(RECORD, depsOf(removed.run), 'uninstall');
   assert.equal(uninstalled.status, 'ok');
   assert.deepEqual(argvOf(removed), [['mcp', 'get', 'okit'], ['mcp', 'remove', 'okit', '--scope', 'user']]);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 11: the commands printed for the person to run by hand are quoted for the shell: the clients
+// take an argv, a person pastes one line, and a path that holds whitespace has to stay one argument.
+//
+// Must pass / must refuse:
+// | case | must pass | must refuse |
+// | a word no shell reads differently | the word as it is | -- |
+// | a word with a space, a quote, a `$`, a `;`, a `~`, nothing | the word quoted | the word as it is |
+// | the command of a path that holds a space | the path quoted whole | the path split in two |
+
+test('the shown command keeps the words no shell reads differently as they are', () => {
+  const words = ['claude', 'mcp', 'add', '--scope', 'user', 'okit', '--', 'node', '/opt/okit/1.0.0/src/mcp/server.js'];
+  assert.equal(shown(words), words.join(' '));
+  assert.equal(shown(words, 'win32'), words.join(' '));
+  assert.equal(shown(words, 'linux'), words.join(' '));
+});
+
+test('a word that a shell would read differently is quoted', () => {
+  assert.equal(shown(['a b']), "'a b'");
+  assert.equal(shown(["O'Brien"]), "'O'\\''Brien'");
+  assert.equal(shown(['$HOME']), "'$HOME'");
+  assert.equal(shown([';']), "';'");
+  assert.equal(shown(['']), "''");
+  assert.equal(shown(['~/okit']), "'~/okit'");
+  assert.equal(shown(['*']), "'*'");
+  // Only the word that needs it is quoted.
+  assert.equal(shown(['a b', 'c']), "'a b' c");
+});
+
+test('on Windows the quote of a word doubles the quote of the word', () => {
+  assert.equal(shown(["O'Brien"], 'win32'), "'O''Brien'");
+  // A path of Windows that holds no whitespace is left as it is.
+  assert.equal(shown(['C:\\Program\\okit\\server.js'], 'win32'), 'C:\\Program\\okit\\server.js');
+  // One that holds whitespace is quoted whole.
+  assert.equal(shown(['C:\\Program Files\\okit\\server.js'], 'win32'), "'C:\\Program Files\\okit\\server.js'");
+});
+
+test('the shown command is parsed by a shell as the very same argv', { skip: process.platform === 'win32' }, () => {
+  const claude = mcpPlan({ ...RECORD, path: SPACED }, depsOf(() => {}));
+  const codex = mcpPlan({ ...RECORD, client: 'codex', path: SPACED }, depsOf(() => {}));
+  const argvs = [
+    claude.add, claude.remove, codex.add, codex.remove,
+    ['claude', 'mcp', 'add', '--scope', 'user', 'okit', '--', 'node', "/Users/me/O'Brien/Application Support/$HOME x/server.js"],
+  ];
+  for (const argv of argvs) {
+    const printed = execFileSync('sh', ['-c', `printf "%s\\0" ${shown(argv)}`], { encoding: 'utf8' });
+    const parsed = printed.split('\0');
+    parsed.pop();
+    assert.deepEqual(parsed, argv);
+  }
+});
+
+test('the commands printed for the person are quoted for the shell, on Claude Code', async () => {
+  const record = { ...RECORD, path: SPACED };
+  const client = fakeClient(claudeEntry(SPACED_SERVER));
+  const result = await registerMcp(record, depsOf(client.run), 'install');
+  const plan = mcpPlan(record, depsOf(() => {}));
+  // The entry of ours whose path holds a space is left as it is: the commands by hand are given.
+  assert.equal(result.status, 'kept');
+  assert.equal(result.manual, true);
+  // The path is quoted whole: pasted in a terminal, it stays one argument.
+  assert.ok(result.detail.includes(`'${SPACED_SERVER}'`), result.detail);
+  assert.ok(result.detail.includes(`${shown(plan.remove)} ; ${shown(plan.add)}`), result.detail);
+  // Nothing was written: the entry of the client was read alone.
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('the commands printed for the person are quoted for the shell, on Codex', async () => {
+  const record = { ...RECORD, client: 'codex', path: SPACED };
+  const client = fakeClient(codexEntry(SPACED_SERVER));
+  const result = await registerMcp(record, depsOf(client.run), 'install');
+  const plan = mcpPlan(record, depsOf(() => {}));
+  assert.equal(result.status, 'kept');
+  assert.equal(result.manual, true);
+  assert.ok(result.detail.includes(`'${SPACED_SERVER}'`), result.detail);
+  assert.ok(result.detail.includes(`${shown(plan.remove)} ; ${shown(plan.add)}`), result.detail);
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('the commands printed for the person are quoted for the shell, on a client that does not say where an entry is kept', async () => {
+  // Codex, our entry of the version the installation replaces: nothing is written, the commands by hand are given.
+  const record = { ...RECORD, client: 'codex', path: SPACED, previous: { path: PREVIOUS.path } };
+  const client = fakeClient(codexEntry(join(PREVIOUS.path, 'src/mcp/server.js')));
+  const result = await registerMcp(record, depsOf(client.run), 'update');
+  const plan = mcpPlan(record, depsOf(() => {}));
+  assert.equal(result.status, 'kept');
+  assert.equal(result.manual, true);
+  assert.ok(result.detail.includes(`'${SPACED_SERVER}'`), result.detail);
+  assert.ok(result.detail.includes(`${shown(plan.remove)} ; ${shown(plan.add)}`), result.detail);
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('the command printed for the person when the client refuses is quoted for the shell', async () => {
+  const record = { ...RECORD, path: SPACED };
+  const client = fakeClient(null);
+  const calls = [];
+  const run = async (input) => {
+    calls.push(input.args);
+    if (input.args[1] === 'add') throw new Error('the client refused the entry');
+    return client.run(input);
+  };
+  const result = await registerMcp(record, depsOf(run), 'install');
+  const plan = mcpPlan(record, depsOf(() => {}));
+  assert.equal(result.status, 'failed');
+  assert.ok(result.detail.includes(`'${SPACED_SERVER}'`), result.detail);
+  assert.ok(result.detail.includes(shown(plan.add)), result.detail);
+  // The command that ran is an argv: the path of the server is one argument.
+  assert.deepEqual(calls, [
+    ['mcp', 'get', 'okit'],
+    ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SPACED_SERVER],
+  ]);
+});
+
+test('the command of the step that ran is printed quoted for the shell', async () => {
+  const record = { ...RECORD, path: SPACED };
+  const client = fakeClient(null);
+  const lines = [];
+  const ui = createPresenter({ write: (line) => lines.push(line), verbose: true });
+  await registerMcp(record, { ...depsOf(client.run), ui }, 'install');
+  const plan = mcpPlan(record, depsOf(() => {}));
+  assert.ok(lines.some((line) => line.includes(shown(plan.add))), lines.join('\n'));
+  assert.ok(lines.some((line) => line.includes(`'${SPACED_SERVER}'`)), lines.join('\n'));
+  // The command that ran is still an argv: the path of the server is one argument.
+  assert.deepEqual(argvOf(client), [
+    ['mcp', 'get', 'okit'],
+    ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SPACED_SERVER],
+  ]);
 });

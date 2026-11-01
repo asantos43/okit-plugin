@@ -23,6 +23,32 @@ const command = (words) => ({ command: words[0], args: words.slice(1) });
 /** A value the client would read as a flag, or a name with a dot the client refuses, is never placed as one. */
 const plainWord = (value) => typeof value === 'string' && value !== '' && !value.startsWith('-') && !value.includes('.');
 
+/** A word no shell reads differently: only the characters that mean nothing to it. */
+const PLAIN = /^[A-Za-z0-9_@%+=:,./-]+$/;
+/** The same on Windows, where the separator of the paths is a backslash. */
+const PLAIN_WIN = /^[A-Za-z0-9_@%+=:,./\\-]+$/;
+
+/**
+ * The word as the shell of the platform reads it: as it is when the shell reads it that way, quoted when it does not
+ * (a space, a quote, a `$`, a `;`, a `~` at its front, an empty word: anything a shell would not give back as it is).
+ */
+const quotedWord = (word, platform) => {
+  const text = String(word);
+  if ((platform === 'win32' ? PLAIN_WIN : PLAIN).test(text)) return text;
+  return platform === 'win32' ? `'${text.replaceAll("'", "''")}'` : `'${text.replaceAll("'", "'\\''")}'`;
+};
+
+/**
+ * The argv of a command as one command line: the clients take an argv, a person pastes one line.
+ *
+ * @param {string[]} words the argv of the command
+ * @param {string} [platform] the system of the run (the shell of the person: POSIX or PowerShell)
+ * @returns {string} the command line, every word a shell would read differently quoted
+ */
+export function shown(words, platform = process.platform) {
+  return words.map((word) => quotedWord(word, platform)).join(' ');
+}
+
 /**
  * The commands of the client that register the MCP server: read the entry, add it, remove it.
  *
@@ -94,7 +120,7 @@ export async function registerMcp(record, deps, action = 'install') {
   const previous = record.previous?.path ? serverPath(record.previous.path, deps.config) : null;
   const entry = await readEntry(plan, deps);
   // The entry could not be read: nothing is written, not even the add that would replace a foreign entry.
-  if (entry.status === 'failed') return failure(ui, client, entry.reason, action === 'uninstall' ? plan.remove : plan.add);
+  if (entry.status === 'failed') return failure(ui, client, entry.reason, action === 'uninstall' ? plan.remove : plan.add, deps.platform);
   // The entry is at another scope than ours: it is not ours, and nothing of it is written nor taken out.
   if (entry.status === 'otherScope') return { status: 'kept', detail: ui.text('mcpKept', { client, name }) };
   const ours = (path) => pointsAt(entry.output, [path], deps.platform);
@@ -112,22 +138,23 @@ export async function registerMcp(record, deps, action = 'install') {
   if (entry.status === 'absent') {
     if (action === 'uninstall') return { status: 'skipped', detail: '' };
     const added = await runPlan(plan.add, deps, plan.cwd);
-    if (!added.ok) return failure(ui, client, added.reason, plan.add);
+    if (!added.ok) return failure(ui, client, added.reason, plan.add, deps.platform);
     return { status: 'ok', detail: ui.text('mcpRegistered', { client }) };
   }
   // The entry is there and the display matches a path of ours that holds whitespace: it cannot be told apart from a
   // foreign entry whose arguments were split, so it is left as it is.
   if (ambiguous(current) || (previous && ambiguous(previous))) {
-    const command = action === 'uninstall' ? plan.remove.join(' ') : `${plan.remove.join(' ')} ; ${plan.add.join(' ')}`;
+    const command = action === 'uninstall' ? shown(plan.remove, deps.platform)
+      : `${shown(plan.remove, deps.platform)} ; ${shown(plan.add, deps.platform)}`;
     return { status: 'kept', manual: true, detail: ui.text('mcpAmbiguous', { client, name, command }) };
   }
   if (action === 'uninstall') {
     if (!ours(current) && !(previous && ours(previous))) {
       return { status: 'kept', detail: ui.text('mcpKept', { client, name }) };
     }
-    if (unscoped) return { status: 'kept', manual: true, detail: ui.text('mcpManual', { client, name, command: plan.remove.join(' ') }) };
+    if (unscoped) return { status: 'kept', manual: true, detail: ui.text('mcpManual', { client, name, command: shown(plan.remove, deps.platform) }) };
     const removed = await runPlan(plan.remove, deps, plan.cwd);
-    if (!removed.ok) return failure(ui, client, removed.reason, plan.remove);
+    if (!removed.ok) return failure(ui, client, removed.reason, plan.remove, deps.platform);
     return { status: 'ok', detail: ui.text('mcpRemoved', { client }) };
   }
   // The entry is ours and it already points at this installation: there is nothing to write.
@@ -135,12 +162,13 @@ export async function registerMcp(record, deps, action = 'install') {
   // The entry points at the installation this one replaces: it is taken out and the new one is written.
   if (previous && ours(previous)) {
     if (unscoped) {
-      return { status: 'kept', manual: true, detail: ui.text('mcpManual', { client, name, command: `${plan.remove.join(' ')} ; ${plan.add.join(' ')}` }) };
+      return { status: 'kept', manual: true, detail: ui.text('mcpManual', { client, name,
+        command: `${shown(plan.remove, deps.platform)} ; ${shown(plan.add, deps.platform)}` }) };
     }
     const removed = await runPlan(plan.remove, deps, plan.cwd);
-    if (!removed.ok) return failure(ui, client, removed.reason, plan.remove);
+    if (!removed.ok) return failure(ui, client, removed.reason, plan.remove, deps.platform);
     const added = await runPlan(plan.add, deps, plan.cwd);
-    if (!added.ok) return failure(ui, client, added.reason, plan.add);
+    if (!added.ok) return failure(ui, client, added.reason, plan.add, deps.platform);
     return { status: 'ok', detail: ui.text('mcpReplaced', { client }) };
   }
   return { status: 'kept', detail: ui.text('mcpKept', { client, name }) };
@@ -171,7 +199,7 @@ export async function ensureMcp(record, deps) {
     return await registerMcp(record, deps, 'install');
   } catch (error) {
     // A client that cannot be looked for is a warning, never a failure of the installation.
-    return failure(ui, client, reasonOf(error), plan ? plan.add : []);
+    return failure(ui, client, reasonOf(error), plan ? plan.add : [], deps.platform);
   }
 }
 
@@ -284,7 +312,7 @@ const mcpCwd = (deps, record) => deps.mcpCwd || record.path;
  * @returns {Promise<{ok: boolean, code: number|string|null, text: string, reason: string}>}
  */
 async function ask(words, deps, cwd) {
-  presenterOf(deps).detail(words.join(' '));
+  presenterOf(deps).detail(shown(words, deps.platform));
   try {
     return answered(await deps.run({ ...command(words), timeout: deps.config.timeoutMs, cwd }));
   } catch (error) {
@@ -313,8 +341,8 @@ const reasonOf = (failure) => {
   return code === undefined || code === null ? String(message) : `${code}: ${String(message)}`;
 };
 
-/** A command that failed: the reason and the command the person can run by hand. */
-const failure = (ui, client, reason, words) => ({
+/** A command that failed: the reason and the command the person can run by hand, quoted for the shell. */
+const failure = (ui, client, reason, words, platform = process.platform) => ({
   status: 'failed', reason,
-  detail: ui.text('mcpFailed', { client, reason, command: words.join(' ') }),
+  detail: ui.text('mcpFailed', { client, reason, command: shown(words, platform) }),
 });
