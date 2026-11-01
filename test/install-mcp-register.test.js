@@ -1650,3 +1650,125 @@ test('the dry run of the uninstall shows the MCP commands quoted for the shell',
   // The remove never names the server: the program of the client holds a space, and it is quoted whole.
   assert.ok(lines[0].includes(`'${SPACED_EXECUTABLE}'`), lines[0]);
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// D110 correction round 13: no field of the entry may continue on another line. The clients print the value of a
+// field as it is, a newline in it and all: a value that continues is a value the display cannot prove, so an entry
+// whose text holds such a continuation is not ours: it is kept, never removed nor replaced.
+//
+// Must pass / must refuse:
+// | case | must pass | must refuse |
+// | the real output of our own entry | the entry is ours | -- |
+// | the same output with the carriage returns of a CRLF | the entry is ours | -- |
+// | a value that continues on another line | the entry is kept | the remove and the add |
+// | a value that carries a fake arguments field | the entry is kept | the remove and the add |
+// | the issue of a foreign entry with a fake type | the entry is kept | the remove and the add |
+
+// The path of the server of the installation this one replaces.
+const PREVIOUS_SERVER = join(PREVIOUS.path, 'src/mcp/server.js');
+
+// What Claude Code prints for our own entry, byte for byte: the fields of the server, the empty environment, the
+// footer of the client and the file it changed.
+const CLAUDE_OWN = `okit:
+  Scope: User config (available in all your projects)
+  Status: ✘ Failed to connect
+  Issue: CONNECTION_CLOSED: Connection closed
+  Type: stdio
+  Command: node
+  Args: ${SERVER}
+  Environment:
+
+To remove this server, run: claude mcp remove okit -s user
+File modified: /Users/me/.claude.json
+`;
+
+// What Codex prints for our own entry, byte for byte: the warning of the client comes first.
+const CODEX_OWN = `WARNING: no configuration file found
+okit
+  enabled: true
+  transport: stdio
+  command: node
+  args: ${SERVER}
+  cwd: -
+  env: -
+  remove: codex mcp remove okit
+`;
+
+test('the real output of our own entry is ours, the carriage returns of a CRLF output too', async () => {
+  for (const text of [CLAUDE_OWN, CODEX_OWN]) {
+    assert.equal(pointsAt(text, [SERVER]), true, text);
+    assert.equal(pointsAt(text.replaceAll('\n', '\r\n'), [SERVER]), true, text);
+  }
+  // Claude Code: the install leaves the entry alone and the uninstall takes it out.
+  const installed = fakeClient(CLAUDE_OWN);
+  const already = await registerMcp(RECORD, depsOf(installed.run), 'install');
+  assert.equal(already.status, 'skipped');
+  assert.match(already.detail, /already registered/);
+  assert.deepEqual(argvOf(installed), [['mcp', 'get', 'okit']]);
+  const removed = fakeClient(CLAUDE_OWN);
+  const uninstalled = await registerMcp(RECORD, depsOf(removed.run), 'uninstall');
+  assert.equal(uninstalled.status, 'ok');
+  assert.deepEqual(argvOf(removed), [['mcp', 'get', 'okit'], ['mcp', 'remove', 'okit', '--scope', 'user']]);
+  // The same output with the carriage returns of a CRLF output.
+  const windows = fakeClient(CLAUDE_OWN.replaceAll('\n', '\r\n'));
+  const uninstalledWindows = await registerMcp(RECORD, depsOf(windows.run), 'uninstall');
+  assert.equal(uninstalledWindows.status, 'ok');
+  assert.deepEqual(argvOf(windows), [['mcp', 'get', 'okit'], ['mcp', 'remove', 'okit', '--scope', 'user']]);
+  // Codex: the install leaves the entry alone; the uninstall of a client that does not say where the entry is kept
+  // writes nothing and gives the command to run by hand (round 8).
+  const codex = fakeClient(CODEX_OWN);
+  const alreadyCodex = await registerMcp({ ...RECORD, client: 'codex' }, depsOf(codex.run), 'install');
+  assert.equal(alreadyCodex.status, 'skipped');
+  assert.deepEqual(argvOf(codex), [['mcp', 'get', 'okit']]);
+  const codexRemoved = fakeClient(CODEX_OWN);
+  const uninstalledCodex = await registerMcp({ ...RECORD, client: 'codex' }, depsOf(codexRemoved.run), 'uninstall');
+  assert.equal(uninstalledCodex.status, 'kept');
+  assert.deepEqual(argvOf(codexRemoved), [['mcp', 'get', 'okit']]);
+});
+
+// The entry of a foreign server whose value continues on another line: the clients print the value as it is.
+const CONTINUED = {
+  'the arguments continue at the left margin': `okit\n  enabled: true\n  transport: stdio\n  command: node\n  args: ${SERVER}\n.backup\n  cwd: -\n  env: -\n  remove: codex mcp remove okit\n`,
+  'the arguments of the version it replaces continue at the left margin': `okit\n  enabled: true\n  transport: stdio\n  command: node\n  args: ${PREVIOUS_SERVER}\n.backup\n  cwd: -\n  env: -\n  remove: codex mcp remove okit\n`,
+  'the arguments carry a carriage return': `okit\n  enabled: true\n  transport: stdio\n  command: node\n  args: ${SERVER}\r.backup\n  cwd: -\n  env: -\n  remove: codex mcp remove okit\n`,
+  'the arguments continue with three spaces': `okit\n  enabled: true\n  transport: stdio\n  command: node\n  args: ${SERVER}\n   extra\n  cwd: -\n  env: -\n  remove: codex mcp remove okit\n`,
+  'the command continues at the left margin': `okit\n  enabled: true\n  transport: stdio\n  command: node\nnode-extra\n  args: ${SERVER}\n  cwd: -\n  env: -\n  remove: codex mcp remove okit\n`,
+  'the command carries the line of a fake arguments field': `okit\n  enabled: true\n  transport: stdio\n  command: node\n  args: ${SERVER}\n  args: /somewhere/else/server.js\n  cwd: -\n  env: -\n  remove: codex mcp remove okit\n`,
+  'the field that follows the arguments continues at the left margin': `okit\n  enabled: true\n  transport: stdio\n  command: node\n  args: ${SERVER}\n  cwd: -\nnot-a-field\n  env: -\n  remove: codex mcp remove okit\n`,
+};
+
+test('the entry whose value continues on another line is not ours: it is kept, never removed nor replaced', async () => {
+  for (const [name, text] of Object.entries(CONTINUED)) {
+    assert.equal(pointsAt(text, [SERVER]), false, name);
+    assert.equal(pointsAt(text, [PREVIOUS_SERVER]), false, name);
+    for (const client of ['claude-code', 'codex']) {
+      for (const action of ['install', 'update', 'uninstall']) {
+        const fake = fakeClient(text);
+        const record = { ...RECORD, client, previous: { path: PREVIOUS.path } };
+        const result = await registerMcp(record, depsOf(fake.run), action);
+        assert.equal(result.status, 'kept', `${client} ${action}: ${name}`);
+        assert.match(result.detail, /not ours/, `${client} ${action}: ${name}`);
+        // Nothing is written nor taken out: the entry of somebody else is left alone.
+        assert.deepEqual(argvOf(fake), [['mcp', 'get', 'okit']], `${client} ${action}: ${name}`);
+      }
+    }
+  }
+});
+
+test('the issue of a foreign entry that carries a fake type and a fake arguments field is not ours', async () => {
+  // The text of the issue of the server goes on another line, and the lines that follow it look like the fields of an
+  // entry of ours.
+  const text = `okit:\n  Scope: User config (available in all your projects)\n  Status: Connected\n  Issue: the server refused the connection\nthe connection was closed by the server\n  Type: stdio\n  Args: ${SERVER}\n  Type: http\n  URL: https://example.com/mcp\n`;
+  assert.equal(pointsAt(text, [SERVER]), false, text);
+  const fake = fakeClient(text);
+  const result = await registerMcp(RECORD, depsOf(fake.run), 'uninstall');
+  assert.equal(result.status, 'kept');
+  assert.deepEqual(argvOf(fake), [['mcp', 'get', 'okit']]);
+});
+
+test('a value that holds a carriage return is read whole: only the carriage return of the end of the line is dropped', { skip: process.platform === 'win32' }, () => {
+  const path = '/opt/okit\r1.0.0/src/mcp/server.js';
+  const text = `okit\n  enabled: true\n  transport: stdio\n  command: node\n  args: ${path}\n`;
+  assert.equal(pointsAt(text, [path], 'linux'), true);
+  assert.equal(pointsAt(text.replaceAll('\n', '\r\n'), [path], 'linux'), true);
+});

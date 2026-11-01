@@ -218,7 +218,8 @@ export async function ensureMcp(record, deps) {
  * of the arguments field is the whole argument list of the entry: a line that holds our path with another word at its
  * side (a file name with a space, a second argument, a quote) names another entry, not ours. The value is read as the
  * client wrote it, so the space that ends it is part of it: a foreign file name that ends with a space is not our path.
- * The first arguments field of the text is the one that is read.
+ * The first arguments field of the text is the one that is read. A value that continues on another line is a value the
+ * display cannot prove: the entry is not ours.
  *
  * Only a stdio entry is ours. The fields of an entry are the lines indented by exactly two spaces (the nested lists,
  * such as the headers or the environment, are indented four), and the first field that names the type of the server
@@ -243,12 +244,14 @@ export function pointsAt(text, paths, platform = process.platform) {
 
 /**
  * The value of the arguments field of a stdio entry: the value of the first `args` field of the entry, whole, as the
- * client wrote it (null when there is none, or when the entry is not a stdio one). The value is read exactly: the
- * space that ends it is part of it, so a foreign file name that ends with a space is not our path. The line ends at
- * the end of the line, and the `\r` of a CRLF output is not part of the value.
+ * client wrote it (null when there is none, when the entry is not a stdio one, or when the fields of the entry are
+ * unknown). The value is read exactly: the space that ends it is part of it, so a foreign file name that ends with a
+ * space is not our path. The line ends at the end of the line, and the `\r` of a CRLF output is not part of the value.
  */
 const argumentsOf = (text) => {
   const fields = fieldsOf(text);
+  // The fields of the entry are unknown: the display cannot prove what the arguments are.
+  if (!fields) return null;
   // The type of the server decides: only a stdio one runs our server.
   const type = fields.find((field) => /^(type|transport)$/i.test(field.key));
   if (!type || type.value !== 'stdio') return null;
@@ -260,9 +263,31 @@ const argumentsOf = (text) => {
  * The fields of the entry the client printed: the lines indented by exactly two spaces, as the clients print them (the
  * fields of the server are indented two spaces, the values of the nested lists, such as the headers or the environment,
  * four). A line with three or more spaces is a value of a nested list, never a field of the entry.
+ *
+ * The value of a field is the whole rest of its line: the clients print the value as it is, a newline in it and all,
+ * so a value that continues on another line is a value the display cannot prove. When the line that follows a field is
+ * not the line of another field (a line of the client, at the left margin, or a line of a nested list) the value
+ * continued: the fields of the entry are unknown (null) and the entry is not ours. A key that the client prints twice is
+ * the same sign: one of the two lines continued the value of the field before it.
  */
-const fieldsOf = (text) => [...String(text ?? '').matchAll(/^ {2}(?! )([A-Za-z_]+): ([^\r\n]*)/gm)]
-  .map((match) => ({ key: match[1], value: match[2] }));
+const fieldsOf = (text) => {
+  const lines = String(text ?? '').split('\n').map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line));
+  const fields = [];
+  const keys = new Set();
+  for (const [index, line] of lines.entries()) {
+    const field = /^ {2}(?! )([A-Za-z_]+): ([\s\S]*)$/.exec(line);
+    if (!field) continue;
+    // The value of a field cannot continue on another line: the next line is another field, or the end of the text.
+    const next = lines[index + 1];
+    if (next !== undefined && next !== '' && !/^ {2}(?! )\S/.test(next)) return null;
+    // The client prints every field of an entry once: a key twice is a value that continued on another line.
+    const key = field[1].toLowerCase();
+    if (keys.has(key)) return null;
+    keys.add(key);
+    fields.push({ key: field[1], value: field[2] });
+  }
+  return fields;
+};
 
 /** The paths as they are compared on Windows: the separator and the case do not matter. */
 const folded = (value) => value.replaceAll('\\', '/').toLowerCase();
@@ -284,12 +309,15 @@ async function readEntry(plan, deps) {
 }
 
 /**
- * The scope the client named about the entry it printed: the first word of its `Scope` field (null when it names none).
- * The scope is a field of the entry, at the two spaces indent: a header of an HTTP server that holds a line named
- * `Scope` is not the scope of the entry.
+ * The scope the client named about the entry it printed: the first word of its `Scope` field (null when it names none,
+ * or when the fields of the entry are unknown). The scope is a field of the entry, at the two spaces indent: a header of
+ * an HTTP server that holds a line named `Scope` is not the scope of the entry.
  */
 const scopeOf = (text) => {
-  const field = fieldsOf(text).find((item) => /^scope$/i.test(item.key));
+  const fields = fieldsOf(text);
+  // The fields of the entry are unknown: the scope is unknown too.
+  if (!fields) return null;
+  const field = fields.find((item) => /^scope$/i.test(item.key));
   return field ? /^\s*(\w+)/.exec(field.value)?.[1] ?? null : null;
 };
 
