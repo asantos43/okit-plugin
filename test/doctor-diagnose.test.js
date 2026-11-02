@@ -404,7 +404,8 @@ test('an autostart that was set up but is not there is a failed row', async () =
   const result = await diagnose(input);
   const row = rowOf(result, 'autostart');
   assert.equal(row.status, 'failed');
-  assert.match(row.fix, /okit-plugin autostart install/);
+  assert.match(row.fix, /the setup offers the autostart step/);
+  assert.match(row.fix, /okit-plugin setup$/);
 });
 
 test('an autostart that was never asked for is a warning that offers it', async () => {
@@ -435,7 +436,8 @@ test('a daemon that is down while the autostart is there is a failed row', async
   const result = await diagnose(input);
   const row = rowOf(result, 'daemon');
   assert.equal(row.status, 'failed');
-  assert.match(row.fix, /okit-plugin daemon start/);
+  assert.match(row.fix, /the daemon starts with the machine/);
+  assert.match(row.fix, /okit-plugin doctor$/);
 });
 
 test('a daemon that is down without an autostart is a warning', async () => {

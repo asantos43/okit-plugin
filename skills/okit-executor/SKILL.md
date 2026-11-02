@@ -7,14 +7,14 @@ description: "Use when you were spawned by the okit Director as the executor of 
 
 ## Question routing / Encaminhamento de perguntas
 
-| Question / Pergunta | Skill → tool or command / ferramenta ou comando |
+| Question / Pergunta | Skill → tool / ferramenta |
 | :- | :- |
-| Where are you? / Onde você está? | `okit-environment` → `env_report` or `okit-plugin env report` |
-| Which actors/helpers? / Quais atores/ajudantes? | `okit-director` → `actors_list` or `okit-plugin actors`; running executors / executores rodando → `status` |
-| How much quota? / Quanta cota? | `okit-environment` → `env_report`; detail / detalhe → `okit-plugin quota show` or `status` |
-| What is missing? / O que falta? | `okit-environment` → `env_report`; explicitly requested setup / configuração solicitada explicitamente → `okit-setup` → `okit-plugin setup`, with its own confirmation / com sua própria confirmação |
+| Where are you? / Onde você está? | `okit-environment` → `env_report` |
+| Which actors/helpers? / Quais atores/ajudantes? | `okit-director` → `actors_list`; running executors / executores rodando → `status` |
+| How much quota? / Quanta cota? | `okit-environment` → `env_report`; detail / detalhe → `quota_show` or `status` |
+| What is missing? / O que falta? | `okit-environment` → `env_report`; explicitly requested setup / configuração solicitada explicitamente → `okit-setup` → ask the user to run `okit-plugin setup`, with its own confirmation / com sua própria confirmação |
 | What is your role? / Qual o seu papel? | Delivered / contexto entregue `okit-director`, `okit-executor`, `okit-critic` + `order_list`, `inbox_list`, `actors_list`, `limits_status`, `env_report` |
-| Run smoke/demonstration / Rodar smoke/demonstração | `okit-smoke` → `smoke_demo` or `okit-plugin smoke-demo --dry-run` for practice / para exemplo; explicit allowance consent / confirmação explícita de cota; existing checks / verificações existentes: `okit-plugin client-smoke --client claude-code --demo` |
+| Run smoke/demonstration / Rodar smoke/demonstração | `okit-smoke` → `smoke_demo`; explicit allowance consent / confirmação explícita de cota |
 
 Actor / ator = model + effort / modelo + esforço; executor = briefed role / papel com briefing; class / classe = work category / categoria de trabalho; size / tamanho = S/M/L; slot / vaga = simultaneous executor room / espaço para executor simultâneo; profile / perfil = saved choice / escolha salva; quota / cota = remaining allowance / saldo; source / fonte = origin and sample age / origem e idade da amostra.
 Producer synonyms / Sinônimos do Produtor: available executor, worker, helper, agent, model, work choice / executor disponível, trabalhador, ajudante, agente, modelo, opção de trabalho; complexity / complexidade; small/medium/large task / tarefa pequena/média/grande; preset / predefinição; usage left, remaining limit / uso restante, limite restante; reading, sample / leitura, amostra. Capacity / capacidade = quota and free slots separately / cota e vagas livres separadas.

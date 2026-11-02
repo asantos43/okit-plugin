@@ -636,8 +636,8 @@ for (const global of [0, 'abc']) {
       const message = errors.join('\n');
       assert.match(message, /The configuration file has a value that is not accepted/);
       assert.match(message, /O arquivo de configuração tem um valor que não é aceito/);
-      assert.match(message, /custom-okit config show/);
       assert.match(message, /custom-okit setup/);
+      assert.match(message, /config_get/);
       assert.doesNotMatch(message, /integer|Could not save|okit-plugin/);
       const after = await readFile(join(root, 'config.json'));
       assert.deepEqual(after, Buffer.from(original));

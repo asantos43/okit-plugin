@@ -52,8 +52,8 @@ export function setupReader({ stdin = process.stdin, output = process.stdout } =
 // offer at the end of an installation and the command line all say the same
 // thing, in the two languages, without ids and without jargon.
 export const CONFIG_UNREADABLE = Object.freeze({
-  en: 'Could not check the configuration: the file is not readable. Fix it with `{command} config show`.',
-  'pt-BR': 'Não foi possível verificar a configuração: o arquivo não está legível. Corrija com `{command} config show`.',
+  en: 'Could not check the configuration: the file is not readable. Ask your assistant to call `config_get` to see the settings.',
+  'pt-BR': 'Não foi possível verificar a configuração: o arquivo não está legível. Peça ao seu assistente para chamar `config_get` e ver os ajustes.',
 });
 
 // The one sentence for a configuration that could not be saved: the folder
@@ -120,8 +120,8 @@ export const SETUP_MESSAGES = Object.freeze({
     'pt-BR': 'Salvar estas configurações de modelo? Recomendação: sim, manter estas escolhas para os próximos trabalhos. {choices}',
   },
   omitted: {
-    en: 'No model was chosen for {client} ({class}). You can choose one later with `okit-plugin config set profiles.{client}.{class}.model <model>`.',
-    'pt-BR': 'Nenhum modelo foi escolhido para {client} ({classe}). Você pode escolher um depois com `okit-plugin config set profiles.{client}.{class}.model <model>`.',
+    en: 'No model was chosen for {client} ({class}). You can choose one later with `config_set`: the key `profiles.{client}.{class}.model` and the model name.',
+    'pt-BR': 'Nenhum modelo foi escolhido para {client} ({classe}). Você pode escolher um depois com `config_set`: a chave `profiles.{client}.{class}.model` e o nome do modelo.',
   },
   summary: {
     en: 'Saved {count} model settings for {clients}.',
@@ -156,8 +156,8 @@ export const SETUP_MESSAGES = Object.freeze({
     'pt-BR': 'O modelo ou o esforço de {client} ({classe}) não é válido. Nada foi salvo.',
   },
   invalidConfigValue: {
-    en: 'The configuration file has a value that is not accepted; fix it with `{command} config show` and run `{command} setup` again.',
-    'pt-BR': 'O arquivo de configuração tem um valor que não é aceito; corrija com `{command} config show` e rode `{command} setup` de novo.',
+    en: 'The configuration file has a value that is not accepted; ask your assistant to call `config_get` to see the settings and run `{command} setup` again.',
+    'pt-BR': 'O arquivo de configuração tem um valor que não é aceito; peça ao seu assistente para chamar `config_get` e ver os ajustes e rode `{command} setup` de novo.',
   },
   invalidProfiles: {
     en: 'The configuration has a name that is not allowed. Nothing was saved.',
@@ -779,8 +779,7 @@ export async function runSetup({
   for (const client of new Set([...names, ...skipped.map((change) => change.client)])) {
     if (observation.clients.find((row) => row.client === client)?.quota.status !== 'off') continue;
     const locales = locale === 'both' ? ['en', 'pt-BR'] : [locale];
-    messages.push(locales.map((language) => labelsOf(language).noQuota(client)
-      .replace('okit-plugin quota', `${command} quota`)).join(' / '));
+    messages.push(locales.map((language) => labelsOf(language).noQuota(client)).join(' / '));
   }
   if (savedChanges.length > 0) {
     // The presenter's Models row says what was saved.

@@ -6,6 +6,26 @@ import { discoverRecords, readRecords, saveRecord, snapshotRecords, restoreRecor
 import { fill, pick, TEXTS } from '../install/present.js';
 
 /**
+ * Whether the autostart of this machine is really there: the file of the plan, or the scheduled task of Windows.
+ *
+ * The record of the installation says what was asked for; the machine says what is there. A record that says the
+ * autostart is on while the machine does not have it is what the doctor calls a missing service, and the step below
+ * offers itself again so the setup repairs it.
+ *
+ * @param {object} ctx the context of the command line
+ * @param {object} selected the plan of the autostart of this machine
+ * @returns {Promise<boolean>}
+ */
+async function onMachine(ctx, selected) {
+  // The scheduled task of Windows has no file: the platform itself is asked (read-only).
+  if (selected.kind === 'schtasks') return taskPresent(ctx.run);
+  if (selected.path === null || selected.path === undefined) return false;
+  if (typeof ctx.fs?.access !== 'function') return false;
+  // A file that cannot be reached is a file that is not there.
+  return await ctx.fs.access(selected.path).then(() => true, () => false);
+}
+
+/**
  * Whether the service of the machine was already there before this run.
  *
  * The records can disagree with each other: another client of the person may already say that the autostart is on
@@ -25,12 +45,7 @@ async function alreadyThere(ctx, snapshot, selected) {
     try { record = JSON.parse(text); } catch { continue; }
     if (record && typeof record === 'object' && record.autostart === true) return true;
   }
-  // The scheduled task of Windows has no file: the platform itself is asked (read-only).
-  if (selected.kind === 'schtasks') return taskPresent(ctx.run);
-  if (selected.path === null || selected.path === undefined) return false;
-  if (typeof ctx.fs?.access !== 'function') return false;
-  // A file that cannot be reached is a file that is not there.
-  return await ctx.fs.access(selected.path).then(() => true, () => false);
+  return onMachine(ctx, selected);
 }
 
 /** The final interactive setup step, attached to the existing installation. */
@@ -43,14 +58,14 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
     const { destination } = discovered;
     const records = Object.values(discovered.records);
     if (!records.length) return exitCodeFor('ok');
-    if (records.every((record) => record.autostart === true)) {
+    const selected = plan(records[0]);
+    if (records.every((record) => record.autostart === true) && await onMachine(ctx, selected)) {
       ctx.out(text('autostartAlready'));
       return exitCodeFor('ok');
     }
     // The record has to be writable: the save reads the records with the strict reader, so a record that cannot be
     // read is told now, before the service of the machine is installed (never after it).
     await readRecords(destination, ctx.fs, config);
-    const selected = plan(records[0]);
     ctx.out(text('autostartExplain', { kind: selected.kind }));
     if (selected.path !== null) ctx.out(text('autostartFile', { path: selected.path }));
     let answer;

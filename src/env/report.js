@@ -13,7 +13,9 @@ const WORDS = {
     quota: 'Quota remaining', renews: 'renews in', minutes: 'minutes', slots: 'Free slots', of: 'of',
     plugin: 'Plugin folder', state: 'State folder', path: 'Command available in PATH', yes: 'yes', no: 'no',
     unreadableRecord: 'Installation record ignored (not a JSON object)',
-    configured: 'Configured', missing: 'Missing', setup: 'model choices', run: 'Run',
+    configured: 'Configured', missing: 'Missing', setup: 'model choices',
+    askUser: (command) => `Ask the user to run \`${command}\``,
+    callTool: (tool, client) => `Call \`${tool}\` with the client ${client} and the percentage that is left`,
     missingSetup: 'model choices have not been saved', missingPath: 'the command is not in PATH',
     missingModels: (client) => `no active model confirmed for ${client}`,
     missingQuota: (client) => `no remaining allowance recorded for ${client}`,
@@ -28,7 +30,9 @@ const WORDS = {
     quota: 'Cota restante', renews: 'renova em', minutes: 'minutos', slots: 'Vagas livres', of: 'de',
     plugin: 'Pasta do plugin', state: 'Pasta de estado', path: 'Comando disponível no PATH', yes: 'sim', no: 'não',
     unreadableRecord: 'Registro de instalação ignorado (não é um objeto JSON)',
-    configured: 'Configurado', missing: 'Falta', setup: 'escolha de modelos', run: 'Rode',
+    configured: 'Configurado', missing: 'Falta', setup: 'escolha de modelos',
+    askUser: (command) => `Peça ao usuário para rodar \`${command}\``,
+    callTool: (tool, client) => `Chame \`${tool}\` com o cliente ${client} e a porcentagem que resta`,
     missingSetup: 'a escolha de modelos ainda não foi salva', missingPath: 'o comando não está no PATH',
     missingModels: (client) => `nenhum modelo ativo confirmado para ${client}`,
     missingQuota: (client) => `nenhuma cota restante registrada para ${client}`,
@@ -54,7 +58,7 @@ export function formatEnvironmentReport(report, locale = 'en') {
   if (plugin.statusline) {
     const { active, command, received } = plugin.statusline;
     const state = active === null ? words.unknown : active ? words.active : words.inactive;
-    lines.push(`${words.collector}: ${state}${active === true && received === false ? `; ${words.noReading}` : ''}.${active === true ? '' : ` ${words.run} ${command}.`}`);
+    lines.push(`${words.collector}: ${state}${active === true && received === false ? `; ${words.noReading}` : ''}.${active === true ? '' : ` ${words.askUser(command)}.`}`);
   }
   lines.push(`${words.plugin}: ${plugin.path ?? words.unknown}.`, `${words.state}: ${plugin.statePath ?? words.unknown}.`);
   for (const path of plugin.unreadableRecords ?? []) lines.push(`${words.unreadableRecord}: ${path}.`);
@@ -66,7 +70,7 @@ export function formatEnvironmentReport(report, locale = 'en') {
       : entry.item === 'quota' ? words.missingQuota(entry.client)
       : entry.item === 'sizes' ? words.missingSizes(entry.client, entry.sizes)
         : entry.item === 'path' ? words.missingPath : words.missingSetup;
-    lines.push(`${words.missing}: ${text}. ${words.run} ${entry.command}.`);
+    lines.push(`${words.missing}: ${text}. ${entry.tool ? words.callTool(entry.tool, entry.client) : words.askUser(entry.command)}.`);
   }
   return lines.join('\n');
 }

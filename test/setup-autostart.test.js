@@ -167,7 +167,7 @@ for (const answer of ['', 'n', undefined, 'throw']) {
     assert.deepEqual(f.written, []);
     assert.deepEqual(f.order, []);
     assert.deepEqual(await snapshot(f), f.before);
-    assert.deepEqual(stepLines(f), [...explain(f), 'Autostart not installed; to do it later run: okit-plugin autostart install']);
+    assert.deepEqual(stepLines(f), [...explain(f), 'Autostart not installed; to do it later ask the user to run: okit-plugin setup']);
   });
 }
 test('--defaults never offers or installs autostart', async (t) => {
@@ -181,14 +181,28 @@ test('--defaults never offers or installs autostart', async (t) => {
   assert.deepEqual(f.order, []);
   assert.deepEqual(await snapshot(f), f.before);
 });
-test('already installed prints only the information and never asks', async (t) => {
+test('a machine that has the autostart prints only the information and never asks', async (t) => {
   const f = await world(t, { clients: ['codex', 'claude-code'], installed: true });
+  // The machine has the service of the plan: the record and the machine agree.
+  await fs.mkdir(dirname(f.plan.path), { recursive: true });
+  await fs.writeFile(f.plan.path, f.plan.content);
   assert.equal(await main(['setup'], f.io), 0);
   assert.deepEqual(stepLines(f), ['Autostart is already installed.']);
   assert.deepEqual(f.questions, []);
   assert.deepEqual(f.ran, []);
   assert.deepEqual(f.written, []);
   assert.deepEqual(await snapshot(f), f.before);
+});
+
+test('a record that says the autostart is on while the machine does not have it offers the step again', async (t) => {
+  // The record says the autostart is on, but the service of the machine is gone: the step offers itself again, so the
+  // setup repairs what the doctor found.
+  const f = await world(t, { clients: ['codex', 'claude-code'], installed: true });
+  assert.equal(await main(['setup'], f.io), 0);
+  assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+  assert.deepEqual(f.ran, f.plan.install);
+  assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
+  assert.deepEqual(stepLines(f), [...explain(f), 'Autostart installed; okit-plugin uninstall removes it.']);
 });
 test('without records the step is silent', async (t) => {
   const f = await world(t, { clients: [] });

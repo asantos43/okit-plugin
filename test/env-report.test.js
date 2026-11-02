@@ -165,12 +165,12 @@ for (const platform of ['linux', 'darwin', 'win32']) {
       assert.equal(before.clients[0].quota.status, 'off');
       const setup = await runSetup({ ...deps, ask: async () => 'yes', locale: 'both' });
       assert.ok(setup.changes.length > 0);
-      assert.ok(setup.messages.some((line) => line.includes(`quota set ${client} <pct>`) && line.includes('Registre')));
+      assert.ok(setup.messages.some((line) => line.includes('quota_set') && line.includes(client)));
       deps.config = await readJson(join(root, 'config.json'));
       let ready = await environmentSnapshot(deps);
       assert.ok(ready.clients[0].candidates.every((actor) => actor.confirmed && !actor.canLaunch));
       for (const locale of ['en', 'pt-BR']) {
-        assert.match(formatEnvironmentReport(ready, locale), new RegExp(`quota set ${client} <pct>`));
+        assert.match(formatEnvironmentReport(ready, locale), /quota_set/);
       }
       for (const outcome of ['success', 'failure', 'throws', 'empty']) {
         mode = outcome;
@@ -197,7 +197,7 @@ for (const platform of ['linux', 'darwin', 'win32']) {
       for (const locale of ['en', 'pt-BR']) {
         const blockedStatus = await statusTable(undefined, { snapshot: changed, client, locale, demands: [] });
         assert.match(blockedStatus.markdown, /okit-plugin setup --again/);
-        assert.match(blockedStatus.markdown, new RegExp(`quota set ${client} <pct>`));
+        assert.match(blockedStatus.markdown, /quota_set/);
       }
       assert.equal(await main(['quota', 'set', client, '80'], { ...deps, stdout: () => {} }), 0);
       ready = await environmentSnapshot(deps);
@@ -563,10 +563,12 @@ test('missing items are natural sentences in both languages without changing the
   const report = await environmentReport(readings({ client: 'codex', plugin: { onPath: false },
     detectClients: async () => ({ clients: [] }) }));
   const before = structuredClone(report);
-  assert.match(formatEnvironmentReport(report, 'en'), /Missing: the command is not in PATH\. Run okit-plugin install --client codex\./);
-  assert.match(formatEnvironmentReport(report, 'en'), /Missing: no active model confirmed for codex\. Run okit-plugin setup\./);
-  assert.match(formatEnvironmentReport(report, 'pt-BR'), /Falta: o comando não está no PATH\. Rode okit-plugin install --client codex\./);
-  assert.match(formatEnvironmentReport(report, 'pt-BR'), /Falta: nenhum modelo ativo confirmado para codex\. Rode okit-plugin setup\./);
+  assert.match(formatEnvironmentReport(report, 'en'), /Missing: the command is not in PATH\. Ask the user to run `okit-plugin install --client codex`\./);
+  assert.match(formatEnvironmentReport(report, 'en'), /Missing: no active model confirmed for codex\. Ask the user to run `okit-plugin setup`\./);
+  assert.match(formatEnvironmentReport(report, 'en'), /Missing: no remaining allowance recorded for codex\. Call `quota_set` with the client codex/);
+  assert.match(formatEnvironmentReport(report, 'pt-BR'), /Falta: o comando não está no PATH\. Peça ao usuário para rodar `okit-plugin install --client codex`\./);
+  assert.match(formatEnvironmentReport(report, 'pt-BR'), /Falta: nenhum modelo ativo confirmado para codex\. Peça ao usuário para rodar `okit-plugin setup`\./);
+  assert.match(formatEnvironmentReport(report, 'pt-BR'), /Falta: nenhuma cota restante registrada para codex\. Chame `quota_set` com o cliente codex/);
   assert.match(formatEnvironmentReport(report, 'pt-BR'), /Falta: a escolha de modelos ainda não foi salva\./);
   assert.deepEqual(report, before);
 });
@@ -581,9 +583,9 @@ test('partially covered sizes have a remedy in the object and both languages', a
     item: 'sizes', client: 'codex', sizes: ['M', 'XL'], command: 'chosen-command setup',
   });
   assert.match(formatEnvironmentReport(report, 'en'),
-    /Missing: no model configured for sizes M, XL in codex\. Run chosen-command setup\./);
+    /Missing: no model configured for sizes M, XL in codex\. Ask the user to run `chosen-command setup`\./);
   assert.match(formatEnvironmentReport(report, 'pt-BR'),
-    /Falta: nenhum modelo configurado para os tamanhos M, XL em codex\. Rode chosen-command setup\./);
+    /Falta: nenhum modelo configurado para os tamanhos M, XL em codex\. Peça ao usuário para rodar `chosen-command setup`\./);
 });
 
 test('D95 R9: a disabled (null) profile confirms nothing and never breaks env report or status', async () => {

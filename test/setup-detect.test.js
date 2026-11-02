@@ -107,7 +107,7 @@ test('an absent catalog model is replaced or omitted with the manual command', a
   const omitted = clientOf(proposeProfiles(absent, config), 'codex').profiles.simple;
   assert.equal(omitted.model, null);
   assert.equal(omitted.source, 'omitted');
-  assert.match(omitted.reason, /okit-plugin config set profiles\.codex\.simple\.model <model>/);
+  assert.match(omitted.reason, /config_set` with the key `profiles\.codex\.simple\.model`/);
 });
 
 test('a client that listed no model omits every class with the manual command', async () => {
@@ -122,7 +122,7 @@ test('a client that listed no model omits every class with the manual command', 
     assert.equal(profile.model, null, className);
     assert.equal(profile.source, 'omitted', className);
     assert.match(profile.reason,
-      new RegExp(`okit-plugin config set profiles\\.codex\\.${className}\\.model <model>`));
+      new RegExp(`config_set. with the key .profiles\\.codex\\.${className}\\.model`));
   }
 });
 
@@ -143,7 +143,7 @@ test('a client that listed only inactive models omits every class', async () => 
     assert.equal(profile.model, null, className);
     assert.equal(profile.source, 'omitted', className);
     assert.match(profile.reason,
-      new RegExp(`okit-plugin config set profiles\\.codex\\.${className}\\.model <model>`));
+      new RegExp(`config_set. with the key .profiles\\.codex\\.${className}\\.model`));
   }
 });
 
@@ -182,7 +182,7 @@ test('a candidate of another provider never replaces the configured model', () =
     assert.equal(profile.model, null);
     assert.equal(profile.source, 'omitted');
     assert.match(profile.reason,
-      new RegExp(`okit-plugin config set profiles\\.opencode\\.${className}\\.model <model>`));
+      new RegExp(`config_set. with the key .profiles\\.opencode\\.${className}\\.model`));
   }
 });
 
@@ -196,7 +196,7 @@ test('a candidate with a short common prefix never replaces the configured model
     const profile = clientOf(proposeProfiles(listedClient([entry.candidate]), config), 'codex').profiles.simple;
     assert.equal(profile.model, null, `${entry.model} -> ${entry.candidate}`);
     assert.equal(profile.source, 'omitted');
-    assert.match(profile.reason, /okit-plugin config set profiles\.codex\.simple\.model <model>/);
+    assert.match(profile.reason, /config_set` with the key `profiles\.codex\.simple\.model`/);
   }
 });
 
@@ -255,7 +255,7 @@ test('an empty separator or one that is not text never replaces the configured m
     assert.equal(absent.model, null, label);
     assert.equal(absent.source, 'omitted', label);
     assert.match(absent.reason,
-      /okit-plugin config set profiles\.codex\.simple\.model <model>/, label);
+      /config_set` with the key `profiles\.codex\.simple\.model`/, label);
   }
   // A separator that is text refuses the other provider as well: the rule
   // works, and the two providers are not of the same family.

@@ -186,10 +186,11 @@ test('recorded quota keeps its real value and age across cache refreshes', async
 
 test('missing quota tells how to record it in each language', async (t) => {
   const root = await tempRoot(t);
-  for (const [locale, words] of [['en', 'No quota value recorded. Record it with:'],
-    ['pt-BR', 'Nenhum valor de cota registrado. Registre com:']]) {
+  for (const [locale, words] of [['en', 'No quota value recorded. Call `quota_set` with the client "claude-code"'],
+    ['pt-BR', 'Nenhum valor de cota registrado. Chame `quota_set` com o cliente "claude-code"']]) {
     const table = await statusTable(root, { env: { CLAUDECODE: '1' }, locale, readQuota: async () => null, cache: new Map() });
-    assert.ok(table.markdown.includes(`${words} okit-plugin quota set claude-code <pct>`));
+    assert.ok(table.markdown.includes(words));
+    assert.ok(table.markdown.includes('percentage that is left') === (locale === 'en'));
     assert.equal(table.rows[0].fiveHour, null);
     assert.equal(table.rows[0].week, null);
     assert.ok(!table.markdown.includes('0%'));

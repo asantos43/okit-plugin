@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
+import { autostartPlan, detectAutostart } from '../src/autostart.js';
 import { main } from '../src/cli.js';
 import { exitCodeFor } from '../src/install/exit.js';
 import { paths } from '../src/store.js';
@@ -178,8 +179,8 @@ test('the Fix of an installation whose payload is gone installs it again', async
 });
 
 test('the Fix of an autostart that is not set up installs it again', async (t) => {
-  // The installation that is running: the doctor and the `autostart install` of the command line build the same
-  // plan of the autostart, so the file the Fix writes is the one the doctor looks for.
+  // The installation that is running: the doctor and the `setup` of the command line build the same plan of the
+  // autostart, so the file the Fix writes is the one the doctor looks for.
   const home = process.env.HOME;
   // The version of the package that is running: the record of the installation that is running names it.
   const version = JSON.parse(await fs.readFile(join(PACKAGE, 'package.json'), 'utf8')).version;
@@ -195,20 +196,24 @@ test('the Fix of an autostart that is not set up installs it again', async (t) =
   const io = {
     ...f.io,
     detect: async (executable) => executable === f.io.config.clients[CLIENT].executable,
-    // The files of the world: the one the `autostart install` writes is there after the Fix.
+    // The files of the world: the one the setup writes is there after the Fix.
     fs: { ...f.io.fs, readFile: async (file, ...rest) => (files.has(file) ? files.get(file) : real(file, ...rest)) },
     write: async (file, content) => { files.set(file, content); },
+    // The setup asks whether the autostart is installed: the answer is yes.
+    ask: async () => 'yes',
   };
   f.clear();
   assert.equal(await main(['doctor'], io), exitCodeFor('operational'), f.output.join('\n'));
   const row = failedRow(f.output, 'Autostart');
   assert.ok(row, `the autostart did not fail:\n${f.output.join('\n')}`);
-  assert.match(row.fix, /autostart install$/, row.fix);
+  assert.match(row.fix, /the setup offers the autostart step/, row.fix);
+  // The command of the Fix is the setup: it is the one that installs the autostart.
+  assert.deepEqual(commandOf(row.fix, f.io.config.command), ['setup']);
   const before = f.commands.length;
   f.clear();
-  assert.equal(await main(['autostart', 'install'], io), exitCodeFor('ok'), f.output.join('\n'));
+  assert.equal(await main(['setup'], io), exitCodeFor('ok'), f.output.join('\n'));
   // The machine was asked to enable the unit, and the file of the unit is there.
-  assert.ok(f.commands.length > before, 'the install did not run any command');
+  assert.ok(f.commands.length > before, 'the setup did not run any command');
   assert.ok([...files.keys()].some((file) => file.endsWith('okit-daemon.service')), [...files.keys()].join(', '));
   f.clear();
   assert.equal(await main(['doctor'], io), exitCodeFor('ok'), `the doctor still fails:\n${f.output.join('\n')}`);
@@ -221,8 +226,36 @@ const MANUAL = [
   ['MCP registration', 'the entry of that name is not ours: the installer never replaces the entry of somebody else'],
   ['Inbox', 'the state of the person is not ours to change: a person fixes the file or moves it aside'],
   ['Configuration', 'the settings are the person\'s: the doctor works with the defaults and says which key is wrong'],
-  ['Daemon', 'the state file of the daemon is the person\'s: the doctor only reads it, so a person fixes it or moves it aside'],
+  ['Daemon', 'the state file of the daemon is the person\'s: the doctor only reads it, so a person fixes it or moves it aside; the daemon itself starts with the machine'],
 ];
+
+test('the row of a daemon that is down says that the daemon starts with the machine', async (t) => {
+  const home = process.env.HOME;
+  const version = JSON.parse(await fs.readFile(join(PACKAGE, 'package.json'), 'utf8')).version;
+  const record = { client: CLIENT, version, path: PACKAGE, bin: 'src/cli.js', autostart: true, link: false,
+    linkDirectory: null, settings: { node: process.execPath } };
+  const { f } = await world(t, { autostart: true, record });
+  t.after(() => { if (home === undefined) delete process.env.HOME; else process.env.HOME = home; });
+  process.env.HOME = f.home;
+  // The machine has the service of the autostart: the row of the autostart is ok, so the row of the daemon is the one
+  // that fails.
+  const plan = autostartPlan(detectAutostart('linux'), {
+    root: f.root, home: f.home, node: record.settings.node, script: join(record.path, record.bin),
+    command: f.io.config.command });
+  await fs.mkdir(dirname(plan.path), { recursive: true });
+  await fs.writeFile(plan.path, plan.content);
+  // The daemon is not running: the file of its state is gone.
+  await fs.rm(join(f.root, 'daemon.pid.json'));
+  f.clear();
+  assert.equal(await main(['doctor'], f.io), exitCodeFor('operational'), f.output.join('\n'));
+  const index = f.output.findIndex((line) => line.includes('Daemon'));
+  assert.ok(index >= 0, f.output.join('\n'));
+  assert.match(f.output[index], /\bfailed\b/, f.output[index]);
+  // The Fix is honest: no command of the kit starts the daemon, so it says the machine does.
+  assert.match(f.output[index + 1], /^\s+Fix: Start it: the daemon starts with the machine/, f.output[index + 1]);
+  assert.doesNotMatch(f.output[index + 1], /okit-plugin (?!doctor\b)[a-z]/, f.output[index + 1]);
+  assert.ok(MANUAL[3][1].length > 0);
+});
 
 test('the row of a foreign MCP entry says that a person takes it out by hand', async (t) => {
   const { f } = await world(t);
