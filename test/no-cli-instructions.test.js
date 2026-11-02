@@ -43,6 +43,18 @@ const FIVE = ['install', 'update', 'uninstall', 'setup', 'doctor'];
 const COMMAND = DEFAULT_CONFIG.install.command;
 // The tools the server publishes: a skill names them by name.
 const TOOL_NAMES_SET = new Set(TOOL_NAMES);
+// Non-tool tokens actually used by the six skills, with their field/argument meaning.
+const SKILL_TOKENS = new Map([
+  ['okit', 'legacy install.command value'], ['kit', 'legacy install.command alias'],
+  ['pass', 'critic verdict value'], ['revise', 'critic verdict value'], ['reject', 'critic verdict value'],
+  ['accept', 'inbox acceptance field'], ['id', 'item identifier argument'],
+  ['markdown', 'status response field'], ['capacityLine', 'status response field'],
+  ['client', 'client selection argument'], ['L', 'size argument value'],
+  ['event', 'quota_notice argument'], ['locale', 'per-call language argument'],
+  ['available', 'quota_notice response field'], ['text', 'quota_notice response field'],
+  ['language', 'saved language configuration key'], ['en', 'language default value'],
+  ['planHash', 'smoke preview response field'], ['confirm', 'smoke confirmation argument'],
+]);
 // The snake_case name of a tool, as the skills write it.
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
 // The name of a skill, as the skills mention each other.
@@ -96,8 +108,12 @@ function forbiddenCommand(text) {
  * @returns {boolean}
  */
 function forbiddenFlag(text) {
-  const spans = [...text.matchAll(new RegExp(`(?:${COMMAND}|\\{command\\})\\s+(?:${FIVE.join('|')})\\b(?:[^\\n\`;]|\\.(?!\\s))*`, 'g'))]
+  const spans = [...text.matchAll(new RegExp(`(?:${COMMAND}|\\{command\\})\\s+(?:${FIVE.join('|')})\\b(?:[^\\n\`;.]|\\.(?!\\s|$))*`, 'g'))]
     .map((match) => [match.index, match.index + match[0].length]);
+  // A command of another program, in backticks, keeps its own flags (`node --version`): they are not flags of the kit.
+  for (const match of text.matchAll(/`(?:node|claude|codex|opencode)\s[^`\n]*`/g)) {
+    spans.push([match.index, match.index + match[0].length]);
+  }
   for (const match of text.matchAll(FLAG)) {
     const inside = spans.some(([from, to]) => match.index >= from && match.index < to);
     if (!inside) return true;
@@ -127,6 +143,31 @@ function forbiddenText(text, { flags = true } = {}) {
   return false;
 }
 
+/** Check single backticked words, and tool phrases even when the word is an allowed field or command. */
+function forbiddenSkillTool(text) {
+  for (const [, name] of text.matchAll(/`(\w+)`/g)) {
+    if (!TOOL_NAMES_SET.has(name) && !SKILL_TOKENS.has(name) && !FIVE.includes(name)) return true;
+  }
+  for (const match of text.matchAll(/`([^`]+)`\s+tool\b|\b(?:tool|ferramenta)\s+`([^`]+)`/gi)) {
+    if (!TOOL_NAMES_SET.has(match[1] ?? match[2])) return true;
+  }
+  return false;
+}
+
+/** Walk string values, never keys: sentences check flags; standalone configuration tokens do not. */
+function forbiddenValue(value) {
+  if (typeof value === 'string') return forbiddenText(value, { flags: /\s/.test(value) });
+  if (value && typeof value === 'object') return Object.values(value).some(forbiddenValue);
+  return false;
+}
+
+/** JSON replies use the value walker; plain text replies always check flags. */
+function forbiddenReply(reply) {
+  let value;
+  try { value = JSON.parse(reply); } catch { return forbiddenText(reply); }
+  return forbiddenValue(value);
+}
+
 /** The folders of the skills, in the order of the disk. */
 async function skillFolders() {
   const entries = await readdir(SKILLS_DIR, { withFileTypes: true });
@@ -144,6 +185,7 @@ test('no skill tells the model to run a command of the kit', async () => {
     // The whole file: the front matter is read by the model too.
     const text = await readFile(join(SKILLS_DIR, folder, 'SKILL.md'), 'utf8');
     assert.ok(!forbiddenText(text), `${folder} breaks the rule of the texts a model reads`);
+    assert.ok(!forbiddenSkillTool(text), `${folder} names an unknown tool or backticked token`);
     for (const name of new Set(text.match(SNAKE_CASE) ?? [])) {
       assert.ok(TOOL_NAMES_SET.has(name), `${folder} names ${name}, which the server does not publish`);
     }
@@ -211,24 +253,23 @@ test('no runtime text tells the model to run a command of the kit', async (t) =>
     const deps = { ...world(root), locale };
     const report = await environmentReport(deps);
     assert.ok(!forbiddenText(formatEnvironmentReport(report, locale)), `env_report ${locale}`);
-    // The model receives the object, not only the sentence: the object carries no command of the kit either.
-    // The object carries the configuration of the plugin, with the flags of the clients: those are not texts.
-    assert.ok(!forbiddenText(JSON.stringify(report), { flags: false }), `the report of the environment ${locale}`);
+    // Check every string value: configuration tokens may hold flags, sentences may not.
+    assert.ok(!forbiddenValue(report), `the report of the environment ${locale}`);
     const status = await statusTable(root, { ...deps, demands: [] });
     assert.ok(!forbiddenText(status.markdown), `status ${locale}`);
     assert.ok(!forbiddenText(status.capacityLine), `status ${locale}`);
-    assert.ok(!forbiddenText(JSON.stringify(status), { flags: false }), `the status ${locale}`);
+    assert.ok(!forbiddenValue(status), `the status ${locale}`);
     // The world where the client cannot be chosen: the note that says how to choose it is really printed.
     assert.ok(status.markdown.includes(UNKNOWN[locale]), `status ${locale} says how to choose a client`);
     const actors = await listActors(deps);
     assert.ok(!forbiddenText(actors.markdown), `actors_list ${locale}`);
-    assert.ok(!forbiddenText(JSON.stringify(actors), { flags: false }), `the actors ${locale}`);
+    assert.ok(!forbiddenValue(actors), `the actors ${locale}`);
     for (const note of actors.notes) assert.ok(!forbiddenText(note), `actors_list ${locale}`);
     assert.ok(actors.notes.some((note) => note.includes(UNKNOWN[locale])), `actors_list ${locale} says how to choose`);
     // The real replies of the tools of the server, in the two languages.
     for (const name of ['env_report', 'status', 'actors_list']) {
       const reply = await replyOf(name, { locale }, deps);
-      assert.ok(!forbiddenText(reply, { flags: false }), `${name} ${locale}: ${reply}`);
+      assert.ok(!forbiddenReply(reply), `${name} ${locale}: ${reply}`);
     }
   }
 });
@@ -421,7 +462,8 @@ function codeOf(source) {
  * The code as the program builds it: the literals of a concatenation joined, and the command of the configuration
  * written as `{command}` wherever a template builds it.
  *
- * What it cannot see: a text built by `join`, by a call or by a variable. Those are covered by the runtime cases only.
+ * What it cannot see: a text built by `join`, by a call or by a variable, or interpolations nested more than one
+ * level. Those are covered by the runtime cases only. Quoted/template literals inside an expression stay in order.
  *
  * @param {string} code the code of a file
  * @returns {string} the normalised code
@@ -435,8 +477,14 @@ function normalise(code) {
     if (joined === out) break;
     out = joined;
   }
-  // The command of the configuration, wherever a template builds it: ${...command...} → {command}.
-  return out.replace(/\$\{[^}]*command[^}]*\}/gi, '{command}');
+  // Preserve literal suffixes as well as the configured command; leave opaque expressions visible.
+  return out.replace(/\$\{((?:[^{}'"`]|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`|\{[^{}]*\})*)\}/g,
+    (all, expression) => {
+      const literals = [...expression.matchAll(/'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)]
+        .map((match) => match[1] ?? match[2] ?? match[3]).join('');
+      const command = /command/i.test(expression) ? '{command}' : '';
+      return command || literals ? command + literals : all;
+    });
 }
 
 // The literals of the source that name a command of the kit, and why they may. The exemption is exact: the literal
@@ -503,6 +551,39 @@ test('the normaliser sees the texts that are built', () => {
   assert.ok(forbiddenText(normalise('`${DEFAULT_CONFIG.install.command} quota set 1`')), 'the template is seen');
   assert.ok(forbiddenText(normalise('`${x.command} set 1`')), 'the template of a command is seen');
   assert.ok(!forbiddenText(normalise("'Run okit-plugin ' + 'setup'")), 'the command of the person is allowed');
+  assert.equal(normalise('${command + " quota set codex 50"}'), '{command} quota set codex 50');
+  assert.ok(forbiddenText(normalise('${command + " quota set codex 50"}')), 'the literal inside the interpolation is seen');
+  assert.equal(normalise('${DEFAULT_CONFIG.install.command}'), '{command}');
+  assert.equal(normalise('${value + "okit-plugin quota set codex 50"}'), 'okit-plugin quota set codex 50');
+  assert.equal(normalise('${COMMAND + ` quota set codex 50`}'), '{command} quota set codex 50');
+  assert.equal(normalise('${command + ({suffix: " quota set codex 50"}).suffix}'), '{command} quota set codex 50');
+  assert.equal(normalise('${value + "okit-plugin " + suffix + "quota set codex 50"}'), 'okit-plugin quota set codex 50');
+});
+
+test('skill tool checks reject unknown words and tool phrases in both languages', () => {
+  assert.ok(forbiddenSkillTool('`doctor` tool'));
+  assert.ok(!forbiddenSkillTool('`smoke_demo`'));
+  assert.ok(forbiddenSkillTool('`unknown`'));
+  for (const name of ['doctor', 'client', 'missing_tool', 'missing-tool']) {
+    for (const text of [`the \`${name}\` tool`, `tool \`${name}\``, `a ferramenta \`${name}\``, `ferramenta \`${name}\``]) {
+      assert.ok(forbiddenSkillTool(text), text);
+    }
+  }
+  for (const text of ['the `status` tool', 'tool `smoke_demo`', 'a ferramenta `daemon`', '`client`', '`setup`']) {
+    assert.ok(!forbiddenSkillTool(text), text);
+  }
+});
+
+test('runtime value checks scan sentences at every depth and allow configuration tokens', () => {
+  assert.ok(forbiddenValue({ guidance: 'Use --client to select one.' }));
+  assert.ok(!forbiddenValue({ args: ['--model', 'x'] }));
+  assert.ok(forbiddenValue({ nested: [{ guidance: 'Use --client to select one.' }] }));
+  assert.ok(forbiddenValue({ args: ['okit-plugin quota'] }), 'tokens still check commands');
+  assert.ok(!forbiddenValue({ 'Use --client': [null, true, 1, 'claude-code'] }), 'keys are not values');
+  assert.ok(forbiddenReply(JSON.stringify({ guidance: 'Use --client to select one.' })));
+  assert.ok(!forbiddenReply(JSON.stringify({ args: ['--model', 'x'] })));
+  assert.ok(forbiddenReply('Use --client to select one.'));
+  assert.ok(forbiddenReply('--client'), 'plain text replies check even a standalone flag');
 });
 
 // | the fixture | must hold | must refuse |
@@ -512,6 +593,13 @@ test('the rule of the texts has teeth', () => {
   assert.ok(!forbiddenText('Ask the user to run `okit-plugin install --client claude-code`.'), 'the flag of a command of the person');
   assert.ok(forbiddenText('Ask the user to run `okit-plugin setup`. Use --client to select a client.'), 'a flag after a mention of setup');
   assert.ok(forbiddenText('Use --client to select a client.'), 'a bare flag');
+  assert.ok(!forbiddenText('Node 22 is required: check it with `node --version`.'), 'the flag of another program in backticks');
+  assert.ok(forbiddenText('Use `--client` to select a client.'), 'a flag alone in backticks is the flag of the kit');
+  assert.ok(forbiddenText('Ask the user to run okit-plugin setup. Use --client.'), 'a period closes an unquoted command');
+  assert.ok(!forbiddenText('Run okit-plugin install --client claude-code and wait.'), 'an unquoted installation flag');
+  assert.ok(!forbiddenText('okit-plugin install --client x.y'), 'a period within a word stays in the command');
+  assert.ok(!forbiddenText('okit-plugin install config.json 1.2 --client x'), 'internal periods do not close the span');
+  assert.ok(forbiddenText('okit-plugin setup\nUse --client.'), 'a newline closes the command');
   assert.ok(forbiddenText('Run `config show` to view the settings.'), 'a group in backticks');
   assert.ok(forbiddenText('Run `quota set codex 50`.'), 'a group with arguments');
   assert.ok(!forbiddenText('Call `config_set` with the key.'), 'a tool is not a group');
