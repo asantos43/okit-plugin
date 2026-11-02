@@ -2,9 +2,9 @@
 
 ![okit-plugin: Componentes](../images/banners/components.svg)
 
-Todo campo `locale` é opcional e informa o padrão `en`, vindo da configuração inicial de `language`. Chamadas que o omitem usam o idioma salvo em `language`; configure português uma vez com `okit-plugin config set language pt-BR`. Um `locale` explícito (`en` ou `pt-BR`) tem prioridade naquela chamada.
+Todo campo `locale` é opcional e informa o padrão `en`, vindo da configuração inicial de `language`. Chamadas que o omitem usam o idioma salvo em `language`; peça ao assistente para chamar `config_set` com a chave `language` e o valor `pt-BR` e configure português uma vez. Um `locale` explícito (`en` ou `pt-BR`) tem prioridade naquela chamada.
 
-As ferramentas MCP expõem operações validadas do núcleo ao assistente do cliente.
+As ferramentas MCP expõem operações validadas do núcleo ao assistente do cliente. A pessoa tem cinco comandos — `okit-plugin install`, `update`, `uninstall`, `setup` e `doctor`; todo o resto é pedido ao assistente, que usa as ferramentas MCP.
 
 <a id="tools"></a>
 ## Contrato das ferramentas

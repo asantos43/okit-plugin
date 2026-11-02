@@ -80,10 +80,12 @@ test('the six supported system/architecture pairs are listed in the install and 
   }
 });
 
-test('environment command, tool, skill and shared module are documented in both languages', async () => {
+// D99 slice 6b: the environment report is asked of the assistant, which calls the tool `env_report`; the command
+// line of the report is gone. The guide still names the tool, the skill and the shared module, in both languages.
+test('environment tool, skill and shared module are documented in both languages', async () => {
   for (const file of ['docs/guide/troubleshooting.md', 'docs/guide/troubleshooting.pt-BR.md']) {
     const text = await read(file);
-    for (const term of ['okit-plugin env report', 'env_report', 'okit-environment']) {
+    for (const term of ['env_report', 'okit-environment']) {
       assert.ok(text.includes(term), `${file}: ${term}`);
     }
   }

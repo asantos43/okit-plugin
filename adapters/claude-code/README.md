@@ -16,7 +16,8 @@ Zero dependencies, Node >= 20 ESM; the core imports this module, never the CLI.
 `root` is `opts.root`, else `$CLAUDE_CONFIG_DIR`, else `~/.claude`. The default
 export is the same names in one object.
 
-`okit-plugin statusline-collector [--previous <command> <args...>]` collects the
+The status bar collector is an internal entry point the client launches, not a command
+of yours: `okit-plugin statusline-collector [--previous <command> <args...>]` collects the
 status bar JSON, then runs the previous bar with identical input and binary output.
 `statuslineCollector` in the state root's `config.json` configures `previous`
 (command and arguments as an array), `fields` (`rateLimits`, `usedPercentage`,
@@ -31,13 +32,14 @@ configured byte limits is discarded.
 No shell is implied; name an interpreter explicitly when required.
 No settings registration is performed.
 
-O coletor lê a entrada da barra e executa o comando anterior com a mesma entrada
-e saída preservada. Configure comando, argumentos, campos, janelas e limites em
+O coletor é uma entrada interna que o cliente inicia, não um comando seu: ele lê a
+entrada da barra e executa o comando anterior com a mesma entrada e saída preservada.
+Configure comando, argumentos, campos, janelas e limites em
 `statuslineCollector` no `config.json` da pasta de estado. O coletor guarda o JSON
 do cliente como ele veio: os instantes de reset ficam em segundos epoch, ao lado
 do instante em que chegaram; o núcleo os converte em datas ISO quando deduz a
 leitura. A menor porcentagem restante representa a cota. Entrada sem cota
 preserva a leitura antiga; falhas do comando anterior não interrompem a barra.
-`quota show` informa origem e idade; leituras manuais continuam com origem
+`quota_show` informa origem e idade; leituras manuais continuam com origem
 `user`, automáticas com `automatic`. Nenhum ajuste do Claude Code é registrado
 ou alterado.

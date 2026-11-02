@@ -10,7 +10,7 @@ Install/update choose a writable candidate already on PATH (`~/.local/bin`, then
 
 Use `--no-path` on install/update (also through the bootstrap scripts), or set `install.path.enabled: false`, to receive a manual instruction without profile/environment edits. `install.path` configures `candidates`, `shells`, `fallbackShell`, `begin`, `end`, `stateFile`, Windows settings and bilingual `messages`; `install.linkDirectory` overrides directory selection. The final message shows the link, edited profiles or existing PATH, and command resolution with the resulting PATH. Restart the AI client so it inherits PATH. If a skill cannot find the command, run the installation's `src/cli.js` with Node and the same arguments.
 
-When the current terminal's PATH lacks the bin directory, install/update and `okit-plugin status` show an activation hint in the language of the run. Run the printed command manually: `. '<profile>'` for bash/zsh, `source '<profile>'` for fish, or `$env:Path = '<bin>' + ';' + $env:Path` for PowerShell on Windows. These templates come from `install.path.activate`; `shellVariable` defaults to `SHELL`. The command is never executed for you. For an unknown shell or missing managed profile, open a new terminal. The hint disappears when the bin directory is already in PATH.
+When the current terminal's PATH lacks the bin directory, install/update show an activation hint in the language of the run. Run the printed command manually: `. '<profile>'` for bash/zsh, `source '<profile>'` for fish, or `$env:Path = '<bin>' + ';' + $env:Path` for PowerShell on Windows. These templates come from `install.path.activate`; `shellVariable` defaults to `SHELL`. The command is never executed for you. For an unknown shell or missing managed profile, open a new terminal. The hint disappears when the bin directory is already in PATH.
 
 Each client package includes all runtime adapters by default so `status` can load
 every client. `release.sharedAdapters: null` inherits the paths in `release.adapters`;
@@ -53,7 +53,7 @@ exact client/system/architecture archive and checksum manifest into a temporary
 folder, verifies SHA-256 before extraction, and invokes the Node installer with
 `install --from`. It copies the package into a fixed user data directory, records
 one `install.<client>.json` per client, registers the client, creates a shared command link and optionally sets
-autostart. Updates retain backups, activate the new version and run `okit-plugin smoke`.
+autostart. Updates retain backups, activate the new version and run the local installation checks.
 Temporary files are removed on success and failure. Linux uses
 `${XDG_DATA_HOME:-$HOME/.local/share}/okit-plugin`; macOS uses
 `$HOME/Library/Application Support/okit-plugin`; Windows uses
@@ -212,8 +212,8 @@ bar runs its command through Git Bash, so the status bar entry written by
 remove an `okit-plugin.ps1` this plugin wrote in an earlier version (a `.ps1` that is not
 ours is left alone), and rewrite an older status bar entry that named the bare command;
 uninstall removes the shims. A file of either name that is not ours is preserved like any
-foreign command. `okit-plugin env report` says when the collector is registered but has
-received no reading yet.
+foreign command. The environment report says when the collector is registered but has
+received no reading yet; ask your assistant for it (it calls `env_report`).
 An existing command that belongs to someone else is preserved and fails the
 command step and installation. Rename or remove it, or choose another directory
 in `install.linkDirectory` in the configuration, then retry.
@@ -246,9 +246,10 @@ the executable file. This plugin only checks its version; it never installs or
 changes the kit. The reported path identifies the executable, not its home or
 configuration directory; those cannot be inferred reliably from a version probe.
 
-Run `okit-plugin kit [--require]`. The English `kit: …` line reports `installed`, `absent`
-or `broken`; only `--require` (or configured `require: true`) makes an unsuccessful
-check exit 1. Install/update, including `--dry-run`, and status also print the line.
+Install/update, including `--dry-run`, print the English `kit: …` line: `installed`, `absent`
+or `broken`. Your assistant probes the kit at any time; it calls `kit_detect` and says whether
+the kit is installed, which version it has and why it is broken. The configuration
+`require: true` (default `false`) makes an unsuccessful check a failure.
 When installed, see the [D1 overlap rules](docs/maintainers/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
 
 In `OKWORK_HOME/config.json`, configure `install.kit`:
@@ -289,7 +290,7 @@ client is refused before changes. Each client has its own retained versions and 
 check; one failure allows the others to finish. The summary lists each result
 (exit 0: all succeeded, 1: failure, 2: refused before starting).
 
-One exit policy serves the installed command and both bootstrap scripts (`src/install/exit.js`, `exitCodeFor`): success and dry run exit 0; a failure of the work (no published release, a missing asset, a bad checksum, a network error) exits 1; a usage, flag or language error exits 2. The language of a run is decided first (`--locale`, `OKIT_LANGUAGE`, the saved language, English), before any flag is analysed, so `--help`, `status` and every refusal, including the refusals of `install.sh` and `install.ps1`, speak one language only; every line goes through the redacting door, so a kit hint with credentials, a query or a fragment is shown without them. This includes the usage text (`--version`, no arguments, an unknown command or action). The class of an error is decided only by its `kind`: an error that says nothing is a failure of the work (exit 1), so a missing release or asset is never taken for a usage error, in the installed command or in the scripts. Every refusal of the settings in `config.json` has a stable code and its parameters and is shown in the language of the run from one catalogue (`CONFIG_MESSAGES`). A generated test (`test/install-matrix.test.js`) runs every command of the usage table under every language source and checks that no line mixes languages, that no credential reaches the output and that the exit code has the class of the policy; Every configuration passes through the single schema (`src/config-schema.js`): a setting of `config.json` that is not valid (`install.timeoutMs` as `0`, as text or above 2147483647, a null shell, a version that is not text in a `--from` package) is one refusal of usage, exit 2, naming the key and the rule in the language of the run, with the file untouched, in `install`, `update`, `uninstall`, `setup`, `kit`, `status` and `config`; `config set` of an invalid value and `config get|unset` of an unknown key also exit 2. A generated test (`test/install-config-fuzz.test.js`) proves it for every key of the schema; the commands that keep their own bilingual convention (`config`, `quota`, `telemetry`, `trajectory`) and the machine protocols (`hook`, `statusline-collector`) are listed there with the reason.
+One exit policy serves the installed command and both bootstrap scripts (`src/install/exit.js`, `exitCodeFor`): success and dry run exit 0; a failure of the work (no published release, a missing asset, a bad checksum, a network error) exits 1; a usage, flag or language error exits 2. The language of a run is decided first (`--locale`, `OKIT_LANGUAGE`, the saved language, English), before any flag is analysed, so `--help` and every refusal, including the refusals of `install.sh` and `install.ps1`, speak one language only; every line goes through the redacting door, so a kit hint with credentials, a query or a fragment is shown without them. This includes the usage text (`--version`, no arguments, an unknown command or action). The class of an error is decided only by its `kind`: an error that says nothing is a failure of the work (exit 1), so a missing release or asset is never taken for a usage error, in the installed command or in the scripts. Every refusal of the settings in `config.json` has a stable code and its parameters and is shown in the language of the run from one catalogue (`CONFIG_MESSAGES`). A generated test (`test/install-matrix.test.js`) runs every command of the usage table under every language source and checks that no line mixes languages, that no credential reaches the output and that the exit code has the class of the policy; Every configuration passes through the single schema (`src/config-schema.js`): a setting of `config.json` that is not valid (`install.timeoutMs` as `0`, as text or above 2147483647, a null shell, a version that is not text in a `--from` package) is one refusal of usage, exit 2, naming the key and the rule in the language of the run, with the file untouched, in `install`, `update`, `uninstall`, `setup` and `doctor`; an invalid value and an unknown key are refused by the tools `config_get` and `config_set` with a message of the same catalogue, naming the key and the rule. A generated test (`test/install-config-fuzz.test.js`) proves it for every key of the schema; the machine protocols (`hook`, `statusline-collector`) are listed there with the reason.
 
 Record names come from `install.recordName`. Legacy `install.json` is read under its
 client and migrated on the first write, preserving its previous-version chain.

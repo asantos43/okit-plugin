@@ -17,7 +17,7 @@ Keeps enabled project tasks in step with saved work; asks before using a suggest
 
 | Skill | Use and instruction | Main resources |
 | :- | :- | :- |
-| `okit-director` | Orchestrates requested work; loaded when directing or delegating. Read orders and inbox, classify, choose actors, claim work, reserve/release slots, brief Executor and Critic, verify evidence and record transitions. When quota blocks a subscription, call `quota_notice` without an event before waiting. If the reply says the notice is unavailable, explain that the kit cannot yet notify when quota returns; reread quota with `okit-plugin quota show` or `okit-plugin daemon status`, without waiting for an event that will not arrive. Otherwise wait in the background, without polling, and relay the event with `quota_notice`. | `order_list`, `inbox_list`, `inbox_claim`, `inbox_release`, `limits_status`, `status`, `quota_notice`, `actors_list`, `env_report`, `classify`, `profile_pick`, `acquire_slot`, `release_slot`, `inbox_add`, `inbox_set_status`, `order_add` |
+| `okit-director` | Orchestrates requested work; loaded when directing or delegating. Read orders and inbox, classify, choose actors, claim work, reserve/release slots, brief Executor and Critic, verify evidence and record transitions. When quota blocks a subscription, call `quota_notice` without an event before waiting. If the reply says the notice is unavailable, explain that the kit cannot yet notify when quota returns; reread quota with `quota_show` or `daemon`, without waiting for an event that will not arrive. Otherwise wait in the background, without polling, and relay the event with `quota_notice`. | `order_list`, `inbox_list`, `inbox_claim`, `inbox_release`, `limits_status`, `status`, `quota_notice`, `actors_list`, `env_report`, `classify`, `profile_pick`, `acquire_slot`, `release_slot`, `inbox_add`, `inbox_set_status`, `order_add` |
 
 <a id="okit-executor"></a>
 ## okit-executor
@@ -38,23 +38,23 @@ Keeps enabled project tasks in step with saved work; asks before using a suggest
 
 | Skill | Use and instruction | Main resources |
 | :- | :- | :- |
-| `okit-setup` | Guides model setup; loaded for /okit-setup or a conversational configuration request. Run the existing proposal flow, explain detected choices, ask only missing facts and save once after its final confirmation. Never edit individual settings by hand. | `okit-plugin setup`, `okit-plugin config show` |
+| `okit-setup` | Guides model setup; loaded for /okit-setup or a conversational configuration request. Run the existing proposal flow, explain detected choices, ask only missing facts and save once after its final confirmation. Never edit individual settings by hand. | `okit-plugin setup`, `config_get` |
 
 <a id="okit-smoke"></a>
 ## okit-smoke
 
 | Skill | Use and instruction | Main resources |
 | :- | :- | :- |
-| `okit-smoke` | Narrates demonstrations and smoke checks; loaded for /okit-smoke or a demonstration/real-test request. Preview, show limits, obtain explicit allowance consent tied to the plan, then run real work and report measured usage and exit status. Clients without money reports require smoke.maxTokens. Paid proof belongs to the owner. | `smoke_demo`, `okit-plugin smoke-demo`, `okit-plugin client-smoke`, `okit-plugin quota set` |
+| `okit-smoke` | Narrates demonstrations and smoke checks; loaded for /okit-smoke or a demonstration/real-test request. Preview, show limits, obtain explicit allowance consent tied to the plan, then run real work and report measured usage and exit status. Clients without money reports require smoke.maxTokens. Paid proof belongs to the owner. | `smoke_demo`, `quota_set` |
 
 <a id="okit-environment"></a>
 ## okit-environment
 
 | Skill | Use and instruction | Main resources |
 | :- | :- | :- |
-| `okit-environment` | Answers environment questions; loaded when asked about client, models, allowance, folders or missing setup. Explain confirmed observations and repair commands, preserve unknowns and change nothing. | `env_report`, `okit-plugin env report` |
+| `okit-environment` | Answers environment questions; loaded when asked about client, models, allowance, folders or missing setup. Explain confirmed observations and repair commands, preserve unknowns and change nothing. | `env_report` |
 
-The environment skill also explains optional measurements via telemetry_status and telemetry_export or okit-plugin telemetry. Recording and sending start off and require separate requests; messages and file contents are excluded.
+The environment skill also explains optional measurements via telemetry_status and telemetry_export. Recording and sending start off and require separate requests; messages and file contents are excluded.
 
 Try asking “show the environment” and inspect the report without starting work.
 
