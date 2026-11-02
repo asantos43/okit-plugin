@@ -158,18 +158,37 @@ function forbiddenText(text, { flags = true } = {}) {
   return false;
 }
 
-/** Check single backticked words, and tool phrases even when the word is an allowed field or command. */
+// The marks that quote or wrap a name in the prose of a skill: backticks, straight and curly quotes, guillemets,
+// brackets and the stars of bold. An apostrophe between letters ("person's") is part of a word, not a quote.
+const OPENING = '`"“«‘';
+const CLOSING = '`"”»’';
+const QUOTE_MARKS = /[`"“”«»()[\]*‘]|(?<!\p{L})['’]|['’](?!\p{L})/gu;
+
+/**
+ * Check single backticked words, and the phrases that name a tool even when the word is an allowed field or command.
+ *
+ * A name is judged whatever wraps it (backticks, quotes of any kind, brackets, bold) and whatever spaces are around it:
+ * the quote marks are first turned into spaces and then one rule reads the words.
+ */
 function forbiddenSkillTool(text) {
   for (const [, name] of text.matchAll(/`(\w+)`/g)) {
     if (!TOOL_NAMES_SET.has(name) && !SKILL_TOKENS.has(name) && !FIVE.includes(name)) return true;
   }
-  for (const match of text.matchAll(/`([^`]+)`\s+tool\b|\b(?:tool|ferramenta)\s+`([^`]+)`/gi)) {
+  // A quoted name next to the word tool: `x` tool, "x" tool, tool “x”, ferramenta ‘x’.
+  const quoted = new RegExp(
+    `[${OPENING}]([^${OPENING}${CLOSING}\\n]+)[${CLOSING}]\\s+tool\\b|\\b(?:tool|ferramenta)\\s+[${OPENING}]([^${OPENING}${CLOSING}\\n]+)[${CLOSING}]`,
+    'giu',
+  );
+  for (const match of text.matchAll(quoted)) {
     if (!TOOL_NAMES_SET.has(match[1] ?? match[2])) return true;
   }
-  // The same phrases without the backticks ("doctor tool", "ferramenta doctor"): the word names a tool of the server.
-  for (const match of text.matchAll(/(?<![\w-])([\w-]+)\s+tool\b|(?<![\w-])ferramenta\s+([\w-]+)/gi)) {
+  // The same phrases without or with other marks ("doctor tool", "(doctor) tool", "ferramenta doctor"): the word names
+  // a tool of the server or it is ordinary prose.
+  const plain = text.replace(QUOTE_MARKS, ' ');
+  for (const match of plain.matchAll(/(?<![\w'’-])([\w'’-]+)\s+tool\b|(?<![\w'’-])ferramenta\s+([\w'’-]+)/gi)) {
     const word = match[1] ?? match[2];
-    if (TOOL_NOUNS.has(word.toLowerCase())) continue;
+    // A possessive or a contraction ("the person's tool") is prose: the names of the tools have no apostrophe.
+    if (/['’]/.test(word) || TOOL_NOUNS.has(word.toLowerCase())) continue;
     if (!TOOL_NAMES_SET.has(word)) return true;
   }
   return false;
@@ -614,6 +633,16 @@ test('skill tool checks reject unknown words and tool phrases in both languages'
   assert.ok(forbiddenSkillTool('ferramenta daemon-start'), 'a hyphenated name is validated whole');
   assert.ok(forbiddenSkillTool('the daemon-start tool'), 'a hyphenated name before tool');
   assert.ok(forbiddenSkillTool('doctor  tool'), 'two spaces');
+  // Whatever wraps the name: quotes of any kind, brackets, bold.
+  for (const text of ['Use the "doctor" tool.', 'Use a ferramenta \u201cdoctor\u201d.', 'the (doctor) tool', 'the *doctor* tool',
+    'ferramenta \u2018doctor\u2019', 'the \u00abdoctor\u00bb tool', 'tool "doctor"', 'the \u201cdoctor\u201d tool', 'the **doctor** tool',
+    'a ferramenta [doctor]']) {
+    assert.ok(forbiddenSkillTool(text), text);
+  }
+  for (const text of ['the "status" tool', 'ferramenta \u201cdaemon\u201d', 'the person\u2019s tool', "the person's tool", 'the tool\u2019s answer',
+    'Done. Tool answers', 'the (status) tool']) {
+    assert.ok(!forbiddenSkillTool(text), text);
+  }
   assert.ok(!forbiddenSkillTool('`smoke_demo` tool'), '`smoke_demo` tool');
   assert.ok(!forbiddenSkillTool('the tool answers'), 'the tool answers');
   assert.ok(!forbiddenSkillTool('The tool answers'), 'a capital at the start of a sentence');
