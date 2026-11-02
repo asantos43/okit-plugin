@@ -355,8 +355,10 @@ export const DEFAULT_CONFIG = {
     // The name model. `{package}`, `{version}`, `{client}`, `{system}`,
     // `{arch}` and `{ext}` are the values of the pair.
     name: '{package}-{version}-{client}-{system}-{arch}.{ext}',
-    // What enters a payload, besides the client files below.
-    include: ['package.json', 'LICENSE', 'src', 'skills'],
+    // What enters a payload, besides the client files below. The two smoke runners are named by
+    // the release checklist, so the payload carries them and the checklist commands run from the
+    // extracted payload.
+    include: ['package.json', 'LICENSE', 'src', 'skills', 'scripts/smoke.js', 'scripts/client-smoke.js'],
     // What never enters a payload, even inside an included folder.
     exclude: ['.git', '.delegate', '.github', 'node_modules', 'dist', 'coverage',
       'test', 'src/release', '.gitkeep', '.env', '.DS_Store', '*.log', '*.tmp'],

@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { TOOLS, TOOL_NAMES } from '../src/mcp/tools.js';
-import { main } from '../src/cli.js';
+import { isCollectorLaunch, main } from '../src/cli.js';
 import { CONFIG_SCHEMA } from '../src/config.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 
@@ -72,7 +72,9 @@ function dispatchCommands(dispatch) {
   return [...new Set(commands)];
 }
 
-const commands = dispatchCommands(main.toString());
+// The collector is dispatched by the one rule of the module (`isCollectorLaunch`), not by a line of
+// the body of `main`, so the scan reads the rule with the body.
+const commands = dispatchCommands(`${main.toString()}\n${isCollectorLaunch.toString()}`);
 const skillFolders = (await readdir(resolve(root, 'skills'), { withFileTypes: true }))
   .filter(entry => entry.isDirectory()).map(entry => entry.name);
 const skills = await Promise.all(skillFolders.map(async folder => {

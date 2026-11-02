@@ -16,7 +16,22 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 
-const collectorEntry = process.argv[2] === 'statusline-collector';
+const HELP_FLAGS = ['--help', '-h'];
+
+/**
+ * Whether an argv is the collector's own launch: the client starts the status line collector with
+ * its own arguments and never asks it for help. One rule decides it, so the module that skips the
+ * heavy imports when the module loads and the command that runs them always agree: a help flag
+ * makes it the command line's answer (the usage), not the collector's launch.
+ *
+ * @param {string[]} [argv] the arguments of the command line, without `node` and the script name
+ * @returns {boolean} whether the argv launches the collector
+ */
+export function isCollectorLaunch(argv = []) {
+  return argv[0] === 'statusline-collector' && !argv.some((arg) => HELP_FLAGS.includes(arg));
+}
+
+const collectorEntry = isCollectorLaunch(process.argv.slice(2));
 const { applyAutostart, autostartPlan, detectAutostart } = collectorEntry
   ? {} : await import('./autostart.js');
 const { run } = collectorEntry ? {} : await import('./core/operations.js');
@@ -344,7 +359,6 @@ function installerLifecycle(ctx, io) {
 /** `--locale=pt-BR` as `--locale pt-BR`: resolveLocale reads the separate form only. */
 const separateLocale = (args) => args.flatMap((arg) => (arg.startsWith('--locale=') ? ['--locale', arg.slice('--locale='.length)] : [arg]));
 
-const HELP_FLAGS = ['--help', '-h'];
 // The groups that answer the help flag wherever it comes: the commands of the person.
 const HELPED_GROUPS = ['setup', 'install', 'update', 'uninstall', 'doctor'];
 
@@ -370,7 +384,7 @@ function wantsHelp([group, ...args]) {
 export async function main(argv = [], io = {}) {
   const invalidHelp = !wantsHelp(argv) && argv.some((arg) => HELP_FLAGS.includes(arg));
   // The client's status bar launches this collector.
-  if (argv[0] === 'statusline-collector' && !invalidHelp) {
+  if (isCollectorLaunch(argv)) {
     const { launch } = await import('./launchers.js');
     return launch(argv, io);
   }

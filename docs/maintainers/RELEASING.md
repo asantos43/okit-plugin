@@ -191,7 +191,7 @@ Immediately before invoking GitHub, git checks run again: a dirty tree (includin
 <a id="section-9"></a>
 ## Proof per pair
 
-Every checkbox means **both** layers against that pair's installed candidate: `npm run smoke` (internal `scripts/smoke.js` runner, in-process, scratch home; run from that installed payload) and `npm run client-smoke -- --client <client>` for the in-client smoke scenario inside the actual named client, loading the real installation with its real login/state. `--dry-run`, rehearsal and mocked spawns are not real-client proof. The internal `runClientSmoke` API in `src/smoke/client.js` is implemented for Claude Code; see [SMOKE.md](SMOKE.md#in-client-smoke-real). Other real-client drivers are pending. Keep each pair unchecked until both layers are recorded and accepted.
+Every checkbox means **both** layers against that pair's installed candidate: `npm run smoke` (internal `scripts/smoke.js` runner, in-process, scratch home; run from that installed payload) and `npm run client-smoke -- --client <client>` for the in-client smoke scenario inside the actual named client, loading the real installation with its real login/state. The payload carries both runners (`scripts/smoke.js` and `scripts/client-smoke.js`), so the two commands run from the extracted payload. `--dry-run`, rehearsal and mocked spawns are not real-client proof. The internal `runClientSmoke` API in `src/smoke/client.js` is implemented for Claude Code; see [SMOKE.md](SMOKE.md#in-client-smoke-real). Other real-client drivers are pending. Keep each pair unchecked until both layers are recorded and accepted.
 
 **Claude Code**
 

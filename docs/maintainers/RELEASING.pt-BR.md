@@ -191,7 +191,7 @@ Imediatamente antes de chamar o GitHub, o git é verificado novamente: árvore s
 <a id="section-9"></a>
 ## Proof per pair
 
-Cada marca significa **ambas** as camadas no candidato instalado daquele par: `npm run smoke` (runner interno `scripts/smoke.js`, em processo, home temporário; executar naquele payload instalado) e `npm run client-smoke -- --client <client>` para o cenário smoke no cliente dentro do cliente real indicado, carregando a instalação real com login/estado reais. `--dry-run`, ensaio e spawns simulados não provam uso real. A API interna `runClientSmoke` em `src/smoke/client.js` está implementada para Claude Code; veja [SMOKE.pt-BR.md](SMOKE.pt-BR.md#in-client-smoke-real). Os demais drivers reais estão pendentes. Manter cada par desmarcado até registrar e aceitar ambas as camadas.
+Cada marca significa **ambas** as camadas no candidato instalado daquele par: `npm run smoke` (runner interno `scripts/smoke.js`, em processo, home temporário; executar naquele payload instalado) e `npm run client-smoke -- --client <client>` para o cenário smoke no cliente dentro do cliente real indicado, carregando a instalação real com login/estado reais. O payload carrega os dois runners (`scripts/smoke.js` e `scripts/client-smoke.js`), então os dois comandos rodam a partir do payload extraído. `--dry-run`, ensaio e spawns simulados não provam uso real. A API interna `runClientSmoke` em `src/smoke/client.js` está implementada para Claude Code; veja [SMOKE.pt-BR.md](SMOKE.pt-BR.md#in-client-smoke-real). Os demais drivers reais estão pendentes. Manter cada par desmarcado até registrar e aceitar ambas as camadas.
 
 **Claude Code**
 
