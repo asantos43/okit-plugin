@@ -258,6 +258,7 @@ lines.on('close', async () => { await control?.stop(); process.exit(0); });
   assert.equal(result.answer?.mcp.ok, true, `${result.stdout}${result.stderr}`);
   assert.equal(result.answer.api.ok, false, JSON.stringify(result.answer));
   assert.equal(result.answer.api.error.code, 'control-error', JSON.stringify(result.answer));
+  assert.equal(result.answer.api.error.cause, 'failed');
   assert.match(result.answer.api.error.why, /inbox_list/, JSON.stringify(result.answer));
 });
 
@@ -442,6 +443,7 @@ test('the budget is the budget: past it no new wait is granted to the control AP
   assert.equal(result.answer?.mcp.ok, true, `${result.stdout}${result.stderr}`);
   assert.equal(result.answer.api.ok, false, JSON.stringify(result.answer));
   assert.equal(result.answer.api.error.code, 'control-error', JSON.stringify(result.answer));
+  assert.equal(result.answer.api.error.cause, 'timeout');
   // The call of the control API may not wait longer than what was left of the budget: a second more is not granted.
   const waited = Number(/did not answer in (\d+) ms/.exec(result.answer.api.error.why ?? '')?.[1]);
   assert.ok(Number.isInteger(waited), `the answer does not say how long it waited: ${result.answer.api.error.why}`);
@@ -566,10 +568,14 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
 
 test('a budget that runs out after the record of the server is found asks nothing: the control API is never called', { skip }, async (t) => {
   const root = await folder(t, 'okit-probe-root-');
-  const where = await folder(t, 'okit-probe-client-');
+  const base = await folder(t, 'okit-probe-client-');
+  const where = join(base, 'mcp');
+  await fs.mkdir(where);
+  await fs.mkdir(join(base, 'install'));
+  await fs.copyFile(join(REPO, 'src/install/exit.js'), join(base, 'install/exit.js'));
   // The probe of the installation, copied as it is (only the client of the control API is faked), so the poll of the
   // record of the server takes longer than the budget of the probe.
-  await fs.writeFile(join(where, 'package.json'), JSON.stringify({ type: 'module' }));
+  await fs.writeFile(join(base, 'package.json'), JSON.stringify({ type: 'module' }));
   await fs.copyFile(PROBE, join(where, 'selfcheck-probe.js'));
   const called = join(root, 'control-called.txt');
   const connections = join(root, 'connections.txt');
@@ -697,4 +703,24 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.answer?.mcp.ok, true, `${result.stdout}${result.stderr}`);
   assert.equal(result.answer.answers, 2, `the probe kept ${result.answer.answers} answers`);
+});
+
+
+test('killTree uses the Windows tree command and always tries the child fallback', async () => {
+  const { killTree } = await import('../src/mcp/selfcheck-probe.js');
+  const calls = [];
+  const child = { pid: 123, kill: (signal) => calls.push(['child', signal]) };
+  killTree(child, { platform: 'win32', spawnSync: (...args) => calls.push(args) });
+  assert.deepEqual(calls, [
+    ['taskkill', ['/pid', '123', '/T', '/F'], { windowsHide: true, shell: false }],
+    ['child', 'SIGKILL'],
+  ]);
+  calls.length = 0;
+  assert.doesNotThrow(() => killTree(child, { platform: 'win32', spawnSync: () => { throw new Error('gone'); } }));
+  assert.deepEqual(calls, [['child', 'SIGKILL']]);
+  assert.doesNotThrow(() => killTree({ pid: 123, kill: () => { throw new Error('gone'); } },
+    { platform: 'win32', spawnSync: () => { throw new Error('gone'); } }));
+  killTree(child, { platform: 'linux', kill: (...args) => calls.push(args) });
+  assert.deepEqual(calls.at(-1), [-123, 'SIGKILL']);
+  assert.doesNotThrow(() => killTree(child, { platform: 'linux', kill: () => { throw new Error('gone'); } }));
 });

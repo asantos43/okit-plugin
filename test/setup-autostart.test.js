@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { PassThrough, Writable } from 'node:stream';
+import { fileURLToPath } from 'node:url';
+import { setupAutostart } from '../src/setup/autostart-step.js';
 import { main } from '../src/cli.js';
 import { autostartPlan, detectAutostart } from '../src/autostart.js';
 import { readRecords } from '../src/install/place.js';
@@ -303,4 +305,78 @@ test('a save that fails after the service is installed takes the service back', 
   assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
   assert.equal(errors.length, 1, errors.join('\n'));
   assert.match(errors[0], /^Could not install autostart: the autostart was taken back: permission denied$/, errors[0]);
+});
+
+
+for (const [failAt, restoreFails] of [[1, false], [2, false], [2, true]]) {
+  test(`record write ${failAt}, restore failure=${restoreFails}: restores records before uninstalling`, async () => {
+    const config = (await import('../src/install/config.js')).installConfig();
+    const destination = fileURLToPath(new URL('../configured', import.meta.url));
+    const files = new Map(['claude-code', 'codex'].map((client) => [
+      join(destination, config.recordName.replace('{client}', client)),
+      ` { "client": "${client}", "autostart": false, "link": false }\r\n`,
+    ]));
+    const before = new Map(files), actions = [], errors = [], atUninstall = [];
+    let writes = 0;
+    const fake = {
+      readFile: async (file) => {
+        if (files.has(file)) return files.get(file);
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      },
+      writeFile: async (file, text) => {
+        if (file.endsWith('.tmp') && ++writes === failAt) throw new Error('save denied');
+        if (restoreFails && file.endsWith('install.claude-code.json')) throw new Error('restore denied');
+        files.set(file, text);
+      },
+      rename: async (from, to) => { files.set(to, files.get(from)); files.delete(from); },
+      rm: async (file) => { files.delete(file); },
+    };
+    const code = await setupAutostart({ fs: fake, platform: 'linux', env: {}, home: 'home', command: config.command,
+      out: () => {}, err: (line) => errors.push(line),
+      run: async ({ command }) => {
+        actions.push(command);
+        if (command === 'uninstall') atUninstall.push(new Map(files));
+      },
+    }, { config: { ...config, destination }, locale: 'en', ask: async () => 'yes',
+      plan: () => ({ kind: 'test', path: null, install: [{ command: 'install' }], uninstall: [{ command: 'uninstall' }] }) });
+    assert.equal(code, 1);
+    if (restoreFails) {
+      assert.equal(JSON.parse(files.get(join(destination, 'install.claude-code.json'))).autostart, true);
+      assert.equal(files.get(join(destination, 'install.codex.json')), before.get(join(destination, 'install.codex.json')));
+    } else assert.deepEqual(files, before);
+    assert.deepEqual(actions, ['install', 'uninstall']);
+    assert.equal(atUninstall.length, 1);
+    assert.deepEqual(atUninstall[0], files);
+    assert.deepEqual(errors, ['Could not install autostart: the autostart was taken back: save denied'
+      + (restoreFails ? `; ${join(destination, 'install.claude-code.json')}: restore denied` : '')]);
+  });
+}
+
+test('autostart saves only in the discovered running installation destination', async () => {
+  const config = (await import('../src/install/config.js')).installConfig({ destination: 'configured' });
+  const pkg = fileURLToPath(new URL('../', import.meta.url)).replace(/[\\/]$/, '');
+  const destination = dirname(pkg), file = join(destination, 'install.codex.json');
+  const files = new Map([[file, JSON.stringify({ client: 'codex', path: pkg, destination, autostart: false })]]);
+  const writes = [], errors = [], reads = [];
+  const fake = {
+    readFile: async (name) => {
+      reads.push(name);
+      if (files.has(name)) return files.get(name);
+      throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+    },
+    writeFile: async (name, text) => { writes.push(name); files.set(name, text); },
+    rename: async (from, to) => { files.set(to, files.get(from)); files.delete(from); },
+    rm: async (name) => { files.delete(name); },
+  };
+  assert.equal(await setupAutostart({ fs: fake, platform: 'linux', env: {}, home: 'home', command: config.command,
+    out: () => {}, err: (line) => errors.push(line), run: async () => {},
+  }, { config, locale: 'en', ask: async () => {
+      assert.equal(reads.filter((name) => name === join(destination, 'install.json')).length, 2);
+      return 'yes';
+    },
+    plan: () => ({ kind: 'test', path: null, install: [], uninstall: [] }) }), 0, errors.join('\n'));
+  assert.equal(JSON.parse(files.get(file)).autostart, true);
+  assert.equal(reads.filter((name) => name === join(destination, 'install.json')).length, 5);
+  assert.deepEqual(writes, [file + '.tmp']);
+  assert.equal([...files.keys()].some((name) => name.startsWith('configured')), false);
 });

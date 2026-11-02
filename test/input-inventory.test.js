@@ -383,6 +383,8 @@ test('input inventory: the files that are read follow their rule (unreadable is 
   }
   await fs.writeFile(file, JSON.stringify({ install: f.io.config }));
   // The record of an installation: JSON that is not JSON is unreadable (1); the wrong shape is a refusal (2).
+  // The install is the exception: it reads the records leniently, so a record it cannot read is no usable record
+  // for that client (a clean install of it, the one that repairs it) and the run goes on.
   await fs.mkdir(f.destination, { recursive: true });
   for (const locale of LOCALES) {
     for (const [body, expected] of [['{bad', 1], ['[]', 2], ['{"client":5}', 2], ['{"client":"claude-code","path":5}', 2], ['{"client":"claude-code","version":{}}', 2], ['{"client":""}', 2]]) {
@@ -394,8 +396,10 @@ test('input inventory: the files that are read follow their rule (unreadable is 
           f.clear();
           const code = await main([...command, '--locale', locale], f.io);
           const text = f.output.join('\n');
-          assert.equal(code, expected, `${locale} ${record} ${body} ${command[0]}\n${text}`);
+          const wanted = command[0] === 'install' ? 0 : expected;
+          assert.equal(code, wanted, `${locale} ${record} ${body} ${command[0]}\n${text}`);
           assert.doesNotMatch(text, LEAK, `${record} ${body}`);
+          if (command[0] === 'install') continue;
           assert.match(text, locale === 'pt-BR' ? /registro de instalação/i : /installation record/);
         }
         await fs.rm(join(f.destination, record));
@@ -417,8 +421,12 @@ test('input inventory: the files that are read follow their rule (unreadable is 
           f.clear();
           const code = await main([...command, '--locale', locale], f.io);
           const text = f.output.join('\n');
-          assert.equal(code, 2, `${locale} ${name} ${JSON.stringify(record)} ${command[0]}\n${text}`);
+          // The install reads the records leniently: the record of the wrong shape is no usable record for
+          // that client, and the install of it goes on (a clean install of it).
+          const wanted = command[0] === 'install' ? 0 : 2;
+          assert.equal(code, wanted, `${locale} ${name} ${JSON.stringify(record)} ${command[0]}\n${text}`);
           assert.doesNotMatch(text, LEAK);
+          if (command[0] === 'install') continue;
           assert.match(text, /okit-plugin install/);
           assert.match(text, locale === 'pt-BR' ? /Registro de instalação inválido/ : /Invalid installation record/);
         }

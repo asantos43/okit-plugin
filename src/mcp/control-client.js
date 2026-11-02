@@ -26,7 +26,13 @@ const CLOSED = 'the okit server closed the connection';
 // What the caller reads when a server does not take the connection.
 const NOT_ACCEPTED = 'the okit server did not accept the connection';
 
-const refusal = (error) => ({ ok: false, error });
+export const CONTROL_CODES = Object.freeze({
+  closed: 'closed', notAccepted: 'not-accepted', notUnderstood: 'not-understood',
+  timeout: 'timeout', arguments: 'arguments', failed: 'failed',
+  noServer: 'no-server', noAnswer: 'no-answer',
+});
+
+const refusal = (error, code = CONTROL_CODES.failed) => ({ ok: false, error, code });
 
 /**
  * The servers that answer for a state folder, the newest first.
@@ -90,7 +96,7 @@ export async function callControl({
   try {
     argumentsText = JSON.stringify(args) ?? 'null';
   } catch (error) {
-    return refusal(`the arguments cannot be sent: ${reason(error)}`);
+    return refusal(`the arguments cannot be sent: ${reason(error)}`, CONTROL_CODES.arguments);
   }
 
   let servers;
@@ -99,7 +105,7 @@ export async function callControl({
   } catch (error) {
     return refusal(reason(error));
   }
-  if (servers.length === 0) return refusal(NO_SERVER);
+  if (servers.length === 0) return refusal(NO_SERVER, CONTROL_CODES.noServer);
 
   for (const server of servers) {
     let answer;
@@ -113,9 +119,9 @@ export async function callControl({
     // next one is tried. Once the connection is open the call may already
     // have run, and the answer of that server is the answer.
     if (answer.retry) continue;
-    return refusal(answer.error);
+    return refusal(answer.error, answer.code);
   }
-  return refusal(NO_ANSWER);
+  return refusal(NO_ANSWER, CONTROL_CODES.noAnswer);
 }
 
 /**
@@ -149,29 +155,29 @@ function ask(server, { tool, argumentsText, timeoutMs }) {
     try {
       frame = `{"id":1,"token":${JSON.stringify(server.token)},"tool":${JSON.stringify(tool)},"arguments":${argumentsText}}\n`;
     } catch (error) {
-      settle({ ok: false, error: `the arguments cannot be sent: ${reason(error)}` });
+      settle(refusal(`the arguments cannot be sent: ${reason(error)}`, CONTROL_CODES.arguments));
       return;
     }
     try {
       // The whole attempt has one budget: the connection, the frame and the
       // answer together may not take longer than that.
       timer = setTimeout(
-        () => settle({ ok: false, error: `the okit server did not answer in ${timeoutMs} ms` }),
+        () => settle(refusal(`the okit server did not answer in ${timeoutMs} ms`, CONTROL_CODES.timeout)),
         timeoutMs,
       );
       socket = net.connect(server.endpoint);
       socket.on('error', () => settle(connected
-        ? { ok: false, error: CLOSED }
-        : { ok: false, error: NOT_ACCEPTED, retry: true }));
+        ? refusal(CLOSED, CONTROL_CODES.closed)
+        : { ...refusal(NOT_ACCEPTED, CONTROL_CODES.notAccepted), retry: true }));
       socket.on('close', () => settle(connected
-        ? { ok: false, error: CLOSED }
-        : { ok: false, error: NOT_ACCEPTED, retry: true }));
+        ? refusal(CLOSED, CONTROL_CODES.closed)
+        : { ...refusal(NOT_ACCEPTED, CONTROL_CODES.notAccepted), retry: true }));
       socket.on('connect', () => {
         connected = true;
         try {
           socket.write(frame);
         } catch {
-          settle({ ok: false, error: CLOSED });
+          settle(refusal(CLOSED, CONTROL_CODES.closed));
         }
       });
       socket.on('data', (chunk) => {
@@ -181,7 +187,7 @@ function ask(server, { tool, argumentsText, timeoutMs }) {
         settle(answerOf(buffer.slice(0, index)));
       });
     } catch (error) {
-      settle({ ok: false, error: reason(error) });
+      settle(refusal(reason(error)));
     }
   });
 }
@@ -197,13 +203,13 @@ function answerOf(line) {
   try {
     frame = JSON.parse(line);
   } catch {
-    return { ok: false, error: NOT_UNDERSTOOD };
+    return refusal(NOT_UNDERSTOOD, CONTROL_CODES.notUnderstood);
   }
   if (frame === null || typeof frame !== 'object' || typeof frame.ok !== 'boolean') {
-    return { ok: false, error: NOT_UNDERSTOOD };
+    return refusal(NOT_UNDERSTOOD, CONTROL_CODES.notUnderstood);
   }
   if (frame.ok) return { ok: true, text: typeof frame.text === 'string' ? frame.text : '' };
-  return { ok: false, error: typeof frame.error === 'string' ? frame.error : NOT_UNDERSTOOD };
+  return typeof frame.error === 'string' ? refusal(frame.error) : refusal(NOT_UNDERSTOOD, CONTROL_CODES.notUnderstood);
 }
 
 /**

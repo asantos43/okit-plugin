@@ -268,7 +268,7 @@ test('a dry run runs nothing and shows the plan of the MCP step', async (t) => {
 });
 
 test('every text of the MCP step is written in both languages', () => {
-  for (const key of ['mcpRegistered', 'mcpAlready', 'mcpReplaced', 'mcpRemoved', 'mcpKept', 'mcpManual', 'mcpAmbiguous', 'mcpFailed']) {
+  for (const key of ['mcpRegistered', 'mcpAlready', 'mcpReplaced', 'mcpRepaired', 'mcpRemoved', 'mcpKept', 'mcpManual', 'mcpAmbiguous', 'mcpFailed']) {
     assert.ok(TEXTS[key]?.en, key);
     assert.ok(TEXTS[key]?.['pt-BR'], key);
     assert.notEqual(TEXTS[key].en, TEXTS[key]['pt-BR'], key);
@@ -718,10 +718,10 @@ test('the uninstall of a module warns with the manual command when the client is
 // ---------------------------------------------------------------------------------------------------------------
 // D110 correction round 5: the scope the client names is the scope the entry is at.
 
-const LOCAL_SCOPE = `okit:\n  Scope: Local config (private to you in this project)\n  Type: stdio\n  Command: node\n  Args: ${SERVER}\n`;
-const USER_SCOPE = `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: node\n  Args: ${SERVER}\n`;
-const PROJECT_SCOPE = `okit:\n  Scope: Project config (private to you in this project)\n  Type: stdio\n  Command: node\n  Args: ${SERVER}\n`;
-const NO_SCOPE = `okit:\n  Type: stdio\n  Command: node\n  Args: ${SERVER}\n`;
+const LOCAL_SCOPE = `okit:\n  Scope: Local config (private to you in this project)\n  Type: stdio\n  Command: ${CONFIG.node}\n  Args: ${SERVER}\n`;
+const USER_SCOPE = `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: ${CONFIG.node}\n  Args: ${SERVER}\n`;
+const PROJECT_SCOPE = `okit:\n  Scope: Project config (private to you in this project)\n  Type: stdio\n  Command: ${CONFIG.node}\n  Args: ${SERVER}\n`;
+const NO_SCOPE = `okit:\n  Type: stdio\n  Command: ${CONFIG.node}\n  Args: ${SERVER}\n`;
 
 test('the plan of each client names the scope of its own command', () => {
   assert.equal(mcpPlan(RECORD, depsOf(() => {})).scope, 'user');
@@ -1207,7 +1207,7 @@ test('our own entries are still ours, the carriage returns of a CRLF output too'
 
 test('the header of a server that holds a scope is not the scope of the entry', async () => {
   // The scope of the entry is a field of the entry: a header that holds one is not it.
-  const header = `okit:\n  Type: stdio\n  Command: node\n  Args: ${SERVER}\n  Headers:\n    Scope: Project config\n`;
+  const header = `okit:\n  Type: stdio\n  Command: ${CONFIG.node}\n  Args: ${SERVER}\n  Headers:\n    Scope: Project config\n`;
   assert.equal(pointsAt(header, [SERVER]), true);
   const client = fakeClient(header);
   const result = await registerMcp(RECORD, depsOf(client.run), 'install');
@@ -1679,13 +1679,13 @@ test('the dry run of the uninstall shows the MCP commands quoted for the shell',
 const PREVIOUS_SERVER = join(PREVIOUS.path, 'src/mcp/server.js');
 
 // What Claude Code prints for our own entry, byte for byte: the fields of the server, the empty environment, the
-// footer of the client and the file it changed.
+// footer of the client and the file it changed. The entry names the node of the installation, as the installer wrote it.
 const CLAUDE_OWN = `okit:
   Scope: User config (available in all your projects)
   Status: ✘ Failed to connect
   Issue: CONNECTION_CLOSED: Connection closed
   Type: stdio
-  Command: node
+  Command: ${CONFIG.node}
   Args: ${SERVER}
   Environment:
 
@@ -2050,8 +2050,11 @@ test('an entry that is ours and works is still registered, whatever the program 
   const config = installConfig({ node: 'node' });
   const entry = `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n  Command: node\n  Args: ${SERVER}\n`;
   const client = fakeClient(entry);
-  const deps = { ...depsOf(client.run, config), fs: { access: async () => { throw Object.assign(new Error('no'), { code: 'ENOENT' }); } } };
+  const asked = [];
+  const deps = { ...depsOf(client.run, config), fs: { access: async (file) => { asked.push(file); } } };
   assert.deepEqual(await mcpStatus(RECORD, deps), { state: 'registered' });
+  // Only the server the entry names is looked for: a bare name is left to the client.
+  assert.deepEqual(asked, [SERVER]);
 });
 
 // D109 step 5: the entry that the client has off is broken, in the two ways a client says it: the JSON of Codex and
@@ -2088,4 +2091,75 @@ test('the text of the entry says whether the client has it off', async () => {
   // An entry that is connected is ours and works: it is registered.
   const on = fakeClient(entry('✔ Connected'));
   assert.deepEqual(await mcpStatus(RECORD, depsOf(on.run)), { state: 'registered' });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// D109 step 6a: an entry that names a server file that is not on this machine is broken, and the install repairs it.
+
+/** A file system where one file is not there, and every other one is. */
+const fsWithout = (missing) => ({
+  access: async (file) => {
+    if (file === missing) throw Object.assign(new Error(`no such file: ${file}`), { code: 'ENOENT' });
+  },
+});
+
+test('an entry that names a server that is not on this machine is broken', async () => {
+  // The entry names the server of this installation, and the file is gone.
+  const client = fakeClient(claudeEntry(SERVER));
+  const answer = await mcpStatus(RECORD, { ...depsOf(client.run), fs: fsWithout(SERVER) });
+  assert.equal(answer.state, 'broken');
+  assert.equal(answer.reason, 'missing-server');
+  assert.equal(answer.command, SERVER);
+  // The entry names the server of the installation it replaces, and that file is gone.
+  const previous = join(PREVIOUS.path, 'src/mcp/server.js');
+  const replaced = fakeClient(claudeEntry(previous));
+  const other = await mcpStatus({ ...RECORD, previous: PREVIOUS }, { ...depsOf(replaced.run), fs: fsWithout(previous) });
+  assert.equal(other.state, 'broken');
+  assert.equal(other.reason, 'missing-server');
+  assert.equal(other.command, previous);
+  // Both files are there: the entry is registered.
+  const healthy = fakeClient(claudeEntry(SERVER));
+  assert.deepEqual(await mcpStatus(RECORD, { ...depsOf(healthy.run), fs: fsWithout('/nowhere') }), { state: 'registered' });
+});
+
+test('the install repairs an entry of ours that is broken: it is taken out and written again', async () => {
+  const disabled = `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n`
+    + `  Status: ✘ Disabled\n  Command: ${CONFIG.node}\n  Args: ${SERVER}\n`;
+  const other = `okit:\n  Scope: User config (available in all your projects)\n  Type: stdio\n`
+    + `  Command: /other/node\n  Args: ${SERVER}\n`;
+  const cases = [
+    ['disabled', disabled, {}],
+    ['another executable', other, {}],
+    ['a missing server', claudeEntry(SERVER), { fs: fsWithout(SERVER) }],
+  ];
+  for (const [name, entry, extra] of cases) {
+    const client = fakeClient(entry);
+    const result = await registerMcp(RECORD, { ...depsOf(client.run), ...extra });
+    assert.equal(result.status, 'ok', name);
+    assert.match(result.detail, /repaired/, name);
+    assert.deepEqual(argvOf(client), [
+      ['mcp', 'get', 'okit'],
+      ['mcp', 'remove', 'okit', '--scope', 'user'],
+      ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SERVER],
+    ], name);
+  }
+});
+
+test('the install leaves a healthy entry of ours alone: nothing is taken out nor written', async () => {
+  const client = fakeClient(claudeEntry(SERVER));
+  const result = await registerMcp(RECORD, { ...depsOf(client.run), fs: fsWithout('/nowhere') });
+  assert.equal(result.status, 'skipped');
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
+});
+
+test('a client that does not say where an entry is kept is never repaired by the installer', async () => {
+  // The entry of Codex is off: the installer cannot tell which entry it is looking at, so it gives the commands.
+  const off = JSON.stringify({ name: 'okit', enabled: false, disabled_reason: null,
+    transport: { type: 'stdio', command: CONFIG.node, args: [CODEX_SERVER], env: null, env_vars: [], cwd: null } }, null, 2);
+  const client = fakeClient(off);
+  const result = await registerMcp(CODEX, { ...depsOf(client.run), fs: fsWithout('/nowhere') });
+  assert.equal(result.status, 'kept');
+  assert.equal(result.manual, true);
+  assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit', '--json']]);
+  assert.match(result.detail, /codex mcp remove okit ; codex mcp add okit --/, result.detail);
 });

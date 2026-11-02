@@ -3,11 +3,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as filesystem from 'node:fs/promises';
 
-import { autostartPlan, detectAutostart } from '../autostart.js';
+import { autostartPlan, autostartQuery, detectAutostart, MARKER } from '../autostart.js';
 import { daemonStatus } from '../daemon.js';
 import { installConfig, installPaths } from '../install/config.js';
 import { mcpPlan, mcpStatus, shown } from '../install/mcp-register.js';
-import { clientLabel, localizeReason } from '../install/present.js';
+import { clientLabel, localizeReason, controlReason } from '../install/present.js';
 import { LABELS, selfCheck } from '../install/selfcheck.js';
 import { callControl, findServers } from '../mcp/control-client.js';
 import { configOf, DEFAULT_CONFIG } from '../profiles.js';
@@ -37,7 +37,7 @@ const CALL_TIMEOUT_MS = 5000;
  * @param {{fs: object, run?: Function}} deps
  * @returns {object} the readers
  */
-function defaultReaders({ fs, run }) {
+function defaultReaders({ fs, run, timeoutMs }) {
   return {
     nodeVersion: () => process.version,
     readText: (file) => fs.readFile(file, 'utf8'),
@@ -45,29 +45,67 @@ function defaultReaders({ fs, run }) {
     servers: (root) => findServers(root, { prune: false }),
     callRead: (root, pid) => callControl({ root, tool: 'inbox_list', arguments: {}, pid, timeoutMs: CALL_TIMEOUT_MS, prune: false }),
     daemon: (root) => daemonStatus(root),
-    autostartPresent: (plan) => autostartPresent(plan, { fs, run }),
+    autostartPresent: (plan) => autostartPresent(plan, { fs, run, timeoutMs }),
     selfCheck: (record, expected, deps) => selfCheck(record, expected, deps),
     mcpEntry: (record, deps) => mcpStatus(record, deps),
   };
 }
 
 /**
- * Whether the autostart of this machine is there: the file of the plan, or the scheduled task of Windows. The task is
- * asked with its own argv (never a shell), and only the code of the answer says whether it is there.
+ * Whether the autostart of this machine is there.
+ *
+ * It proves the thing works, not that a file exists:
+ *
+ * - the scheduled task of Windows is asked with its own argv (never a shell). The runner of
+ *   the installer answers without a code when the command worked and throws when it did not:
+ *   a task that is there is the call that returned with no code, or with the code zero.
+ * - the other kinds are a file of the plan: it has to be there AND to hold the content of the
+ *   plan (an empty, corrupt or stale file is not the autostart of this installation), and the
+ *   query of the kind (the unit of systemd, the crontab of the user, the label of launchd)
+ *   has to say that it is enabled. A machine without the tool of the query, or without a
+ *   runner to ask it, is not a machine without an autostart: the file and its content decide
+ *   then.
+ *
+ * @param {object} plan the plan of the autostart of this machine
+ * @param {{fs: object, run?: Function}} deps the file system and the runner of a process
+ * @returns {Promise<boolean>}
  */
-async function autostartPresent(plan, { fs, run }) {
+async function autostartPresent(plan, { fs, run, timeoutMs }) {
   if (!plan) return false;
   if (plan.kind === 'schtasks') {
     if (typeof run !== 'function') return false;
     try {
-      const answer = await run({ command: 'schtasks', args: ['/Query', '/TN', TASK_NAME] });
-      return answer?.code === 0;
+      const answer = await run({ command: 'schtasks', args: ['/Query', '/TN', TASK_NAME], timeoutMs });
+      const code = answer?.code;
+      return code === undefined || code === 0;
     } catch {
       return false;
     }
   }
   if (!plan.path) return false;
-  return fs.access(plan.path).then(() => true, () => false);
+  // The file of the plan, with the content of the plan: an empty, corrupt or stale file is
+  // not the autostart of this installation.
+  const file = plan.path;
+  const content = typeof fs?.readFile === 'function'
+    ? await fs.readFile(file, 'utf8').catch(() => null)
+    : null;
+  if (content === null || content !== plan.content) return false;
+  // The query of the kind: the machine itself says whether it is enabled.
+  const query = autostartQuery(plan);
+  if (!query || typeof run !== 'function') return true;
+  try {
+    const answer = await run({ command: query.command, args: query.args, timeoutMs });
+    const code = answer?.code;
+    if (code !== undefined && code !== null && code !== 0) return false;
+    // The crontab of the user: the line of ours is the one that carries the marker of the plan.
+    if (plan.kind === 'cron') return String(answer?.stdout ?? '').includes(MARKER);
+    return true;
+  } catch (error) {
+    // The tool of the query is not on this machine (ENOENT), or the failure says nothing about whether the
+    // autostart is enabled (no numeric code): the query is unknown and the file and its content decide.
+    if (typeof error?.code !== 'number') return true;
+    return false;
+  }
 }
 
 /** The parts of a version: `v20.11.0` is [20, 11, 0]. */
@@ -157,7 +195,7 @@ export async function diagnose(input) {
   const now = input.now ?? (() => Date.now());
   // A caller that has no runner of its own gets one that refuses: a reader that cannot run is a row, never a crash.
   const run = input.run ?? (async () => { throw Object.assign(new Error('no runner of processes was given'), { code: 'ENOENT' }); });
-  const readers = { ...defaultReaders({ fs, run }), ...(input.readers ?? {}) };
+  const readers = { ...defaultReaders({ fs, run, timeoutMs: settings.timeoutMs }), ...(input.readers ?? {}) };
   const rows = [];
 
   // The dependencies of the readers that need them: the settings, the runner of a process and the presenter.
@@ -215,7 +253,10 @@ export async function diagnose(input) {
   for (const one of input.invalid ?? []) {
     rows.push({ id: 'record', status: 'failed', label: ui.text('doctorRecord'),
       detail: ui.text('doctorRecordUnreadable', { file: one.file }),
-      fix: ui.text('doctorFixRecord', { command, client: one.client }) });
+      // A record of no client (a legacy file that is corrupt) is repaired by the install of
+      // every client: the fix never names an empty client.
+      fix: one.client ? ui.text('doctorFixRecord', { command, client: one.client })
+        : ui.text('doctorFixRecordAll', { command }) });
   }
 
   // 4. One group per client: the registration of the MCP server and the checks of the install self-check.
@@ -280,6 +321,7 @@ const BROKEN_TEXTS = Object.freeze({
   disabled: 'doctorRegistrationDisabled',
   'other-executable': 'doctorRegistrationOther',
   'missing-executable': 'doctorRegistrationMissing',
+  'missing-server': 'doctorRegistrationServerMissing',
 });
 
 /** The row of the registration of the MCP server of one client: read, never written. */
@@ -379,7 +421,7 @@ async function sessionRow({ readers, root, ui, command }) {
   }
   const answer = await readers.callRead(root, servers[0].pid);
   if (answer?.ok) return { id: 'session', status: 'ok', label, detail: ui.text('doctorSessionOk') };
-  return { id: 'session', status: 'failed', label, detail: ui.text('doctorSessionFail', { reason: answer?.error ?? '' }),
+  return { id: 'session', status: 'failed', label, detail: ui.text('doctorSessionFail', { reason: controlReason(ui, answer ?? {}) }),
     fix: ui.text('doctorFixSession', { command }) };
 }
 

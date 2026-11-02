@@ -175,6 +175,23 @@ export async function registerMcp(record, deps, action = 'install') {
     if (!removed.ok) return failure(ui, client, removed.reason, plan.remove, deps.platform);
     return { status: 'ok', detail: ui.text('mcpRemoved', { client }) };
   }
+  // The entry is ours and it cannot work: it is taken out and written again. The rules are the
+  // ones the doctor reads (`brokenOf`), so the two can never disagree about what is broken.
+  const target = ours(current) ? current : (previous && ours(previous)) ? previous : null;
+  const broken = target === null ? null : await brokenOf(entry, deps, target);
+  if (broken !== null) {
+    // A client whose own `mcp get` does not say where an entry is kept (Codex): the commands
+    // to run by hand are given, as they are for the entry of the installation it replaces.
+    if (unscoped) {
+      return { status: 'kept', manual: true, detail: ui.text('mcpManual', { client, name,
+        command: `${shown(plan.remove, deps.platform)} ; ${shown(plan.add, deps.platform)}` }) };
+    }
+    const removed = await runPlan(plan.remove, deps, plan.cwd);
+    if (!removed.ok) return failure(ui, client, removed.reason, plan.remove, deps.platform);
+    const added = await runPlan(plan.add, deps, plan.cwd);
+    if (!added.ok) return failure(ui, client, added.reason, plan.add, deps.platform);
+    return { status: 'ok', detail: ui.text('mcpRepaired', { client }) };
+  }
   // The entry is ours and it already points at this installation: there is nothing to write.
   if (ours(current)) return { status: 'skipped', detail: ui.text('mcpAlready', { client }) };
   // The entry points at the installation this one replaces: it is taken out and the new one is written.
@@ -222,9 +239,12 @@ export async function mcpStatus(record, deps) {
   const current = serverPath(record.path, deps.config);
   const previous = record.previous?.path ? serverPath(record.previous.path, deps.config) : null;
   const ours = (path) => pointsAt(entry.output, [path], deps.platform, entry.format);
-  if (ours(current) || (previous && ours(previous))) {
+  // The server the entry names: the one of this installation, or the one it replaces. It has to
+  // be on this machine: an entry that names a file that is gone cannot work.
+  const target = ours(current) ? current : (previous && ours(previous)) ? previous : null;
+  if (target !== null) {
     // The entry is ours, but it can still be broken: the doctor has to say so, never call it registered.
-    const broken = await brokenOf(entry, deps);
+    const broken = await brokenOf(entry, deps, target);
     if (broken !== null) return { state: 'broken', ...broken };
     return { state: 'registered' };
   }
@@ -234,15 +254,20 @@ export async function mcpStatus(record, deps) {
 /**
  * Why the entry of ours cannot work, or null when it can.
  *
- * Three things break an entry that names our server: the client has it disabled, it launches another program than
- * the node of the installation, or the program it launches is not on this machine (a program of a path: a bare name
- * is looked up by the client in its own PATH, which is not the PATH of the doctor).
+ * Four things break an entry that names our server: the client has it disabled, it launches another program than
+ * the node of the installation, the program it launches is not on this machine (a program of a path: a bare name
+ * is looked up by the client in its own PATH, which is not the PATH of the doctor), or the server file it names
+ * is not on this machine.
+ *
+ * The one function of the rules: the status of the entry (`mcpStatus`) and the installation that writes it
+ * (`registerMcp`) ask it, so the two can never disagree about what is broken.
  *
  * @param {object} entry what the client printed about the entry
  * @param {object} deps the dependencies of the installer
+ * @param {string|null} server the server file the entry names (the one of this installation, or the one it replaces)
  * @returns {Promise<{reason: string, command: string}|null>}
  */
-async function brokenOf(entry, deps) {
+export async function brokenOf(entry, deps, server = null) {
   const output = entry.output ?? '';
   const format = entry.format ?? 'text';
   const command = commandOf(output, format);
@@ -253,6 +278,10 @@ async function brokenOf(entry, deps) {
   }
   if (command !== null && !await existsOf(command, deps)) {
     return { reason: 'missing-executable', command };
+  }
+  // The server the entry names has to be there: an entry that names a file that is gone cannot work.
+  if (server !== null && !await existsOf(server, deps)) {
+    return { reason: 'missing-server', command: server };
   }
   return null;
 }

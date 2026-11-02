@@ -8,7 +8,7 @@ import { collectorArgsValid } from '../quota/statusline-collector.js';
 import { cliScript, hookScript, hookNode, isAnotherNode, isOurHook } from './register.js';
 import { mcpPlan } from './mcp-register.js';
 import { clientRoot } from './config.js';
-import { presenterOf, clientLabel } from './present.js';
+import { presenterOf, clientLabel, redact, controlReason } from './present.js';
 
 // The check after an install or an update: the installation is only done when it WORKS on this machine. It reads back what
 // the installer wrote (the record, the client's settings) and runs it the way the client will, in a temporary state root,
@@ -439,24 +439,27 @@ const PROBE_TEXTS = Object.freeze({
  * A failure with a code is the text of that code, with the data of the failure (the time of the budget, the name of
  * the frame that was wrong, the words of the server). A failure with no code (an answer of an older probe) is the
  * generic text of the check, with the words of the failure as raw detail. The tail of the error stream of the server
- * follows, as raw data with a word of the language of the run in front of it.
+ * follows only in verbose mode, with temporary paths redacted and a localized label.
  *
  * @param {object} ui the presenter of the run
  * @param {unknown} error what the probe said
- * @param {string} [stderr] the tail of the error stream of the server
+ * @param {{stderr?: string, folder: string, hide: string[]}} options temporary folders and server stderr
  * @returns {string} the sentence of the row
  */
-function probeReason(ui, error, stderr = '') {
+function probeReason(ui, error, { stderr = '', folder, hide = [] } = {}) {
+  const temporary = [folder, ...hide];
   let sentence;
   if (error === null || error === undefined || error === '') sentence = ui.text('selfcheckError');
-  else if (typeof error === 'string') sentence = `${ui.text('selfcheckError')}: ${error}`;
+  else if (typeof error === 'string') sentence = `${ui.text('selfcheckError')}: ${redact(error, temporary)}`;
   else {
     const key = PROBE_TEXTS[String(error.code ?? '')];
     sentence = key
-      ? ui.text(key, { ms: error.ms, why: error.why, limit: error.limit })
-      : `${ui.text('selfcheckError')}: ${error.code ?? error.why ?? 'unknown'}`;
+      ? ui.text(key, { ms: error.ms, why: error.code === 'control-error'
+        ? controlReason(ui, { code: error.cause, error: redact(error.why, temporary) })
+        : redact(error.why, temporary), limit: error.limit })
+      : `${ui.text('selfcheckError')}: ${redact(error.code ?? error.why ?? 'unknown', temporary)}`;
   }
-  const tail = String(stderr ?? '').trim();
+  const tail = ui.verbose ? redact(String(stderr ?? '').trim(), temporary) : '';
   return tail === '' ? sentence : `${sentence} (${ui.text('selfcheckProbeStderr', { tail: tail.slice(-400) })})`;
 }
 
@@ -507,13 +510,13 @@ async function mcpChecks(record, deps) {
     }
     if (mcp.ok !== true) {
       // There is no server to ask, so the API is not checked.
-      const why = probeReason(ui, mcp.error, answer.stderr);
+      const why = probeReason(ui, mcp.error, { stderr: answer.stderr, folder, hide: [deps.temporary] });
       return [badCheck('mcp', ui.text('selfcheckMcpNoAnswer', { why }), fix),
         skipCheck('api', ui.text('selfcheckApiSkipped'))];
     }
     const api = answer.api;
     if (api === null || typeof api !== 'object' || api.ok !== true) {
-      const why = probeReason(ui, api?.error, answer.stderr);
+      const why = probeReason(ui, api?.error, { stderr: answer.stderr, folder, hide: [deps.temporary] });
       return [okCheck('mcp', ui.text('selfcheckMcpOk', { count: Number(mcp.tools ?? 0) })),
         badCheck('api', ui.text('selfcheckApiFailed', { why }), fix)];
     }

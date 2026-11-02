@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 import { diagnose } from '../src/doctor/diagnose.js';
+import { autostartPlan } from '../src/autostart.js';
 import { installConfig } from '../src/install/config.js';
 import { createPresenter, TEXTS } from '../src/install/present.js';
 import { writeRecord } from '../src/mcp/control-endpoint.js';
@@ -82,6 +83,147 @@ async function world({ records = [RECORD], files = {}, readers = {}, locale = 'e
 }
 
 const rowOf = (result, id) => result.rows.find((row) => row.id === id);
+
+// ---------------------------------------------------------------------------------------------------------------
+// D109 step 6a: the doctor proves the autostart, it does not guess it. The file of the plan has to hold the content
+// of the plan, and the machine itself has to say that the autostart is enabled.
+
+/** The plan the doctor builds for the record of the world: the same pure value, with the same options. */
+const planOf = (kind) => autostartPlan(kind, {
+  root: '/state', home: '/home', command: 'okit-plugin', node: '/usr/bin/node',
+  script: join(RECORD.path, RECORD.bin),
+});
+
+/** A file system that answers with the files of the map and with the real disk for everything else. */
+const fsOf = (files) => ({
+  readFile: async (file, ...rest) => (files.has(file) ? files.get(file) : fs.readFile(file, ...rest)),
+  access: async (file) => (files.has(file) ? undefined : fs.access(file)),
+});
+
+/** The readers of the world, except the one of the autostart: the real one is the one under test. */
+const WITHOUT_AUTOSTART = {
+  selfCheck: async () => [],
+  mcpEntry: async () => ({ state: 'registered' }),
+  servers: async () => [],
+  callRead: async () => ({ ok: true }),
+  daemon: async () => ({ running: true }),
+};
+
+test('the scheduled task of Windows is there when the query answers with no code or with zero', async () => {
+  const calls = [];
+  for (const answer of [{ code: 0 }, {}]) {
+    const { input } = await world({ defaults: true, readers: WITHOUT_AUTOSTART });
+    const result = await diagnose({ ...input, platform: 'win32', run: async (call) => { calls.push(call); return answer; } });
+    assert.equal(rowOf(result, 'autostart').status, 'ok', JSON.stringify(answer));
+  }
+  assert.deepEqual(calls, [
+    { command: 'schtasks', args: ['/Query', '/TN', 'okit-daemon'], timeoutMs: 15000 },
+    { command: 'schtasks', args: ['/Query', '/TN', 'okit-daemon'], timeoutMs: 15000 },
+  ]);
+});
+
+test('the scheduled task of Windows is not there when the query fails or the task is not there', async () => {
+  for (const answer of [{ code: 1 }, { code: 2 }]) {
+    const { input } = await world({ defaults: true, readers: WITHOUT_AUTOSTART });
+    const result = await diagnose({ ...input, platform: 'win32', run: async () => answer });
+    assert.equal(rowOf(result, 'autostart').status, 'failed', JSON.stringify(answer));
+  }
+  for (const error of [Object.assign(new Error('the task is not there'), { code: 1 }),
+    Object.assign(new Error('no schtasks here'), { code: 'ENOENT' })]) {
+    const { input } = await world({ defaults: true, readers: WITHOUT_AUTOSTART });
+    const result = await diagnose({ ...input, platform: 'win32', run: async () => { throw error; } });
+    assert.equal(rowOf(result, 'autostart').status, 'failed', error.message);
+  }
+});
+
+test('the autostart of a POSIX machine is there when the file holds the content of the plan and the query says so', async () => {
+  const plan = planOf('systemd');
+  const calls = [];
+  const { input } = await world({ defaults: true, readers: WITHOUT_AUTOSTART });
+  const files = new Map([[plan.path, plan.content]]);
+  const result = await diagnose({ ...input, fs: fsOf(files), run: async (call) => { calls.push(call); return { stdout: 'enabled\n' }; } });
+  assert.equal(rowOf(result, 'autostart').status, 'ok', JSON.stringify(result.rows));
+  // The query of the kind, with its own argv and never a shell.
+  assert.deepEqual(calls, [{ command: 'systemctl', args: ['--user', 'is-enabled', 'okit-daemon.service'], timeoutMs: 15000 }]);
+});
+
+test('a file of the autostart that is empty, stale or missing is not an autostart', async () => {
+  const plan = planOf('systemd');
+  for (const content of ['', 'a stale unit\n', ' [Unit]\nDescription=another daemon\n']) {
+    const calls = [];
+    const { input } = await world({ defaults: true, readers: WITHOUT_AUTOSTART });
+    const files = new Map([[plan.path, content]]);
+    const result = await diagnose({ ...input, fs: fsOf(files), run: async (call) => { calls.push(call); return { stdout: 'enabled\n' }; } });
+    assert.equal(rowOf(result, 'autostart').status, 'failed', JSON.stringify(content));
+    // The file alone decides: the machine is not even asked.
+    assert.deepEqual(calls, []);
+  }
+  // The file is not there at all.
+  const { input } = await world({ defaults: true, readers: WITHOUT_AUTOSTART });
+  const result = await diagnose({ ...input, fs: fsOf(new Map()), run: async () => ({ stdout: 'enabled\n' }) });
+  assert.equal(rowOf(result, 'autostart').status, 'failed');
+});
+
+test('the autostart of a POSIX machine is not there when the machine says it is not enabled', async () => {
+  const plan = planOf('systemd');
+  const files = new Map([[plan.path, plan.content]]);
+  // The query answers that it is not enabled.
+  const { input } = await world({ defaults: true, readers: WITHOUT_AUTOSTART });
+  const answered = await diagnose({ ...input, fs: fsOf(files), run: async () => ({ code: 1, stdout: 'disabled\n' }) });
+  assert.equal(rowOf(answered, 'autostart').status, 'failed');
+  // The query fails: the unit is not enabled.
+  const { input: failing } = await world({ defaults: true, readers: WITHOUT_AUTOSTART });
+  const thrown = await diagnose({ ...failing, fs: fsOf(files),
+    run: async () => { throw Object.assign(new Error('unit not found'), { code: 1 }); } });
+  assert.equal(rowOf(thrown, 'autostart').status, 'failed');
+});
+
+test('a machine without the tool of the query is not a machine without an autostart', async () => {
+  const plan = planOf('systemd');
+  const files = new Map([[plan.path, plan.content]]);
+  // The tool is not on this machine: the query is unknown and the file decides.
+  const { input } = await world({ defaults: true, readers: WITHOUT_AUTOSTART });
+  const result = await diagnose({ ...input, fs: fsOf(files),
+    run: async () => { throw Object.assign(new Error('no systemctl here'), { code: 'ENOENT' }); } });
+  assert.equal(rowOf(result, 'autostart').status, 'ok', JSON.stringify(result.rows));
+  // The file is not whole either: the autostart is not there.
+  const { input: stale } = await world({ defaults: true, readers: WITHOUT_AUTOSTART });
+  const other = await diagnose({ ...stale, fs: fsOf(new Map([[plan.path, 'stale\n']])),
+    run: async () => { throw Object.assign(new Error('no systemctl here'), { code: 'ENOENT' }); } });
+  assert.equal(rowOf(other, 'autostart').status, 'failed');
+  // The query says nothing about whether the autostart is enabled (the tool did not answer in time):
+  // the query is unknown and the file decides.
+  const { input: slow } = await world({ defaults: true, readers: WITHOUT_AUTOSTART });
+  const timed = await diagnose({ ...slow, fs: fsOf(files),
+    run: async () => { throw Object.assign(new Error('no answer within 15000 ms'), { code: 'ETIMEDOUT' }); } });
+  assert.equal(rowOf(timed, 'autostart').status, 'ok');
+});
+
+test('the crontab of the user is the autostart when it holds the line of the plan', async () => {
+  const plan = planOf('cron');
+  const calls = [];
+  const files = new Map([[plan.path, plan.content]]);
+  const { input } = await world({ defaults: true, readers: WITHOUT_AUTOSTART });
+  const marked = await diagnose({ ...input, platform: 'freebsd', fs: fsOf(files),
+    run: async (call) => { calls.push(call); return { stdout: `${plan.content}\n` }; } });
+  assert.equal(rowOf(marked, 'autostart').status, 'ok', JSON.stringify(marked.rows));
+  assert.deepEqual(calls, [{ command: 'crontab', args: ['-l'], timeoutMs: 15000 }]);
+  // A crontab without the line of ours is not our autostart.
+  const { input: other } = await world({ defaults: true, readers: WITHOUT_AUTOSTART });
+  const empty = await diagnose({ ...other, platform: 'freebsd', fs: fsOf(files), run: async () => ({ stdout: '0 * * * * other\n' }) });
+  assert.equal(rowOf(empty, 'autostart').status, 'failed');
+});
+
+test('the label of launchd is the autostart when the machine holds it', async () => {
+  const plan = planOf('launchd');
+  const calls = [];
+  const files = new Map([[plan.path, plan.content]]);
+  const { input } = await world({ defaults: true, readers: WITHOUT_AUTOSTART });
+  const result = await diagnose({ ...input, platform: 'darwin', fs: fsOf(files),
+    run: async (call) => { calls.push(call); return { stdout: '{\n}\n' }; } });
+  assert.equal(rowOf(result, 'autostart').status, 'ok', JSON.stringify(result.rows));
+  assert.deepEqual(calls, [{ command: 'launchctl', args: ['list', 'com.okit.daemon'], timeoutMs: 15000 }]);
+});
 
 // ---------------------------------------------------------------------------------------------------------------
 // The rows of a run that works.
@@ -327,8 +469,10 @@ test('the client of the input is the only one that is looked at', async () => {
 
 const DOCTOR_KEYS = ['doctorNode', 'doctorNodeOk', 'doctorNodeOld', 'doctorNodeUnknown', 'doctorFixNode',
   'doctorInstall', 'doctorInstallOk', 'doctorInstallNone', 'doctorFixInstall',
+  'doctorRecord', 'doctorRecordUnreadable', 'doctorFixRecord', 'doctorFixRecordAll',
   'doctorRegistration', 'doctorRegistrationOk', 'doctorRegistrationAbsent', 'doctorFixRegistration',
   'doctorRegistrationForeign', 'doctorFixForeign', 'doctorRegistrationUnreadable', 'doctorRegistrationNone',
+  'doctorRegistrationDisabled', 'doctorRegistrationOther', 'doctorRegistrationMissing', 'doctorRegistrationServerMissing',
   'doctorConfig', 'doctorInbox', 'doctorOrders', 'doctorStateOk', 'doctorStateAbsent', 'doctorStateBad', 'doctorFixState',
   'doctorSession', 'doctorSessionNone', 'doctorSessionOk', 'doctorSessionFail', 'doctorFixSession',
   'doctorAutostart', 'doctorAutostartOk', 'doctorAutostartMissing', 'doctorFixAutostart', 'doctorAutostartOptional',
@@ -473,4 +617,40 @@ test('the real MCP server answers the session, and the doctor writes nothing', {
   const stopped = await diagnose({ ...input, root, fs });
   assert.equal(rowOf(stopped, 'session').status, 'warn');
   assert.deepEqual(await listing(root), before, 'the doctor wrote a file');
+});
+
+
+for (const [code, error, portuguese] of [
+  ['closed', 'the okit server closed the connection', 'o servidor do okit fechou a conexão'],
+  ['not-accepted', 'the okit server did not accept the connection', 'o servidor do okit não aceitou a conexão'],
+  ['no-server', 'no okit server is running for this state folder', 'nenhum servidor do okit está rodando para esta pasta de estado'],
+  ['no-answer', 'no okit server answers on this state folder', 'nenhum servidor do okit responde nesta pasta de estado'],
+  ['not-understood', 'the okit server sent an answer that is not understood', 'o servidor do okit enviou uma resposta não compreendida'],
+  ['timeout', 'the okit server did not answer in 123 ms', 'o servidor do okit não respondeu em 123 ms'],
+  ['arguments', 'the arguments cannot be sent: DATA', 'os argumentos não podem ser enviados (detalhe: DATA)'],
+  ['failed', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
+  [undefined, 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
+  ['future-code', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
+  ['constructor', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
+]) {
+  for (const locale of ['en', 'pt-BR']) {
+    test(`session control error ${code} is localized in ${locale}`, async () => {
+      const { input } = await world({ locale, readers: { callRead: async () => ({ ok: false, code, error }) } });
+      const row = rowOf(await diagnose(input), 'session');
+      assert.equal(row.status, 'failed');
+      assert.ok(row.detail.includes(locale === 'en' ? (code === 'arguments' ? 'the arguments cannot be sent (detail: DATA)' : error) : portuguese), row.detail);
+      if (locale === 'pt-BR') {
+        for (const sentence of ['the okit server closed the connection', 'the okit server did not accept the connection',
+          'the okit server sent an answer that is not understood', 'the okit server did not answer in', 'the arguments cannot be sent:']) {
+          assert.equal(row.detail.includes(sentence), false, row.detail);
+        }
+      }
+    });
+  }
+}
+
+test('a timeout answer that does not say how long still reads as a sentence', async () => {
+  const { input } = await world({ locale: 'en', readers: { callRead: async () => ({ ok: false, code: 'timeout', error: 'gone' }) } });
+  const row = rowOf(await diagnose(input), 'session');
+  assert.ok(row.detail.includes('the okit server did not answer in ? ms'), row.detail);
 });

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import {
-  AUTOSTART_KINDS, applyAutostart, autostartPlan, cronPlan, detectAutostart,
+  AUTOSTART_KINDS, applyAutostart, autostartPlan, autostartQuery, cronPlan, detectAutostart,
   launchdPlan, schtasksPlan, systemdPlan,
 } from '../src/autostart.js';
 
@@ -162,4 +162,29 @@ test('applyAutostart needs a run and a known action', async () => {
   await assert.rejects(() => applyAutostart(plan, {}), { name: 'TypeError', message: /run function/ });
   await assert.rejects(() => applyAutostart(plan, { run: async () => ({}), action: 'enable' }),
     { name: 'TypeError', message: /Unknown action "enable"/ });
+});
+
+// The query that asks the machine whether the autostart of the kind is enabled: a read-only command
+// of the tool of the kind, with an argv and never a shell string.
+
+test('the query of each kind asks the tool of the kind, with an argv of its own', () => {
+  assert.deepEqual(autostartQuery(systemdPlan(OPTIONS)),
+    { command: 'systemctl', args: ['--user', 'is-enabled', 'okit-daemon.service'] });
+  assert.deepEqual(autostartQuery(cronPlan(OPTIONS)), { command: 'crontab', args: ['-l'] });
+  assert.deepEqual(autostartQuery(launchdPlan(OPTIONS)), { command: 'launchctl', args: ['list', 'com.okit.daemon'] });
+  // The scheduled task of Windows is asked with its own query (the task of the scheduler).
+  assert.equal(autostartQuery(schtasksPlan(WINDOWS)), null);
+  assert.equal(autostartQuery({ kind: 'upstart' }), null);
+  assert.equal(autostartQuery(undefined), null);
+});
+
+test('the query of the kind never names a shell and never holds a path of the plan', () => {
+  for (const kind of AUTOSTART_KINDS) {
+    const query = autostartQuery(autostartPlan(kind, OPTIONS));
+    if (!query) continue;
+    assert.equal(typeof query.command, 'string');
+    assert.ok(Array.isArray(query.args), `${kind}: the argv is a list`);
+    for (const word of query.args) assert.equal(typeof word, 'string', `${kind}: every word is text`);
+    assert.doesNotMatch(query.args.join(' '), /[;&|`]/, `${kind}: no shell syntax`);
+  }
 });

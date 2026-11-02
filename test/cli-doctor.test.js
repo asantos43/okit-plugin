@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 import { main } from '../src/cli.js';
@@ -39,8 +40,10 @@ async function world(t, { clients = ['claude-code'], inbox, orders } = {}) {
   const f = await fixture(t);
   for (const client of clients) {
     const path = join(f.destination, `1.0.0-${client}`);
-    await fs.mkdir(path, { recursive: true });
+    await fs.mkdir(join(path, 'src', 'mcp'), { recursive: true });
     await fs.writeFile(join(path, 'package.json'), JSON.stringify({ name: 'sample', version: '1.0.0' }));
+    // The server the entry names has to be on this machine: an entry that names a file that is gone is broken.
+    await fs.writeFile(join(path, SERVER), '// fake MCP server\n');
     const record = { client, version: '1.0.0', path, bin: 'okit-plugin', autostart: false, link: false,
       linkDirectory: null, settings: { node: process.execPath } };
     await fs.writeFile(join(f.destination, `install.${client}.json`), JSON.stringify(record));
@@ -469,4 +472,26 @@ test('the doctor writes nothing outside the temporary folder of the caller: the 
   // And the folder of the check is gone.
   const left = await fs.readdir(f.scratch);
   assert.deepEqual(left, [], `the temporary folder holds ${left.join(', ')}`);
+});
+
+// D109 step 6a: the doctor finds the installation that is running, when the records are in the folder above the
+// package directory (the installation is `<destination>/<version>-<client>` and keeps its records in `<destination>`).
+
+test('the doctor finds the installation that is running, when the records are in the folder above it', async (t) => {
+  const f = await fixture(t);
+  const pkg = fileURLToPath(new URL('../', import.meta.url)).replace(/[\\/]$/, '');
+  const above = dirname(pkg);
+  // The version of the package that is running: the record of the installation that is running names it.
+  const version = JSON.parse(await fs.readFile(join(pkg, 'package.json'), 'utf8')).version;
+  const record = { client: 'claude-code', version, path: pkg, bin: 'src/cli.js', autostart: false,
+    link: false, linkDirectory: null, settings: { node: process.execPath } };
+  const extra = new Map([[join(above, 'install.claude-code.json'), JSON.stringify(record)]]);
+  const read = f.io.fs.readFile.bind(f.io.fs);
+  f.clear();
+  await main(['doctor'], { ...f.io, fs: { ...f.io.fs,
+    readFile: async (file, ...rest) => (extra.has(file) ? extra.get(file) : read(file, ...rest)) } });
+  const text = f.output.join('\n');
+  // The installation is found: the row of the installation is not the row of a machine with no installation.
+  assert.match(text, new RegExp(`Installation\\s+ok\\s+installed ${version.replace(/\./g, '\\.')}`), text);
+  assert.doesNotMatch(text, /no installation record was found/, text);
 });

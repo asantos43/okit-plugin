@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { main } from '../src/cli.js';
@@ -12,7 +13,7 @@ import { chooseClient, detect } from '../src/install/menu.js';
 import { latestRelease } from '../src/install/release.js';
 import { downloadRelease } from '../src/install/download.js';
 import { extract } from '../src/install/extract.js';
-import { place, readRecord, readRecords, readRecordsLenient, saveRecord } from '../src/install/place.js';
+import { discoverRecords, place, readRecord, readRecords, readRecordsLenient, saveRecord, snapshotRecords, restoreRecords } from '../src/install/place.js';
 import { applyLink, managePath, activationWarning, activationCommand, currentShell } from '../src/install/link.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { pick } from '../src/install/present.js';
@@ -1082,6 +1083,9 @@ test('marketplace clients run configured commands; codex prints /plugins instruc
   const mcp = mcpWorld();
   const deps = { ...f.deps, detect: async () => true, run: async (item) => { commands.push(item); return mcp.handles(item) ? mcp.run(item) : {}; } };
   const record = { client: 'claude-code', path: f.destination };
+  // The server the entry names is on this machine: an entry that names a file that is gone is broken.
+  await fs.mkdir(join(f.destination, 'src', 'mcp'), { recursive: true });
+  await fs.writeFile(join(f.destination, 'src/mcp/server.js'), '// fake MCP server\n');
   await register(record, deps);
   // The plugin of the client, then the MCP server of the plugin, in this order.
   assert.deepEqual(commands.map((item) => item.args.slice(0, 3)), [
@@ -1229,4 +1233,130 @@ test('migration removes a dangling owned link and preserves a foreign symlink', 
   await fs.symlink(kit, legacy);
   await applyLink(record, f.deps, null, true);
   assert.equal(await fs.readlink(legacy), kit);
+});
+
+// D109 step 6a: the records of the installation that is running are found when the destination has none. An
+// installation is `<destination>/<version>-<client>` and keeps its records in `<destination>`, so the doctor (and
+// the installer) that runs from inside one finds them in the folder above the package directory.
+
+const PACKAGE = fileURLToPath(new URL('../', import.meta.url)).replace(/[\\/]$/, '');
+const ABOVE = dirname(PACKAGE);
+
+test('the records of the installation that is running are found when the destination has none', async (t) => {
+  const f = await fixture(t);
+  const record = { client: 'claude-code', version: '1.0.0', path: PACKAGE, destination: ABOVE };
+  const files = new Map([[join(ABOVE, 'install.claude-code.json'), JSON.stringify(record)]]);
+  const fsOf = (map) => ({
+    readFile: async (file) => {
+      if (map.has(file)) return map.get(file);
+      throw Object.assign(new Error(`no such file: ${file}`), { code: 'ENOENT' });
+    },
+  });
+  // The destination has no records: the records of the installation that is running are found.
+  const found = await discoverRecords(f.destination, { fs: fsOf(files), config: f.config });
+  assert.deepEqual(found.records, { 'claude-code': record });
+  assert.deepEqual(found.invalid, []);
+  assert.equal(found.destination, ABOVE);
+  assert.notEqual(found.destination, f.destination);
+  // A destination that has records wins over the fallback.
+  const other = { client: 'codex', version: '2.0.0', path: join(f.destination, '2.0.0-codex'), destination: f.destination };
+  const withRecords = new Map([...files, [join(f.destination, 'install.codex.json'), JSON.stringify(other)]]);
+  const won = await discoverRecords(f.destination, { fs: fsOf(withRecords), config: f.config });
+  assert.deepEqual(Object.keys(won.records), ['codex']);
+  // An explicit destination never falls back to the installation that is running.
+  const explicit = await discoverRecords(f.destination, { fs: fsOf(files), config: f.config, explicitDestination: true });
+  assert.deepEqual(explicit.records, {});
+  assert.equal(explicit.destination, f.destination);
+  // Nowhere at all: as today, no records and no refusal.
+  const empty = await discoverRecords(f.destination, { fs: fsOf(new Map()), config: f.config });
+  assert.deepEqual(empty.records, {});
+  assert.deepEqual(empty.invalid, []);
+  assert.equal(empty.destination, f.destination);
+});
+
+test('a record that cannot be read is named, and the records that can be read are still read', async (t) => {
+  const f = await fixture(t);
+  await fs.mkdir(f.destination, { recursive: true });
+  const good = { client: 'claude-code', version: '1.0.0', path: f.destination, destination: f.destination };
+  await fs.writeFile(join(f.destination, 'install.claude-code.json'), JSON.stringify(good));
+  await fs.writeFile(join(f.destination, 'install.codex.json'), 'not json');
+  const found = await discoverRecords(f.destination, { fs: f.deps.fs, config: f.config, lenient: true });
+  assert.deepEqual(Object.keys(found.records), ['claude-code']);
+  assert.deepEqual(found.invalid.map((one) => one.client), ['codex']);
+  assert.match(found.invalid[0].reason, /Cannot read installation record/);
+});
+
+
+test('record snapshots preserve raw text, absence and legacy files; restoration continues after failure', async () => {
+  const destination = 'records';
+  const files = new Map([['records/install.codex.json', ' { "client": "codex" }\r\n'],
+    ['records/install.json', 'legacy bytes']]);
+  const missing = () => Object.assign(new Error('missing'), { code: 'ENOENT' });
+  const fake = {
+    readFile: async (file) => { if (!files.has(file)) throw missing(); return files.get(file); },
+    writeFile: async (file, text) => { files.set(file, text); },
+    rm: async (file) => { files.delete(file); },
+  };
+  const before = new Map(files);
+  const snapshot = await snapshotRecords(destination, fake);
+  files.set('records/install.codex.json', 'changed');
+  files.set('records/install.claude-code.json', 'new');
+  files.delete('records/install.json');
+  assert.deepEqual(await restoreRecords(snapshot, fake), []);
+  assert.deepEqual(files, before);
+  files.set('records/install.codex.json', 'changed again');
+  files.set('records/install.json', 'changed legacy');
+  files.set('records/install.claude-code.json', 'new again');
+  const unrestored = await restoreRecords(snapshot, { ...fake, writeFile: async (file, text) => {
+    if (file.endsWith('/install.json')) throw new Error('restore denied');
+    files.set(file, text);
+  } });
+  assert.equal(unrestored.length, 1);
+  assert.match(unrestored[0], /install.json.*restore denied/);
+  assert.equal(files.get('records/install.json'), 'changed legacy');
+  assert.equal(files.get('records/install.codex.json'), before.get('records/install.codex.json'));
+  assert.equal(files.has('records/install.claude-code.json'), false);
+});
+
+
+for (const explicit of [false, true]) {
+  test(`real install ${explicit ? 'honors --dest' : 'falls back to the running installation'}`, async (t) => {
+    const f = await fixture(t);
+    const runtime = join(f.home, 'runtime'), requested = join(f.home, 'requested');
+    await fs.mkdir(runtime);
+    const file = 'install.codex.json';
+    await fs.writeFile(join(runtime, file), JSON.stringify({
+      client: 'codex', path: PACKAGE, destination: runtime, version: '0.1.0', bin: 'src/cli.js',
+    }));
+    f.io.fs = { ...fs, readFile: async (name, ...args) => fs.readFile(
+      name === join(ABOVE, file) ? join(runtime, file) : name, ...args) };
+    assert.equal(await main(['install', '--client', 'codex', ...(explicit ? ['--dest', requested] : [])], f.io), 0, f.output.join('\n'));
+    const target = explicit ? requested : runtime;
+    assert.equal((await readRecord(target, 'codex', fs, f.config)).destination, target);
+    assert.equal((await readRecord(runtime, 'codex', fs, f.config)).version, explicit ? '0.1.0' : '1.0.0');
+    assert.equal(await readRecord(f.destination, 'codex', fs, f.config), null);
+    if (!explicit) assert.equal(await readRecord(requested, 'codex', fs, f.config), null);
+  });
+}
+
+
+test('snapshot includes records named by legacy clients and custom record templates', async () => {
+  const config = installConfig({ recordName: 'record-{client}.json' });
+  const files = new Map([['records/install.json', ' { "client": "extra" }\r\n'],
+    ['records/record-codex.json', 'raw codex bytes']]);
+  const before = new Map(files);
+  const fake = {
+    readFile: async (file) => {
+      if (files.has(file)) return files.get(file);
+      throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+    },
+    writeFile: async (file, text) => { files.set(file, text); },
+    rm: async (file) => { files.delete(file); },
+  };
+  const snapshot = await snapshotRecords('records', fake, config);
+  files.delete('records/install.json');
+  files.set('records/record-extra.json', 'new record of legacy client');
+  files.set('records/record-codex.json', 'changed');
+  assert.deepEqual(await restoreRecords(snapshot, fake), []);
+  assert.deepEqual(files, before);
 });

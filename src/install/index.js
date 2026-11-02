@@ -1,6 +1,6 @@
 import * as filesystem from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { DEFAULT_CONFIG, configOf } from '../profiles.js';
@@ -10,7 +10,7 @@ import { installConfig, installPaths, clientRoot } from './config.js';
 import { chooseClient } from './menu.js';
 import { latestRelease } from './release.js';
 import { downloadRelease } from './download.js';
-import { payloadComplete, place, readRecords } from './place.js';
+import { discoverRecords, payloadComplete, place, readRecords, readRecordsLenient } from './place.js';
 import { registrationPlan, mcpNotes } from './register.js';
 import { mcpPlan, ensureMcp, shown } from './mcp-register.js';
 import { activate, backup, rollback } from './update.js';
@@ -112,12 +112,17 @@ export async function installerCommand(command, args, ctx, io = {}) {
     deps.pathSetup = true;
     deps.noPath = Boolean(flags['no-path']);
     deps.bin = await chooseLinkDirectory(deps);
-    let records = await readRecords(deps.destination, fs, config);
-    if (!Object.keys(records).length && !flags.dest) {
-      const runtime = await readRecords(dirname(packageDirectory.replace(/[\\/]$/, '')), fs, config);
-      const installed = Object.values(runtime).find((record) => record.path === packageDirectory.replace(/[\\/]$/, ''));
-      if (installed) { deps.destination = installed.destination; records = runtime; }
-    }
+    // The install reads the records leniently: a record that cannot be read is no usable record for that
+    // client (a clean install of it) and the other clients keep working. The other commands keep the
+    // strict reading, and its message.
+    const lenient = command === 'install';
+    const found = await discoverRecords(deps.destination, { fs, config, explicitDestination: Boolean(flags.dest), lenient });
+    deps.destination = found.destination;
+    const records = found.records;
+    /** The records of the destination, read the way this command reads them. */
+    const recordsOf = async () => (lenient
+      ? (await readRecordsLenient(deps.destination, fs, config)).records
+      : await readRecords(deps.destination, fs, config));
     const selection = command === 'install' ? await chooseClient(flags.client, deps)
       : flags.client ? [flags.client] : Object.keys(records);
     const clients = Array.isArray(selection) ? selection : [selection];
@@ -127,7 +132,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
     const results = [];
     for (const client of clients) {
       const purge = flags.purge && client === clients.at(-1) && results.every(({ code }) => code === 0);
-      const shared = Object.values(await readRecords(deps.destination, fs, config));
+      const shared = Object.values(await recordsOf());
       const code = await runClient(command, { ...flags, purge, client }, ctx, io, {
         ...deps, backupPerClient: clients.length > 1,
         sharedLink: shared.some((record) => record.link), sharedAutostart: shared.some((record) => record.autostart),

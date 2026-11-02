@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import * as filesystem from 'node:fs/promises';
 import net from 'node:net';
+import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
@@ -107,6 +108,7 @@ test('a tool that refuses answers with the message of the refusal', async () => 
 
   const answer = await callControl({ root, tool: 'second', arguments: {} });
   assert.equal(answer.ok, false);
+  assert.equal(answer.code, 'failed');
   assert.equal(answer.error, 'the second tool refused');
 });
 
@@ -116,6 +118,7 @@ test('a name the table does not hold is refused', async () => {
 
   const answer = await callControl({ root, tool: 'x', arguments: {} });
   assert.equal(answer.ok, false);
+  assert.equal(answer.code, 'failed');
   assert.equal(answer.error, 'unknown tool x');
 });
 
@@ -124,6 +127,7 @@ test('a folder with no server says that none is running', async () => {
 
   const answer = await callControl({ root, tool: 'first', arguments: {} });
   assert.equal(answer.ok, false);
+  assert.equal(answer.code, 'no-server');
   assert.equal(answer.error, 'no okit server is running for this state folder');
 });
 
@@ -138,6 +142,7 @@ test('a record of a server that is not there says that nobody answers', async ()
 
   const answer = await callControl({ root, tool: 'first', arguments: {}, isAlive: () => true });
   assert.equal(answer.ok, false);
+  assert.equal(answer.code, process.platform === 'win32' ? 'no-answer' : 'no-server');
   assert.equal(answer.error, process.platform === 'win32'
     ? 'no okit server answers on this state folder'
     : 'no okit server is running for this state folder');
@@ -165,6 +170,7 @@ test('a server that is slow says that it did not answer in time', async () => {
 
   const answer = await callControl({ root, tool: 'slow', arguments: {}, timeoutMs: 100 });
   assert.equal(answer.ok, false);
+  assert.equal(answer.code, 'timeout');
   assert.equal(answer.error, 'the okit server did not answer in 100 ms');
 });
 
@@ -184,7 +190,8 @@ for (const junk of ['not json', '42', '{"ok":"yes","text":"x"}']) {
 
     const answer = await callControl({ root, tool: 'first', arguments: {}, isAlive: () => true });
     assert.equal(answer.ok, false, junk);
-    assert.equal(answer.error, 'the okit server sent an answer that is not understood', junk);
+    assert.equal(answer.code, 'not-understood');
+  assert.equal(answer.error, 'the okit server sent an answer that is not understood', junk);
   });
 }
 
@@ -240,6 +247,7 @@ test('a server that takes the call and says nothing is not tried again', async (
 
   const answer = await callControl({ root, tool: 'first', arguments: {}, timeoutMs: 150, isAlive: () => true });
   assert.equal(answer.ok, false);
+  assert.equal(answer.code, 'timeout');
   assert.equal(answer.error, 'the okit server did not answer in 150 ms');
   assert.equal(olderCalls, 0, 'the older server must not be asked');
 });
@@ -276,6 +284,7 @@ test('a server that closes without answering is not tried again', async () => {
 
   const answer = await callControl({ root, tool: 'first', arguments: {}, timeoutMs: 5000, isAlive: () => true });
   assert.equal(answer.ok, false);
+  assert.equal(answer.code, 'closed');
   assert.equal(answer.error, 'the okit server closed the connection');
   assert.equal(olderCalls, 0, 'the older server must not be asked');
 });
@@ -288,10 +297,12 @@ test('arguments that cannot be sent are refused without throwing', async () => {
 
   const loop = await callControl({ root, tool: 'first', arguments: circular });
   assert.equal(loop.ok, false);
+  assert.equal(loop.code, 'arguments');
   assert.match(loop.error, /^the arguments cannot be sent: /);
 
   const big = await callControl({ root, tool: 'first', arguments: { value: 1n } });
   assert.equal(big.ok, false);
+  assert.equal(big.code, 'arguments');
   assert.match(big.error, /^the arguments cannot be sent: /);
 
   // The arguments are refused before any server is looked for: the call
@@ -299,6 +310,7 @@ test('arguments that cannot be sent are refused without throwing', async () => {
   const empty = await tempRoot();
   const nowhere = await callControl({ root: empty, tool: 'first', arguments: circular });
   assert.equal(nowhere.ok, false);
+  assert.equal(nowhere.code, 'arguments');
   assert.match(nowhere.error, /^the arguments cannot be sent: /);
 });
 
@@ -325,4 +337,60 @@ test('an answer cut in the middle of a character keeps its text', async () => {
   const answer = await callControl({ root, tool: 'first', arguments: {}, isAlive: () => true });
   assert.equal(answer.ok, true);
   assert.equal(answer.text, 'ação');
+});
+
+
+test('a failure while looking for servers carries the stable failed code', async () => {
+  const answer = await callControl({ root: null, tool: 'first' });
+  assert.equal(answer.ok, false);
+  assert.equal(answer.code, 'failed');
+  assert.equal(typeof answer.error, 'string');
+});
+
+
+test('every control-client refusal path carries its exact stable code', async (t) => {
+  const root = await tempRoot(), pid = 999996, platform = 'win32';
+  await writeRecord(root, { pid, endpoint: endpointFor({ root, pid, platform }), token: 'tk', startedAt: 1 });
+  const options = { root, tool: 'first', platform, isAlive: () => true, timeoutMs: 10 };
+  const cases = [
+    ['connect throws', 'failed', 'connect failed'],
+    ['error before connect', 'no-answer', 'no okit server answers on this state folder'],
+    ['close before connect', 'no-answer', 'no okit server answers on this state folder'],
+    ['write throws', 'closed', 'the okit server closed the connection'],
+    ['error after connect', 'closed', 'the okit server closed the connection'],
+    ['close after connect', 'closed', 'the okit server closed the connection'],
+    ['timeout', 'timeout', 'the okit server did not answer in 10 ms'],
+    ['bad JSON', 'not-understood', 'the okit server sent an answer that is not understood'],
+    ['bad shape', 'not-understood', 'the okit server sent an answer that is not understood'],
+    ['missing error', 'not-understood', 'the okit server sent an answer that is not understood'],
+    ['server error', 'failed', 'DATA'],
+  ];
+  for (const [mode, code, error] of cases) {
+    const seam = t.mock.method(net, 'connect', () => {
+      if (mode === 'connect throws') throw new Error('connect failed');
+      const socket = new EventEmitter();
+      socket.destroy = () => {};
+      socket.write = () => { if (mode === 'write throws') throw new Error('write failed'); };
+      queueMicrotask(() => {
+        if (mode.endsWith('before connect')) { socket.emit(mode.startsWith('error') ? 'error' : 'close'); return; }
+        socket.emit('connect');
+        if (mode.endsWith('after connect')) socket.emit(mode.startsWith('error') ? 'error' : 'close');
+        if (mode === 'bad JSON') socket.emit('data', Buffer.from('junk\n'));
+        if (mode === 'bad shape') socket.emit('data', Buffer.from('null\n'));
+        if (mode === 'missing error') socket.emit('data', Buffer.from('{"ok":false}\n'));
+        if (mode === 'server error') socket.emit('data', Buffer.from('{"ok":false,"error":"DATA"}\n'));
+      });
+      return socket;
+    });
+    try { assert.deepEqual(await callControl(options), { ok: false, code, error }, mode); }
+    finally { seam.mock.restore(); }
+  }
+  const circular = {};
+  circular.self = circular;
+  for (const extra of [{ arguments: circular }, { tool: 1n }]) {
+    const answer = await callControl({ ...options, ...extra });
+    assert.equal(answer.ok, false);
+    assert.equal(answer.code, 'arguments');
+    assert.match(answer.error, /^the arguments cannot be sent: /);
+  }
 });

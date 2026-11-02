@@ -138,6 +138,7 @@ const TEXTS = Object.freeze({
   mcpRegistered: { en: 'MCP server registered in {client}', 'pt-BR': 'Servidor MCP registrado no {client}' },
   mcpAlready: { en: 'MCP server already registered in {client}', 'pt-BR': 'Servidor MCP já registrado no {client}' },
   mcpReplaced: { en: 'MCP server of {client} replaced by this installation', 'pt-BR': 'Servidor MCP de {client} substituído por esta instalação' },
+  mcpRepaired: { en: 'MCP server of {client} repaired: the broken entry was taken out and written again', 'pt-BR': 'Servidor MCP de {client} consertado: a entrada com defeito foi removida e escrita de novo' },
   mcpRemoved: { en: 'MCP server removed from {client}', 'pt-BR': 'Servidor MCP removido do {client}' },
   mcpKept: { en: 'an MCP server named {name} that is not ours is in {client}; kept', 'pt-BR': 'um servidor MCP chamado {name} que não é nosso está em {client}; mantido' },
   mcpManual: { en: 'the MCP server {name} of {client} was left as it is: the client does not say where an entry is kept, so nothing is replaced or removed for you. If it is ours, run: {command}', 'pt-BR': 'o servidor MCP {name} do {client} foi mantido como está: o cliente não diz onde a entrada fica, então nada é trocado nem removido por você. Se for nossa, rode: {command}' },
@@ -281,6 +282,7 @@ const TEXTS = Object.freeze({
   doctorRecord: { en: 'Installation record', 'pt-BR': 'Registro de instalação' },
   doctorRecordUnreadable: { en: 'installation record unreadable: {file}', 'pt-BR': 'registro de instalação ilegível: {file}' },
   doctorFixRecord: { en: 'Install it again: {command} install --client {client}', 'pt-BR': 'Instale de novo: {command} install --client {client}' },
+  doctorFixRecordAll: { en: 'Install it again: {command} install', 'pt-BR': 'Instale de novo: {command} install' },
   doctorFixInstall: { en: 'Install it: {command} install', 'pt-BR': 'Instale: {command} install' },
   doctorRegistration: { en: 'MCP registration', 'pt-BR': 'Registro do MCP' },
   doctorRegistrationOk: { en: 'the MCP server is registered in {client}', 'pt-BR': 'o servidor MCP está registrado no {client}' },
@@ -294,6 +296,7 @@ const TEXTS = Object.freeze({
   doctorRegistrationDisabled: { en: 'the MCP entry of {client} is disabled in the client', 'pt-BR': 'a entrada MCP do {client} está desligada no cliente' },
   doctorRegistrationOther: { en: 'the MCP entry of {client} launches {command}, not the node of the installation', 'pt-BR': 'a entrada MCP do {client} roda {command}, e não o node da instalação' },
   doctorRegistrationMissing: { en: 'the MCP entry of {client} launches {command}, which is not on this machine', 'pt-BR': 'a entrada MCP do {client} roda {command}, que não está nesta máquina' },
+  doctorRegistrationServerMissing: { en: 'the MCP entry of {client} names the server {command}, which is not on this machine', 'pt-BR': 'a entrada MCP do {client} nomeia o servidor {command}, que não está nesta máquina' },
   doctorConfig: { en: 'Configuration', 'pt-BR': 'Configuração' },
   doctorInbox: { en: 'Inbox', 'pt-BR': 'Caixa de entrada' },
   doctorOrders: { en: 'Orders', 'pt-BR': 'Ordens' },
@@ -305,6 +308,15 @@ const TEXTS = Object.freeze({
   doctorSession: { en: 'Session', 'pt-BR': 'Sessão' },
   doctorSessionNone: { en: 'no okit server is running: it starts with a client session; this is normal when no client is open', 'pt-BR': 'nenhum servidor do okit está rodando: ele começa com uma sessão de cliente; isso é normal quando nenhum cliente está aberto' },
   doctorSessionOk: { en: 'the server of the session answers', 'pt-BR': 'o servidor da sessão responde' },
+  controlClosed: { en: 'the okit server closed the connection', 'pt-BR': 'o servidor do okit fechou a conexão' },
+  controlNotAccepted: { en: 'the okit server did not accept the connection', 'pt-BR': 'o servidor do okit não aceitou a conexão' },
+  controlNoServer: { en: 'no okit server is running for this state folder', 'pt-BR': 'nenhum servidor do okit está rodando para esta pasta de estado' },
+  controlNoAnswer: { en: 'no okit server answers on this state folder', 'pt-BR': 'nenhum servidor do okit responde nesta pasta de estado' },
+  controlNotUnderstood: { en: 'the okit server sent an answer that is not understood', 'pt-BR': 'o servidor do okit enviou uma resposta não compreendida' },
+  controlTimeout: { en: 'the okit server did not answer in {ms} ms', 'pt-BR': 'o servidor do okit não respondeu em {ms} ms' },
+  controlArguments: { en: 'the arguments cannot be sent', 'pt-BR': 'os argumentos não podem ser enviados' },
+  controlFailed: { en: 'the call to the okit server failed', 'pt-BR': 'a chamada ao servidor do okit falhou' },
+  controlDetail: { en: 'detail: {reason}', 'pt-BR': 'detalhe: {reason}' },
   doctorSessionFail: { en: 'the server of the session did not answer ({reason})', 'pt-BR': 'o servidor da sessão não respondeu ({reason})' },
   doctorFixSession: { en: 'Open the client again to start its session, then run: {command} doctor', 'pt-BR': 'Abra o cliente de novo para iniciar a sessão dele, e rode: {command} doctor' },
   doctorAutostart: { en: 'Autostart', 'pt-BR': 'Início automático' },
@@ -463,6 +475,21 @@ function plainUrl(address) {
   const at = authority.lastIndexOf('@');
   if (at >= 0) rest = rest.slice(at + 1);
   return scheme + rest.replace(/[?#].*$/s, '') + trailing;
+}
+
+/** A control-client failure in the language of the row, with raw data labelled as detail. */
+function controlReason(ui, { code, error = '' } = {}) {
+  const keys = {
+    closed: 'controlClosed', 'not-accepted': 'controlNotAccepted',
+    'not-understood': 'controlNotUnderstood', timeout: 'controlTimeout',
+    arguments: 'controlArguments', failed: 'controlFailed',
+    'no-server': 'controlNoServer', 'no-answer': 'controlNoAnswer',
+  };
+  const key = Object.hasOwn(keys, code) ? keys[code] : 'controlFailed';
+  const sentence = ui.text(key, { ms: String(error).match(/did not answer in (\d+) ms/)?.[1] ?? '?' });
+  if (key !== 'controlFailed' && key !== 'controlArguments') return sentence;
+  const detail = key === 'controlArguments' ? String(error).replace(/^the arguments cannot be sent:\s*/, '') : error;
+  return detail ? `${sentence} (${ui.text('controlDetail', { reason: detail })})` : sentence;
 }
 
 /**

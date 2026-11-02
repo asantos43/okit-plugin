@@ -284,7 +284,7 @@ export const FILE_RULES = Object.freeze([
     note: 'a folder the person named that has no package is a wrong argument (--from), told as such' },
   { file: 'install.json / install.<client>.json (the record)', readBy: 'src/install/place.js, src/install/bootstrap.js', unreadable: 1, wrongType: 2,
     proof: 'test/input-inventory.test.js#${record} ${body}',
-    note: 'every field is checked by RECORD_FIELDS (src/config-schema.js), also in the record the record replaced (`previous`); a wrong type names the field; the doctor reads the records leniently (readRecordsLenient), so a record it cannot read is a failed row of the diagnosis (exit 1) and never a refusal of the whole run' },
+    note: 'every field is checked by RECORD_FIELDS (src/config-schema.js), also in the record the record replaced (`previous`); a wrong type names the field; the doctor reads the records leniently (readRecordsLenient), so a record it cannot read is a failed row of the diagnosis (exit 1) and never a refusal of the whole run; the install reads them leniently too (a record it cannot read is no usable record for that client: a clean install of it, exit 0), while update, uninstall and status keep the strict reading and its message' },
   { file: 'managed-path.json (the PATH state)', readBy: 'src/install/link.js (pathState)', unreadable: 1, wrongType: 2, proof: 'test/input-inventory.test.js#managed-path.json ${body}',
     note: 'the profile blocks and the Windows PATH entry the installer added; checked by PATH_STATE_SCHEMA (src/config-schema.js)' },
   { file: 'package.json of the downloaded package', readBy: 'src/install/place.js', unreadable: 1, wrongType: 1, proof: 'test/install-invariants.test.js#Package metadata version differs from release',

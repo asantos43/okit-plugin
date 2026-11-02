@@ -24,10 +24,14 @@
 // codes are: `start-failed`, `stopped`, `timeout`, `init-error`, `list-error`,
 // `no-tools`, `bad-frame`, `long-line`, `no-control-api` and `control-error`.
 
-import { spawn } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawn, spawnSync } from 'node:child_process';
 import process from 'node:process';
 import { StringDecoder } from 'node:string_decoder';
 
+import { exitCodeFor } from '../install/exit.js';
 import { callControl, findServers } from './control-client.js';
 
 // The variable that names the state root; the check sets it to a temporary
@@ -89,7 +93,7 @@ function parseFrame(line) {
  *
  * On POSIX the server is started in a group of its own, so the whole group is
  * killed: a server that started a process of its own takes it with it. On
- * Windows there is no group, so the process itself is killed.
+ * Windows taskkill ends the entire process tree.
  *
  * The group is killed once more after the server is gone: a server that ends
  * by itself may have left a process of its own behind, and that process is
@@ -113,12 +117,19 @@ async function stop(child) {
   killGroup(child);
 }
 
-/** Kills the server and every process of its group (POSIX), or the server itself (Windows). */
+/** Kills the entire server tree; cleanup never throws. */
+export function killTree(child, { platform = process.platform, spawnSync: run = spawnSync, kill = process.kill } = {}) {
+  if (platform === 'win32') {
+    try { run('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, shell: false }); }
+    catch { /* best effort */ }
+    try { child.kill('SIGKILL'); } catch { /* already gone */ }
+  } else {
+    try { kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ }
+  }
+}
+
 function killGroup(child) {
-  try {
-    if (process.platform === 'win32') child.kill('SIGKILL');
-    else process.kill(-child.pid, 'SIGKILL');
-  } catch { /* it is already gone */ }
+  killTree(child);
 }
 
 /**
@@ -180,7 +191,7 @@ async function probe(serverPath, budget, root) {
   // probe never leaves a server behind, not even when it is killed.
   const shutdown = () => {
     killGroup(child);
-    process.exit(0);
+    process.exit(exitCodeFor('ok'));
   };
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, shutdown);
   process.on('disconnect', shutdown);
@@ -255,7 +266,7 @@ async function probe(serverPath, budget, root) {
         else {
           const answer = await callControl({ root, tool: READ_TOOL, arguments: {}, pid: child.pid, timeoutMs: left });
           if (answer.ok) api.ok = true;
-          else api.error = { code: CODES.controlError, why: String(answer.error ?? '') };
+          else api.error = { code: CODES.controlError, cause: answer.code, why: String(answer.error ?? '') };
         }
       }
     }
@@ -293,11 +304,12 @@ async function main() {
   } catch (error) {
     if (error instanceof Refusal) {
       process.stderr.write(`okit self-check probe: ${error.message}\n`);
-      process.exitCode = 2;
+      process.exitCode = exitCodeFor('usage');
       return;
     }
     process.stdout.write(`${JSON.stringify(failure('start-failed', reason(error)))}\n`);
   }
 }
 
-await main();
+const invoked = (path) => { try { return realpathSync(path); } catch { return resolve(path); } };
+if (process.argv[1] && invoked(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

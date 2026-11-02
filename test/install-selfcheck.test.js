@@ -1586,7 +1586,7 @@ test('D109: every code of the probe has a text of the language of the run', asyn
     { code: 'bad-frame', why: 'jsonrpc', en: 'the server answered the protocol wrong (jsonrpc)' },
     { code: 'long-line', en: 'the server wrote an over-long line' },
     { code: 'no-control-api', en: 'the server did not open its control API' },
-    { code: 'control-error', why: 'no answer', en: 'the call failed (no answer)' },
+    { code: 'control-error', why: 'no answer', en: 'the call failed (the call to the okit server failed (detail: no answer))' },
   ];
   for (const one of codes) {
     const answer = { mcp: { ok: false, tools: 0, error: one }, api: { ok: false, error: null } };
@@ -1601,6 +1601,7 @@ test('D109: the tail of the error stream of the server follows the row, labelled
   const answer = { mcp: { ok: false, tools: 0, error: { code: 'timeout', ms: 6000 } }, api: { ok: false, error: null },
     stderr: 'the server said no' };
   const w = await probeWorld(t, { run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
+  w.deps.ui = createPresenter({ locale: 'en', verbose: true, write: (line) => w.lines.push(line) });
   const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
   assert.equal(rows.mcp.reason,
     'the MCP server did not answer (the server did not answer in 6000 ms (stderr: the server said no))');
@@ -1613,7 +1614,7 @@ test('D109: an API that does not answer fails only the API row', async (t) => {
   const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
   assert.equal(rows.mcp.status, 'pass', JSON.stringify(rows));
   assert.equal(rows.api.status, 'fail', JSON.stringify(rows));
-  assert.equal(rows.api.reason, 'the control API did not answer (the call failed (no okit server is running for this state folder))');
+  assert.equal(rows.api.reason, 'the control API did not answer (the call failed (the call to the okit server failed (detail: no okit server is running for this state folder)))');
 });
 
 test('D109: an answer the installer cannot read fails both rows', async (t) => {
@@ -1796,3 +1797,63 @@ test('D109: the probe is given the time the configuration says', async (t) => {
   assert.ok(probe, 'the probe did not run');
   assert.equal(probe.args[2], '4321', JSON.stringify(probe.args));
 });
+
+
+for (const [cause, why, portuguese] of [
+  ['closed', 'the okit server closed the connection', 'o servidor do okit fechou a conexão'],
+  ['not-accepted', 'the okit server did not accept the connection', 'o servidor do okit não aceitou a conexão'],
+  ['no-server', 'no okit server is running for this state folder', 'nenhum servidor do okit está rodando para esta pasta de estado'],
+  ['no-answer', 'no okit server answers on this state folder', 'nenhum servidor do okit responde nesta pasta de estado'],
+  ['not-understood', 'the okit server sent an answer that is not understood', 'o servidor do okit enviou uma resposta não compreendida'],
+  ['timeout', 'the okit server did not answer in 123 ms', 'o servidor do okit não respondeu em 123 ms'],
+  ['arguments', 'the arguments cannot be sent: DATA', 'os argumentos não podem ser enviados (detalhe: DATA)'],
+  ['failed', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
+  [undefined, 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
+  ['future-code', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
+  ['constructor', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
+]) {
+  for (const locale of ['en', 'pt-BR']) {
+    test(`self-check control error ${cause} is localized in ${locale}`, async (t) => {
+      const f = await fixture(t, 'linux'), run = f.io.run;
+      f.io.run = async (spec) => spec.args?.some((arg) => String(arg).endsWith('selfcheck-probe.js'))
+        ? { stdout: JSON.stringify({ mcp: { ok: true, tools: 1 }, api: { ok: false,
+          error: { code: 'control-error', cause, why } } }) } : run(spec);
+      assert.equal(await main(['install', '--client', CLIENT, '--locale', locale], f.io), 1);
+      const row = f.output.find((line) => line.includes(locale === 'en' ? 'Control API' : 'API de controle'));
+      assert.ok(row, f.output.join('\n'));
+      assert.ok(row.includes(locale === 'en' ? (cause === 'arguments' ? 'the arguments cannot be sent (detail: DATA)' : why) : portuguese), row);
+      if (locale === 'pt-BR') for (const sentence of [
+        'the okit server closed the connection', 'the okit server did not accept the connection',
+        'the okit server sent an answer that is not understood', 'the okit server did not answer in',
+        'the arguments cannot be sent:',
+      ]) assert.equal(row.includes(sentence), false, row);
+    });
+  }
+}
+
+for (const verbose of [false, true]) {
+  for (const locale of ['en', 'pt-BR']) {
+    test(`probe stderr verbose=${verbose} in ${locale} redacts only temporary folders`, async (t) => {
+      const f = await fixture(t, 'linux'), run = f.io.run;
+      let folder;
+      f.io.run = async (spec) => {
+        if (!spec.args?.some((arg) => String(arg).endsWith('selfcheck-probe.js'))) return run(spec);
+        folder = spec.env[HOME_ENV];
+        return { stdout: JSON.stringify({ mcp: { ok: false, error: { code: 'init-error',
+          why: `WHY ${folder}/file ${f.scratch}/other ${f.destination}/retained` } },
+          stderr: `STACK ${folder}/trace ${f.scratch}/trace ${f.destination}/retained` }) };
+      };
+      assert.equal(await main(['install', '--client', CLIENT, '--locale', locale, ...(verbose ? ['--verbose'] : [])], f.io), 1);
+      const row = f.output.find((line) => line.includes('WHY'));
+      assert.ok(row, f.output.join('\n'));
+      assert.equal(row.includes(folder), false, row);
+      assert.equal(row.includes(f.scratch), false, row);
+      assert.ok(row.includes(`WHY <temp>/file <temp>/other ${f.destination}/retained`), row);
+      assert.equal(row.includes('STACK'), verbose, row);
+      if (verbose) {
+        assert.ok(row.includes(`STACK <temp>/trace <temp>/trace ${f.destination}/retained`), row);
+        assert.ok(row.includes(locale === 'en' ? 'stderr:' : 'erros em stderr:'), row);
+      }
+    });
+  }
+}

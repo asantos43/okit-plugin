@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 
 import { installPaths } from '../install/config.js';
 import { exitCodeFor } from '../install/exit.js';
-import { readRecordsLenient } from '../install/place.js';
+import { discoverRecords } from '../install/place.js';
 import { clientLabel, createPresenter } from '../install/present.js';
 
 import { diagnose } from './diagnose.js';
@@ -35,8 +35,9 @@ export async function doctorCommand(ctx, { locale, config, verbose = false, clie
   const home = ctx.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir();
   const { destination } = installPaths(config, { ...ctx, home });
   // The records of the installation, read leniently: a record that cannot be read is a row of the diagnosis, and the
-  // other clients are still diagnosed.
-  const { records, invalid } = await readRecordsLenient(destination, ctx.fs, config);
+  // other clients are still diagnosed. The records of the installation that is running are found too, when the
+  // destination has none (the doctor that runs from inside an installation sees it).
+  const { records, invalid } = await discoverRecords(destination, { fs: ctx.fs, config, lenient: true });
   ctx.out(ui.text('doctorHeader', { command: config.command }));
   const result = await diagnose({
     root: ctx.root, config, records: Object.values(records), invalid, ui,
