@@ -55,6 +55,19 @@ const SKILL_TOKENS = new Map([
   ['language', 'saved language configuration key'], ['en', 'language default value'],
   ['planHash', 'smoke preview response field'], ['confirm', 'smoke confirmation argument'],
 ]);
+// The exemptions of the rule, and they are all of one kind: every one of them is an explicit entry of an allow-list
+// with a reason. None of them is decided by the shape of the text (whitespace, dots, quotes).
+
+// The ordinary words of the prose around "tool" ("the tool answers", "in tool/command arguments", "a ferramenta
+// responde"): they name no tool, so the phrase is not a reference to one.
+const TOOL_NOUNS = new Set(['the', 'a', 'this', 'each', 'any', 'which', 'that', 'mcp', 'one', 'in', 'and',
+  'responde']);
+// The keys whose values are the arguments of a command: a flag there is the flag of the program, not of the kit.
+// `args` is the argument list of the drivers, `argv` the one of a process, `versionArgs` the version arguments of the
+// kit and `helpArgs`/`requiredFlags` the ones of the clients.
+const ARGV_KEYS = new Set(['args', 'argv', 'versionArgs', 'helpArgs', 'requiredFlags']);
+// The commands of another program, in backticks, that the model may check: only these, with their own flags.
+const EXTERNAL_COMMANDS = new Set(['`node --version`', '`claude --version`', '`codex --version`', '`opencode --version`']);
 // The snake_case name of a tool, as the skills write it.
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
 // The name of a skill, as the skills mention each other.
@@ -110,9 +123,10 @@ function forbiddenCommand(text) {
 function forbiddenFlag(text) {
   const spans = [...text.matchAll(new RegExp(`(?:${COMMAND}|\\{command\\})\\s+(?:${FIVE.join('|')})\\b(?:[^\\n\`;.]|\\.(?!\\s|$))*`, 'g'))]
     .map((match) => [match.index, match.index + match[0].length]);
-  // A command of another program, in backticks, keeps its own flags (`node --version`): they are not flags of the kit.
-  for (const match of text.matchAll(/`(?:node|claude|codex|opencode)\s[^`\n]*`/g)) {
-    spans.push([match.index, match.index + match[0].length]);
+  // The commands of another program that the model may check keep their own flags: only the ones listed, exactly.
+  for (const command of EXTERNAL_COMMANDS) {
+    const pattern = new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+    for (const match of text.matchAll(pattern)) spans.push([match.index, match.index + match[0].length]);
   }
   for (const match of text.matchAll(FLAG)) {
     const inside = spans.some(([from, to]) => match.index >= from && match.index < to);
@@ -139,7 +153,8 @@ function forbiddenText(text, { flags = true } = {}) {
   }
   if (flags && forbiddenFlag(text)) return true;
   if (/node\s+"\$\{CLAUDE_PLUGIN_ROOT\}/.test(text)) return true;
-  if (/\bnode\b[^.\n]*cli\.js/.test(text)) return true;
+  if (/\bnode\b[^\n`]*\bcli\.js\b/.test(text)) return true;
+  if (/\bokit-plugin\b[^\n`]*\bcli\.js\b/.test(text)) return true;
   return false;
 }
 
@@ -151,13 +166,31 @@ function forbiddenSkillTool(text) {
   for (const match of text.matchAll(/`([^`]+)`\s+tool\b|\b(?:tool|ferramenta)\s+`([^`]+)`/gi)) {
     if (!TOOL_NAMES_SET.has(match[1] ?? match[2])) return true;
   }
+  // The same phrases without the backticks ("doctor tool", "ferramenta doctor"): the word names a tool of the server.
+  for (const match of text.matchAll(/\b(\w+) tool\b|\bferramenta (\w+)/gi)) {
+    const word = match[1] ?? match[2];
+    if (TOOL_NOUNS.has(word.toLowerCase())) continue;
+    if (!TOOL_NAMES_SET.has(word)) return true;
+  }
   return false;
 }
 
-/** Walk string values, never keys: sentences check flags; standalone configuration tokens do not. */
-function forbiddenValue(value) {
-  if (typeof value === 'string') return forbiddenText(value, { flags: /\s/.test(value) });
-  if (value && typeof value === 'object') return Object.values(value).some(forbiddenValue);
+/**
+ * Walk string values, never keys: the key of the value says what it is.
+ *
+ * The arguments of a command (`args`) carry the flags of the program; every other value is scanned with the flags on,
+ * whether it has spaces or not.
+ *
+ * @param {unknown} value the value of the reply
+ * @param {string} [key] the key the value sits under
+ * @returns {boolean}
+ */
+function forbiddenValue(value, key = '') {
+  if (typeof value === 'string') return forbiddenText(value, { flags: !ARGV_KEYS.has(key) });
+  if (Array.isArray(value)) return value.some((entry) => forbiddenValue(entry, key));
+  if (value && typeof value === 'object') {
+    return Object.entries(value).some(([name, entry]) => forbiddenValue(entry, name));
+  }
   return false;
 }
 
@@ -572,6 +605,13 @@ test('skill tool checks reject unknown words and tool phrases in both languages'
   for (const text of ['the `status` tool', 'tool `smoke_demo`', 'a ferramenta `daemon`', '`client`', '`setup`']) {
     assert.ok(!forbiddenSkillTool(text), text);
   }
+  // The same phrases without the backticks: the word names a tool of the server or it is ordinary prose.
+  assert.ok(forbiddenSkillTool('doctor tool'), 'doctor tool');
+  assert.ok(forbiddenSkillTool('ferramenta doctor'), 'ferramenta doctor');
+  assert.ok(!forbiddenSkillTool('`smoke_demo` tool'), '`smoke_demo` tool');
+  assert.ok(!forbiddenSkillTool('the tool answers'), 'the tool answers');
+  assert.ok(!forbiddenSkillTool('The tool answers'), 'a capital at the start of a sentence');
+  assert.ok(!forbiddenSkillTool('a ferramenta responde'), 'a ferramenta responde');
 });
 
 test('runtime value checks scan sentences at every depth and allow configuration tokens', () => {
@@ -584,6 +624,12 @@ test('runtime value checks scan sentences at every depth and allow configuration
   assert.ok(!forbiddenReply(JSON.stringify({ args: ['--model', 'x'] })));
   assert.ok(forbiddenReply('Use --client to select one.'));
   assert.ok(forbiddenReply('--client'), 'plain text replies check even a standalone flag');
+  // A bare flag token is refused everywhere but in the arguments of a command: the shape of the text decides nothing.
+  assert.ok(forbiddenValue({ guidance: '`--client`' }), 'a flag in backticks');
+  assert.ok(forbiddenValue({ guidance: '--client' }), 'a bare flag token');
+  assert.ok(forbiddenValue({ note: ['--client'] }), 'a bare flag token in an array');
+  assert.ok(!forbiddenValue({ args: ['--model', 'x'] }), 'the arguments of a command carry the flags of the program');
+  assert.ok(forbiddenValue({ args: ['okit-plugin quota'] }), 'the commands are still checked in the arguments');
 });
 
 // | the fixture | must hold | must refuse |
@@ -604,4 +650,11 @@ test('the rule of the texts has teeth', () => {
   assert.ok(forbiddenText('Run `quota set codex 50`.'), 'a group with arguments');
   assert.ok(!forbiddenText('Call `config_set` with the key.'), 'a tool is not a group');
   assert.ok(forbiddenText('node "${CLAUDE_PLUGIN_ROOT}/bin/cli.js" status'), 'the cli of the plugin');
+  // The commands of another program: only the ones listed keep their own flags.
+  assert.ok(!forbiddenText('check it with `node --version`.'), 'the version of node');
+  assert.ok(forbiddenText('`node --client`'), 'a flag of another program that is not listed');
+  const cli = 'Run `node ./src/cli.js status --client codex`.';
+  assert.ok(forbiddenText(cli), 'the flags of a command that is not listed');
+  assert.ok(forbiddenText(cli, { flags: false }), 'the cli of the plugin, whatever the dots are');
+  assert.ok(forbiddenText('Run okit-plugin setup ./src/cli.js.', { flags: false }), 'the cli after a command of the plugin');
 });
