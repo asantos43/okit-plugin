@@ -188,7 +188,7 @@ One object per check, and the same fields in the human log: `id`, `name`, `group
 <a id="section-7"></a>
 ## Output
 
-Stdout from `src/smoke.js` is one fact per line: the legacy smoke report label (not a CLI command), `run: <runid>`, one `pass E7 state.locks 120ms` per check, then `passed: 32 failed: 0 skipped: 0`, the artifact paths and, under `--keep`, the scratch path.
+Stdout from `src/smoke.js` is one fact per line: the `smoke` report label, `run: <runid>`, one `pass E7 state.locks 120ms` per check, then `passed: 32 failed: 0 skipped: 0`, the artifact paths and, under `--keep`, the scratch path.
 
 Two files land in `<state root>/logs/smoke/`: `smoke-<runid>.jsonl`, one JSON object per line (the run header, then one record per check in execution order), and `smoke-<runid>.log`, the human text with the whole environment block at the top and each tail inline. Both are UTF-8 with `\n` only, so the Windows file pastes into an issue unchanged. The run id is the UTC instant and the pid (`20261023T091530Z-4242`), which keeps two runs apart and orders them.
 

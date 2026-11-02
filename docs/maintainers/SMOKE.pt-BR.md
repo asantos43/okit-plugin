@@ -187,7 +187,7 @@ Um objeto por check, e os mesmos campos no log humano: `id`, `name`, `group` (`E
 <a id="section-7"></a>
 ## Output
 
-O stdout de `src/smoke.js` é um fato por linha: o rótulo legado do relatório smoke (não um comando CLI), `run: <runid>`, uma linha `pass E7 state.locks 120ms` por check, depois `passed: 32 failed: 0 skipped: 0`, os caminhos dos artefatos e, com `--keep`, o caminho do scratch.
+O stdout de `src/smoke.js` é um fato por linha: o rótulo `smoke` do relatório, `run: <runid>`, uma linha `pass E7 state.locks 120ms` por check, depois `passed: 32 failed: 0 skipped: 0`, os caminhos dos artefatos e, com `--keep`, o caminho do scratch.
 
 Dois arquivos caem em `<state root>/logs/smoke/`: `smoke-<runid>.jsonl`, um objeto JSON por linha (o cabeçalho da execução e um registro por check, na ordem de execução), e `smoke-<runid>.log`, o texto humano com o bloco de ambiente inteiro no topo e cada tail na linha. Ambos são UTF-8 só com `\n`, então o arquivo do Windows cola numa issue sem mudança. O run id é o instante UTC mais o pid (`20261023T091530Z-4242`), o que separa duas execuções e as ordena.
 

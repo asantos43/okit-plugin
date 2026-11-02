@@ -104,7 +104,7 @@ function readTimeout(value) {
 }
 
 /**
- * The flags of one `okit-plugin smoke`: `--real`, `--keep`, `--only <ids>` and
+ * The flags of the in-process smoke runner: `--real`, `--keep`, `--only <ids>` and
  * `--timeout <ms>`, the last two in both the spaced and the `=` form. Anything
  * else is an unknown flag, which is exit code 2.
  *
@@ -154,7 +154,7 @@ function selectChecks(checks, only) {
 // started it, through the spawner's own bookkeeping, so the cap of the next
 // check counts no run of the previous one. Nothing is ever started: the child
 // answers the three things the spawner reads of a process — a pid, a `kill` and
-// an emitter — which is what keeps `okit-plugin smoke` from running `claude`, `codex`
+// an emitter — which is what keeps the in-process smoke runner from running `claude`, `codex`
 // or `opencode` on the machine it verifies.
 function fakeSpawner() {
   const children = [];
@@ -294,8 +294,8 @@ async function runChecks(checks, deps, control) {
 
 // Exit code 2: the run never started. The line on stderr names what was wrong,
 // and `usage` tells the CLI to add the usage text to it.
-function refusal(err, message, usage = true, command = DEFAULT_CONFIG.install.command) {
-  err(`${command} smoke: ${message}`);
+function refusal(err, message, usage = true) {
+  err(`smoke: ${message}`);
   return { code: 2, usage, records: [], artifacts: null, runId: null };
 }
 
@@ -306,7 +306,7 @@ function refusal(err, message, usage = true, command = DEFAULT_CONFIG.install.co
  */
 function report(out, runId, records, artifacts, extra) {
   const count = (status) => records.filter((record) => record.status === status).length;
-  out(`${extra.command} smoke`);
+  out('smoke');
   out(`run: ${runId}`);
   for (const record of records) out(`${record.status} ${record.id} ${record.name} ${record.durationMs}ms`);
   if (extra.interrupted) out('interrupted: SIGINT');
@@ -317,7 +317,7 @@ function report(out, runId, records, artifacts, extra) {
 }
 
 /**
- * Runs one `okit-plugin smoke` and answers its exit code, its records and the paths of
+ * Runs the in-process smoke runner and answers its exit code, its records and the paths of
  * the two artifacts it wrote.
  *
  * `io` is the shape `main()` of `src/cli.js` already takes (`out`, `err`,
@@ -337,15 +337,15 @@ export async function runSmoke(argv = [], io = {}) {
   const command = io.command ?? DEFAULT_CONFIG.install.command;
 
   const flags = readFlags(argv);
-  if (flags.error !== undefined) return refusal(err, flags.error, true, command);
+  if (flags.error !== undefined) return refusal(err, flags.error);
   // `OKWORK_HOME` in the environment is a state root the user chose. A run that
   // builds a scratch home must not be read as one, so it has to say `--real`.
   if (!flags.real && typeof env.OKWORK_HOME === 'string' && env.OKWORK_HOME.trim() !== '') {
-    return refusal(err, `OKWORK_HOME is set; ${command} smoke uses a scratch home unless --real is given`, false, command);
+    return refusal(err, `OKWORK_HOME is set; smoke uses a scratch home unless --real is given`, false);
   }
 
   const selection = selectChecks(io.checks ?? allChecks(), flags.only);
-  if (selection.error !== undefined) return refusal(err, selection.error, true, command);
+  if (selection.error !== undefined) return refusal(err, selection.error);
 
   const scope = flags.real ? realScope(io, env) : await scratchScope(io.tmpdir ?? tmpdir(), env);
   const startedAt = now();

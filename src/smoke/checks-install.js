@@ -81,7 +81,7 @@ async function commandsRegistered(deps) {
     const run = await cli(deps, argv);
     need(run.code === 0, `${DEFAULT_CONFIG.install.command} ${argv.join(' ')} must exit 0, got ${run.code}: ${run.err.join(' ')}`);
   }
-  for (const argv of [[], ['nope'], ['daemon', 'frobnicate'], ['status'], ['autostart', 'show']]) {
+  for (const argv of [[], ['nope'], ['daemon', 'frobnicate']]) {
     const run = await cli(deps, argv);
     need(run.code === 2, `${DEFAULT_CONFIG.install.command} ${argv.join(' ')} must exit 2, got ${run.code}`);
   }

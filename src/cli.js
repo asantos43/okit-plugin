@@ -348,10 +348,10 @@ const HELP_FLAGS = ['--help', '-h'];
 // The groups that answer the help flag wherever it comes: the commands of the person.
 const HELPED_GROUPS = ['setup', 'install', 'update', 'uninstall', 'doctor'];
 
-/** Whether the line asks for the help text: a help flag where a group or an action would be, or anywhere after a group of the table. */
-function wantsHelp([group, action, ...rest]) {
-  if (HELP_FLAGS.includes(group) || HELP_FLAGS.includes(action)) return true;
-  return HELPED_GROUPS.includes(group) && rest.some((arg) => HELP_FLAGS.includes(arg));
+/** Help is a first argument or a flag after one of the five user commands. */
+function wantsHelp([group, ...args]) {
+  return HELP_FLAGS.includes(group)
+    || (HELPED_GROUPS.includes(group) && args.some((arg) => HELP_FLAGS.includes(arg)));
 }
 
 /**
@@ -368,8 +368,9 @@ function wantsHelp([group, action, ...rest]) {
  * @returns {Promise<number>} exit code
  */
 export async function main(argv = [], io = {}) {
+  const invalidHelp = !wantsHelp(argv) && argv.some((arg) => HELP_FLAGS.includes(arg));
   // The client's status bar launches this collector.
-  if (argv[0] === 'statusline-collector') {
+  if (argv[0] === 'statusline-collector' && !invalidHelp) {
     const { launch } = await import('./launchers.js');
     return launch(argv, io);
   }
@@ -429,6 +430,7 @@ export async function main(argv = [], io = {}) {
       out(usageOf(ctx.locale, ctx.command));
       return exitCodeFor('ok');
     }
+    if (invalidHelp) return ctx.unknown();
     if (group === 'setup') {
       const flags = action === undefined ? args : [action, ...args];
       return await setupCommand(ctx, flags, io);

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { Readable } from 'node:stream';
 import { access, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -52,6 +53,45 @@ test('every removed command answers the usage with exit 2 and writes nothing', a
     }
   }
   assert.deepEqual((await readdir(root)).sort(), before, 'no command of the removed ones wrote anything');
+});
+
+test('help is available only first or after a user command', { timeout: 30000 }, async (t) => {
+  const root = await tempRoot(t);
+  for (const group of [...REMOVED, 'nope', 'daemon', 'hook', 'statusline-collector']) {
+    for (const flag of ['--help', '-h']) {
+      for (const argv of [[group, flag], [group, 'show', flag]]) {
+        const run = await cli(argv, { root });
+        assert.equal(run.code, 2, argv.join(' '));
+        assert.deepEqual(run.out, [], argv.join(' '));
+        assert.match(run.err.join('\n'), /^usage: okit-plugin install/, argv.join(' '));
+      }
+    }
+  }
+  // The real internal entries must not run when a help flag rides along.
+  for (const entry of [['hook', 'session-start'], ['hook', 'post-compact'], ['daemon', 'run-once'], ['daemon', 'stop']]) {
+    for (const flag of ['--help', '-h']) {
+      const run = await cli([...entry, flag], { root, stdin: Readable.from([]) });
+      assert.equal(run.code, 2, [...entry, flag].join(' '));
+      assert.deepEqual(run.out, [], [...entry, flag].join(' '));
+      assert.match(run.err.join('\n'), /^usage: okit-plugin install/, [...entry, flag].join(' '));
+    }
+  }
+  for (const group of FIVE) {
+    for (const flag of ['--help', '-h']) {
+      for (const argv of [[group, flag], [group, 'show', flag]]) {
+        const run = await cli(argv, { root });
+        assert.equal(run.code, 0, argv.join(' '));
+        assert.deepEqual(run.err, [], argv.join(' '));
+        assert.match(run.out.join('\n'), /^usage: okit-plugin install/, argv.join(' '));
+      }
+    }
+  }
+  for (const flag of ['--help', '-h']) {
+    const run = await cli([flag], { root });
+    assert.equal(run.code, 0);
+    assert.deepEqual(run.err, []);
+    assert.match(run.out.join('\n'), /^usage: okit-plugin install/);
+  }
 });
 
 test('the entry points the machine starts still run', async (t) => {
@@ -218,7 +258,7 @@ test('smoke --only I1 runs one check of the install group and exits 0', async (t
   const run = await runSmoke(['--only', 'I1'], { env: childEnv(scope), tmpdir: scope.tmp, out: (line) => out.push(line) });
 
   assert.equal(run.code, 0, run.records.map((record) => record.error?.message).join(' / '));
-  assert.equal(out[0], 'okit-plugin smoke');
+  assert.equal(out[0], 'smoke');
   assert.match(out[1], /^run: \d{8}T\d{6}Z-\d+$/);
   assert.match(out[2], /^pass I1 files\.placed \d+ms$/);
   assert.equal(out[3], 'passed: 1 failed: 0 skipped: 0');

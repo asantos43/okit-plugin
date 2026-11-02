@@ -20,7 +20,7 @@ Disposable demonstration contracts for isolated execution, review, budgets and r
 <a id="section-1"></a>
 ## 1. Scope and history
 - 2026-10-26: design, isolated engine and user entry complete. Paid execution refuses without measured usage and a proven cost ceiling.
-This demonstration lets a Director read synthetic work, choose actors, run independent work together, ask for review and return rejected work for correction. Everything described as proposed or to do is unimplemented. The current `client-smoke --demo` narrates C1–C23; it does not implement this orchestration.
+This demonstration lets a Director read synthetic work, choose actors, run independent work together, ask for review and return rejected work for correction. Everything described as proposed or to do is unimplemented. The current `npm run client-smoke -- --demo` narrates C1–C23; it does not implement this orchestration.
 The existing quick offline checks and injected C1–C23 tests remain unchanged. C1–C23 executed through a real client are already paid checks, not offline checks. The demonstration currently runs only with supplied test helpers, without a client, network or quota; paid execution remains unavailable.
 <a id="section-2"></a>
 ## 2. Disposable scenario

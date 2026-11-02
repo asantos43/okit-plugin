@@ -50,8 +50,8 @@ test('eighteen unchecked build pairs carry every field, both layers and system s
   assert.equal(result.checklist.split('| Proof owner | Producer |').length - 1, 12);
   assert.equal(result.checklist.split('| Proof owner | Director |').length - 1, 6);
   assert.equal(result.checklist.split('| Source revision |  |').length - 1, 18);
-  assert.ok(result.checklist.includes('`demo smoke`'));
-  assert.ok(result.checklist.includes('`demo client-smoke`'));
+  assert.ok(result.checklist.includes('`npm run smoke`'));
+  assert.ok(result.checklist.includes('`npm run client-smoke -- --client <client>`'));
   assert.ok(result.checklist.includes('Producer signature for Windows/macOS'));
 });
 

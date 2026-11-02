@@ -13,6 +13,7 @@
   },
   "scripts": {
     "smoke": "node scripts/smoke.js",
+    "client-smoke": "node scripts/client-smoke.js",
     "release:build": "node scripts/build-release.js",
     "test": "node --test",
     "docs:banners": "node scripts/docs-banners.js",

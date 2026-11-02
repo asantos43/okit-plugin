@@ -1,6 +1,6 @@
 // Autostart plans: the ways an OS starts a program at login. A plan is a pure
 // value — the file it writes, its content and the commands that install or
-// remove it — so `okit-plugin autostart show` can print the whole plan before a single
+// remove it — so the autostart preview can print the whole plan before a single
 // command runs, and a test can assert it without touching the machine.
 
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -140,7 +140,7 @@ export function launchdPlan(options = {}) {
 /**
  * A `@reboot` crontab line, the fallback where there is no unit file. `crontab`
  * has no per-line removal without a shell pipeline, so the plan owns the whole
- * crontab of that user and `okit-plugin autostart show` prints it before anything runs.
+ * crontab of that user and the autostart preview prints it before anything runs.
  *
  * @returns {{kind: string, path: string, content: string,
  *   install: object[], uninstall: object[]}}
