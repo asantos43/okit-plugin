@@ -159,8 +159,8 @@ test('all overrides detection, client overrides both, and unknown detection expl
   const deps = { env: { CLAUDECODE: '1' }, cache: new Map() };
   assert.equal((await statusTable(root, { ...deps, all: true })).rows.length, 3);
   assert.deepEqual((await statusTable(root, { ...deps, all: true, client: 'codex' })).rows.map((r) => r.client), ['codex']);
-  for (const [locale, phrase] of [['en', /Client not recognized.*--client <name>/],
-    ['pt-BR', /Cliente não reconhecido.*--client <nome>/]]) {
+  for (const [locale, phrase] of [['en', /Client not recognized.*`client` argument/],
+    ['pt-BR', /Cliente não reconhecido.*argumento `client`/]]) {
     const table = await statusTable(root, { env: {}, locale });
     assert.equal(table.rows.length, 3);
     assert.match(table.markdown, phrase);
@@ -523,7 +523,7 @@ test('okit-plugin status outside a client explains how to select and record quot
   }
   assert.equal(out.filter((line) => line.includes('No quota value recorded.')).length, 3);
   assert.ok(out.some((line) => line.includes('Client not recognized.')));
-  assert.ok(out.some((line) => line.includes('--client <name>')));
+  assert.ok(out.some((line) => line.includes('the `client` argument')));
 });
 
 test('MCP status detects each client and accepts all/client with argument checks', async (t) => {

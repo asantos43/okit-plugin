@@ -120,8 +120,8 @@ export const SETUP_MESSAGES = Object.freeze({
     'pt-BR': 'Salvar estas configurações de modelo? Recomendação: sim, manter estas escolhas para os próximos trabalhos. {choices}',
   },
   omitted: {
-    en: 'No model was chosen for {client} ({class}). You can choose one later with `config_set`: the key `profiles.{client}.{class}.model` and the model name.',
-    'pt-BR': 'Nenhum modelo foi escolhido para {client} ({classe}). Você pode escolher um depois com `config_set`: a chave `profiles.{client}.{class}.model` e o nome do modelo.',
+    en: 'No model was chosen for {client} ({class}). You can choose one later: ask your assistant to call `config_set` with the key `profiles.{client}.{class}.model` and the model name.',
+    'pt-BR': 'Nenhum modelo foi escolhido para {client} ({classe}). Você pode escolher um depois: peça ao seu assistente para chamar `config_set` com a chave `profiles.{client}.{class}.model` e o nome do modelo.',
   },
   summary: {
     en: 'Saved {count} model settings for {clients}.',
@@ -483,8 +483,9 @@ async function askModel({ ask, locale, client, className, proposal, candidates, 
     recommended,
   };
   const languages = locale === 'both' ? ['en', 'pt-BR'] : [locale];
-  let question = languages.map((language) => formatWithReason('question', language,
-    { ...values, purpose: format(className, language) }, proposal.reason)).join(' / ');
+  // The question is asked to the person: it names no tool, and the reason of the proposal (which may) is not part of it.
+  let question = languages.map((language) => format('question', language,
+    { ...values, purpose: format(className, language) })).join(' / ');
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const answer = await askValue(ask, question, recommended);
     if (answer === undefined || answer === null) return { cancelled: true };
@@ -779,7 +780,7 @@ export async function runSetup({
   for (const client of new Set([...names, ...skipped.map((change) => change.client)])) {
     if (observation.clients.find((row) => row.client === client)?.quota.status !== 'off') continue;
     const locales = locale === 'both' ? ['en', 'pt-BR'] : [locale];
-    messages.push(locales.map((language) => labelsOf(language).noQuota(client)).join(' / '));
+    messages.push(locales.map((language) => labelsOf(language).noQuotaAsk(client)).join(' / '));
   }
   if (savedChanges.length > 0) {
     // The presenter's Models row says what was saved.

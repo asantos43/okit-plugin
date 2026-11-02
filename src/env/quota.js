@@ -38,7 +38,9 @@ export const LABELS = {
     missing: MISSING,
     optional: 'not installed (optional)',
     noQuota: (client) => `No quota value recorded. Call \`quota_set\` with the client "${client}" and the percentage that is left.`,
-    unknownClient: 'Client not recognized. Showing all clients; use --client <name> to choose one.',
+    // The same remedy for the person: the setup is a step of the person, so it asks the assistant for the tool.
+    noQuotaAsk: (client) => `No quota value recorded. Ask your assistant to call \`quota_set\` with the client "${client}" and the percentage that is left.`,
+    unknownClient: 'Client not recognized. Showing all clients; pass the `client` argument to choose one.',
     views: 'Slots show running executors; actors lists available model + effort profiles, even when nothing is running.',
     pct: (value) => `${Math.round(value)}%`,
     capacity: (clients, floor) => (
@@ -64,7 +66,9 @@ export const LABELS = {
     missing: MISSING,
     optional: 'não instalado (opcional)',
     noQuota: (client) => `Nenhum valor de cota registrado. Chame \`quota_set\` com o cliente "${client}" e a porcentagem que resta.`,
-    unknownClient: 'Cliente não reconhecido. Mostrando todos os clientes; use --client <nome> para escolher um.',
+    // A mesma solução para a pessoa: o setup é um passo da pessoa, então ela pede a ferramenta ao assistente.
+    noQuotaAsk: (client) => `Nenhum valor de cota registrado. Peça ao seu assistente para chamar \`quota_set\` com o cliente "${client}" e a porcentagem que resta.`,
+    unknownClient: 'Cliente não reconhecido. Mostrando todos os clientes; passe o argumento `client` para escolher um.',
     views: 'Vagas mostram executores em execução; actors lista perfis modelo + esforço disponíveis, mesmo sem nada rodando.',
     pct: (value) => `${Math.round(value)}%`,
     capacity: (clients, floor) => (

@@ -181,27 +181,7 @@ test('the Fix of an installation whose payload is gone installs it again', async
 test('the Fix of an autostart that is not set up installs it again', async (t) => {
   // The installation that is running: the doctor and the `setup` of the command line build the same plan of the
   // autostart, so the file the Fix writes is the one the doctor looks for.
-  const home = process.env.HOME;
-  // The version of the package that is running: the record of the installation that is running names it.
-  const version = JSON.parse(await fs.readFile(join(PACKAGE, 'package.json'), 'utf8')).version;
-  const { f } = await world(t, {
-    autostart: true,
-    record: { client: CLIENT, version, path: PACKAGE, bin: 'src/cli.js', autostart: true, link: false,
-      linkDirectory: null, settings: { node: process.execPath } },
-  });
-  t.after(() => { if (home === undefined) delete process.env.HOME; else process.env.HOME = home; });
-  process.env.HOME = f.home;
-  const files = new Map();
-  const real = f.io.fs.readFile.bind(f.io.fs);
-  const io = {
-    ...f.io,
-    detect: async (executable) => executable === f.io.config.clients[CLIENT].executable,
-    // The files of the world: the one the setup writes is there after the Fix.
-    fs: { ...f.io.fs, readFile: async (file, ...rest) => (files.has(file) ? files.get(file) : real(file, ...rest)) },
-    write: async (file, content) => { files.set(file, content); },
-    // The setup asks whether the autostart is installed: the answer is yes.
-    ask: async () => 'yes',
-  };
+  const { f, io, files } = await autostartWorld(t);
   f.clear();
   assert.equal(await main(['doctor'], io), exitCodeFor('operational'), f.output.join('\n'));
   const row = failedRow(f.output, 'Autostart');
@@ -255,6 +235,80 @@ test('the row of a daemon that is down says that the daemon starts with the mach
   assert.match(f.output[index + 1], /^\s+Fix: Start it: the daemon starts with the machine/, f.output[index + 1]);
   assert.doesNotMatch(f.output[index + 1], /okit-plugin (?!doctor\b)[a-z]/, f.output[index + 1]);
   assert.ok(MANUAL[3][1].length > 0);
+});
+
+// The plan of the autostart of this machine, as the doctor and the setup build it.
+function planOf(f, record) {
+  return autostartPlan(detectAutostart('linux'), {
+    root: f.root, home: f.home, node: record.settings.node, script: join(record.path, record.bin),
+    command: f.io.config.command });
+}
+
+/** The world of the autostart: the record says the autostart is on and the installation is the one that runs. */
+async function autostartWorld(t) {
+  const home = process.env.HOME;
+  const version = JSON.parse(await fs.readFile(join(PACKAGE, 'package.json'), 'utf8')).version;
+  const record = { client: CLIENT, version, path: PACKAGE, bin: 'src/cli.js', autostart: true, link: false,
+    linkDirectory: null, settings: { node: process.execPath } };
+  const { f } = await world(t, { autostart: true, record });
+  t.after(() => { if (home === undefined) delete process.env.HOME; else process.env.HOME = home; });
+  process.env.HOME = f.home;
+  const files = new Map();
+  const real = f.io.fs.readFile.bind(f.io.fs);
+  const io = {
+    ...f.io,
+    detect: async (executable) => executable === f.io.config.clients[CLIENT].executable,
+    // The files of the world: the one the setup writes is there after the Fix.
+    fs: { ...f.io.fs, readFile: async (file, ...rest) => (files.has(file) ? files.get(file) : real(file, ...rest)) },
+    write: async (file, content) => { files.set(file, content); },
+    // The setup asks whether the autostart is installed: the answer is yes.
+    ask: async () => 'yes',
+  };
+  return { f, io, files, plan: planOf(f, record) };
+}
+
+test('the Fix of a corrupt autostart installs it again', async (t) => {
+  const { f, io, files, plan } = await autostartWorld(t);
+  // The service of the machine is there, but it is corrupt: it does not hold the content of the plan.
+  await fs.mkdir(dirname(plan.path), { recursive: true });
+  await fs.writeFile(plan.path, 'not the unit of this installation\n');
+  f.clear();
+  assert.equal(await main(['doctor'], io), exitCodeFor('operational'), f.output.join('\n'));
+  const row = failedRow(f.output, 'Autostart');
+  assert.ok(row, `the autostart did not fail:\n${f.output.join('\n')}`);
+  assert.deepEqual(commandOf(row.fix, f.io.config.command), ['setup']);
+  f.clear();
+  assert.equal(await main(['setup'], io), exitCodeFor('ok'), f.output.join('\n'));
+  // The unit of the plan is written again, with the content of the plan.
+  assert.equal(files.get(plan.path), plan.content);
+  f.clear();
+  assert.equal(await main(['doctor'], io), exitCodeFor('ok'), `the doctor still fails:\n${f.output.join('\n')}`);
+  assert.ok(!failedRow(f.output, 'Autostart'), f.output.join('\n'));
+});
+
+test('the Fix of a disabled autostart enables it again', async (t) => {
+  const { f, io, plan } = await autostartWorld(t);
+  // The service of the machine is there, but the machine says it is not enabled.
+  await fs.mkdir(dirname(plan.path), { recursive: true });
+  await fs.writeFile(plan.path, plan.content);
+  let enabled = false;
+  io.run = async (call) => {
+    const args = call.args ?? [];
+    if (args.includes('is-enabled')) return { code: enabled ? 0 : 1, stdout: '' };
+    if (args.includes('enable')) enabled = true;
+    return f.io.run(call);
+  };
+  f.clear();
+  assert.equal(await main(['doctor'], io), exitCodeFor('operational'), f.output.join('\n'));
+  const row = failedRow(f.output, 'Autostart');
+  assert.ok(row, `the autostart did not fail:\n${f.output.join('\n')}`);
+  assert.deepEqual(commandOf(row.fix, f.io.config.command), ['setup']);
+  f.clear();
+  assert.equal(await main(['setup'], io), exitCodeFor('ok'), f.output.join('\n'));
+  assert.ok(enabled, 'the setup enabled the unit of the machine');
+  f.clear();
+  assert.equal(await main(['doctor'], io), exitCodeFor('ok'), `the doctor still fails:\n${f.output.join('\n')}`);
+  assert.ok(!failedRow(f.output, 'Autostart'), f.output.join('\n'));
 });
 
 test('the row of a foreign MCP entry says that a person takes it out by hand', async (t) => {

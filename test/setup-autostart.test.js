@@ -189,7 +189,8 @@ test('a machine that has the autostart prints only the information and never ask
   assert.equal(await main(['setup'], f.io), 0);
   assert.deepEqual(stepLines(f), ['Autostart is already installed.']);
   assert.deepEqual(f.questions, []);
-  assert.deepEqual(f.ran, []);
+  // The step asks the machine whether the service is enabled: it reads, it does not change anything.
+  assert.ok(f.ran.every((command) => command.args?.includes('is-enabled')), JSON.stringify(f.ran));
   assert.deepEqual(f.written, []);
   assert.deepEqual(await snapshot(f), f.before);
 });
@@ -456,18 +457,16 @@ const runRollback = (world) => setupAutostart(world.ctx, {
   config: world.config, locale: 'en', ask: async () => 'yes', plan: () => world.plan,
 });
 
-test('a save that fails does not take away the service another client had already installed', async () => {
+test('a stale record does not keep a service that was never there', async () => {
+  // The record of the other client says the autostart is on, but the machine has no service: the rollback takes the
+  // service back and does not claim that it kept one.
   const w = rollbackWorld({ records: {
     'claude-code': { client: 'claude-code', autostart: false, link: false },
     codex: { client: 'codex', autostart: true, link: false },
   } });
-  const before = recordFiles(w.files);
   assert.equal(await runRollback(w), 1);
-  // The service that was already there is kept: the records that survive the rollback still say the autostart is on.
-  assert.deepEqual(w.actions, ['install'], w.actions.join(', '));
-  assert.deepEqual(w.errors, ['Could not install autostart: the service that was already installed was kept: save denied']);
-  // The records are byte for byte what they were.
-  assert.deepEqual(recordFiles(w.files), before);
+  assert.deepEqual(w.actions, ['install', 'uninstall'], w.actions.join(', '));
+  assert.deepEqual(w.errors, ['Could not install autostart: the autostart was taken back: save denied']);
 });
 
 test('a save that fails does not take away a service that was already on the disk', async () => {

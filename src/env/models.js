@@ -12,7 +12,7 @@ export const DETECT_MESSAGES = Object.freeze({
   error: 'The model list for {client} could not be read, so the catalog is used. / A lista de modelos de {client} não pôde ser lida, então o catálogo é usado.',
   listed: 'The configured model "{model}" is active in the detected list. / O modelo configurado "{model}" está ativo na lista detectada.',
   replaced: 'The configured model "{model}" is unavailable; the active candidate "{replacement}" belongs to the same family. / O modelo configurado "{model}" não está disponível; o candidato ativo "{replacement}" pertence à mesma família.',
-  omitted: 'The configured model "{model}" is unavailable and no active candidate belongs to its family; ask your assistant to call `config_set` with the key `profiles.{client}.{class}.model` and the model name. / O modelo configurado "{model}" não está disponível e nenhum candidato ativo pertence à sua família; peça ao seu assistente para chamar `config_set` com a chave `profiles.{client}.{class}.model` e o nome do modelo.',
+  omitted: 'The configured model "{model}" is unavailable and no active candidate belongs to its family; call `config_set` with the key `profiles.{client}.{class}.model` and the model name. / O modelo configurado "{model}" não está disponível e nenhum candidato ativo pertence à sua família; chame `config_set` com a chave `profiles.{client}.{class}.model` e o nome do modelo.',
   catalog: 'The model list is unavailable, so the configured catalog model is kept. / A lista de modelos não está disponível, então o modelo do catálogo configurado é mantido.',
 });
 

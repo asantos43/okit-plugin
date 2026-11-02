@@ -189,6 +189,27 @@ test('interactive setup asks for an omitted class and accepts its recommendation
   assert.equal(raw.profiles['claude-code'].simple.effort, 'low');
 });
 
+test('the question for an omitted model never names the tool of the remedy', async (t) => {
+  const { home, root } = await temporaryHome(t);
+  const questions = [];
+  const ask = async (question) => {
+    questions.push(question);
+    return question.startsWith('Choose a model') ? '' : 'yes';
+  };
+  await runSetup({
+    root,
+    config: { profiles: { codex: { simple: { model: 'gpt-5-codex' }, normal: { model: 'gpt-5-codex' }, hard: { model: 'gpt-5-codex' } } } },
+    env: { HOME: home, OKWORK_HOME: root },
+    run: falseRun(),
+    ask,
+    locale: 'en',
+    adapters: [fakeClient('codex', ['other'])],
+  });
+  const question = questions.find((entry) => entry.startsWith('Choose a model for codex'));
+  assert.ok(question, 'the setup asks for the omitted class');
+  assert.doesNotMatch(question, /config_set/);
+});
+
 test('an invalid interactive answer is asked again', async (t) => {
   const { home, root } = await temporaryHome(t);
   const questions = [];

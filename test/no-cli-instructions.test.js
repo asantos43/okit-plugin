@@ -1,13 +1,15 @@
 // D99 slice 6a: nothing the model reads tells it to run a command of the kit.
 //
 // The model works with the MCP tools; a command of the kit is a step of the person. So every text the model reads
-// (the skills, the replies of the tools, the context of the hooks) names a tool, and names a command of the kit only
-// when it is one of the five the person may run: install, update, uninstall, setup and doctor.
+// (the skills, the replies of the tools, the context of the hooks) names a tool, names no flag of the command line,
+// and names a command of the kit only when it is one of the five the person may run: install, update, uninstall, setup
+// and doctor.
 //
 // | proof | what it holds |
-// | the skills | no command of the kit but the five, no command of their own, and every name is a tool of the server |
+// | the skills | no command of the kit but the five, no flag, no command of their own, and every name is a tool |
 // | the runtime texts | the environment, the status, the actors and the two hooks, in both languages, name no other command |
-// | the source | no string of a message table names a command of the kit but the five |
+// | the message tables | the values of every table, filled, name no command but the five and no flag |
+// | the source | the literals of the source, as a second net, name no command but the five |
 
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -17,11 +19,18 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 import { listActors } from '../src/actors.js';
+import { CONFIG_SCHEMA } from '../src/config-schema.js';
+import { DETECT_MESSAGES } from '../src/env/models.js';
+import { LABELS } from '../src/env/quota.js';
 import { environmentReport, formatEnvironmentReport } from '../src/env/report.js';
 import { runPostCompact } from '../src/hook-post-compact.js';
 import { runSessionStart } from '../src/hook-session-start.js';
+import { TEXTS } from '../src/install/present.js';
 import { TOOLS, TOOL_NAMES } from '../src/mcp/tools.js';
-import { DEFAULT_CONFIG } from '../src/profiles.js';
+import { CONFIG_MESSAGES, DEFAULT_CONFIG } from '../src/profiles.js';
+import { CONFIG_NOT_SAVED, CONFIG_UNREADABLE, SETUP_MESSAGES } from '../src/setup/setup.js';
+import { OFFER_MESSAGES } from '../src/setup/offer.js';
+import { runSetup } from '../src/setup/setup.js';
 import { statusTable } from '../src/status.js';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -37,6 +46,8 @@ const TOOL_NAMES_SET = new Set(TOOL_NAMES);
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
 // The name of a skill, as the skills mention each other.
 const SKILL_NAME = /\bokit-[a-z-]+\b/g;
+// A flag of the command line, as it is written.
+const FLAG = /--[a-z][a-z-]*/g;
 
 // The words of the commands the kit had, written down on purpose: the command line loses those commands in the next
 // slice, and no text may name them again.
@@ -46,7 +57,8 @@ const OLD_COMMANDS = new Set(['config', 'quota', 'actors', 'env', 'status', 'smo
 
 // The words that continue a sentence about the command itself ("okit-plugin removed", "the shell finds okit-plugin at
 // /path"): they are not commands, and the generic pattern of a command would say they are.
-const NOT_A_COMMAND = new Set(['failed', 'removed', 'removido', 'kept', 'mantido', 'at', 'em']);
+const NOT_A_COMMAND = new Set(['failed', 'removed', 'removido', 'kept', 'mantido', 'at', 'em', 'claude-code', 'codex',
+  'opencode']);
 
 /**
  * Whether the text names a command of the kit that the person may not run.
@@ -55,7 +67,10 @@ const NOT_A_COMMAND = new Set(['failed', 'removed', 'removido', 'kept', 'mantido
  * @returns {boolean}
  */
 function forbiddenCommand(text) {
-  return new RegExp(`(${COMMAND}|\\{command\\})\\s+(?!(?:${FIVE.join('|')})\\b)[a-z]`).test(text);
+  for (const match of text.matchAll(new RegExp(`(${COMMAND}|\\{command\\})\\s+([a-z][a-z-]*)`, 'g'))) {
+    if (isCommand(match[2])) return true;
+  }
+  return false;
 }
 
 /**
@@ -69,35 +84,45 @@ function isCommand(word) {
   return !FIVE.includes(word) && !NOT_A_COMMAND.has(word);
 }
 
+/**
+ * Whether the text names a flag of the command line. A flag inside a command the person may run is fine: the person
+ * runs `okit-plugin install --client claude-code`.
+ *
+ * @param {string} text the text a model reads
+ * @returns {boolean}
+ */
+function forbiddenFlag(text) {
+  for (const match of text.matchAll(FLAG)) {
+    const before = text.slice(0, match.index);
+    if (!new RegExp(`\\b(?:${FIVE.join('|')})\\b`).test(before)) return true;
+  }
+  return false;
+}
+
 /** The folders of the skills, in the order of the disk. */
 async function skillFolders() {
   const entries = await readdir(SKILLS_DIR, { withFileTypes: true });
   return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
 }
 
-/** The body of a skill: everything under its front matter. */
-async function skillBody(folder) {
-  const text = await readFile(join(SKILLS_DIR, folder, 'SKILL.md'), 'utf8');
-  const close = text.indexOf('\n---', 4);
-  return text.slice(close + 4);
-}
-
 // | skill | must hold | must refuse |
-// | every skill | no command but the five, no command of its own | `okit-plugin quota set`, `node .../cli.js` |
+// | every skill | no command but the five, no flag, no command of its own | `okit-plugin quota set`, `node .../cli.js` |
 // | every skill | every snake_case name is a tool of the server | a name the server does not publish |
 // | every skill | every skill it names exists | a skill that is not there |
 test('no skill tells the model to run a command of the kit', async () => {
   const folders = await skillFolders();
   assert.ok(folders.length > 0, 'the plugin ships skills');
   for (const folder of folders) {
-    const body = await skillBody(folder);
-    assert.ok(!forbiddenCommand(body), `${folder} names a command of the kit the person may not run`);
-    assert.doesNotMatch(body, /node\s+"\$\{CLAUDE_PLUGIN_ROOT\}/, `${folder} runs the cli of the plugin`);
-    assert.doesNotMatch(body, /\bnode\b[^.\n]*cli\.js/, `${folder} runs a command of its own`);
-    for (const name of new Set(body.match(SNAKE_CASE) ?? [])) {
+    // The whole file: the front matter is read by the model too.
+    const text = await readFile(join(SKILLS_DIR, folder, 'SKILL.md'), 'utf8');
+    assert.ok(!forbiddenCommand(text), `${folder} names a command of the kit the person may not run`);
+    assert.ok(!forbiddenFlag(text), `${folder} names a flag of the command line`);
+    assert.doesNotMatch(text, /node\s+"\$\{CLAUDE_PLUGIN_ROOT\}/, `${folder} runs the cli of the plugin`);
+    assert.doesNotMatch(text, /\bnode\b[^.\n]*cli\.js/, `${folder} runs a command of its own`);
+    for (const name of new Set(text.match(SNAKE_CASE) ?? [])) {
       assert.ok(TOOL_NAMES_SET.has(name), `${folder} names ${name}, which the server does not publish`);
     }
-    for (const name of new Set((body.match(SKILL_NAME) ?? []).filter((named) => named !== COMMAND))) {
+    for (const name of new Set((text.match(SKILL_NAME) ?? []).filter((named) => named !== COMMAND))) {
       assert.ok(folders.includes(name), `${folder} names ${name}, which is not a skill`);
     }
   }
@@ -190,7 +215,132 @@ test('the context of the hooks names no command of the kit', async (t) => {
     stdin: JSON.stringify({ cwd: root }), stdout }), 0);
   assert.equal(await runPostCompact({ root, stdin: JSON.stringify({ cwd: root }), stdout }), 0);
   assert.ok(output.length > 0, 'the hooks answered');
-  for (const text of output) assert.ok(!forbiddenCommand(text), `the hooks: ${text}`);
+  for (const text of output) {
+    assert.ok(!forbiddenCommand(text), `the hooks: ${text}`);
+    assert.ok(!forbiddenFlag(text), `the hooks: ${text}`);
+  }
+});
+
+// The values of the placeholders of the texts: the name of the command of the kit is the configured one.
+const VALUES = {
+  command: COMMAND, client: 'claude-code', clients: 'claude-code', class: 'normal', classes: 'simple',
+  model: 'model-a', models: 'model-a', path: '/tmp/okit', bin: '/tmp/okit/bin', where: '/tmp/okit',
+  key: 'language', value: 'pt-BR', locale: 'en', reason: 'a reason', sizes: ['S'], size: 'M', code: '1',
+  name: 'okit', shell: 'bash', found: '/tmp/okit', node: '/usr/bin/node', minimum: '20', version: '1.0.0',
+  asset: 'okit-plugin', package: 'okit-plugin', system: 'linux', arch: 'x64', languages: 'en', msg: 'a message',
+};
+
+/**
+ * The texts of a message table: every string of every locale, filled with the sample values, and the label functions
+ * called with the sample arguments.
+ *
+ * @param {object} table the table of the messages
+ * @returns {string[]} the texts of the table
+ */
+function textsOf(table) {
+  const texts = [];
+  const fill = (text) => text.replace(/\{(\w+)\}/g, (_, key) => String(VALUES[key] ?? `{${key}}`));
+  const walk = (value) => {
+    if (typeof value === 'string') { texts.push(fill(value)); return; }
+    if (typeof value === 'function') {
+      // The label functions take their arguments in their own order; the sample is a client and a command line.
+      const result = value('claude-code', `${COMMAND} setup --again`);
+      if (typeof result === 'string') texts.push(fill(result));
+      return;
+    }
+    if (Array.isArray(value)) { for (const entry of value) walk(entry); return; }
+    if (value && typeof value === 'object') { for (const entry of Object.values(value)) walk(entry); }
+  };
+  walk(table);
+  return texts;
+}
+
+// The message tables of the plugin, imported: the values are what a model reads. The texts of the installer are for the
+// person, who runs the commands of the CLI: a flag of the command line is fine there.
+// | table | whose text it is |
+// | LABELS | the model (the status, the actors and the report of the environment) |
+// | DETECT_MESSAGES | the model (the report of the environment) |
+// | SETUP_MESSAGES, CONFIG_UNREADABLE, CONFIG_NOT_SAVED | the setup, read by the person and by the model |
+// | OFFER_MESSAGES | the offer of the installer, read by the person |
+// | CONFIG_SCHEMA.messages | the model (the tool of the configuration) |
+// | CONFIG_MESSAGES, the actors, the context after the compaction | the model |
+// | TEXTS | the person (the installer and the doctor) |
+const TABLES = [
+  { table: LABELS, model: true },
+  { table: DETECT_MESSAGES, model: true },
+  { table: SETUP_MESSAGES, model: true },
+  { table: CONFIG_UNREADABLE, model: true },
+  { table: CONFIG_NOT_SAVED, model: true },
+  { table: OFFER_MESSAGES, model: true },
+  { table: CONFIG_SCHEMA.messages, model: true },
+  { table: CONFIG_MESSAGES, model: true },
+  { table: DEFAULT_CONFIG.actors.messages, model: true },
+  { table: DEFAULT_CONFIG.postCompact.text, model: true },
+  { table: TEXTS, model: false },
+];
+
+// | the table | must hold | must refuse |
+// | every message table | no command of the kit but the five | `okit-plugin quota set`, `{command} autostart install` |
+// | the tables the model reads | no flag of the command line | `use --client <name>` |
+test('no message table names a command of the kit the person may not run', () => {
+  for (const { table, model } of TABLES) {
+    const texts = textsOf(table);
+    assert.ok(texts.length > 0, 'the table has texts');
+    for (const text of texts) {
+      assert.ok(!forbiddenCommand(text), `the table names a command of the kit: ${text}`);
+      if (model) assert.ok(!forbiddenFlag(text), `the table names a flag of the command line: ${text}`);
+    }
+  }
+});
+
+// The tools the setup's output may name: every one of them is a tool of the assistant.
+const TOOL_NAME = /\b(?:quota_set|config_set|config_get|quota_show|env_report|smoke_demo|daemon|actors_list)\b/;
+
+// | the output of the setup | must hold | must refuse |
+// | every message that names a tool | it says the assistant calls it | "Call `quota_set`" without who calls it |
+test('the output of the setup asks the assistant for the tool it names', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'okit-no-cli-setup-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, 'config.json'), '{}');
+  const adapter = { CLIENT: 'claude-code', listModels: async () => ({ client: 'claude-code', installed: true,
+    models: ['haiku'], hidden: [], source: 'listing' }) };
+  for (const [locale, asked] of [['en', 'assistant'], ['pt-BR', 'assistente']]) {
+    let questions = 0;
+    const result = await runSetup({ root, locale, adapters: [adapter],
+      // The question of the model takes the model; the confirmation of what is saved takes the yes.
+      ask: async (question) => {
+        questions += 1;
+        return /^(Choose a model|Escolha um modelo)/.test(question) ? 'haiku' : 'yes';
+      },
+      readQuota: async () => ({ source: 'off' }), run: async () => ({ code: 0, stdout: '' }),
+      env: { HOME: root, USERPROFILE: root } });
+    const messages = result.messages ?? [];
+    assert.ok(messages.length > 0, `the setup says something (${locale})`);
+    for (const message of messages) {
+      if (!TOOL_NAME.test(message)) continue;
+      assert.ok(message.includes(asked), `the setup names a tool without saying who calls it (${locale}): ${message}`);
+    }
+  }
+});
+
+// | the omitted class of the setup | must hold | must refuse |
+// | no model chosen (defaults) | it asks the assistant to call `config_set` with the key | "call `config_set`" without who calls it |
+test('the message of an omitted model asks the assistant for the tool', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'okit-no-cli-omitted-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const adapter = { CLIENT: 'claude-code', listModels: async () => ({ client: 'claude-code', installed: true,
+    models: ['haiku'], hidden: [], source: 'listing' }) };
+  for (const [locale, asked, key] of [['en', 'ask your assistant to call `config_set`', 'profiles.claude-code.simple.model'],
+    ['pt-BR', 'peça ao seu assistente para chamar `config_set`', 'profiles.claude-code.simple.model']]) {
+    const result = await runSetup({ root, locale, defaults: true, adapters: [adapter],
+      config: { profiles: { 'claude-code': { simple: { model: 'gone-model' } } } },
+      readQuota: async () => ({ source: 'off' }), run: async () => ({ code: 0, stdout: '' }),
+      env: { HOME: root, USERPROFILE: root } });
+    const message = (result.messages ?? []).find((entry) => entry.includes('config_set'));
+    assert.ok(message, `the setup says how to choose the omitted model (${locale})`);
+    assert.ok(message.includes(asked), `the message does not ask the assistant (${locale}): ${message}`);
+    assert.ok(message.includes(key), `the message does not name the key (${locale}): ${message}`);
+  }
 });
 
 /**
@@ -239,18 +389,25 @@ function codeOf(source) {
   return out;
 }
 
-// The files whose strings name a command of the kit that the person may not run, and why.
-// | file | why |
-// | src/autostart.js | the unit of the machine starts the daemon; it is a file of the system, not a text the model reads |
-// | src/smoke.js | every line of the smoke carries the name of the command that is running; it is a label, not an instruction |
+// The literals of the source that name a command of the kit, and why they may. The exemption is exact: the literal
+// has to be there, and a new forbidden literal of the same file is still refused.
+// | file | literal | why |
+// | src/autostart.js | Description=${command} daemon | the unit of the machine starts the daemon; it is a file of the system, not a text the model reads |
+// | src/smoke.js | {command} smoke: ${message} | every line of the smoke carries the name of the command that is running; it is a label, not an instruction |
+// | src/smoke.js | {command} smoke uses a scratch home unless --real is given | the help of the smoke command of the person |
 const ALLOWED = new Map([
-  ['src/autostart.js', 'the unit of the machine starts the daemon; it is a file of the system, not a text the model reads'],
-  ['src/smoke.js', 'every line of the smoke carries the name of the command that is running; it is a label, not an instruction'],
+  ['src/autostart.js', new Map([
+    ['Description=${command} daemon', 'the unit of the machine starts the daemon; it is a file of the system, not a text the model reads'],
+  ])],
+  ['src/smoke.js', new Map([
+    ['${command} smoke: ${message}', 'every line of the smoke carries the name of the command that is running; it is a label, not an instruction'],
+    ['OKWORK_HOME is set; ${command} smoke uses a scratch home unless --real is given', 'the refusal of the smoke command of the person: it names the command that is running'],
+  ])],
 ]);
 
 // | the source | must hold | must refuse |
-// | every message table | no command of the kit but the five | `okit-plugin quota set`, `{command} autostart install` |
-test('no message table of the source names a command of the kit the person may not run', async () => {
+// | every literal | no command of the kit but the five | `okit-plugin quota set`, `{command} autostart install` |
+test('no literal of the source names a command of the kit the person may not run', async () => {
   const files = [];
   const walk = async (folder) => {
     for (const entry of await readdir(folder, { withFileTypes: true })) {
@@ -268,23 +425,29 @@ test('no message table of the source names a command of the kit the person may n
     const source = await readFile(path, 'utf8');
     const literals = [...codeOf(source).matchAll(/'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)]
       .map((match) => match[1] ?? match[2] ?? match[3]);
-    const commands = [];
+    const exempt = ALLOWED.get(name) ?? new Map();
     for (const literal of literals) {
+      if (exempt.has(literal)) {
+        assert.ok(exempt.get(literal).length > 0, `${name}: the exemption of ${literal} has no reason`);
+        continue;
+      }
       // The name of the command and the word that follows it: the word is a command when it is one of the old ones or
       // when it is not a word of a sentence about the command itself.
       for (const match of literal.matchAll(new RegExp(`(${COMMAND}|\\{command\\})\\s+([a-z][a-z-]*)`, 'g'))) {
-        if (isCommand(match[2])) commands.push(match[2]);
+        assert.ok(!isCommand(match[2]), `${name} names the command ${match[2]}: ${literal}`);
       }
-      // A backticked phrase of two words: the first one is the verb of a command of the kit (`config unset`). The
-      // commands of the clients (`claude plugin install ...`) are not commands of the kit.
+      // A backticked phrase of two words: the first one is the verb of a command of the kit (`config unset`). The commands
+      // of the clients (`claude plugin install ...`) are not commands of the kit.
       for (const match of literal.matchAll(/`([a-z][a-z-]*) ([^`]+)`/g)) {
-        if (OLD_COMMANDS.has(match[1])) commands.push(match[1]);
+        assert.ok(!OLD_COMMANDS.has(match[1]), `${name} names the command ${match[1]}: ${literal}`);
+      }
+      // A flag of the command line, in a literal that names the command of the kit.
+      if (new RegExp(`(${COMMAND}|\\{command\\})`).test(literal)) {
+        assert.ok(!forbiddenFlag(literal), `${name} names a flag of the command line: ${literal}`);
       }
     }
-    if (ALLOWED.has(name)) {
-      assert.ok(commands.length > 0, `${name} is allow-listed for a reason it no longer has`);
-      continue;
+    for (const literal of exempt.keys()) {
+      assert.ok(literals.includes(literal), `${name}: the exemption of ${literal} is not there any more`);
     }
-    assert.deepEqual(commands, [], `${name} names a command of the kit the person may not run`);
   }
 });
