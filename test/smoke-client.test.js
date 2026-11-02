@@ -12,6 +12,7 @@ import { clientRequest, invokeClient, invokeCodex, invokeOpenCode, runClientSmok
 import { localizeReason } from '../src/install/present.js';
 import { smokeDemo } from '../src/smoke/demo/entry.js';
 import { clientEnv } from './helpers/env.js';
+import { callTool } from './helpers/tools.js';
 import { collectStatusline } from '../src/quota/statusline-collector.js';
 import { adapterQuotaReader } from '../src/status.js';
 import { configOf } from '../src/profiles.js';
@@ -302,8 +303,7 @@ test('quota set unblocks smoke and the recorded floor still refuses', async (t) 
   await rm(join(f.root, 'quota/claude-code.json'));
   assert.equal((await runClientSmoke([], f.io)).reason, 'quota-unknown');
   for (const [pct, code] of [[80, 0], [5, 2]]) {
-    assert.equal(await main(['quota', 'set', 'claude-code', String(pct)],
-      { ...f.io, stdout: f.io.out }), 0);
+    await callTool('quota_set', { client: 'claude-code', pct }, { root: f.io.root, env: f.io.env, now: f.io.now });
     const result = await runClientSmoke([], f.io);
     assert.equal(result.code, code, JSON.stringify(result.records.filter((entry) => entry.status === 'fail')));
     if (code === 2) assert.equal(result.reason, 'quota-below-floor');
@@ -313,7 +313,7 @@ test('quota set unblocks smoke and the recorded floor still refuses', async (t) 
 test('configured quota age warns, expires, and honors explicit opt-in', async (t) => {
   const f = await fixture(t, { smoke: { quotaMaxAgeMinutes: 2, quotaExpireMinutes: 4 } });
   const recorded = Date.now();
-  await main(['quota', 'set', 'claude-code', '80'], { ...f.io, now: () => recorded, stdout: f.io.out });
+  await callTool('quota_set', { client: 'claude-code', pct: 80 }, { root: f.io.root, env: f.io.env, now: () => recorded });
   const io = { ...f.io, now: () => recorded + 3 * 60_000 };
   const warned = await runClientSmoke([], io);
   assert.equal(warned.code, 0, JSON.stringify(warned.records.filter((entry) => entry.status === 'fail')));
@@ -430,16 +430,15 @@ test('rehearsal and dry run walk SCENARIO and expose configured maximum without 
   }
 });
 
-test('CLI rejects unknown flags, clients, ids and invalid budgets with code 2', async (t) => {
+test('the client smoke refuses unknown flags, clients, ids and invalid budgets with code 2', async (t) => {
   const f = await fixture(t);
   for (const args of [['--wat'], ['--client', 'unknown'], ['--only', 'I1'], ['--max-usd=-1'],
     ['--max-turns=1.5'], ['--timeout=no'], ['--only']]) {
-    assert.equal(await main(['client-smoke', ...args], { ...f.io, client: undefined,
-      stdout: f.io.out, stderr: f.io.err }), 2);
+    const run = await runClientSmoke(args, { ...f.io, client: undefined, stdout: f.io.out, stderr: f.io.err });
+    assert.equal(run.code, 2, args.join(' '));
   }
   assert.equal(f.calls.length, 0);
-  assert.equal(await main(['client-smoke', '--help'], { stdout: f.io.out }), 0);
-  assert.equal(await main(['client-smoke', '--rehearsal'], { ...f.io, stdout: f.io.out }), 0);
+  assert.equal((await runClientSmoke(['--rehearsal'], { ...f.io, stdout: f.io.out })).code, 0);
 });
 
 test('skipping installation is unproven; missing configuration says incomplete', async (t) => {
@@ -1109,8 +1108,9 @@ test('built-in driver accepts Codex and OpenCode offline selections', async (t) 
     assert.equal(result.code, 0, client);
     assert.ok(!f.lines.some((line) => line.includes('Unknown client')), client);
     assert.equal(f.calls.length, 0, client);
-    assert.equal(await main(['smoke', '--client', client, '--dry-run'], { ...f.io,
-      client: undefined, spawn: () => assert.fail('must not spawn'), stdout: f.io.out, stderr: f.io.err }), 0);
+    const preview = await runClientSmoke(['--client', client, '--dry-run'], { ...f.io,
+      client: undefined, spawn: () => assert.fail('must not spawn'), stdout: f.io.out, stderr: f.io.err });
+    assert.equal(preview.code, 0);
   }
 });
 
@@ -1124,12 +1124,12 @@ test('injected driver still refuses an unknown client name', async (t) => {
   assert.equal(called, false);
 });
 
-test('CLI headless passes and failures return 0 and 1 with the injected client', async (t) => {
+test('the headless pass returns 0 and a failure returns 1 with the injected client', async (t) => {
   const f = await fixture(t);
-  assert.equal(await main(['client-smoke', '--headless'], { ...f.io, stdout: f.io.out, stderr: f.io.err }), 0);
+  assert.equal((await runClientSmoke(['--headless'], { ...f.io, stdout: f.io.out, stderr: f.io.err })).code, 0);
   const bad = await fixture(t, { respond: async ({ step }) => step.id === 'C6'
     ? { events: [{ type: 'result', is_error: true, subtype: 'error_during_execution', total_cost_usd: 0 }] } : null });
-  assert.equal(await main(['client-smoke'], { ...bad.io, stdout: bad.io.out, stderr: bad.io.err }), 1);
+  assert.equal((await runClientSmoke([], { ...bad.io, stdout: bad.io.out, stderr: bad.io.err })).code, 1);
 });
 
 test('the daemon preparation refuses foreign pending work and keeps it intact', async (t) => {
@@ -1196,13 +1196,11 @@ test('a timeout on the last allowed step stops with timeout, not smoke.maxTurns'
   assert.ok(f.lines.some((line) => line === 'ceiling: timeout'));
 });
 
-test('the usage text keeps --real away from the --client forms', async (t) => {
+test('the client smoke refuses the flags of the commands that are gone', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'okit-usage-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const lines = [];
-  assert.equal(await main(['client-smoke', '--help'], { root,
-    stdout: (line) => lines.push(line), stderr: (line) => lines.push(line) }), 0);
-  const usage = lines.join('\n').split('\n');
-  assert.ok(usage.some((line) => line.includes('smoke [--real]')));
-  assert.ok(usage.every((line) => !(line.includes('--client') && line.includes('--real'))));
+  for (const flag of ['--real', '--keep', '--timeout=1000']) {
+    const run = await runClientSmoke([flag], { root, stdout: () => {}, stderr: () => {} });
+    assert.equal(run.code, 2, flag);
+  }
 });

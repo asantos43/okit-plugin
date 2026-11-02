@@ -488,7 +488,7 @@ test('static import scan corpus: must pass declarations / must refuse other text
   for (const [source, expected] of cases) assert.deepEqual(staticRelativeImports(source), expected);
 });
 
-test('all eighteen extracted payloads run status and resolve every static source import', async () => {
+test('all eighteen extracted payloads run the daemon pass and resolve every static source import', async () => {
   const config = releaseConfig();
   const out = await temp('all-payloads');
   const result = await buildRelease({ root: REPO, out, env: { SOURCE_DATE_EPOCH: EPOCH } });
@@ -514,14 +514,14 @@ test('all eighteen extracted payloads run status and resolve every static source
         assert.ok((await stat(target)).isFile(), `${artifact.file}: ${source} -> ${specifier}`);
       }
     }
-    const run = spawnSync(process.execPath, [join(extracted, 'src/cli.js'), 'status'], {
+    const run = spawnSync(process.execPath, [join(extracted, 'src/cli.js'), 'daemon', 'run-once'], {
       cwd: extracted, env: { ...process.env, OKWORK_HOME: await temp('status-state') },
       timeout: 15000, encoding: 'utf8',
     });
     assert.ifError(run.error);
     assert.doesNotMatch(run.stderr, /ERR_MODULE_NOT_FOUND/, artifact.file);
     assert.equal(run.status, 0, `${artifact.file}: ${run.stderr}`);
-    assert.match(run.stdout, /executors that can launch now:/, artifact.file);
+    assert.match(run.stdout, /opened: 0/, artifact.file);
   }
 });
 
@@ -913,4 +913,36 @@ test('the arm64 and the x64 archive of a client and system are the same entries 
       assert.ok(x64.bytes.equals(arm64.bytes), `${client} ${system}: the archives are the same file`);
     }
   }
+});
+
+// D99: the release checklist tells the maintainer to run `npm run smoke` against the installed
+// candidate, so the payload carries the runner and the command runs from the extracted payload.
+test('the payload carries the smoke runners and the runner works from the extracted payload', async () => {
+  const out = await temp('smoke-payload');
+  const result = await buildRelease({
+    root: REPO, out, client: 'claude-code', system: 'linux', arch: 'x64', env: { SOURCE_DATE_EPOCH: EPOCH },
+  });
+  const artifact = result.built.find((item) => item.file.endsWith('.tar.gz'));
+  const entries = readTar(untarSync(await readFile(join(out, artifact.file))));
+  const paths = entries.map((entry) => entry.path);
+  assert.ok(paths.includes('scripts/smoke.js'), 'the smoke runner is in the payload');
+  assert.ok(paths.includes('scripts/client-smoke.js'), 'the client smoke runner is in the payload');
+
+  const extracted = await temp('smoke-extracted');
+  for (const entry of entries) {
+    const destination = join(extracted, entry.path);
+    await mkdir(dirname(destination), { recursive: true });
+    await writeFile(destination, entry.data);
+  }
+  const home = await temp('smoke-home');
+  const scratch = await temp('smoke-tmp');
+  const env = { ...process.env, HOME: home, USERPROFILE: home, TMPDIR: scratch, TEMP: scratch, TMP: scratch };
+  // A state root of the caller is a refusal without `--real`: the run builds its own scratch home.
+  delete env.OKWORK_HOME;
+  const run = spawnSync(process.execPath, [join(extracted, 'scripts', 'smoke.js'), '--only', 'I1'], {
+    cwd: extracted, env, input: '', timeout: 20000, encoding: 'utf8',
+  });
+  assert.ifError(run.error);
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /^pass I1 /m);
 });

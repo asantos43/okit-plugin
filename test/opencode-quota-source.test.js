@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { readQuota } from '../adapters/opencode/index.js';
 import { readOpencodeSource } from '../adapters/opencode/quota-source.js';
 import { DEFAULT_CONFIG, configOf } from '../src/profiles.js';
-import { main } from '../src/cli.js';
+import { callTool } from './helpers/tools.js';
 import { statusTable } from '../src/status.js';
 import { writeJsonAtomic } from '../src/state.js';
 
@@ -167,10 +167,11 @@ test('quota show and status display automatic source, age and provider in both l
   const { root, file, opts } = await fixture(t);
   const config = { configuredClients: ['opencode'], opencodeQuota: { sources: { example: { file } } } };
   await writeJsonAtomic(join(root, 'config.json'), config);
-  const output = [];
-  assert.equal(await main(['quota', 'show', 'opencode'], { root, env: opts.env, now: opts.now,
-    stdout: (line) => output.push(line) }), 0);
-  assert.match(output.join('\n'), /automatic.*1 minute ago.*provider: example.*automática.*há 1 minuto.*provedor: example/);
+  const shown = await callTool('quota_show', { client: 'opencode' }, { root, env: opts.env, now: opts.now });
+  const [reading] = shown.clients;
+  assert.equal(reading.reading.source, 'automatic');
+  assert.equal(reading.reading.provider, 'example');
+  assert.equal(reading.reading.ageMinutes, 1);
   for (const locale of ['en', 'pt-BR']) {
     const { adapterQuotaReader } = await import('../src/status.js');
     const report = await statusTable(root, { config, clients: ['opencode'], locale, now: opts.now,

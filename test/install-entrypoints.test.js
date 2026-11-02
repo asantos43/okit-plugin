@@ -10,7 +10,7 @@ import { embeddedPresenter, scriptDefaults } from '../src/release/install-script
 import { fixture } from './helpers/install-fixture.js';
 
 // The invariants of the installer, asked of every ENTRY POINT and not of one call site. An entry point is a way in:
-// install, update, uninstall, setup, kit, and the bootstrap script the release carries. A language source is a way
+// install, update, uninstall, setup, doctor, and the bootstrap script the release carries. A language source is a way
 // to say which language: --locale, OKIT_LANGUAGE, the saved language, an invalid saved language, nothing.
 //
 // Must pass / must refuse:
@@ -42,7 +42,6 @@ const ENTRY_POINTS = [
   { name: 'update', good: ['update'], prepare: async (f) => { await main(['install', '--client', 'claude-code', '--locale', 'en'], f.io); } },
   { name: 'uninstall', good: ['uninstall'], prepare: async (f) => { await main(['install', '--client', 'claude-code', '--locale', 'en'], f.io); } },
   { name: 'setup', good: ['setup', '--defaults'], prepare: async () => {} },
-  { name: 'kit', good: ['kit'], prepare: async () => {} },
 ];
 
 /** The language(s) a text speaks: `['en']`, `['pt-BR']`, both, or none. */
@@ -291,7 +290,7 @@ test('I9: a saved language that is not one is exit 2 in the standalone setup', a
 // Round 12: help, status, the wrapper and the exit codes, asked of every language source, not of one example.
 
 const HELP_LINES = [['--help'], ['-h'], ['setup', '--help'], ['install', '--help'], ['update', '-h'], ['uninstall', '--help'],
-  ['kit', '--help'], ['status', '--help'], ['doctor', '--help'], ['daemon', '--help'], ['config', '--help']];
+  ['doctor', '--help']];
 // What only one language's usage text says: its head, the default of --locale, the state-root line and the advice.
 const USAGE_WORDS = {
   en: { has: [/^usage: /m, /— default: language/, /OKWORK_HOME names the state root/, /Choose the language once/], not: /\buso:|padrão|OKWORK_HOME indica|Escolha o idioma/ },
@@ -320,50 +319,20 @@ test('help with a --locale that is not a language is refused in one language, ex
   }
 });
 
-/** The facts `status` prints that only one language prints, with the one it must not print. */
-const STATUS_WORDS = {
-  en: { has: [/Open a new terminal and the command will work there/, /kit: absent/, /Setup is not done/], not: /Abra um terminal|kit: ausente|O setup ainda|Nenhum valor|Assinatura/ },
-  'pt-BR': { has: [/Abra um terminal novo e o comando funcionará lá/, /kit: ausente/, /O setup ainda não foi feito/], not: /Open a new terminal|kit: absent|Setup is not done|No quota value|Subscription/ },
-};
-
-for (const source of SOURCES) {
-  test(`status with ${source.name}: one language in every line, the activation hint and the kit line included`, async (t) => {
-    const f = await ready(t, noEntry, source);
-    f.io.env = { ...f.io.env, PATH: '' };
-    const code = await main(['status', ...(source.args ?? [])], f.io);
-    const text = f.output.join('\n');
-    if (source.invalid) {
-      assert.equal(code, 2, text);
-      assert.deepEqual(speaks(text), [source.expected], text);
-      return;
-    }
-    assert.equal(code, 0, text);
-    for (const pattern of STATUS_WORDS[source.expected].has) assert.match(text, pattern, `status is not in ${source.expected}:\n${text}`);
-    assert.doesNotMatch(text, STATUS_WORDS[source.expected].not, `status mixes languages:\n${text}`);
-    for (const line of f.output) assert.ok(!/ \/ (Abra|Para usar|Open|To use)/.test(line), `a bilingual line: ${line}`);
-  });
-}
-
-test('status refuses an unknown flag and an unknown client in the language of the run', async (t) => {
-  for (const source of [SOURCES[0], SOURCES[2], SOURCES[4]]) {
-    for (const flags of [['--unknown'], ['--client', 'nobody'], ['--client']]) {
-      const f = await ready(t, noEntry, source);
-      assert.equal(await main(['status', ...flags, ...(source.args ?? [])], f.io), 2, f.output.join('\n'));
-      assert.deepEqual(speaks(f.output.join('\n')), [source.expected], f.output.join('\n'));
-    }
-  }
-});
-
 const SECRET_HINT = 'https://audit-user:audit-secret@example.invalid/install?audit-query=yes#audit-fragment';
 
-for (const command of ['status', 'kit']) {
+for (const command of ['install', 'update']) {
   for (const locale of LOCALES) {
     test(`${command} (${locale}): a kit hint with credentials, a query and a fragment is shown without them`, async (t) => {
       const f = await fixture(t);
-      f.io.env = { ...f.io.env, PATH: '' };
+      if (command === 'update') {
+        assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0);
+        f.setVersion('2.0.0');
+        f.clear();
+      }
       const install = { ...f.io.config, kit: { ...f.io.config.kit, hint: SECRET_HINT } };
       await fs.writeFile(join(f.root, 'config.json'), JSON.stringify({ install, language: locale }));
-      await main([command], f.io);
+      await main([command, ...(command === 'install' ? ['--client', 'claude-code'] : [])], f.io);
       const text = f.output.join('\n');
       assert.match(text, /example\.invalid\/install/, text);
       assert.doesNotMatch(text, /audit-secret|audit-user|audit-query|audit-fragment/, text);
@@ -371,12 +340,12 @@ for (const command of ['status', 'kit']) {
   }
 }
 
-test('status and kit with a bilingual kit hint show the half of the language of the run, redacted', async (t) => {
+test('install with a bilingual kit hint shows the half of the language of the run, redacted', async (t) => {
   for (const locale of LOCALES) {
     const f = await fixture(t);
     const install = { ...f.io.config, kit: { ...f.io.config.kit, hint: 'Read https://a:b@one.invalid/x?q=1#f / Leia https://a:b@two.invalid/y?q=2#g' } };
     await fs.writeFile(join(f.root, 'config.json'), JSON.stringify({ install, language: locale }));
-    await main(['status'], f.io);
+    await main(['install', '--client', 'claude-code'], f.io);
     const text = f.output.join('\n');
     assert.match(text, locale === 'en' ? /one\.invalid\/x/ : /two\.invalid\/y/, text);
     assert.doesNotMatch(text, locale === 'en' ? /two\.invalid|Leia/ : /one\.invalid|Read https/, text);
@@ -442,7 +411,6 @@ test('F5: the installed command and the script agree: exit 0 for success and dry
   assert.equal(await main(['install', '--client', 'claude-code', '--dry-run'], f.io), 0, f.output.join('\n'));
   assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
   assert.equal(await main(['install', '--unknown'], f.io), 2);
-  assert.equal(await main(['kit', '--require'], { ...f.io, env: { ...f.io.env, PATH: '' } }), 1);
   const down = await fixture(t);
   down.io.fetch = async () => { throw new Error('network is down'); };
   assert.equal(await main(['install', '--client', 'claude-code'], down.io), 1, down.output.join('\n'));

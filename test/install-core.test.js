@@ -315,8 +315,8 @@ test('managed PATH resolves and executes skill command, repeats and rolls back w
   assert.equal(await fs.readFile(profile, 'utf8'), installed);
   const record = await readRecord(f.destination, 'codex', fs);
   await fs.writeFile(join(record.path, record.bin), `#!${process.execPath}\nrequire('node:fs').writeSync(1, process.argv.slice(2).join(' ')+'\\n');\n`, { mode: 0o755 });
-  const result = await execute('/bin/sh', ['-ec', '. "$1"; . "$1"; command -v okit-plugin; okit-plugin client-smoke --dry-run; printf "%s" "$PATH"', 'sh', profile], { env: { HOME: f.home, PATH: '' } });
-  assert.equal(result.stdout, `${join(f.bin, 'okit-plugin')}\nclient-smoke --dry-run\n${f.bin}`);
+  const result = await execute('/bin/sh', ['-ec', '. "$1"; . "$1"; command -v okit-plugin; okit-plugin doctor; printf "%s" "$PATH"', 'sh', profile], { env: { HOME: f.home, PATH: '' } });
+  assert.equal(result.stdout, `${join(f.bin, 'okit-plugin')}\ndoctor\n${f.bin}`);
   assert.ok(f.output.some((line) => /Command and PATH\s+ok\s+okit-plugin {2}\(PATH set in /.test(line)), f.output.join('\n'));
   assert.ok(!f.output.some((line) => line.includes('PATH check')), 'the raw PATH check is for --verbose');
 });
@@ -482,6 +482,11 @@ async function fixture(t) {
   const payload = () => tarGz([
     { path: 'package.json', mode: 0o644, data: JSON.stringify({ ...pkg, version }) },
     { path: 'src/cli.js', mode: 0o755, data: '#!/usr/bin/env node\n' },
+    { path: 'src/smoke.js', mode: 0o644, data: `exports.runSmoke = async function (args, io) {
+      if (args.length || io.env.OKWORK_HOME) throw new Error('Smoke must use a scratch home');
+      io.out('proof from the activated payload');
+      return { code: 0, records: [{ status: 'pass' }] };
+    }` },
     // The payload of the MCP server and the probe of the check: the installer writes them, and the check reads them.
     { path: 'src/mcp/server.js', mode: 0o644, data: '// fake MCP server\n' },
     { path: 'src/mcp/selfcheck-probe.js', mode: 0o644, data: '// fake probe of the check\n' },
@@ -1359,4 +1364,16 @@ test('snapshot includes records named by legacy clients and custom record templa
   files.set('records/record-codex.json', 'changed');
   assert.deepEqual(await restoreRecords(snapshot, fake), []);
   assert.deepEqual(files, before);
+});
+
+
+test('update imports the offline smoke runner from the activated payload', async (t) => {
+  const f = await fixture(t);
+  assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
+  f.setVersion('2.0.0');
+  f.io.env.OKWORK_HOME = f.root;
+  delete f.io.smoke;
+  assert.equal(await main(['update', '--verbose'], f.io), 0, f.output.join('\n'));
+  assert.ok(f.output.some((line) => line.includes('proof from the activated payload')));
+  assert.ok(!f.commands.some(({ args }) => args?.includes('smoke')));
 });

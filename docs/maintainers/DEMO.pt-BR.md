@@ -20,7 +20,7 @@ Contratos da demonstração descartável para execução isolada, revisão, orç
 <a id="section-1"></a>
 ## 1. Scope and history
 - 2026-10-26: desenho, motor isolado e entrada do usuário concluídos. A execução paga recusa sem medição de uso e teto de custo comprovados.
-A demonstração permite ao Diretor ler trabalho sintético, escolher atores, executar trabalhos independentes juntos, pedir crítica e devolver o que foi rejeitado para correção. Tudo descrito como proposto ou a fazer não está implementado. O `client-smoke --demo` atual narra C1–C23; ele não implementa esta orquestração.
+A demonstração permite ao Diretor ler trabalho sintético, escolher atores, executar trabalhos independentes juntos, pedir crítica e devolver o que foi rejeitado para correção. Tudo descrito como proposto ou a fazer não está implementado. O `npm run client-smoke -- --demo` atual narra C1–C23; ele não implementa esta orquestração.
 As verificações rápidas offline e os testes C1–C23 com injeção continuam inalterados. C1–C23 executados por um cliente real já são verificações pagas, não offline. A demonstração atualmente executa somente com ajudantes de teste fornecidos, sem cliente, rede ou cota; a execução paga continua indisponível.
 <a id="section-2"></a>
 ## 2. Disposable scenario

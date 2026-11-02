@@ -2,64 +2,43 @@
 
 ![okit-plugin: Componentes](../images/banners/components.svg)
 
-`--locale` é opcional em todos os comandos que o oferecem. Usa `language` (padrão: `en`); configure português uma vez com `okit-plugin config set language pt-BR`. Um `--locale en` ou `--locale pt-BR` explícito substitui a escolha salva apenas naquela chamada.
+A pessoa usa cinco comandos no terminal para instalar, manter e diagnosticar o plugin.
 
-Use okit-plugin no terminal para consultar e controlar o plugin.
+`--locale` é opcional onde oferecido. Usa `language` (padrão: `en`); peça ao assistente para chamar `config_set` com `key: "language"` e `value: "pt-BR"` para salvar português. Um `--locale en` ou `--locale pt-BR` explícito substitui a escolha salva apenas naquela chamada.
 
 <a id="commands"></a>
 ## Comandos
 
-Cada linha mostra o comando e um exemplo; substitua <id> pelo identificador retornado pela fila. --help mostra opções; instalação pode alterar o nome por install.command.
+`--help` mostra opções; a instalação pode alterar o nome do comando por `install.command`.
 
 | Comando | Propósito | Exemplo |
 | :- | :- | :- |
 | `okit-plugin install` | Instala payload e registra cliente | `okit-plugin install --client codex --dry-run` |
 | `okit-plugin update` | Confere, troca ou reverte instalação registrada | `okit-plugin update --client codex --check` |
 | `okit-plugin uninstall` | Remove instalação registrada; preserva estado por padrão | `okit-plugin uninstall --client codex --dry-run` |
-| `okit-plugin setup` | Propõe modelos e salva após confirmação | `okit-plugin setup` |
-| `okit-plugin env report` | Consulta cliente, modelos, cota, pastas e soluções | `okit-plugin env report` |
-| `okit-plugin actors` | Consulta opções de modelo/esforço | `okit-plugin actors --all --json` |
-| `okit-plugin status` | Consulta cota e vagas livres | `okit-plugin status --all` |
-| `okit-plugin doctor` | Diagnostica a instalação (Node, registro do MCP, autoverificação, arquivos de estado, sessão, início automático, daemon) com uma linha de correção por falha; só lê | `okit-plugin doctor --client codex` |
-| `okit-plugin config show` | Mostra ajustes efetivos, origem e efeito | `okit-plugin config show` |
-| `okit-plugin config get` | Lê um ajuste | `okit-plugin config get limits.global` |
-| `okit-plugin config set` | Valida e salva um ajuste permitido | `okit-plugin config set limits.global 3` |
-| `okit-plugin config unset` | Remove sobrescrita e restaura padrão | `okit-plugin config unset limits.global` |
-| `okit-plugin quota show` | Consulta cota automática/manual e idade | `okit-plugin quota show codex` |
-| `okit-plugin quota set` | Registra percentual restante informado pela pessoa | `okit-plugin quota set codex 60` |
-| `okit-plugin inbox list` | Lista trabalho e posse | `okit-plugin inbox list` |
-| `okit-plugin inbox take` | Assume trabalho; tomada humana exige confirmação | `okit-plugin inbox take <id> --client codex` |
-| `okit-plugin inbox release` | Libera trabalho próprio ou obsoleto | `okit-plugin inbox release <id> --client codex` |
-| `okit-plugin todo sync` | Sincroniza listas de tarefas configuradas por projeto | `okit-plugin todo sync --dry-run --project /projects/example` |
-| `okit-plugin todo check` | Lista trabalhos sem tarefas e tarefas sem trabalho | `okit-plugin todo check --project /projects/example` |
-| `okit-plugin kit` | Detecta orchestration-kit sem instalar | `okit-plugin kit --require` |
-| `okit-plugin daemon start` | Executa loop do daemon em primeiro plano | `okit-plugin daemon start` |
-| `okit-plugin daemon stop` | Solicita término pelo arquivo de parada | `okit-plugin daemon stop` |
-| `okit-plugin daemon status` | Mostra PID, pausa e última passagem | `okit-plugin daemon status --table` |
-| `okit-plugin daemon pause` | Pausa trabalho novo e mantém loop ativo | `okit-plugin daemon pause` |
-| `okit-plugin daemon resume` | Retira marcador de pausa | `okit-plugin daemon resume` |
-| `okit-plugin daemon run-once` | Processa uma passagem e retorna decisões | `okit-plugin daemon run-once` |
-| `okit-plugin autostart show` | Consulta plano de inicialização da plataforma | `okit-plugin autostart show --kind systemd` |
-| `okit-plugin autostart install` | Aplica plano de inicialização | `okit-plugin autostart install --kind systemd` |
-| `okit-plugin autostart uninstall` | Remove registro de inicialização | `okit-plugin autostart uninstall --kind systemd` |
-| `okit-plugin hook session-start` | Entrada interna que o cliente inicia; devolve contexto nativo de papel com JSON no stdin | `okit-plugin hook session-start` |
-| `okit-plugin hook post-compact` | Entrada interna que o cliente inicia; devolve resumo limitado de restauração com JSON no stdin | `okit-plugin hook post-compact` |
-| `okit-plugin statusline-collector` | Entrada interna que o cliente inicia; coleta cota do JSON no stdin e encadeia barra anterior | `okit-plugin statusline-collector` |
-| `okit-plugin smoke` | Executa verificações offline isoladas em estado temporário | `okit-plugin smoke` |
-| `okit-plugin client-smoke` | Executa cenário no cliente ou prévia/ensaio offline | `okit-plugin client-smoke --client claude-code --dry-run` |
-| `okit-plugin smoke-demo` | Mostra prévia; com --confirm e o hash da prévia executa o cliente real e gasta cota dentro dos tetos mostrados | `okit-plugin smoke-demo --dry-run --json` |
+| `okit-plugin setup` | Propõe modelos e salva após confirmação | `okit-plugin setup --again` |
+| `okit-plugin doctor` | Diagnostica a instalação; só lê, com correção por falha | `okit-plugin doctor --client codex` |
 
-| `okit-plugin telemetry` | Medições opcionais de uso | `okit-plugin telemetry status` |
-| `okit-plugin trajectory` | Lê ou ativa gravações locais de execuções | `okit-plugin trajectory status` |
+## Entradas internas
 
-Use `okit-plugin telemetry status`, `okit-plugin telemetry on`, `okit-plugin telemetry off`, `okit-plugin telemetry rede on` / `okit-plugin telemetry rede off`, `okit-plugin telemetry export [--since ISO]` e `okit-plugin telemetry check`. Gravação e envio exigem escolhas separadas.
+A pessoa não executa estas: elas ficam fora de `--help`. O cliente inicia o coletor e os hooks (veja [hooks](hooks.pt-BR.md)); a unidade de inicialização automática, o instalador e os checks smoke offline iniciam as entradas do daemon (veja [daemon](daemon.pt-BR.md)).
 
-Use `okit-plugin trajectory list`, `okit-plugin trajectory show <run>`, `okit-plugin trajectory export <run>`, `okit-plugin trajectory prune`, `okit-plugin trajectory on`, `okit-plugin trajectory off` e `okit-plugin trajectory status`. Escolha uma execução salva na lista. Export mostra JSON localmente; nada é enviado. Veja [gravações](state.pt-BR.md#trajectories).
+| Comando | Iniciado por | Exemplo |
+| :- | :- | :- |
+| `okit-plugin statusline-collector` | A barra de status do cliente | `okit-plugin statusline-collector` |
+| `okit-plugin hook session-start` | O cliente, no início de uma sessão | `okit-plugin hook session-start` |
+| `okit-plugin hook post-compact` | O cliente, após uma compactação | `okit-plugin hook post-compact` |
+| `okit-plugin daemon start` | A inicialização automática e o instalador: o loop | `okit-plugin daemon start` |
+| `okit-plugin daemon stop` | O instalador | `okit-plugin daemon stop` |
+| `okit-plugin daemon run-once` | Os checks smoke offline | `okit-plugin daemon run-once` |
+
+Todo o restante é pedido ao assistente, que usa as [ferramentas MCP](mcp-tools.pt-BR.md).
 
 <a id="effects"></a>
 ## Efeitos e resultados
 
-Consultas não iniciam modelos. Setup/config/quota/inbox gravam estado quando solicitado; install/update/uninstall e autostart alteram registros e arquivos gerenciados. O daemon pode lançar processos e gastar cota. Hooks recebem JSON do cliente; consulte exemplos de entrada em [hooks](hooks.pt-BR.md).
-Saída 0 indica sucesso; 1 indica falha; uso inválido normalmente retorna 2. Smoke pode indicar verificações puladas: leia o relatório. A prévia da demonstração não gasta cota e a execução paga atualmente recusa sem medição/teto garantidos. --real no smoke deve ser reservado a teste autorizado no cliente.
+Install/update/uninstall alteram registros e arquivos gerenciados; setup salva configuração após confirmação. Doctor só lê. O daemon pode lançar processos e gastar cota.
+Saída 0 indica sucesso; 1 indica falha; uso inválido normalmente retorna 2.
+Os checks smoke offline são código interno de teste: testes e update os executam; mantenedores usam `npm run smoke` (`scripts/smoke.js`).
 
 [Visão geral](README.pt-BR.md) · [Daemon](daemon.pt-BR.md) · [English](cli.md)

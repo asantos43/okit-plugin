@@ -12,7 +12,7 @@ import { statusTable } from '../src/status.js';
 import { listActors } from '../src/actors.js';
 import { runSetup } from '../src/setup/setup.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
-import { main } from '../src/cli.js';
+import { callTool } from './helpers/tools.js';
 import { formatRoleContext } from '../src/roles.js';
 import { smokePreflight, runClientSmoke } from '../src/smoke/client.js';
 
@@ -109,11 +109,14 @@ for (const adapter of [claude, codex, opencode]) {
       assert.equal(quota.remainingPct, 72);
     }
     const output = [];
-    for (const argv of [['env', 'report'], ['status'], ['actors'], ['quota', 'show', client]]) {
-      assert.equal(await main(argv, { ...shared, stdout: (line) => output.push(line), stderr: refuse }), 0);
-    }
-    assert.match(output.join('\n'), /5 minutes ago/);
-    assert.match(output.join('\n'), /"remainingPct":72/);
+    const reported = await callTool('env_report', {}, shared);
+    assert.match(reported.text, /5 minutes ago/);
+    const table = await callTool('status', {}, shared);
+    assert.match(table.markdown, /5 minutes ago/);
+    const listed = await callTool('actors_list', {}, shared);
+    assert.ok(listed.actors.length > 0);
+    const quota = await callTool('quota_show', { client }, shared);
+    assert.equal(quota.clients[0].reading.remainingPct, 72);
     const delivery = adapter.deliverRole({ snapshot, env, items: [], orders: [] });
     assert.equal(delivery.status, 'ready'); assert.equal(delivery.context.role, 'Director');
     for (const locale of ['en', 'pt-BR']) {

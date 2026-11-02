@@ -10,7 +10,6 @@ import { privateField, redact } from '../src/telemetry/catalog.js';
 import { settings } from '../src/telemetry/config.js';
 import { inboxAdd, inboxSetStatus } from '../src/inbox.js';
 import { writeArtifacts } from '../src/smoke/report.js';
-import { main } from '../src/cli.js';
 import { TOOLS } from '../src/mcp/tools.js';
 
 async function rootOf(t, telemetry) {
@@ -181,21 +180,19 @@ test('network opt-in rejects a public HTTP destination without leaking it', asyn
   await assert.rejects(exportTelemetry(root), err => !/private.example|TOKEN/.test(err.message));
 });
 
-test('CLI and MCP expose status, consent, filtering and corruption checks', async t => {
-  const root = await rootOf(t, {}), output = [];
-  const io = { root, stdout: text => output.push(text), stderr: text => output.push(text) };
-  assert.equal(await main(['telemetry', 'on'], io), 0);
-  assert.match(output.pop(), /no messages.*sem mensagens/);
+test('the core and the MCP expose status, consent, filtering and corruption checks', async t => {
+  const root = await rootOf(t, {});
+  const consent = await configure(root, 'enabled', true);
+  assert.match(consent, /no messages.*sem mensagens/);
   await record(root, 'quota.check');
-  assert.equal(await main(['telemetry', 'export', '--since', new Date(0).toISOString()], io), 0);
-  assert.equal(JSON.parse(output.pop()).count, 1);
-  assert.equal(await main(['telemetry', 'check'], io), 0);
-  assert.equal(await main(['telemetry', 'rede', 'off'], io), 0);
-  assert.equal(await main(['telemetry', 'nonsense'], io), 2);
+  const exported = await exportTelemetry(root, { since: new Date(0).toISOString() });
+  assert.equal(exported.count, 1);
+  assert.equal((await check(root)).ok, true);
+  await configure(root, 'network', false);
   for (const name of ['telemetry_status', 'telemetry_export']) {
     const reply = await TOOLS.find(tool => tool.name === name).handler({}, { root });
     assert.ok(JSON.parse(reply));
   }
-  assert.equal(await main(['telemetry', 'off'], io), 0);
+  await configure(root, 'enabled', false);
   assert.equal((await status(root)).enabled, false);
 });

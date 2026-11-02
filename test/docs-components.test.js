@@ -4,8 +4,8 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { TOOLS, TOOL_NAMES } from '../src/mcp/tools.js';
-import { main } from '../src/cli.js';
-import { CONFIG_SCHEMA, configCommand } from '../src/config.js';
+import { isCollectorLaunch, main } from '../src/cli.js';
+import { CONFIG_SCHEMA } from '../src/config.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -59,8 +59,7 @@ function dispatchCommands(dispatch) {
       .filter(m => m[1] === group).map(m => m[2]);
     const handler = dispatch.match(new RegExp(`if \\(group === '${group}'\\) return await (\\w+)\\(ctx, action, args`));
     let actions = direct;
-    if (group === 'config') actions = actionsOf(configCommand.toString());
-    else if (handler) {
+    if (handler) {
       const start = cliSource.indexOf(`async function ${handler[1]}(`);
       assert.ok(start >= 0, `handler ${handler[1]}`);
       const rest = cliSource.slice(start + 1);
@@ -73,7 +72,9 @@ function dispatchCommands(dispatch) {
   return [...new Set(commands)];
 }
 
-const commands = dispatchCommands(main.toString());
+// The collector is dispatched by the one rule of the module (`isCollectorLaunch`), not by a line of
+// the body of `main`, so the scan reads the rule with the body.
+const commands = dispatchCommands(`${main.toString()}\n${isCollectorLaunch.toString()}`);
 const skillFolders = (await readdir(resolve(root, 'skills'), { withFileTypes: true }))
   .filter(entry => entry.isDirectory()).map(entry => entry.name);
 const skills = await Promise.all(skillFolders.map(async folder => {

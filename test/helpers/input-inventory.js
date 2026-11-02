@@ -138,9 +138,7 @@ const INSTALL_BASE = ['install', '--client', 'claude-code', '--dry-run'];
 /** One argv that starts each command, valid by itself. */
 export const COMMAND_BASES = Object.freeze({
   install: INSTALL_BASE, update: ['update', '--dry-run'], uninstall: ['uninstall', '--dry-run'], setup: ['setup', '--defaults'],
-  kit: ['kit'], status: ['status'], doctor: ['doctor'], config: ['config', 'show'], 'telemetry status': ['telemetry', 'status'],
-  'telemetry export': ['telemetry', 'export'], 'quota set': ['quota', 'set', 'codex', '10'], 'autostart show': ['autostart', 'show'],
-  actors: ['actors'], 'daemon status': ['daemon', 'status'],
+  doctor: ['doctor'],
 });
 
 const NAMES = ['no-such-name', '', ' ', 'a\nb'];
@@ -150,25 +148,18 @@ const NAMES = ['no-such-name', '', ' ', 'a\nb'];
  * tried with no value after it ("missing value") and in the `--flag=value` form where the command accepts it.
  */
 export const FLAG_TABLE = Object.freeze([
-  { flag: '--client', value: 'client name', commands: ['install', 'update', 'uninstall', 'status', 'actors', 'doctor'], invalid: NAMES },
+  { flag: '--client', value: 'client name', commands: ['install', 'update', 'uninstall', 'doctor'], invalid: NAMES },
   { flag: '--from', value: 'folder of a package', commands: ['install'], invalid: ['/nonexistent/okit-from', ''] },
   { flag: '--repo', value: 'owner/repository', commands: ['install'], invalid: ['invalid', 'a b/c', '../x', './y', '..', '', '/'] },
   { flag: '--dest', value: 'folder', commands: ['install'], invalid: [' ', 'a\nb', ''] },
   { flag: '--asset', value: 'file name', commands: ['install'], invalid: [], missing: true },
-  { flag: '--locale', value: 'en | pt-BR', commands: ['install', 'update', 'uninstall', 'setup', 'kit', 'status', 'actors', 'daemon status', 'doctor'], invalid: ['xx', 'EN', 'pt_BR', ' '] },
-  { flag: '--kind', value: 'autostart kind', commands: ['autostart show'], invalid: ['invalid', 'SYSTEMD', ' '] },
-  { flag: '--since', value: 'ISO date', commands: ['telemetry export'], invalid: ['nope', '2026-13-45', '', 'yesterday', '5'] },
-  { flag: '--window-minutes', value: 'number > 0', commands: ['quota set'], invalid: ['NaN', 'Infinity', '-1', '0', 'abc', '', '1e999'] },
+  { flag: '--locale', value: 'en | pt-BR', commands: ['install', 'update', 'uninstall', 'setup', 'doctor'], invalid: ['xx', 'EN', 'pt_BR', ' '] },
   { flag: '--dry-run', value: 'none', commands: ['install', 'update', 'uninstall'], invalid: [] },
   { flag: '--yes', value: 'none', commands: ['install', 'uninstall'], invalid: [] },
   { flag: '--prerelease', value: 'none', commands: ['install'], invalid: [] },
   { flag: '--verbose', value: 'none', commands: ['install', 'update', 'uninstall', 'doctor'], invalid: [] },
   { flag: '--defaults', value: 'none', commands: ['setup'], invalid: [] },
   { flag: '--again', value: 'none', commands: ['setup'], invalid: [] },
-  { flag: '--require', value: 'none', commands: ['kit'], invalid: [] },
-  { flag: '--all', value: 'none', commands: ['status', 'actors'], invalid: [] },
-  { flag: '--json', value: 'none', commands: ['actors'], invalid: [] },
-  { flag: '--table', value: 'none', commands: ['daemon status'], invalid: [] },
   { flag: '--check', value: 'none', commands: ['update'], invalid: [] },
   { flag: '--rollback', value: 'none', commands: ['update'], invalid: [] },
   { flag: '--purge', value: 'none', commands: ['uninstall'], invalid: [] },
@@ -182,10 +173,8 @@ export const FLAG_TABLE = Object.freeze([
   { flag: '--fallback', value: 'none', commands: ['install'], invalid: [] },
 ]);
 
-/** Positional numbers that are not behind a flag: `quota set <client> <percent>`. */
-export const POSITIONAL_NUMBERS = Object.freeze([
-  { command: ['quota', 'set', 'codex'], invalid: ['NaN', 'Infinity', '-1', '101', 'abc', '', '1e999'] },
-]);
+/** Positional numbers that are not behind a flag: none of the commands of the table takes one. */
+export const POSITIONAL_NUMBERS = Object.freeze([]);
 
 /** Flags that appear in the source of a command line and are not an input of the commands above, with the reason. */
 export const OUT_OF_SCOPE_FLAGS = Object.freeze({
@@ -195,7 +184,7 @@ export const OUT_OF_SCOPE_FLAGS = Object.freeze({
   '--session': 'inbox take (orchestration)', '--worktree': 'inbox take (orchestration)', '--producer-takeover': 'inbox take (orchestration)',
   '--previous': 'statusline collector, run by the client, not by a person', '--version': 'the argument of a client program we start',
   '--connect-timeout': 'curl argument of the install script', '--max-time': 'curl argument of the install script',
-  '--client=': 'the form of --client', '--locale=': 'the form of --locale', '--kind=': 'the form of --kind',
+  '--client=': 'the form of --client', '--locale=': 'the form of --locale',
   '--confirm': 'smoke demo (maintainers)', '--timeout': 'smoke (maintainers)', '--only': 'smoke (maintainers)', '--keep': 'smoke (maintainers)',
   '--real': 'smoke (maintainers)', '--max-minutes': 'smoke (maintainers)', '--max-turns': 'smoke (maintainers)', '--max-usd': 'smoke (maintainers)',
   '--quota-floor': 'smoke (maintainers)',
@@ -204,7 +193,7 @@ export const OUT_OF_SCOPE_FLAGS = Object.freeze({
   '--verify': 'git argument', '--format': 'argument of a program we start',
 });
 /** The files whose `'--flag'` literals are command-line inputs of the product. */
-export const FLAG_FILES = Object.freeze(['src/cli.js', 'src/install/index.js', 'src/telemetry/cli.js', 'src/autostart.js', 'src/install/bootstrap.js']);
+export const FLAG_FILES = Object.freeze(['src/cli.js', 'src/install/index.js', 'src/autostart.js', 'src/install/bootstrap.js']);
 
 export function flagLiterals() {
   const found = new Map();
@@ -362,7 +351,7 @@ export const fileReads = () => [...sourceFiles(), ...sourceFiles('adapters')].fl
 
 const CONFIG_JSON = 'config.json (the plugin\'s own)';
 const RECORD = 'install.json / install.<client>.json (the record)';
-const STATE_OF_OTHER_COMMANDS = 'state of a command outside this inventory (I9 lists install, update, uninstall, setup, kit, status, config, telemetry); written by okit itself';
+const STATE_OF_OTHER_COMMANDS = 'state of a command outside this inventory (I9 lists install, update, uninstall, setup and doctor); written by okit itself';
 
 /**
  * How each read is classified. A row matches a read by `file` (a path, or a folder when it ends in "/") and `arg` (a
@@ -394,6 +383,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/install/place.js', arg: /^join\(staging, 'package\.json'\)$/, rule: 'package.json of the downloaded package' },
   { file: 'src/install/source.js', arg: /^join\(source, 'package\.json'\)$/, rule: 'package.json of --from' },
   { file: 'src/install/index.js', arg: /^join\(packageDirectory, 'package\.json'\)$/, rule: 'package.json of --from' },
+  { file: 'src/install/index.js', arg: /^pathToFileURL\(join\(record\.path, 'src', 'smoke\.js'\)\)\.href$/, excluded: 'the runner of the offline smoke checks of the payload the update just placed (code of the program itself), imported so the proof of the update runs the checks of that installation; it is never parsed as data' },
   { file: 'src/install/link.js', arg: /^(stateFile|text)$/, rule: 'managed-path.json (the PATH state)' },
   { file: 'src/install/link.js', arg: /^(path|item\.path|actual)$/, excluded: 'text without a format: a shell profile, a shim or a symbolic link of the person, searched for our own marker or compared with what we would write; never parsed' },
   { file: 'src/install/link.js', arg: /^(join\(folder, 'package\.json'\)|metadata)$/, excluded: 'package.json of a folder above a command we find on the PATH, read only to know whether the command is ours; a file that is not JSON or not ours is "not ours" (a try/catch around it, by design)' },
@@ -438,8 +428,8 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/limits.js', arg: /^(join\(runsDir\(root\), name\)|file)$/, excluded: STATE_OF_OTHER_COMMANDS },
   { file: 'src/orders.js', arg: /^(legacy|file)$/, excluded: STATE_OF_OTHER_COMMANDS },
   { file: 'src/templates.js', arg: /^file$/, excluded: STATE_OF_OTHER_COMMANDS },
-  { file: 'src/todo/', arg: /^(path\.file|paths\(root\)\.inbox)$/, excluded: 'the project TODO the person asked the todo command to read (a command outside this inventory), and the orchestration inbox' },
-  { file: 'src/trajectory/', arg: /^(file|input|line|new URL\('\.\.\/\.\.\/package\.json', import\.meta\.url\))$/, excluded: 'the recordings okit wrote and the package.json of this program (the trajectory command is outside this inventory)' },
+  { file: 'src/todo/', arg: /^(path\.file|paths\(root\)\.inbox)$/, excluded: 'the project TODO the tool of the assistant reads (a command outside this inventory), and the orchestration inbox' },
+  { file: 'src/trajectory/', arg: /^(file|input|line|new URL\('\.\.\/\.\.\/package\.json', import\.meta\.url\))$/, excluded: 'the recordings okit wrote and the package.json of this program (the tool of the assistant is outside this inventory)' },
   // The maintainers' commands.
   { file: 'src/release/', arg: /./, excluded: 'the maintainers\' release commands (build, checksums, notes, publish): they read the repository of the package being released, not an input of an installation' },
   { file: 'src/smoke/', arg: /./, excluded: 'the maintainers\' smoke runner (a demand of its own; its flags are in OUT_OF_SCOPE_FLAGS)' },

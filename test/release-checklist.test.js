@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { releaseConfig } from '../src/release/config.js';
 import { planFiles } from '../src/release/notes.js';
 import { manifestFileName } from '../src/release/checksums.js';
 import { buildChecklist } from '../src/release/checklist.js';
+import { payloadEntries } from '../src/release/payload.js';
 import { main, readArgs } from '../scripts/release-checklist.js';
+
+const REPO = resolve(fileURLToPath(new URL('../', import.meta.url)));
 
 const roots = [];
 const packageJson = { name: '@example/release', version: '2.3.4', type: 'module', bin: { demo: 'src/cli.js' } };
@@ -50,8 +54,8 @@ test('eighteen unchecked build pairs carry every field, both layers and system s
   assert.equal(result.checklist.split('| Proof owner | Producer |').length - 1, 12);
   assert.equal(result.checklist.split('| Proof owner | Director |').length - 1, 6);
   assert.equal(result.checklist.split('| Source revision |  |').length - 1, 18);
-  assert.ok(result.checklist.includes('`demo smoke`'));
-  assert.ok(result.checklist.includes('`demo client-smoke`'));
+  assert.ok(result.checklist.includes('`npm run smoke`'));
+  assert.ok(result.checklist.includes('`npm run client-smoke -- --client <client>`'));
   assert.ok(result.checklist.includes('Producer signature for Windows/macOS'));
 });
 
@@ -302,4 +306,34 @@ test('an invalid systems list falls back to the default', async () => {
 test('the Extra layer renders identically on every run', async () => {
   const options = await fixture();
   assert.equal((await buildChecklist(options)).checklist, (await buildChecklist(options)).checklist);
+});
+
+// D99: the checklist tells the maintainer to run `npm run <name>` against the installed candidate,
+// so the payload must carry the runner of every runner the checklist names: the command of the
+// checklist resolves, through `package.json`, to a file the payload builder puts in the payload, and
+// the payload's own `package.json` still has the script.
+test('every runner the checklist names is a file the payload carries', async () => {
+  const config = releaseConfig({});
+  const packageJson = JSON.parse(await readFile(join(REPO, 'package.json'), 'utf8'));
+  const cited = new Set();
+  for (const line of config.checklist.instructions) {
+    for (const match of line.matchAll(/npm run ([a-z][a-z:-]*)/g)) cited.add(match[1]);
+  }
+  assert.ok(cited.size > 0, 'the checklist names a runner');
+
+  const { entries, refusal } = await payloadEntries({
+    root: REPO, config, packageJson, pair: { client: 'claude-code', system: 'linux', arch: 'x64' },
+  });
+  assert.equal(refusal, null);
+  const paths = entries.map((entry) => entry.path);
+  const payloadPackage = JSON.parse(entries.find((entry) => entry.path === 'package.json').data.toString('utf8'));
+
+  for (const name of cited) {
+    const command = packageJson.scripts?.[name];
+    assert.ok(typeof command === 'string', `package.json has the script ${name}`);
+    const files = command.match(/scripts\/[\w.-]+\.js/g) ?? [];
+    assert.ok(files.length > 0, `the script ${name} names a runner file`);
+    for (const file of files) assert.ok(paths.includes(file), `the payload carries ${file}`);
+    assert.ok(payloadPackage.scripts?.[name], `the payload's package.json has the script ${name}`);
+  }
 });

@@ -719,7 +719,7 @@ const CHANNELS = [
   { name: 'role adapter', argv: ['install', '--client', 'claude-code'], verbose: true,
     arrange: (f) => { f.io.loadAdapter = async () => { throw new Error(INJECTED(f)); }; } },
   { name: 'smoke output', argv: ['update'], verbose: true, first: true,
-    arrange: (f) => { delete f.io.smoke; f.io.run = async () => ({ code: 0, stdout: INJECTED(f), stderr: INJECTED(f) }); } },
+    arrange: (f) => { f.io.smoke = async () => ({ code: 0, records: [{ status: 'pass' }], report: INJECTED(f) }); } },
   { name: 'update daemon stop', argv: ['update'], fail: true, first: true,
     arrange: (f) => { f.io.stopDaemon = async () => { throw new Error(INJECTED(f)); }; } },
   { name: 'uninstall daemon stop', argv: ['uninstall'], fail: true, first: true,
@@ -772,10 +772,6 @@ const CHANNELS = [
       if (String(path).includes('install-') || String(path).endsWith('.json') && String(path).includes('data')) throw new Error(INJECTED(f));
       return good(path, ...rest); } }; } },
   // The standalone commands take their language from the environment (they have no --locale).
-  { name: 'standalone kit', argv: ['kit'], environment: true, kit: 'absent',
-    arrange: (f) => fs.writeFile(join(f.root, 'config.json'), JSON.stringify({ install: { ...f.io.config, kit: { ...f.io.config.kit, hint: INJECTED(f) } } })) },
-  { name: 'standalone kit broken', argv: ['kit'], environment: true, kit: 'broken-now', seen: null,
-    arrange: (f) => { const run = f.io.run; f.io.run = async (input) => { if (input?.command === join(f.bin, 'kit')) throw new Error(INJECTED(f)); return run(input); }; } },
   { name: 'standalone setup', argv: ['setup', '--defaults'], environment: true, seen: null,
     arrange: (f) => { f.io.setupAdapters = [{ listModels: async () => { throw new Error(INJECTED(f)); } }]; f.io.writeConfig = async () => { throw new Error(INJECTED(f)); }; } },
 ];
@@ -961,8 +957,6 @@ test('no line of the installer output carries a sentence of the other language, 
     { name: 'uninstall, purge without yes', argv: ['uninstall', '--purge'], first: true },
     { name: 'uninstall, nothing installed', argv: ['uninstall'] },
     { name: 'invalid language', argv: ['install', '--client', 'claude-code'], saved: 'xx' },
-    { name: 'standalone kit', argv: ['kit'], environment: true },
-    { name: 'standalone kit, invalid saved language', argv: ['kit'], environment: true, saved: 'xx' },
   ];
   for (const scenario of scenarios) {
     for (const locale of LOCALES) {

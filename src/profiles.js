@@ -355,8 +355,10 @@ export const DEFAULT_CONFIG = {
     // The name model. `{package}`, `{version}`, `{client}`, `{system}`,
     // `{arch}` and `{ext}` are the values of the pair.
     name: '{package}-{version}-{client}-{system}-{arch}.{ext}',
-    // What enters a payload, besides the client files below.
-    include: ['package.json', 'LICENSE', 'src', 'skills'],
+    // What enters a payload, besides the client files below. The two smoke runners are named by
+    // the release checklist, so the payload carries them and the checklist commands run from the
+    // extracted payload.
+    include: ['package.json', 'LICENSE', 'src', 'skills', 'scripts/smoke.js', 'scripts/client-smoke.js'],
     // What never enters a payload, even inside an included folder.
     exclude: ['.git', '.delegate', '.github', 'node_modules', 'dist', 'coverage',
       'test', 'src/release', '.gitkeep', '.env', '.DS_Store', '*.log', '*.tmp'],
@@ -421,8 +423,8 @@ export const DEFAULT_CONFIG = {
       title: 'Release checklist — {package} {version}',
       instructions: [
         'Collect both layers for each installed candidate; see docs/maintainers/RELEASING.md, Proof per pair and D-Q7. This command only prepares records; it runs no smoke and publishes nothing.',
-        'Run `{bin} smoke` with the full check set (in-process, scratch home): exit 0 and every check passing are required.',
-        'Run `{bin} client-smoke` for the D25 scenario inside the actual named client with its real installation, login and state. Record the exact command/driver; rehearsal, dry-run and mocked spawns are not proof.',
+        'Run `npm run smoke` with the full check set (in-process, scratch home): exit 0 and every check passing are required.',
+        'Run `npm run client-smoke -- --client <client>` for the D25 scenario inside the actual named client with its real installation, login and state. Record the exact command/driver; rehearsal, dry-run and mocked spawns are not proof.',
         'D25 requires C1–C5 passing, no failures and accounting for every later check. Exit 0 can still mean {partial}; missing hook proof blocks installation acceptance. Missing configuration means incomplete installation.',
         'Keep unresolved skips, absent drivers and {partial} records unchecked until written acceptance by the responsible Producer. Attach durable logs, never credentials; preserve user configuration/state across install, update and client restart.',
         'The Extra layer applies to macOS and Windows pairs only. The Producer runs it on the real machine; nothing in it may be replaced by a container, a mock or a simulated platform. Unfilled rows stay unchecked until the Producer\'s written acceptance.',

@@ -32,16 +32,11 @@ const valid = (value) => LANGUAGES.includes(value);
 // subsystem whose sentences are bilingual by design (P1 and P4 do not apply), `skip` is not run at all. P2 holds
 // for everything that is run.
 //
-// `hook` and `statusline-collector` are not in the table any more: they are the entry points the client launches
-// (src/launchers.js), internal by design, so the user help does not list them and the matrix does not run them.
-// The reason they were exempt is still the reason they are internal: a machine protocol with no text of its own to
-// ask in a language, whose exit code is zero whatever the flags and whose output belongs to the client.
-const EXEMPT = {
-  config: { bilingual: true, why: 'the configuration commands keep their own sentences, written in both languages (src/config.js), outside the installer; the refusals of the installer about the same settings are single-language (R12-2)' },
-  quota: { bilingual: true, why: 'the quota table and its refusals are the quota subsystem own, bilingual by design' },
-  telemetry: { bilingual: true, why: 'the telemetry status and refusals are the subsystem own, bilingual by design' },
-  trajectory: { bilingual: true, why: 'the recordings status and refusals are the subsystem own, bilingual by design' },
-};
+// The table holds the five commands of the person (install, update, uninstall, setup and doctor) and every one
+// of them is run: no exemption is needed. The entry points the machine starts (`hook session-start`,
+// `hook post-compact`, `statusline-collector` and the daemon loop) are internal by design, so the user help
+// does not list them and the matrix does not run them.
+const EXEMPT = {};
 
 const SECRET_COMMAND = 'okit-plugin https://matrix-user:matrix-pass@example.invalid/cli?matrix-query=1#matrix-fragment';
 const SECRETS = /matrix-user|matrix-pass|matrix-query|matrix-fragment/;
@@ -161,7 +156,7 @@ test('matrix: P4 the language is used (en and pt-BR differ) and does not change 
       if (english.code !== portuguese.code) failures.push(`${label}: P4 exit ${english.code} under en and ${portuguese.code} under pt-BR`);
     }
   }
-  assert.ok(byRun.size > 100, 'the matrix ran the commands');
+  assert.ok(byRun.size > 20, 'the matrix ran the commands');
   assert.deepEqual(failures, []);
 });
 
@@ -174,7 +169,7 @@ test('matrix: every command of the table is run or named in EXEMPT with its reas
   }
   assert.ok(Object.keys(EXEMPT).length <= 6, 'the exempt list is short; do not grow it to make a failure go away');
   // The table is read from the usage text: the groups the program has are in it.
-  for (const group of ['install', 'update', 'uninstall', 'setup', 'kit', 'status', 'daemon', 'config']) assert.ok(groups.includes(group), group);
+  for (const group of ['install', 'update', 'uninstall', 'setup', 'doctor']) assert.ok(groups.includes(group), group);
 });
 
 // P3 for every kind of setting that is not valid: one class, usage (2), by the one policy (src/install/exit.js). The

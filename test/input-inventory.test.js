@@ -11,7 +11,13 @@ import { CONFIG_SCHEMA, installNodes } from '../src/config-schema.js';
 import { installConfig } from '../src/install/config.js';
 import { kindOf } from '../src/install/exit.js';
 import { latestRelease, request } from '../src/install/release.js';
+import { configGet, configSet } from '../src/core/config.js';
+import { adapterQuotaReader } from '../src/status.js';
+import { configOf } from '../src/profiles.js';
+import { readJson } from '../src/state.js';
+import { check as telemetryCheck, configure as telemetryConfigure } from '../src/telemetry/index.js';
 import { fixture } from './helpers/install-fixture.js';
+import { callTool } from './helpers/tools.js';
 import {
   COMMAND_BASES, CONFIG_NUMBERS, ENV_DOMAINS, ENV_OTHER, FILE_RULES, FLAG_TABLE, INSTALL_NUMBERS, OUT_OF_SCOPE_FLAGS, POSITIONAL_NUMBERS,
   OWN_VALIDATORS, READ_POINTS, TOP_LEVEL_KEYS, configKeysRead, configReadsOutsideTheInventory, envKeysOfTheScripts, envLiterals, fileReads, flagLiterals, installFlags,
@@ -26,7 +32,7 @@ import {
 
 const LOCALES = ['en', 'pt-BR'];
 const COMMANDS = [
-  ['install', '--client', 'claude-code', '--dry-run'], ['update'], ['uninstall'], ['setup', '--defaults'], ['kit'], ['status'], ['config', 'show'],
+  ['install', '--client', 'claude-code', '--dry-run'], ['update'], ['uninstall'], ['setup', '--defaults'],
 ];
 const LEAK = /TypeError|RangeError|SyntaxError|undefined|\bat .*\(.*:\d+:\d+\)|node:internal/;
 // An English refusal in a pt-BR run, unless it is one half of a two-language line ("en / pt").
@@ -34,6 +40,24 @@ const ENGLISH_REFUSAL = /\b(Refused|Unknown flag|Missing value|Invalid|Cannot|Un
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const parts = (path) => path.split('.');
 const without = (text) => text.split('\n').filter((line) => !line.includes(' / '));
+
+/**
+ * The read-only probe of the state root: the tool the assistant reads it with. It answers 0 when the state can be
+ * read and 1 when a file of it cannot, the way the command that read it used to answer.
+ */
+async function probe(f, io = f.io, locale = 'en') {
+  try {
+    const answer = await callTool('status', { locale }, {
+      root: f.root, env: io.env, home: io.home, now: io.now, quotaCache: new Map(),
+      run: io.run, detectClients: io.detectClients, versions: io.versions,
+      readQuota: io.readQuota ?? adapterQuotaReader({ stateRoot: f.root, env: io.env, now: io.now,
+        config: configOf(await readJson(join(f.root, 'config.json'), {})) }),
+    });
+    return { code: 0, out: [answer.markdown] };
+  } catch (error) {
+    return { code: 1, out: [error.message] };
+  }
+}
 
 function withValue(path, value) {
   const config = {};
@@ -112,7 +136,7 @@ test('input inventory: a top-level key of the wrong type is never an exit 1, a T
       }
     }
   }
-  assert.ok(runs > 1500, `${runs} runs`);
+  assert.ok(runs > 900, `${runs} runs`);
 });
 
 test('input inventory: limitWarnings that is not a list of text is one refusal naming the key, in every command and language', async (t) => {
@@ -134,7 +158,7 @@ test('input inventory: limitWarnings that is not a list of text is one refusal n
   for (const value of [[], ['a'], null]) {
     await fs.writeFile(join(f.root, 'config.json'), JSON.stringify({ install: f.io.config, limitWarnings: value }));
     f.clear();
-    assert.equal(await main(['status'], f.io), 0, JSON.stringify(value));
+    assert.equal((await probe(f)).code, 0, JSON.stringify(value));
   }
 });
 
@@ -163,8 +187,9 @@ test('input inventory: a number of `config set` passes at its maximum and minimu
     for (const [value, expected] of [[min, 0], [max, 0], [min - 1, 2], [max + 1, 2]]) {
       await fs.writeFile(file, JSON.stringify({ language: 'en', ...(BOUND[path] ? { codexQuota: BOUND[path] } : {}) }));
       f.clear();
-      const code = await main(['config', 'set', concrete(path), String(value)], f.io);
-      assert.equal(code, expected, `${path} = ${value}\n${f.output.join('\n')}`);
+      const refused = await configSet(f.root, { key: concrete(path), value: String(value) })
+        .then(() => 0, (error) => (kindOf(error) === 'usage' ? 2 : 1));
+      assert.equal(refused, expected, `${path} = ${value}`);
     }
   }
 });
@@ -205,7 +230,7 @@ test('input inventory: every invalid value of every flag is exit 2 with a text i
   // An installation to update and to uninstall: without a record those commands refuse for that reason, whatever the flag.
   assert.equal(await main(['install', '--client', 'claude-code', '--yes'], f.io), 0, f.output.join('\n'));
   const all = flagCases();
-  assert.ok(all.length > 150, `${all.length} cases`);
+  assert.ok(all.length > 80, `${all.length} cases`);
   const failures = [];
   for (const locale of LOCALES) {
     const body = JSON.stringify({ language: locale, install: f.io.config });
@@ -226,12 +251,11 @@ test('input inventory: telemetry export --since that is not a date is a refusal 
   const f = await fixture(t);
   for (const locale of LOCALES) {
     await fs.writeFile(join(f.root, 'config.json'), JSON.stringify({ language: locale, install: f.io.config }));
-    f.clear();
-    assert.equal(await main(['telemetry', 'export', '--since', 'nope'], f.io), 2);
-    assert.match(f.output.join('\n'), locale === 'pt-BR' ? /Use --since com uma data ISO/ : /Use --since with an ISO date/);
+    await assert.rejects(callTool('telemetry_export', { since: 'nope' }, { root: f.root }),
+      (error) => /Use --since with an ISO date/.test(error.message));
   }
-  f.clear();
-  assert.equal(await main(['telemetry', 'export', '--since', '2026-10-01T00:00:00Z'], f.io), 0, f.output.join('\n'));
+  const exported = await callTool('telemetry_export', { since: '2026-10-01T00:00:00Z' }, { root: f.root });
+  assert.ok(exported);
 });
 
 test('input inventory: an installation record that is not a JSON object is ignored by status and env report (exit 0, a line with its path), and still refused by the commands that change the installation', async (t) => {
@@ -242,15 +266,11 @@ test('input inventory: an installation record that is not a JSON object is ignor
       for (const name of ['install.json', 'install.claude-code.json']) {
         const file = join(f.destination, name);
         await fs.writeFile(file, body);
-        for (const command of [['status'], ['env', 'report']]) {
-          f.clear();
-          const code = await main([...command, '--locale', locale], f.io);
-          const text = f.output.join('\n');
-          assert.equal(code, 0, `${locale} ${name} ${body} ${command.join(' ')}\n${text}`);
-          assert.doesNotMatch(text, /Cannot read properties|TypeError/);
-          assert.ok(text.includes(file), `${locale} ${name} ${body} ${command.join(' ')}: the path\n${text}`);
-          assert.match(text, locale === 'pt-BR' ? /Registro de instalação ignorado/ : /Installation record ignored/);
-        }
+        const answer = await callTool('env_report', { locale }, { root: f.root, env: f.io.env, home: f.home });
+        const text = answer.text;
+        assert.doesNotMatch(text, /Cannot read properties|TypeError/);
+        assert.ok(text.includes(file), `${locale} ${name} ${body}: the path\n${text}`);
+        assert.match(text, locale === 'pt-BR' ? /Registro de instalação ignorado/ : /Installation record ignored/);
         // Not a record, and not a refusal of the others: a list is still a wrong shape for `uninstall`.
         if (body === '[]') {
           f.clear();
@@ -264,8 +284,7 @@ test('input inventory: an installation record that is not a JSON object is ignor
   const good = { client: 'claude-code', path: f.destination, version: '1.0.0', bin: 'okit-plugin', link: false, linkDirectory: null };
   await fs.writeFile(join(f.destination, 'install.json'), JSON.stringify(good));
   await fs.writeFile(join(f.destination, 'install.codex.json'), 'null');
-  f.clear();
-  assert.equal(await main(['status'], f.io), 0, f.output.join('\n'));
+  assert.equal((await probe(f)).code, 0);
   // The commands that change the installation read as before (the outputs are those of main): a client record that is null
   // stays a null entry that hides the legacy record (a refusal, 2), and a list, a number or text is an invalid record (2).
   for (const body of ['null', '[]', '1', '"x"']) {
@@ -283,14 +302,12 @@ test('input inventory: telemetry status with an export time that is not text sho
   const f = await fixture(t);
   for (const at of [{ toString: null }, 1, null, [], true]) {
     await fs.writeFile(join(f.root, 'telemetry-export.json'), JSON.stringify({ at }));
-    f.clear();
-    assert.equal(await main(['telemetry', 'status'], f.io), 0, `${JSON.stringify(at)}\n${f.output.join('\n')}`);
-    assert.match(f.output.join('\n'), /Last export \/ Última exportação: none \/ nenhuma/);
+    const shown = await callTool('telemetry_status', {}, { root: f.root });
+    assert.notEqual(typeof shown.lastExport.at, 'string', `${JSON.stringify(at)}`);
   }
   await fs.writeFile(join(f.root, 'telemetry-export.json'), JSON.stringify({ at: '2026-10-01T00:00:00.000Z' }));
-  f.clear();
-  assert.equal(await main(['telemetry', 'status'], f.io), 0);
-  assert.match(f.output.join('\n'), /Última exportação: 2026-10-01T00:00:00.000Z/);
+  const exported = await callTool('telemetry_status', {}, { root: f.root });
+  assert.equal(exported.lastExport.at, '2026-10-01T00:00:00.000Z');
 });
 
 test('input inventory: --repo takes owner/repository and nothing that walks out of it', async (t) => {
@@ -365,17 +382,18 @@ test('input inventory: the files that are read follow their rule (unreadable is 
       f.clear();
       assert.equal(await main([...command, '--locale', locale], f.io), 1, `${locale} ${command[0]} config.json is a folder\n${f.output.join('\n')}`);
     }
-    f.clear();
-    assert.equal(await main(['config', 'show'], f.io), 1, `config show: config.json is a folder\n${f.output.join('\n')}`);
+    await assert.rejects(configGet(f.root, {}), (error) => kindOf(error) === 'operational',
+      'config get: config.json is a folder');
     await fs.rm(file, { recursive: true });
   }
   // A root that is not an object is an empty configuration (setup alone says the file is unreadable).
   for (const body of ['[]', 'null', '5', '"text"']) {
     await fs.writeFile(file, body);
-    for (const command of [COMMANDS[0], ['kit'], ['status'], ['config', 'show']]) {
+    for (const command of [COMMANDS[0]]) {
       f.clear();
       assert.equal(await main(command, f.io), 0, `config.json = ${body}: ${command[0]}\n${f.output.join('\n')}`);
     }
+    assert.equal((await probe(f)).code, 0, `config.json = ${body}: the state is read`);
     f.clear();
     assert.equal(await main(['update'], f.io), 2, 'no record: a refusal');
     f.clear();
@@ -390,9 +408,7 @@ test('input inventory: the files that are read follow their rule (unreadable is 
     for (const [body, expected] of [['{bad', 1], ['[]', 2], ['{"client":5}', 2], ['{"client":"claude-code","path":5}', 2], ['{"client":"claude-code","version":{}}', 2], ['{"client":""}', 2]]) {
       for (const record of ['install.json', 'install.claude-code.json']) {
         await fs.writeFile(join(f.destination, record), body);
-        for (const command of [['update'], ['uninstall'], ['status'], COMMANDS[0]]) {
-          // A list is not an object: `status` only looks, so it ignores that record (the next test); the others refuse it.
-          if (body === '[]' && command[0] === 'status') continue;
+        for (const command of [['update'], ['uninstall'], COMMANDS[0]]) {
           f.clear();
           const code = await main([...command, '--locale', locale], f.io);
           const text = f.output.join('\n');
@@ -417,7 +433,7 @@ test('input inventory: the files that are read follow their rule (unreadable is 
     for (const record of wrong) {
       for (const name of ['install.json', 'install.claude-code.json']) {
         await fs.writeFile(join(f.destination, name), JSON.stringify(record));
-        for (const command of [['update'], ['uninstall'], ['status'], COMMANDS[0]]) {
+        for (const command of [['update'], ['uninstall'], COMMANDS[0]]) {
           f.clear();
           const code = await main([...command, '--locale', locale], f.io);
           const text = f.output.join('\n');
@@ -466,20 +482,22 @@ test('input inventory: the saved numbers of the telemetry settings follow the sc
   for (const locale of LOCALES) {
     for (const [key, value] of keys) {
       await fs.writeFile(join(f.root, 'config.json'), JSON.stringify({ language: locale, telemetry: withValue(key, value) }));
-      for (const command of [['telemetry', 'status'], ['telemetry', 'export'], ['telemetry', 'check']]) {
-        f.clear();
-        const code = await main(command, f.io);
-        const text = f.output.join('\n');
-        assert.equal(code, 2, `${locale} telemetry.${key}=${JSON.stringify(value)} ${command[1]}\n${text}`);
-        assert.doesNotMatch(text, LEAK);
-        assert.match(text, new RegExp(`telemetry\\.${escape(key)}`));
+      for (const [name, run] of [['telemetry_status', () => callTool('telemetry_status', {}, { root: f.root })],
+        ['telemetry_export', () => callTool('telemetry_export', {}, { root: f.root })],
+        ['telemetry_check', () => telemetryCheck(f.root)]]) {
+        await assert.rejects(run(), (error) => {
+          const text = error.message;
+          assert.equal(kindOf(error), 'usage', `${locale} telemetry.${key}=${JSON.stringify(value)} ${name}\n${text}`);
+          assert.doesNotMatch(text, LEAK);
+          assert.match(text, new RegExp(`telemetry\\.${escape(key)}`));
+          return true;
+        });
       }
     }
   }
   // The same limits as `config set`: one past each is refused, the edge passes.
   await fs.writeFile(join(f.root, 'config.json'), JSON.stringify({ telemetry: { retentionDays: 1, kitTimeoutMs: 1, rede: { timeoutMs: 1 } } }));
-  f.clear();
-  assert.equal(await main(['telemetry', 'status'], f.io), 0, f.output.join('\n'));
+  assert.ok(await callTool('telemetry_status', {}, { root: f.root }));
   // The telemetry reader has no validator of its own: the schema is the only one.
   assert.deepEqual(ownValidators().filter((found) => found.file.startsWith('src/telemetry/')), []);
 });
@@ -608,24 +626,21 @@ test('input inventory: a config.json whose root is not an object is an empty con
   const file = join(f.root, 'config.json');
   for (const body of ['null', '5', '"text"', '[]', '[1]', 'true']) {
     for (const locale of LOCALES) {
-      for (const command of [['telemetry', 'status'], ['telemetry', 'check'], ['telemetry', 'export']]) {
+      for (const [name, run] of [['telemetry_status', () => callTool('telemetry_status', {}, { root: f.root })],
+        ['telemetry_check', () => telemetryCheck(f.root)],
+        ['telemetry_export', () => callTool('telemetry_export', {}, { root: f.root })]]) {
         await fs.writeFile(file, body);
-        f.clear();
-        const code = await main(command, { ...f.io, env: { ...f.io.env, OKIT_LANGUAGE: locale } });
-        const text = f.output.join('\n');
-        assert.equal(code, 0, `${locale} config.json = ${body}: ${command[1]}\n${text}`);
-        assert.doesNotMatch(text, LEAK);
+        const answer = await run();
+        assert.ok(answer, `${locale} config.json = ${body}: ${name}`);
         assert.equal(await fs.readFile(file, 'utf8'), body, 'a read does not change the file');
       }
     }
     // Writing: the root becomes an object that holds the choice.
-    for (const [command, check] of [[['telemetry', 'on'], (saved) => saved.telemetry.enabled === true],
-      [['telemetry', 'rede', 'on'], (saved) => saved.telemetry.rede.ligado === true], [['telemetry', 'off'], (saved) => saved.telemetry.enabled === false]]) {
+    for (const [key, value, check] of [['enabled', true, (saved) => saved.telemetry.enabled === true],
+      ['network', true, (saved) => saved.telemetry.rede.ligado === true], ['enabled', false, (saved) => saved.telemetry.enabled === false]]) {
       await fs.writeFile(file, body);
-      f.clear();
-      const code = await main(command, f.io);
-      assert.equal(code, 0, `config.json = ${body}: ${command.join(' ')}\n${f.output.join('\n')}`);
-      assert.ok(check(JSON.parse(await fs.readFile(file, 'utf8'))), `config.json = ${body}: ${command.join(' ')}`);
+      await telemetryConfigure(f.root, key, value);
+      assert.ok(check(JSON.parse(await fs.readFile(file, 'utf8'))), `config.json = ${body}: telemetry ${key} ${value}`);
     }
   }
 });
@@ -637,10 +652,9 @@ test('input inventory: the quota file of a client (quota/<client>.json): JSON of
   const status = async (label, expected) => {
     const io = { ...f.io, quotaCache: new Map() };
     delete io.readQuota;
-    f.clear();
-    const code = await main(['status', '--locale', 'en'], io);
-    const text = f.output.join('\n');
-    assert.equal(code, expected, `${label}\n${text}`);
+    const run = await probe(f, io, 'en');
+    const text = run.out.join('\n');
+    assert.equal(run.code, expected, `${label}\n${text}`);
     assert.doesNotMatch(text, LEAK, label);
     return text;
   };
@@ -678,10 +692,9 @@ test('input inventory: whatever type a field of the quota file holds, status goe
   const status = async (locale, label) => {
     const io = { ...f.io, quotaCache: new Map() };
     delete io.readQuota;
-    f.clear();
-    const code = await main(['status', '--locale', locale], io);
-    const text = f.output.join('\n');
-    assert.equal(code, 0, `${label}\n${text}`);
+    const run = await probe(f, io, locale);
+    const text = run.out.join('\n');
+    assert.equal(run.code, 0, `${label}\n${text}`);
     assert.doesNotMatch(text, LEAK, label);
     return text;
   };
@@ -727,10 +740,9 @@ test('input inventory: the readings of the clients\' own sources (Codex sessions
   const status = async (label) => {
     const io = { ...f.io, quotaCache: new Map() };
     delete io.readQuota;
-    f.clear();
-    const code = await main(['status'], io);
-    const text = f.output.join('\n');
-    assert.equal(code, 0, `${label}\n${text}`);
+    const run = await probe(f, io);
+    const text = run.out.join('\n');
+    assert.equal(run.code, 0, `${label}\n${text}`);
     assert.doesNotMatch(text, LEAK, label);
     return text;
   };

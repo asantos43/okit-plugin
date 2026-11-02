@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { main } from '../src/cli.js';
+import { callTool } from './helpers/tools.js';
 import { TOOLS } from '../src/mcp/tools.js';
 import { configOf } from '../src/profiles.js';
 import { actorPairs } from '../src/env/snapshot.js';
@@ -70,10 +70,9 @@ test('CLI confirmation runs all five demands and reports measured usage for ever
     deps.spawn = launcher(client, calls);
     deps.actor = { run: () => assert.fail('real mode must use realDrivers') };
     deps.critic = { review: () => assert.fail('real mode must use realDrivers') };
-    const preview = await smokeDemo({ dryRun: true }, deps), output = [];
-    const code = await main(['smoke-demo', '--locale', 'en', '--confirm', preview.planHash, '--json'],
-      { ...deps, stdout: (line) => output.push(line), stderr: assert.fail });
-    const result = JSON.parse(output.join(''));
+    const preview = await smokeDemo({ dryRun: true }, deps);
+    const result = await callTool('smoke_demo', { confirm: preview.planHash, locale: 'en' }, deps);
+    const code = result.exitCode;
     assert.equal(code, 0, result.reasons.join('; '));
     assert.equal(result.status, 'pass'); assert.equal(result.confirmed, true);
     assert.equal(result.demands.length, 5);
@@ -119,22 +118,22 @@ test('no-cost client without tokens and absent or wrong confirmation never launc
 });
 
 const previewBaselines = {
-  'claude-code/en': ['e14af7c1b5143ada4a4866d8c93f75946dc0ead4c1e99274ebaba5815c5d7a94',
+  'claude-code/en': ['642fbf723ba0873e8a5115d90296452cdf308274aa53f557a8938e4a3dbe176b',
     '1cf99ad4c76186b5bee0fec56f578a11f1a687a191322456786c7f96a47352e3'],
-  'claude-code/pt-BR': ['5d332972792cf219eb43e528f1edd6e9e5ef9c1557442fadce7ae3e7458b6409',
+  'claude-code/pt-BR': ['05e42a3df639b5a5e5f4c32c1ae5597c95465155ce991799672cb092dcc79361',
     '6d6707128ce3371f4a077ce349d167d46aa2ce9d90978386a53f0b4c43e902ad'],
-  'codex/en': ['3df10e9b4e4ac87d8c856da4e7e9bf89a30c4d0ca91c86c7036f90c92a4708dd',
+  'codex/en': ['467bd024998fd0f438a08b0657dccd2167488803264bdff3736d944f96eb47f9',
     '1c582c29c3ee7725e802c44c318a22a15cbf35545688b9e55c6096abb6aca265'],
-  'codex/pt-BR': ['d54402c5b40cbaab0ba5bef242c4f19c4b5e29f3f7cd5bed83be3eec5fea15a8',
+  'codex/pt-BR': ['5b84da5334c2027868af80a60a812597893ea7d7acd4f5f2237c1e78fd09d559',
     '6a2b20d5da03b3b26593e1040d6944c95960b3566c3015f96b2f9c6c29ab4fe7'],
-  'opencode/en': ['b2ae7c6e6b4b4a0df6f47ad1d0383f324a8b799d569a02e1bdb97f5a39fd69d4',
+  'opencode/en': ['6533feca1c26d2d7478604a8a7e43f96eb58a432e3aa51deb24c09fe295427d2',
     '5283f1e03cd4b0107dce473db5c159502bd6bba7b5fd0d42c9f962bc2372baf4'],
-  'opencode/pt-BR': ['ff3733a05e787ff5849ff78496bb2e653d6aae5911330117c7362707f810da7b',
+  'opencode/pt-BR': ['93520129f9de9fab3023d921034269205b20f53c7534dcde9e71e3c97a2b9d09',
     'a669aa1edf1fcd28201f78a933ed3b03b800b91d42724d6be8c88e78d41a3b52'],
 };
 
 test('dry-run hash and text match the committed entry without launching', async (t) => {
-  // SHA-256 of plan (it embeds the whole config, so it moves when a default does: D98 step 1 changed release.architectures, step 2 added install.selfcheck, D103 added its `login` launch forms, D109 added install.selfcheck.probeMs) and exact preview text from the pre-D84 entry,
+  // SHA-256 of plan (it embeds the whole config, so it moves when a default does: D98 step 1 changed release.architectures, step 2 added install.selfcheck, D103 added its `login` launch forms, D109 added install.selfcheck.probeMs, D99 added the two smoke runners to release.include) and exact preview text from the pre-D84 entry,
   // with the confirmed fixture and a fixed quota timestamp. No git subprocess.
   const baseline = previewBaselines;
   for (const client of ['claude-code', 'codex', 'opencode']) {
@@ -224,19 +223,13 @@ test('confirmation binds work, settings, helpers and allowance to the preview', 
 // | preview | allowance and configured ceilings, no launch | claiming execution |
 // | confirmation | same plan and evidence | absent or changed plan/evidence |
 
-test('CLI and MCP share previews and refusal for all clients and languages', async (t) => {
+test('the smoke demo tool answers previews and refusal for all clients and languages', async (t) => {
   for (const client of ['claude-code', 'codex', 'opencode']) {
     const deps = await fixture(t, client);
     for (const locale of ['en', 'pt-BR']) {
       for (const dryRun of [true, false]) {
-        const output = [], errors = [];
-        const code = await main(['smoke-demo', '--client', client, '--locale', locale, '--json',
-          ...(dryRun ? ['--dry-run'] : [])], { ...deps, stdout: (line) => output.push(line), stderr: (line) => errors.push(line) });
-        assert.deepEqual(errors, []);
-        const cli = JSON.parse(output.join(''));
-        const mcp = JSON.parse(await tool.handler({ client, locale, dryRun }, deps));
-        assert.deepEqual(cli, mcp);
-        assert.equal(code, dryRun ? 0 : 2);
+        const cli = JSON.parse(await tool.handler({ client, locale, dryRun }, deps));
+        assert.equal(cli.exitCode, dryRun ? 0 : 2);
         assert.equal(cli.status, dryRun ? 'preview' : 'refused');
         assert.doesNotMatch(cli.text, /\b[DO]\d+\b|runId|inbox|profile_pick|Executor|Critic|snapshot/);
         if (client === 'codex') {
@@ -262,20 +255,14 @@ test('CLI and MCP share previews and refusal for all clients and languages', asy
 test('a missing or empty PATH refuses before any helper is built, launched or paid', async (t) => {
   for (const client of ['claude-code', 'codex', 'opencode']) {
     for (const missing of ['absent', 'empty']) {
-      for (const via of ['smokeDemo', 'main']) {
+      for (const via of ['smokeDemo']) {
         const label = `${client} ${missing} via ${via}`;
         const deps = await fixture(t, client), calls = [];
         if (missing === 'absent') delete deps.env.PATH; else deps.env.PATH = '';
         deps.config.smoke.maxTokens = 15; deps.spawn = launcher(client, calls);
         const preview = await smokeDemo({ dryRun: true }, deps);
-        let result, code;
-        if (via === 'smokeDemo') { result = await smokeDemo({ confirm: preview.planHash }, deps); code = result.exitCode; }
-        else {
-          const output = [];
-          code = await main(['smoke-demo', '--confirm', preview.planHash, '--json'],
-            { ...deps, stdout: (line) => output.push(line), stderr: assert.fail });
-          result = JSON.parse(output.join(''));
-        }
+        const result = await smokeDemo({ confirm: preview.planHash }, deps);
+        const code = result.exitCode;
         assert.equal(code, 2, label); assert.equal(result.status, 'refused', label);
         assert.equal(calls.length, 0, label);
         assert.match(result.reasons.join('; '), /PATH is missing from the environment, so the helper cannot be found\. \/ O PATH não está no ambiente, então o ajudante não pode ser encontrado\./, label);
@@ -290,14 +277,12 @@ test('a missing or empty PATH refuses before any helper is built, launched or pa
 
 test('spawn receives the same non-empty PATH as the caller', async (t) => {
   for (const client of ['claude-code', 'codex', 'opencode']) {
-    for (const via of ['smokeDemo', 'main']) {
+    for (const via of ['smokeDemo']) {
       const deps = await fixture(t, client), calls = [];
       deps.env.PATH = '/caller/bin:/usr/bin';
       deps.config.smoke.maxTokens = 15; deps.spawn = launcher(client, calls);
       const preview = await smokeDemo({ dryRun: true }, deps);
-      if (via === 'smokeDemo') await smokeDemo({ confirm: preview.planHash }, deps);
-      else await main(['smoke-demo', '--confirm', preview.planHash, '--json'],
-        { ...deps, stdout: () => {}, stderr: assert.fail });
+      await smokeDemo({ confirm: preview.planHash }, deps);
       assert.equal(calls.length, 1, `${client} via ${via}`);
       assert.equal(calls[0].env.PATH, '/caller/bin:/usr/bin', `${client} via ${via}`);
     }

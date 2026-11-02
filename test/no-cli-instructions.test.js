@@ -67,7 +67,8 @@ const TOOL_NOUNS = new Set(['the', 'a', 'this', 'each', 'any', 'which', 'that', 
 // kit and `helpArgs`/`requiredFlags` the ones of the clients.
 const ARGV_KEYS = new Set(['args', 'argv', 'versionArgs', 'helpArgs', 'requiredFlags']);
 // The commands of another program, in backticks, that the model may check: only these, with their own flags.
-const EXTERNAL_COMMANDS = new Set(['`node --version`', '`claude --version`', '`codex --version`', '`opencode --version`']);
+const EXTERNAL_COMMANDS = new Set(['`node --version`', '`claude --version`', '`codex --version`', '`opencode --version`',
+  '`npm run client-smoke -- --client <client>`']);
 // The snake_case name of a tool, as the skills write it.
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
 // The name of a skill, as the skills mention each other.
@@ -543,17 +544,9 @@ function normalise(code) {
 // has to be there, and a new forbidden literal of the same file is still refused.
 // | file | literal | why |
 // | src/autostart.js | Description={command} daemon | the unit of the machine starts the daemon; it is a file of the system, not a text the model reads |
-// | src/smoke.js | {command} smoke: ${message} | every line of the smoke carries the name of the command that is running; it is a label, not an instruction |
-// | src/smoke.js | {command} smoke | the header of the report of the smoke names the command that is running |
-// | src/smoke.js | OKWORK_HOME is set; {command} smoke uses a scratch home unless --real is given | the refusal of the smoke command of the person: it names the command that is running |
 const ALLOWED = new Map([
   ['src/autostart.js', new Map([
     ['Description={command} daemon', 'the unit of the machine starts the daemon; it is a file of the system, not a text the model reads'],
-  ])],
-  ['src/smoke.js', new Map([
-    ['{command} smoke: ${message}', 'every line of the smoke carries the name of the command that is running; it is a label, not an instruction'],
-    ['{command} smoke', 'the header of the report of the smoke names the command that is running; it is a label, not an instruction'],
-    ['OKWORK_HOME is set; {command} smoke uses a scratch home unless --real is given', 'the refusal of the smoke command of the person: it names the command that is running'],
   ])],
 ]);
 
@@ -674,6 +667,8 @@ test('the rule of the texts has teeth', () => {
   assert.ok(!forbiddenText('Ask the user to run `okit-plugin install --client claude-code`.'), 'the flag of a command of the person');
   assert.ok(forbiddenText('Ask the user to run `okit-plugin setup`. Use --client to select a client.'), 'a flag after a mention of setup');
   assert.ok(forbiddenText('Use --client to select a client.'), 'a bare flag');
+  assert.ok(!forbiddenText('Run `npm run client-smoke -- --client <client>`.'), 'the maintainer npm runner');
+  assert.ok(forbiddenText('Run `npm run client-smoke -- --client <client>`. Use --client elsewhere.'), 'npm flags stay inside their command');
   assert.ok(!forbiddenText('Node 22 is required: check it with `node --version`.'), 'the flag of another program in backticks');
   assert.ok(forbiddenText('Use `--client` to select a client.'), 'a flag alone in backticks is the flag of the kit');
   assert.ok(forbiddenText('Ask the user to run okit-plugin setup. Use --client.'), 'a period closes an unquoted command');

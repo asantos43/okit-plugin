@@ -11,6 +11,7 @@ import { createServer } from '../src/mcp/server.js';
 import { TOOLS } from '../src/mcp/tools.js';
 import { CLIENT_ENV_MARKERS, detectClient, shouldShowStatus, statusTable as buildStatusTable } from '../src/status.js';
 import { quotaEnv } from './helpers/env.js';
+import { callTool } from './helpers/tools.js';
 
 const main = (argv, io) => runMain(argv, { ...io, env: quotaEnv(io.root, io.env) });
 const statusTable = (root, deps = {}) => buildStatusTable(root, {
@@ -42,9 +43,8 @@ test('status displays qualified demands and preserves the JSON id', async (t) =>
   assert.equal(table.demands[0].id, item.id);
   assert.equal(table.demands[0].ref, `${item.id} (registered)`);
   assert.ok(table.markdown.includes(`| ${item.id} (registered) | pending | visible demand |`));
-  const out = [];
-  assert.equal(await main(['status'], { root, stdout: (line) => out.push(line) }), 0);
-  assert.ok(out.some((line) => line.includes(`${item.id} (registered)`)));
+  const answer = await callTool('status', {}, { root, env: quotaEnv(root, {}) });
+  assert.ok(answer.markdown.includes(`${item.id} (registered)`));
   assert.equal((await inboxList(root))[0].ref, undefined);
 });
 
@@ -176,10 +176,10 @@ test('recorded quota keeps its real value and age across cache refreshes', async
   const time = clock();
   const io = { root, env: { CLAUDECODE: '1' }, now: time.now, quotaCache: new Map() };
   for (const [locale, age] of [['en', '120s'], ['pt-BR', '181s']]) {
-    const out = [];
-    assert.equal(await main(['status', '--locale', locale], { ...io, stdout: (line) => out.push(line) }), 0);
-    assert.ok(out.some((line) => line.includes(`| claude-code | 37% |`) && line.includes(`(${age})`)));
-    assert.ok(!out.some((line) => /\| (codex|opencode) \|/.test(line)));
+    const answer = await callTool('status', { locale }, { ...io, env: quotaEnv(root, io.env) });
+    const lines = answer.markdown.split('\n');
+    assert.ok(lines.some((line) => line.includes(`| claude-code | 37% |`) && line.includes(`(${age})`)), answer.markdown);
+    assert.ok(!lines.some((line) => /\| (codex|opencode) \|/.test(line)));
     time.pass(61_000);
   }
 });
@@ -454,69 +454,58 @@ test('a quoted order with a bar and a newline cannot break the table', async (t)
   assert.equal(lines.length, 3, 'the order stays on one row instead of adding a line');
 });
 
-test('okit-plugin status prints the table and the capacity line, in either language', async (t) => {
+test('the status tool prints the table and the capacity line, in either language', async (t) => {
   const root = await tempRoot(t);
-  const { readQuota } = readerOf({ alpha: { source: 'api', remainingPct: 77, windowMinutes: 300 } });
-  const io = { root, env: {}, readQuota, now: () => T0, clients: ['alpha'], quotaCache: new Map() };
-  const cli = async (argv) => {
-    const out = [];
-    const code = await main(argv, { ...io, stdout: (line) => out.push(line), stderr: () => {} });
-    return { code, out };
-  };
+  const { readQuota } = readerOf({ 'claude-code': { source: 'api', remainingPct: 77, windowMinutes: 300 } });
+  const io = { root, env: { CLAUDECODE: '1' }, readQuota, now: () => T0, quotaCache: new Map() };
+  const answer = async (args) => callTool('status', args, { ...io, env: quotaEnv(root, io.env) });
 
-  const run = await cli(['status']);
-  assert.equal(run.code, 0);
-  assert.deepEqual(run.out.slice(0, 2), [
+  const run = await answer({});
+  const lines = run.markdown.split('\n');
+  assert.deepEqual(lines.slice(0, 2), [
     '| Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age) |',
     '| --- | --- | --- | --- | --- | --- |',
   ]);
-  assert.equal(run.out[2], '| alpha | 77% | - | - | green | api (0s) |');
-  assert.ok(run.out.includes('executors that can launch now: alpha: 0/3 (default), 3 available; quota floor 15%'));
+  assert.equal(lines[2], '| claude-code | 77% | - | - | green | api (0s) |');
+  assert.ok(run.capacityLine.includes('executors that can launch now: claude-code: 0/3 (default), 3 available; quota floor 15%'));
 
-  const pt = await cli(['status', '--locale=pt-BR']);
-  assert.ok(pt.out[0].startsWith('| Assinatura |'), pt.out[0]);
-  assert.ok(pt.out.some((line) => line.startsWith('executores que podem iniciar agora:')));
+  const pt = await answer({ locale: 'pt-BR' });
+  assert.ok(pt.markdown.startsWith('| Assinatura |'), pt.markdown);
+  assert.ok(pt.capacityLine.startsWith('executores que podem iniciar agora:'), pt.capacityLine);
 
-  // The flag is the only argument, and an unknown one is a refusal.
-  assert.equal((await cli(['status', '--nope'])).code, 2);
-  assert.equal((await cli(['status', '--locale', 'fr'])).code, 2);
+  // An argument that is not one is a refusal.
+  await assert.rejects(answer({ locale: 'fr' }), /locale/);
 });
 
-test('CLI selection must pass all/client and must refuse unknown clients and incomplete flags', async (t) => {
+test('the selection of the status tool passes all/client and refuses unknown clients', async (t) => {
   const root = await tempRoot(t);
   const cases = [
-    [[], ['claude-code']],
-    [['--all'], ['claude-code', 'codex', 'opencode']],
-    [['--client', 'codex'], ['codex']],
-    [['--client=opencode'], ['opencode']],
-    [['--all', '--client', 'codex'], ['codex']],
+    [{}, ['claude-code']],
+    [{ all: true }, ['claude-code', 'codex', 'opencode']],
+    [{ client: 'codex' }, ['codex']],
+    [{ client: 'opencode' }, ['opencode']],
+    [{ all: true, client: 'codex' }, ['codex']],
   ];
   for (const [args, clients] of cases) {
-    const out = [];
-    assert.equal(await main(['status', ...args], { root, env: { CLAUDECODE: '1' },
-      stdout: (line) => out.push(line), quotaCache: new Map() }), 0);
-    assert.deepEqual(out.filter((line) => /^\| (claude-code|codex|opencode) \|/.test(line))
-      .map((line) => line.split('|')[1].trim()), clients);
+    const answer = await callTool('status', args, { root, env: quotaEnv(root, { CLAUDECODE: '1' }), quotaCache: new Map() });
+    assert.deepEqual(answer.rows.map((row) => row.client), clients);
   }
-  for (const args of [['--client'], ['--client', 'unknown'], ['--client='], ['--all=true']]) {
-    assert.equal(await main(['status', ...args], { root, env: {}, stdout: () => {}, stderr: () => {} }), 2);
+  for (const args of [{ client: 'unknown' }, { all: 'true' }]) {
+    await assert.rejects(callTool('status', args, { root, env: quotaEnv(root, {}) }), /client|boolean/);
   }
 });
 
 test('okit-plugin status outside a client explains how to select and record quota', async (t) => {
   const root = await tempRoot(t);
-  const out = [];
-  const code = await main(['status'], {
+  const answer = await callTool('status', {}, {
     root,
     env: {},
     now: () => T0,
     plugin: {},
     versions: Object.fromEntries(['claude-code', 'codex', 'opencode']
       .map((client) => [client, { installed: true }])),
-    stdout: (line) => out.push(line),
-    stderr: (line) => out.push(line),
   });
-  assert.equal(code, 0);
+  const out = answer.markdown.split('\n');
   assert.ok(out[0].startsWith('| Subscription |'), out[0]);
   for (const client of ['claude-code', 'codex', 'opencode']) {
     assert.ok(out.some((line) => line.includes(`| ${client} |`)), `${client} has a row`);
