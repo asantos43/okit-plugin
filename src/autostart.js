@@ -294,6 +294,40 @@ export async function autostartPresent(plan, { fs, run, timeoutMs } = {}) {
 }
 
 /**
+ * Whether anything of this autostart is on the machine: the file of the plan (whatever its content says), the
+ * scheduled task of Windows or the line of ours in the crontab of the user.
+ *
+ * It is a different question from the one `autostartPresent` asks ("is the autostart working?"): a service that is
+ * there but disabled, stale or corrupt is not working, and it is still there — the rollback of a failed save must not
+ * take it away.
+ *
+ * @param {object} plan the plan of the autostart of this machine
+ * @param {{fs: object, run?: Function, timeoutMs?: number}} deps the file system and the runner of a process
+ * @returns {Promise<boolean>}
+ */
+export async function autostartExists(plan, { fs, run, timeoutMs } = {}) {
+  if (!plan) return false;
+  if (plan.kind === 'schtasks') return taskPresent(run, timeoutMs);
+  const file = async () => {
+    if (!plan.path || typeof fs?.readFile !== 'function') return false;
+    try { await fs.readFile(plan.path, 'utf8'); return true; } catch { return false; }
+  };
+  const query = autostartQuery(plan);
+  if (plan.kind !== 'cron' && plan.path) return file();
+  // The crontab of the user: the line of ours is the one that carries the marker of the plan.
+  if (!query || typeof run !== 'function') return file();
+  try {
+    const answer = await run({ command: query.command, args: query.args, timeoutMs });
+    return String(answer?.stdout ?? '').includes(MARKER);
+  } catch (error) {
+    // The tool of the query is not on this machine (ENOENT), or the failure says nothing about the service: the file
+    // decides, and there is none.
+    if (typeof error?.code === 'number') return false;
+    return file();
+  }
+}
+
+/**
  * The kind this platform autostarts with: a user unit on Linux, a launchd agent
  * on macOS, a scheduled task on Windows and a crontab line anywhere else.
  *

@@ -1,15 +1,16 @@
 // D99 slice 6a: nothing the model reads tells it to run a command of the kit.
 //
 // The model works with the MCP tools; a command of the kit is a step of the person. So every text the model reads
-// (the skills, the replies of the tools, the context of the hooks) names a tool, names no flag of the command line,
-// and names a command of the kit only when it is one of the five the person may run: install, update, uninstall, setup
-// and doctor.
+// (the skills, the replies of the tools, the context of the hooks, the message tables) names a tool, names no flag of
+// the command line, and names a command of the kit only when it is one of the five the person may run: install,
+// update, uninstall, setup and doctor.
 //
 // | proof | what it holds |
-// | the skills | no command of the kit but the five, no flag, no command of their own, and every name is a tool |
-// | the runtime texts | the environment, the status, the actors and the two hooks, in both languages, name no other command |
-// | the message tables | the values of every table, filled, name no command but the five and no flag |
-// | the source | the literals of the source, as a second net, name no command but the five |
+// | the skills | the whole file, front matter included: no command but the five, no flag, no command of their own |
+// | the runtime texts | the environment, the status, the actors and the two hooks, in both languages |
+// | the message tables | the values of every table, filled with the sample values |
+// | the source | the literals of the normalised code, as a second net |
+// | the normaliser | the texts that are built by concatenation or by a template are seen |
 
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -29,8 +30,8 @@ import { TEXTS } from '../src/install/present.js';
 import { TOOLS, TOOL_NAMES } from '../src/mcp/tools.js';
 import { CONFIG_MESSAGES, DEFAULT_CONFIG } from '../src/profiles.js';
 import { CONFIG_NOT_SAVED, CONFIG_UNREADABLE, SETUP_MESSAGES } from '../src/setup/setup.js';
-import { OFFER_MESSAGES } from '../src/setup/offer.js';
 import { runSetup } from '../src/setup/setup.js';
+import { OFFER_MESSAGES } from '../src/setup/offer.js';
 import { statusTable } from '../src/status.js';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -61,6 +62,17 @@ const NOT_A_COMMAND = new Set(['failed', 'removed', 'removido', 'kept', 'mantido
   'opencode']);
 
 /**
+ * Whether a word that follows the name of the command is a command of the kit.
+ *
+ * @param {string} word the word that follows the name of the command
+ * @returns {boolean}
+ */
+function isCommand(word) {
+  if (OLD_COMMANDS.has(word)) return true;
+  return !FIVE.includes(word) && !NOT_A_COMMAND.has(word);
+}
+
+/**
  * Whether the text names a command of the kit that the person may not run.
  *
  * @param {string} text the text a model reads
@@ -74,28 +86,44 @@ function forbiddenCommand(text) {
 }
 
 /**
- * Whether a word that follows the name of the command is a command of the kit.
+ * Whether the text names a flag of the command line outside a command the person may run.
  *
- * @param {string} word the word that follows the name of the command
- * @returns {boolean}
- */
-function isCommand(word) {
-  if (OLD_COMMANDS.has(word)) return true;
-  return !FIVE.includes(word) && !NOT_A_COMMAND.has(word);
-}
-
-/**
- * Whether the text names a flag of the command line. A flag inside a command the person may run is fine: the person
- * runs `okit-plugin install --client claude-code`.
+ * A flag is allowed only inside the span of a command the person may run (`okit-plugin install --client claude-code`),
+ * which ends at the next backtick, period, semicolon or newline. An earlier mention of a command does not excuse a
+ * flag that is somewhere else in the text.
  *
  * @param {string} text the text a model reads
  * @returns {boolean}
  */
 function forbiddenFlag(text) {
+  const spans = [...text.matchAll(new RegExp(`(?:${COMMAND}|\\{command\\})\\s+(?:${FIVE.join('|')})\\b(?:[^\\n\`;]|\\.(?!\\s))*`, 'g'))]
+    .map((match) => [match.index, match.index + match[0].length]);
   for (const match of text.matchAll(FLAG)) {
-    const before = text.slice(0, match.index);
-    if (!new RegExp(`\\b(?:${FIVE.join('|')})\\b`).test(before)) return true;
+    const inside = spans.some(([from, to]) => match.index >= from && match.index < to);
+    if (!inside) return true;
   }
+  return false;
+}
+
+/**
+ * Whether the text breaks the rule of the texts a model reads: a command of the kit the person may not run, a group of
+ * the command line in backticks (`config show`), a flag outside a command the person may run, or a command of its own.
+ *
+ * @param {string} text the text a model reads
+ * @param {{flags?: boolean}} [options] whether the flags are refused; the source holds the flags of the clients and of
+ *   the configuration of the command line, which are not texts a model reads
+ * @returns {boolean}
+ */
+function forbiddenText(text, { flags = true } = {}) {
+  if (forbiddenCommand(text)) return true;
+  // A backticked phrase of two words: the first one is the verb of a command of the kit. The real tools use
+  // underscores (`config_set`), so they are not groups.
+  for (const match of text.matchAll(/`([a-z][a-z-]*) [^`]+`/g)) {
+    if (OLD_COMMANDS.has(match[1])) return true;
+  }
+  if (flags && forbiddenFlag(text)) return true;
+  if (/node\s+"\$\{CLAUDE_PLUGIN_ROOT\}/.test(text)) return true;
+  if (/\bnode\b[^.\n]*cli\.js/.test(text)) return true;
   return false;
 }
 
@@ -115,10 +143,7 @@ test('no skill tells the model to run a command of the kit', async () => {
   for (const folder of folders) {
     // The whole file: the front matter is read by the model too.
     const text = await readFile(join(SKILLS_DIR, folder, 'SKILL.md'), 'utf8');
-    assert.ok(!forbiddenCommand(text), `${folder} names a command of the kit the person may not run`);
-    assert.ok(!forbiddenFlag(text), `${folder} names a flag of the command line`);
-    assert.doesNotMatch(text, /node\s+"\$\{CLAUDE_PLUGIN_ROOT\}/, `${folder} runs the cli of the plugin`);
-    assert.doesNotMatch(text, /\bnode\b[^.\n]*cli\.js/, `${folder} runs a command of its own`);
+    assert.ok(!forbiddenText(text), `${folder} breaks the rule of the texts a model reads`);
     for (const name of new Set(text.match(SNAKE_CASE) ?? [])) {
       assert.ok(TOOL_NAMES_SET.has(name), `${folder} names ${name}, which the server does not publish`);
     }
@@ -168,10 +193,13 @@ async function replyOf(name, args, deps) {
   return tool.handler(args, { root, ...rest });
 }
 
+// The note of the world where the client cannot be chosen.
+const UNKNOWN = { en: 'Client not recognized', 'pt-BR': 'Cliente não reconhecido' };
+
 // | the text | must hold | must refuse |
 // | the report of the environment | the tool that fixes it, the command of the person | `okit-plugin quota set` |
 // | the object the model receives | no command of the kit in it | `command: "okit-plugin quota set ..."` |
-// | the status and the actors | the same | `okit-plugin config show` |
+// | the status and the actors | the same, and the note of the client that cannot be chosen | `okit-plugin config show` |
 // | the replies of the tools of the server | the same | any command but the five |
 test('no runtime text tells the model to run a command of the kit', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'okit-no-cli-'));
@@ -182,21 +210,25 @@ test('no runtime text tells the model to run a command of the kit', async (t) =>
   for (const locale of ['en', 'pt-BR']) {
     const deps = { ...world(root), locale };
     const report = await environmentReport(deps);
-    assert.ok(!forbiddenCommand(formatEnvironmentReport(report, locale)), `env_report ${locale}`);
+    assert.ok(!forbiddenText(formatEnvironmentReport(report, locale)), `env_report ${locale}`);
     // The model receives the object, not only the sentence: the object carries no command of the kit either.
-    assert.ok(!forbiddenCommand(JSON.stringify(report)), `the report of the environment ${locale}`);
+    // The object carries the configuration of the plugin, with the flags of the clients: those are not texts.
+    assert.ok(!forbiddenText(JSON.stringify(report), { flags: false }), `the report of the environment ${locale}`);
     const status = await statusTable(root, { ...deps, demands: [] });
-    assert.ok(!forbiddenCommand(status.markdown), `status ${locale}`);
-    assert.ok(!forbiddenCommand(status.capacityLine), `status ${locale}`);
-    assert.ok(!forbiddenCommand(JSON.stringify(status)), `the status ${locale}`);
+    assert.ok(!forbiddenText(status.markdown), `status ${locale}`);
+    assert.ok(!forbiddenText(status.capacityLine), `status ${locale}`);
+    assert.ok(!forbiddenText(JSON.stringify(status), { flags: false }), `the status ${locale}`);
+    // The world where the client cannot be chosen: the note that says how to choose it is really printed.
+    assert.ok(status.markdown.includes(UNKNOWN[locale]), `status ${locale} says how to choose a client`);
     const actors = await listActors(deps);
-    assert.ok(!forbiddenCommand(actors.markdown), `actors_list ${locale}`);
-    assert.ok(!forbiddenCommand(JSON.stringify(actors)), `the actors ${locale}`);
-    for (const note of actors.notes) assert.ok(!forbiddenCommand(note), `actors_list ${locale}`);
+    assert.ok(!forbiddenText(actors.markdown), `actors_list ${locale}`);
+    assert.ok(!forbiddenText(JSON.stringify(actors), { flags: false }), `the actors ${locale}`);
+    for (const note of actors.notes) assert.ok(!forbiddenText(note), `actors_list ${locale}`);
+    assert.ok(actors.notes.some((note) => note.includes(UNKNOWN[locale])), `actors_list ${locale} says how to choose`);
     // The real replies of the tools of the server, in the two languages.
     for (const name of ['env_report', 'status', 'actors_list']) {
       const reply = await replyOf(name, { locale }, deps);
-      assert.ok(!forbiddenCommand(reply), `${name} ${locale}: ${reply}`);
+      assert.ok(!forbiddenText(reply, { flags: false }), `${name} ${locale}: ${reply}`);
     }
   }
 });
@@ -215,10 +247,7 @@ test('the context of the hooks names no command of the kit', async (t) => {
     stdin: JSON.stringify({ cwd: root }), stdout }), 0);
   assert.equal(await runPostCompact({ root, stdin: JSON.stringify({ cwd: root }), stdout }), 0);
   assert.ok(output.length > 0, 'the hooks answered');
-  for (const text of output) {
-    assert.ok(!forbiddenCommand(text), `the hooks: ${text}`);
-    assert.ok(!forbiddenFlag(text), `the hooks: ${text}`);
-  }
+  for (const text of output) assert.ok(!forbiddenText(text), `the hooks: ${text}`);
 });
 
 // The values of the placeholders of the texts: the name of the command of the kit is the configured one.
@@ -287,8 +316,7 @@ test('no message table names a command of the kit the person may not run', () =>
     const texts = textsOf(table);
     assert.ok(texts.length > 0, 'the table has texts');
     for (const text of texts) {
-      assert.ok(!forbiddenCommand(text), `the table names a command of the kit: ${text}`);
-      if (model) assert.ok(!forbiddenFlag(text), `the table names a flag of the command line: ${text}`);
+      assert.ok(!forbiddenText(text, { flags: model }), `the table breaks the rule: ${text}`);
     }
   }
 });
@@ -389,19 +417,43 @@ function codeOf(source) {
   return out;
 }
 
+/**
+ * The code as the program builds it: the literals of a concatenation joined, and the command of the configuration
+ * written as `{command}` wherever a template builds it.
+ *
+ * What it cannot see: a text built by `join`, by a call or by a variable. Those are covered by the runtime cases only.
+ *
+ * @param {string} code the code of a file
+ * @returns {string} the normalised code
+ */
+function normalise(code) {
+  let out = code;
+  // The literals of a concatenation, joined: 'a' + 'b' → 'ab' (the same with " and across lines).
+  for (let pass = 0; pass < 8; pass += 1) {
+    const joined = out.replace(/(['"`])((?:[^\\]|\\.)*?)\1\s*\+\s*(['"`])((?:[^\\]|\\.)*?)\3/g,
+      (all, first, left, second, right) => `${first}${left}${right}${first}`);
+    if (joined === out) break;
+    out = joined;
+  }
+  // The command of the configuration, wherever a template builds it: ${...command...} → {command}.
+  return out.replace(/\$\{[^}]*command[^}]*\}/gi, '{command}');
+}
+
 // The literals of the source that name a command of the kit, and why they may. The exemption is exact: the literal
 // has to be there, and a new forbidden literal of the same file is still refused.
 // | file | literal | why |
-// | src/autostart.js | Description=${command} daemon | the unit of the machine starts the daemon; it is a file of the system, not a text the model reads |
+// | src/autostart.js | Description={command} daemon | the unit of the machine starts the daemon; it is a file of the system, not a text the model reads |
 // | src/smoke.js | {command} smoke: ${message} | every line of the smoke carries the name of the command that is running; it is a label, not an instruction |
-// | src/smoke.js | {command} smoke uses a scratch home unless --real is given | the help of the smoke command of the person |
+// | src/smoke.js | {command} smoke | the header of the report of the smoke names the command that is running |
+// | src/smoke.js | OKWORK_HOME is set; {command} smoke uses a scratch home unless --real is given | the refusal of the smoke command of the person: it names the command that is running |
 const ALLOWED = new Map([
   ['src/autostart.js', new Map([
-    ['Description=${command} daemon', 'the unit of the machine starts the daemon; it is a file of the system, not a text the model reads'],
+    ['Description={command} daemon', 'the unit of the machine starts the daemon; it is a file of the system, not a text the model reads'],
   ])],
   ['src/smoke.js', new Map([
-    ['${command} smoke: ${message}', 'every line of the smoke carries the name of the command that is running; it is a label, not an instruction'],
-    ['OKWORK_HOME is set; ${command} smoke uses a scratch home unless --real is given', 'the refusal of the smoke command of the person: it names the command that is running'],
+    ['{command} smoke: ${message}', 'every line of the smoke carries the name of the command that is running; it is a label, not an instruction'],
+    ['{command} smoke', 'the header of the report of the smoke names the command that is running; it is a label, not an instruction'],
+    ['OKWORK_HOME is set; {command} smoke uses a scratch home unless --real is given', 'the refusal of the smoke command of the person: it names the command that is running'],
   ])],
 ]);
 
@@ -423,7 +475,8 @@ test('no literal of the source names a command of the kit the person may not run
     // The command line of the kit is the slice of the dispatch; the smoke runs the clients of their own.
     if (name === 'src/cli.js' || name.startsWith('src/smoke/')) continue;
     const source = await readFile(path, 'utf8');
-    const literals = [...codeOf(source).matchAll(/'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)]
+    const code = normalise(codeOf(source));
+    const literals = [...code.matchAll(/'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)]
       .map((match) => match[1] ?? match[2] ?? match[3]);
     const exempt = ALLOWED.get(name) ?? new Map();
     for (const literal of literals) {
@@ -431,23 +484,36 @@ test('no literal of the source names a command of the kit the person may not run
         assert.ok(exempt.get(literal).length > 0, `${name}: the exemption of ${literal} has no reason`);
         continue;
       }
-      // The name of the command and the word that follows it: the word is a command when it is one of the old ones or
-      // when it is not a word of a sentence about the command itself.
-      for (const match of literal.matchAll(new RegExp(`(${COMMAND}|\\{command\\})\\s+([a-z][a-z-]*)`, 'g'))) {
-        assert.ok(!isCommand(match[2]), `${name} names the command ${match[2]}: ${literal}`);
-      }
-      // A backticked phrase of two words: the first one is the verb of a command of the kit (`config unset`). The commands
-      // of the clients (`claude plugin install ...`) are not commands of the kit.
-      for (const match of literal.matchAll(/`([a-z][a-z-]*) ([^`]+)`/g)) {
-        assert.ok(!OLD_COMMANDS.has(match[1]), `${name} names the command ${match[1]}: ${literal}`);
-      }
-      // A flag of the command line, in a literal that names the command of the kit.
-      if (new RegExp(`(${COMMAND}|\\{command\\})`).test(literal)) {
-        assert.ok(!forbiddenFlag(literal), `${name} names a flag of the command line: ${literal}`);
-      }
+      // A flag is only refused in a literal that names the command of the kit: the source holds the flags of the
+      // clients and of the configuration of the command line, which are not texts a model reads.
+      const names = new RegExp(`(${COMMAND}|\\{command\\})`).test(literal);
+      assert.ok(!forbiddenText(literal, { flags: names }), `${name} breaks the rule: ${literal}`);
     }
     for (const literal of exempt.keys()) {
       assert.ok(literals.includes(literal), `${name}: the exemption of ${literal} is not there any more`);
     }
   }
+});
+
+// | the fixture | must hold |
+// | a text built by concatenation | it is forbidden |
+// | a text built by a template | it is forbidden |
+test('the normaliser sees the texts that are built', () => {
+  assert.ok(forbiddenText(normalise("'Run okit-plugin ' + 'quota set 1'")), 'the concatenation is seen');
+  assert.ok(forbiddenText(normalise('`${DEFAULT_CONFIG.install.command} quota set 1`')), 'the template is seen');
+  assert.ok(forbiddenText(normalise('`${x.command} set 1`')), 'the template of a command is seen');
+  assert.ok(!forbiddenText(normalise("'Run okit-plugin ' + 'setup'")), 'the command of the person is allowed');
+});
+
+// | the fixture | must hold | must refuse |
+// | a flag | inside the span of a command of the person | a flag after a mention of `setup` somewhere else in the text |
+// | a group in backticks | none | `config show`, `quota set 1` |
+test('the rule of the texts has teeth', () => {
+  assert.ok(!forbiddenText('Ask the user to run `okit-plugin install --client claude-code`.'), 'the flag of a command of the person');
+  assert.ok(forbiddenText('Ask the user to run `okit-plugin setup`. Use --client to select a client.'), 'a flag after a mention of setup');
+  assert.ok(forbiddenText('Use --client to select a client.'), 'a bare flag');
+  assert.ok(forbiddenText('Run `config show` to view the settings.'), 'a group in backticks');
+  assert.ok(forbiddenText('Run `quota set codex 50`.'), 'a group with arguments');
+  assert.ok(!forbiddenText('Call `config_set` with the key.'), 'a tool is not a group');
+  assert.ok(forbiddenText('node "${CLAUDE_PLUGIN_ROOT}/bin/cli.js" status'), 'the cli of the plugin');
 });

@@ -409,7 +409,7 @@ test('autostart saves only in the discovered running installation destination', 
  * @param {object} options the records, the service of the machine and whether the save fails
  * @returns {object} the world of the test
  */
-function rollbackWorld({ records, service = null, failSave = true, task = null }) {
+function rollbackWorld({ records, service = null, failSave = true, task = null, kind = 'test', crontab = null }) {
   const config = installConfig();
   const destination = fileURLToPath(new URL('../rollback-destination', import.meta.url));
   const servicePath = join(destination, 'okit-daemon.service');
@@ -441,11 +441,16 @@ function rollbackWorld({ records, service = null, failSave = true, task = null }
         if (task === 'present') return {};
         throw Object.assign(new Error('not found'), { code: 1 });
       }
+      // The query of the crontab of the user: it answers with the lines of the user.
+      if (command === 'crontab') {
+        actions.push('query');
+        return { stdout: crontab ?? '' };
+      }
       actions.push(command);
       return {};
     },
     write: async (path, content) => { written.push(path); files.set(path, content); } };
-  const plan = { kind: task === null ? 'test' : 'schtasks', path: task === null ? servicePath : null, content: '[Service]\nExecStart=okit-plugin daemon start\n',
+  const plan = { kind: task === null ? kind : 'schtasks', path: task === null ? servicePath : null, content: '[Service]\nExecStart=okit-plugin daemon start\n',
     install: [{ command: 'install' }], uninstall: [{ command: 'uninstall' }] };
   return { config: { ...config, destination }, destination, servicePath, files, actions, errors, outputs, written, ctx, plan };
 }
@@ -455,6 +460,27 @@ const recordFiles = (files) => Object.fromEntries([...files.entries()].filter(([
 
 const runRollback = (world) => setupAutostart(world.ctx, {
   config: world.config, locale: 'en', ask: async () => 'yes', plan: () => world.plan,
+});
+
+test('a stale unit that is there is kept when the save fails', async () => {
+  // The unit of the machine is there, but it does not hold the content of the plan (it is stale): the rollback keeps it,
+  // because it is a service of the person and the save of the record is what failed.
+  const w = rollbackWorld({ records: {
+    'claude-code': { client: 'claude-code', autostart: false, link: false },
+  }, kind: 'systemd', service: '[Service]\nExecStart=/other/node daemon start\n' });
+  assert.equal(await runRollback(w), 1);
+  assert.deepEqual(w.actions, ['install'], w.actions.join(', '));
+  assert.deepEqual(w.errors, ['Could not install autostart: the service that was already installed was kept: save denied']);
+});
+
+test('the line of ours in the crontab is kept when the save fails', async () => {
+  // The crontab of the user holds our line: the rollback keeps it.
+  const w = rollbackWorld({ records: {
+    'claude-code': { client: 'claude-code', autostart: false, link: false },
+  }, kind: 'cron', crontab: '@reboot /usr/bin/node /repo/src/cli.js daemon start # okit-daemon\n' });
+  assert.equal(await runRollback(w), 1);
+  assert.deepEqual(w.actions, ['query', 'install'], w.actions.join(', '));
+  assert.deepEqual(w.errors, ['Could not install autostart: the service that was already installed was kept: save denied']);
 });
 
 test('a stale record does not keep a service that was never there', async () => {
@@ -496,6 +522,15 @@ test('a save that fails on a Windows machine without the task takes the task bac
   const w = rollbackWorld({ records: {
     'claude-code': { client: 'claude-code', autostart: false, link: false },
   }, task: 'absent' });
+  assert.equal(await runRollback(w), 1);
+  assert.deepEqual(w.actions, ['query', 'install', 'uninstall'], w.actions.join(', '));
+  assert.deepEqual(w.errors, ['Could not install autostart: the autostart was taken back: save denied']);
+});
+
+test('a crontab without our line is a clean machine: the line is taken back when the save fails', async () => {
+  const w = rollbackWorld({ records: {
+    'claude-code': { client: 'claude-code', autostart: false, link: false },
+  }, kind: 'cron', crontab: '0 * * * * /usr/bin/other-job\n' });
   assert.equal(await runRollback(w), 1);
   assert.deepEqual(w.actions, ['query', 'install', 'uninstall'], w.actions.join(', '));
   assert.deepEqual(w.errors, ['Could not install autostart: the autostart was taken back: save denied']);

@@ -1,23 +1,37 @@
 import { homedir } from 'node:os';
-import { applyAutostart, autostartPresent } from '../autostart.js';
+import { applyAutostart, autostartExists, autostartPresent } from '../autostart.js';
 import { installPaths } from '../install/config.js';
 import { exitCodeFor } from '../install/exit.js';
 import { discoverRecords, readRecords, saveRecord, snapshotRecords, restoreRecords } from '../install/place.js';
 import { fill, pick, TEXTS } from '../install/present.js';
 
 /**
- * Whether the autostart of this machine is really there.
+ * Whether the autostart of this machine is working.
  *
  * The record of the installation says what was asked for; the machine says what is there. The check is the one the
- * doctor asks: a service that is corrupt, stale or disabled is not there, and the step below offers itself again so
+ * doctor asks: a service that is corrupt, stale or disabled is not working, and the step below offers itself again so
  * the setup repairs what the doctor found.
  *
  * @param {object} ctx the context of the command line
  * @param {object} selected the plan of the autostart of this machine
  * @returns {Promise<boolean>}
  */
-async function onMachine(ctx, selected) {
+async function alreadyThere(ctx, selected) {
   return autostartPresent(selected, { fs: ctx.fs, run: ctx.run });
+}
+
+/**
+ * Whether anything of this autostart is on the machine.
+ *
+ * The rollback asks another question: a service that is there but disabled or stale must not be taken away by a save
+ * that failed, so the answer is "is there anything of it here?", not "is it working?".
+ *
+ * @param {object} ctx the context of the command line
+ * @param {object} selected the plan of the autostart of this machine
+ * @returns {Promise<boolean>}
+ */
+async function existedOnMachine(ctx, selected) {
+  return autostartExists(selected, { fs: ctx.fs, run: ctx.run });
 }
 
 /** The final interactive setup step, attached to the existing installation. */
@@ -31,7 +45,7 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
     const records = Object.values(discovered.records);
     if (!records.length) return exitCodeFor('ok');
     const selected = plan(records[0]);
-    if (records.every((record) => record.autostart === true) && await onMachine(ctx, selected)) {
+    if (records.every((record) => record.autostart === true) && await alreadyThere(ctx, selected)) {
       ctx.out(text('autostartAlready'));
       return exitCodeFor('ok');
     }
@@ -49,7 +63,7 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
     const snapshot = await snapshotRecords(destination, ctx.fs, config);
     // The service of the machine may already be there: the rollback below must not take it away. The machine says it,
     // not the record: a record that says the autostart is on while the service is gone is a stale record.
-    const existed = await onMachine(ctx, selected);
+    const existed = await existedOnMachine(ctx, selected);
     await applyAutostart(selected, { run: ctx.run, write: ctx.write, action: 'install' });
     try {
       await saveRecord(destination, { ...records[0], autostart: true }, { fs: ctx.fs, config });
