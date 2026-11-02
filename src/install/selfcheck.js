@@ -1,21 +1,22 @@
 import { join } from 'node:path';
 import { HOME_ENV, SELFCHECK_ENV, paths } from '../store.js';
 import { STATUSLINE_FILE } from '../quota/statusline-collector.js';
-import { readRecord } from './place.js';
+import { readRecordsLenient } from './place.js';
 import { quote, binInPath, activationWarning, managedProfile, currentShell } from './link.js';
 import { collectorCommandIndex, collectorExecutable, commandWords, settingsPath } from './statusline.js';
 import { collectorArgsValid } from '../quota/statusline-collector.js';
 import { cliScript, hookScript, hookNode, isAnotherNode, isOurHook } from './register.js';
+import { mcpPlan } from './mcp-register.js';
 import { clientRoot } from './config.js';
-import { presenterOf, clientLabel } from './present.js';
+import { presenterOf, clientLabel, redact, controlReason } from './present.js';
 
 // The check after an install or an update: the installation is only done when it WORKS on this machine. It reads back what
 // the installer wrote (the record, the client's settings) and runs it the way the client will, in a temporary state root,
 // so the person's own state is never written. Every check is { id, status: 'pass'|'fail'|'skip', shell?, reason, fix };
 // the texts are the presenter's (en and pt-BR), so a result is already in the language of the run.
 
-const LABELS = { version: 'selfcheckVersion', command: 'selfcheckCommand', statusline: 'selfcheckStatusline',
-  hook: 'selfcheckHook', collector: 'selfcheckCollector', path: 'selfcheckPath' };
+export const LABELS = { version: 'selfcheckVersion', command: 'selfcheckCommand', statusline: 'selfcheckStatusline',
+  hook: 'selfcheckHook', collector: 'selfcheckCollector', mcp: 'selfcheckMcp', api: 'selfcheckApi', path: 'selfcheckPath' };
 
 const QUOTE = {
   posix: quote,
@@ -115,11 +116,30 @@ const shellsOf = (deps) => deps.config.selfcheck.shells[deps.platform] ?? [];
 const shellNamed = (deps, name) => shellsOf(deps).find((shell) => shell.name === name);
 const again = (record, deps) => `${deps.config.command} install --client ${record.client}`;
 
+/**
+ * The budget of the probe of the MCP server: the time the configuration asks for, never more than the time of the
+ * check minus the margin the server takes to go.
+ *
+ * The budget is clamped here and not refused by the schema: a configuration saved before the probe had a budget of its
+ * own keeps working (the budget it asks for is shortened, not the installation refused).
+ *
+ * @param {object} config the settings of the installer
+ * @returns {number} the budget of the probe, in milliseconds
+ */
+export function probeBudget(config) {
+  const selfcheck = config?.selfcheck ?? {};
+  const asked = Number(selfcheck.probeMs);
+  const limit = Number(selfcheck.timeoutMs) - 2500;
+  return Math.max(1, Math.min(Number.isFinite(asked) ? asked : 1, limit));
+}
+
 /** 1. The version the record and the installed package say is the one that was asked for. */
 async function versionCheck(record, expected, deps) {
   const { ui } = deps;
   const fix = ui.text('selfcheckFixVersion', { again: again(record, deps) });
-  const saved = await readRecord(deps.destination, record.client, deps.fs, deps.config).catch(() => null);
+  // The records are read leniently: a record of another client that cannot be read is not this client's failure.
+  const read = await readRecordsLenient(deps.destination, deps.fs, deps.config).catch(() => ({ records: {} }));
+  const saved = read.records[record.client] ?? null;
   if (!saved) return badCheck('version', ui.text('selfcheckUnreadable', { path: deps.destination }), fix);
   if (saved.version !== expected) return badCheck('version', ui.text('selfcheckVersionRecord', { found: saved.version, expected }), fix);
   const file = join(saved.path, 'package.json');
@@ -397,7 +417,132 @@ function sampleOf(id, folder, deps) {
     .map((key) => [key, { [fields.usedPercentage]: sample.usedPercentage, [fields.resetsAt]: resets }])) });
 }
 
-/** 5. The link directory is on this terminal's PATH, or a new terminal is needed (said in the words the install already uses). */
+/**
+ * The answer of the probe: the last line it printed, as JSON; null when it printed nothing or something else.
+ *
+ * @param {string} stdout what the probe printed
+ * @returns {object|null}
+ */
+function readProbe(stdout) {
+  const lines = printedLines(stdout);
+  const last = lines.at(-1);
+  if (last === undefined) return null;
+  try {
+    const value = JSON.parse(last);
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+// The code of a failure of the probe, and the text of the language of the run that says it. The probe never carries an
+// English sentence into a row: it carries a code and its data, and the text is here.
+const PROBE_TEXTS = Object.freeze({
+  'start-failed': 'selfcheckProbeStart',
+  stopped: 'selfcheckProbeStopped',
+  timeout: 'selfcheckProbeTimeout',
+  'init-error': 'selfcheckProbeInit',
+  'list-error': 'selfcheckProbeList',
+  'no-tools': 'selfcheckProbeNoTools',
+  'bad-frame': 'selfcheckProbeBadFrame',
+  'long-line': 'selfcheckProbeLongLine',
+  'no-control-api': 'selfcheckProbeNoControl',
+  'control-error': 'selfcheckProbeControl',
+});
+
+/**
+ * What a failure of the probe says, in the language of the run.
+ *
+ * A failure with a code is the text of that code, with the data of the failure (the time of the budget, the name of
+ * the frame that was wrong, the words of the server). A failure with no code (an answer of an older probe) is the
+ * generic text of the check, with the words of the failure as raw detail. The tail of the error stream of the server
+ * follows only in verbose mode, with temporary paths redacted and a localized label.
+ *
+ * @param {object} ui the presenter of the run
+ * @param {unknown} error what the probe said
+ * @param {{stderr?: string, folder: string, hide: string[]}} options temporary folders and server stderr
+ * @returns {string} the sentence of the row
+ */
+function probeReason(ui, error, { stderr = '', folder, hide = [] } = {}) {
+  const temporary = [folder, ...hide];
+  let sentence;
+  if (error === null || error === undefined || error === '') sentence = ui.text('selfcheckError');
+  else if (typeof error === 'string') sentence = `${ui.text('selfcheckError')}: ${redact(error, temporary)}`;
+  else {
+    const key = PROBE_TEXTS[String(error.code ?? '')];
+    sentence = key
+      ? ui.text(key, { ms: error.ms, why: error.code === 'control-error'
+        ? controlReason(ui, { code: error.cause, error: redact(error.why, temporary) })
+        : redact(error.why, temporary), limit: error.limit })
+      : `${ui.text('selfcheckError')}: ${redact(error.code ?? error.why ?? 'unknown', temporary)}`;
+  }
+  const tail = ui.verbose ? redact(String(stderr ?? '').trim(), temporary) : '';
+  return tail === '' ? sentence : `${sentence} (${ui.text('selfcheckProbeStderr', { tail: tail.slice(-400) })})`;
+}
+
+/**
+ * 5. The MCP server of this installation starts and answers, and its own control API answers one tool call.
+ *
+ * The server is started by the probe (`src/mcp/selfcheck-probe.js`), a program of this installation, under a temporary
+ * state root: the person's own state is never touched. The probe answers one line of JSON and the installer reads it;
+ * what it says is in the row, in the language of the run.
+ *
+ * @param {object} record the installation record
+ * @param {object} deps the installer's dependencies
+ * @returns {Promise<object[]>} the two results, `mcp` and `api`
+ */
+async function mcpChecks(record, deps) {
+  const { ui, config } = deps;
+  const fix = ui.text('selfcheckFixMcp', { command: again(record, deps) });
+  // A client with no MCP server of ours has nothing of ours to ask.
+  if (!mcpPlan(record, deps)) {
+    return [skipCheck('mcp', ui.text('selfcheckNotUsed'), { quiet: true }),
+      skipCheck('api', ui.text('selfcheckNotUsed'), { quiet: true })];
+  }
+  const folder = await deps.fs.mkdtemp(join(deps.temporary, 'selfcheck-'));
+  try {
+    const outcome = await attempt(deps, { command: config.node,
+      args: [join(record.path, 'src/mcp/selfcheck-probe.js'), join(record.path, config.mcp.server),
+        String(probeBudget(config))],
+      env: environment(deps, { [HOME_ENV]: folder, [SELFCHECK_ENV]: '1' }) });
+    // A node that is not on the machine is a failure, not a skip: the client uses our MCP server, and it cannot work
+    // without the node the installation is configured to run.
+    if (outcome.state === 'missing') {
+      const why = ui.text('selfcheckNodeMissing', { node: config.node });
+      return [badCheck('mcp', why, ui.text('selfcheckFixNodeMissing', { node: config.node, command: again(record, deps) })),
+        badCheck('api', why, ui.text('selfcheckFixNodeMissing', { node: config.node, command: again(record, deps) }))];
+    }
+    if (outcome.state !== 'ok') {
+      const why = outcome.why;
+      return [badCheck('mcp', ui.text('selfcheckMcpNoAnswer', { why }), fix, { output: outcome.output }),
+        badCheck('api', ui.text('selfcheckMcpNoAnswer', { why }), fix, { output: outcome.output })];
+    }
+    const answer = readProbe(outcome.stdout);
+    const mcp = answer?.mcp;
+    if (answer === null || mcp === null || typeof mcp !== 'object') {
+      // The probe printed nothing we can read: the check itself could not run.
+      const why = ui.text('selfcheckError');
+      return [badCheck('mcp', ui.text('selfcheckMcpNoAnswer', { why }), fix),
+        badCheck('api', ui.text('selfcheckMcpNoAnswer', { why }), fix)];
+    }
+    if (mcp.ok !== true) {
+      // There is no server to ask, so the API is not checked.
+      const why = probeReason(ui, mcp.error, { stderr: answer.stderr, folder, hide: [deps.temporary] });
+      return [badCheck('mcp', ui.text('selfcheckMcpNoAnswer', { why }), fix),
+        skipCheck('api', ui.text('selfcheckApiSkipped'))];
+    }
+    const api = answer.api;
+    if (api === null || typeof api !== 'object' || api.ok !== true) {
+      const why = probeReason(ui, api?.error, { stderr: answer.stderr, folder, hide: [deps.temporary] });
+      return [okCheck('mcp', ui.text('selfcheckMcpOk', { count: Number(mcp.tools ?? 0) })),
+        badCheck('api', ui.text('selfcheckApiFailed', { why }), fix)];
+    }
+    return [okCheck('mcp', ui.text('selfcheckMcpOk', { count: Number(mcp.tools ?? 0) })),
+      okCheck('api', ui.text('selfcheckApiOk'))];
+  } finally { await deps.fs.rm(folder, { recursive: true, force: true }); }
+}
+
+/** 6. The link directory is on this terminal's PATH, or a new terminal is needed (said in the words the install already uses). */
 async function pathCheck(record, deps) {
   const { ui, config } = deps;
   if (record.link === false) return skipCheck('path', ui.text('linkOff'), { quiet: true });
@@ -436,6 +581,7 @@ export async function selfCheck(record, expected, deps) {
     ...await guarded('command', deps, record, () => commandChecks(record, deps)),
     ...(applies ? await guarded('statusline', deps, record, () => runWritten(record, deps))
       : ['statusline', 'hook', 'collector'].map((id) => skipCheck(id, ui.text('selfcheckNotUsed'), { quiet: true }))),
+    ...await guarded('mcp', deps, record, () => mcpChecks(record, deps)),
     ...await guarded('path', deps, record, () => pathCheck(record, deps)),
   ];
   return results;

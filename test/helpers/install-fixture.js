@@ -20,6 +20,10 @@ export const FORMAT = { linux: 'tar.gz', darwin: 'tar.gz', win32: 'zip' };
 export async function answerCheck({ command = '', env, args = [] }, { bin } = {}) {
   const folder = env?.[HOME_ENV];
   const text = args.map(String);
+  // The probe of the MCP server: the fake world says that the server answers and that its API answers too.
+  if (text.some((item) => item.endsWith('selfcheck-probe.js'))) {
+    return { stdout: `${JSON.stringify({ mcp: { ok: true, tools: 12, error: '' }, api: { ok: true, error: '' } })}\n` };
+  }
   if (folder && text.some((item) => item.includes('statusline-collector'))) {
     await fs.mkdir(paths(folder).quota, { recursive: true });
     await fs.writeFile(join(paths(folder).quota, STATUSLINE_FILE), '{}');
@@ -120,6 +124,9 @@ export async function fixture(t, platform = 'linux', { tty = false, ask, read } 
   const payload = () => pack([
     { path: 'package.json', mode: 0o644, data: JSON.stringify({ ...pkg, version }) },
     { path: 'src/cli.js', mode: 0o755, data: '#!/usr/bin/env node\n' },
+    // The payload of the MCP server and the probe of the check: the installer writes them, and the check reads them.
+    { path: 'src/mcp/server.js', mode: 0o644, data: '// fake MCP server\n' },
+    { path: 'src/mcp/selfcheck-probe.js', mode: 0o644, data: '// fake probe of the check\n' },
     { path: 'skills/example/SKILL.md', mode: 0o644, data: 'fake skill' },
   ]);
   const clients = Object.keys(config.clients);

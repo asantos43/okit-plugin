@@ -164,18 +164,28 @@ registered, in this order, and prints one row, `Self-check (Claude Code)`:
    (`install.selfcheck.stateKeys`: the status bar's collector fields and the limits); every other setting, such as a
    measurement folder (`telemetry`) or a quota command (`opencodeQuota.sources`), is not copied. The check never runs a command of yours: a status bar you chained with `--previous` is
    not started by it (the processes of the check carry `OKIT_SELFCHECK`, and the collector then skips `--previous`).
-5. **PATH**: judged apart from the checks above, which add the link folder to the PATH they start with. If the link
+5. **MCP server and control API**: the MCP server this installation registered starts and answers. A small probe
+   of the installation (`src/mcp/selfcheck-probe.js`) starts the server the way a client starts it
+   (`node <installation>/src/mcp/server.js`) under a temporary state root, which is removed afterwards, so your own
+   state is never touched. The server must answer `initialize` and `tools/list` with a list of tools
+   (`MCP server  ok  answered with 29 tools`), and while it is alive its own control API must answer one tool call
+   (`Control API  ok  answered a tool call`). A server that does not answer fails the row and says why
+   (`MCP server  failed  the MCP server did not answer (...)`), with a `Fix:` line that asks for the install again; when
+   the server does not answer there is nothing to ask the API, so the API row is skipped (`not checked: the MCP server
+   did not answer`). The probe waits `install.selfcheck.probeMs` for the server (always less than the limit of the
+   process that runs it, `install.selfcheck.timeoutMs`).
+6. **PATH**: judged apart from the checks above, which add the link folder to the PATH they start with. If the link
    folder is not on the PATH of this terminal and no profile adds it, the check fails and gives the line to add.
    When a profile the installer manages adds it, the check passes and the run says once, in its closing lines,
    that a new terminal is needed (also when the version was already installed).
 
-All passed: `Self-check (Claude Code)  ok  6 checks passed`; the list of the shells is shown with `--verbose`.
-Any failure: the install stays in place, the row says `installed but not working: 1 of 6 checks failed`, each
+All passed: `Self-check (Claude Code)  ok  8 checks passed`; the list of the shells is shown with `--verbose`.
+Any failure: the install stays in place, the row says `installed but not working: 1 of 8 checks failed`, each
 failed check has its own row followed by a line `Fix: ...` with the exact command or edit, and the exit code is
 1. Example:
 
 ```
-Self-check (Claude Code)  failed  installed but not working: 1 of 6 checks failed
+Self-check (Claude Code)  failed  installed but not working: 1 of 8 checks failed
 Command (zsh)             failed  zsh does not find okit-plugin (exit code 1)
 Fix: Add /home/you/.local/bin to the PATH of zsh, then run: okit-plugin install --client claude-code
 ```

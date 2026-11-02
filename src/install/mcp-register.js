@@ -175,6 +175,23 @@ export async function registerMcp(record, deps, action = 'install') {
     if (!removed.ok) return failure(ui, client, removed.reason, plan.remove, deps.platform);
     return { status: 'ok', detail: ui.text('mcpRemoved', { client }) };
   }
+  // The entry is ours and it cannot work: it is taken out and written again. The rules are the
+  // ones the doctor reads (`brokenOf`), so the two can never disagree about what is broken.
+  const target = ours(current) ? current : (previous && ours(previous)) ? previous : null;
+  const broken = target === null ? null : await brokenOf(entry, deps, target);
+  if (broken !== null) {
+    // A client whose own `mcp get` does not say where an entry is kept (Codex): the commands
+    // to run by hand are given, as they are for the entry of the installation it replaces.
+    if (unscoped) {
+      return { status: 'kept', manual: true, detail: ui.text('mcpManual', { client, name,
+        command: `${shown(plan.remove, deps.platform)} ; ${shown(plan.add, deps.platform)}` }) };
+    }
+    const removed = await runPlan(plan.remove, deps, plan.cwd);
+    if (!removed.ok) return failure(ui, client, removed.reason, plan.remove, deps.platform);
+    const added = await runPlan(plan.add, deps, plan.cwd);
+    if (!added.ok) return failure(ui, client, added.reason, plan.add, deps.platform);
+    return { status: 'ok', detail: ui.text('mcpRepaired', { client }) };
+  }
   // The entry is ours and it already points at this installation: there is nothing to write.
   if (ours(current)) return { status: 'skipped', detail: ui.text('mcpAlready', { client }) };
   // The entry points at the installation this one replaces: it is taken out and the new one is written.
@@ -190,6 +207,129 @@ export async function registerMcp(record, deps, action = 'install') {
     return { status: 'ok', detail: ui.text('mcpReplaced', { client }) };
   }
   return { status: 'kept', detail: ui.text('mcpKept', { client, name }) };
+}
+
+/**
+ * The status of the MCP entry of a client, read and never written.
+ *
+ * It is the read-only half of `registerMcp`: the same plan (`mcpPlan`), the same reading of the entry (`readEntry`) and
+ * the same ownership (`pointsAt`), so the two can never disagree about what the client holds. Only the `get` command of
+ * the client runs: the `add` and the `remove` are never even planned.
+ *
+ * The states are: `registered` (the entry names the server of this installation, or the one it replaces), `absent`
+ * (the client holds no entry of that name), `foreign` (the entry of that name is there, but it is not ours: at another
+ * scope, or pointing at another server), `broken` (the entry is ours, but it cannot work: the client has it disabled,
+ * or it launches another program, or the program it launches is not on this machine), `unreadable` (the entry could not
+ * be read, with the reason) and `none` (this client has no MCP server of ours, so there is nothing of ours to look
+ * for).
+ *
+ * @param {object} record the installation record (`path` is the retained folder, `previous.path` the one before it)
+ * @param {object} deps the dependencies of the installer (`config` and `run`)
+ * @returns {Promise<{state: 'registered'|'absent'|'foreign'|'broken'|'unreadable'|'none', reason?: string, command?: string}>}
+ */
+export async function mcpStatus(record, deps) {
+  const plan = mcpPlan(record, deps, 'install');
+  if (!plan) return { state: 'none' };
+  const entry = await readEntry(plan, deps);
+  // An entry that could not be read is not an absent entry: nothing is said about what the client holds.
+  if (entry.status === 'failed') return { state: 'unreadable', reason: entry.reason };
+  if (entry.status === 'absent') return { state: 'absent' };
+  // The entry is at another scope than ours: it is the entry of somebody else.
+  if (entry.status === 'otherScope') return { state: 'foreign' };
+  const current = serverPath(record.path, deps.config);
+  const previous = record.previous?.path ? serverPath(record.previous.path, deps.config) : null;
+  const ours = (path) => pointsAt(entry.output, [path], deps.platform, entry.format);
+  // The server the entry names: the one of this installation, or the one it replaces. It has to
+  // be on this machine: an entry that names a file that is gone cannot work.
+  const target = ours(current) ? current : (previous && ours(previous)) ? previous : null;
+  if (target !== null) {
+    // The entry is ours, but it can still be broken: the doctor has to say so, never call it registered.
+    const broken = await brokenOf(entry, deps, target);
+    if (broken !== null) return { state: 'broken', ...broken };
+    return { state: 'registered' };
+  }
+  return { state: 'foreign' };
+}
+
+/**
+ * Why the entry of ours cannot work, or null when it can.
+ *
+ * Four things break an entry that names our server: the client has it disabled, it launches another program than
+ * the node of the installation, the program it launches is not on this machine (a program of a path: a bare name
+ * is looked up by the client in its own PATH, which is not the PATH of the doctor), or the server file it names
+ * is not on this machine.
+ *
+ * The one function of the rules: the status of the entry (`mcpStatus`) and the installation that writes it
+ * (`registerMcp`) ask it, so the two can never disagree about what is broken.
+ *
+ * @param {object} entry what the client printed about the entry
+ * @param {object} deps the dependencies of the installer
+ * @param {string|null} server the server file the entry names (the one of this installation, or the one it replaces)
+ * @returns {Promise<{reason: string, command: string}|null>}
+ */
+export async function brokenOf(entry, deps, server = null) {
+  const output = entry.output ?? '';
+  const format = entry.format ?? 'text';
+  const command = commandOf(output, format);
+  if (disabledOf(output, format)) return { reason: 'disabled', command: command ?? '' };
+  // The program the client launches is the node of the installation: the entry was written with it.
+  if (command !== null && command !== deps.config.node) {
+    return { reason: 'other-executable', command };
+  }
+  if (command !== null && !await existsOf(command, deps)) {
+    return { reason: 'missing-executable', command };
+  }
+  // The server the entry names has to be there: an entry that names a file that is gone cannot work.
+  if (server !== null && !await existsOf(server, deps)) {
+    return { reason: 'missing-server', command: server };
+  }
+  return null;
+}
+
+/** The program the client launches for the entry: the command of its transport (JSON) or its `Command` field (text). */
+const commandOf = (output, format) => {
+  if (format === 'json') {
+    const command = jsonOf(output)?.transport?.command;
+    return typeof command === 'string' && command !== '' ? command : null;
+  }
+  const fields = fieldsOf(output);
+  // The fields of the entry are unknown: the program it launches is unknown too.
+  if (!fields) return null;
+  const field = fields.find((item) => /^command$/i.test(item.key));
+  return field && field.value !== '' ? field.value : null;
+};
+
+/** Whether the client says the entry is off: it says so in its own words, in the format it answers with. */
+const disabledOf = (output, format) => {
+  if (format === 'json') {
+    const entry = jsonOf(output);
+    if (!entry) return false;
+    if (entry.enabled === false) return true;
+    return entry.disabled_reason !== undefined && entry.disabled_reason !== null;
+  }
+  const fields = fieldsOf(output);
+  if (!fields) return false;
+  const enabled = fields.find((item) => /^enabled$/i.test(item.key));
+  if (enabled && /^(false|no|off)$/i.test(enabled.value.trim())) return true;
+  const status = fields.find((item) => /^(status|state)$/i.test(item.key));
+  return Boolean(status && /disabled/i.test(status.value));
+};
+
+/** Whether the program is on this machine: a program of a path is looked for; a bare name is left to the client. */
+async function existsOf(command, deps) {
+  if (!/[/\\]/.test(command)) return true;
+  if (typeof deps?.fs?.access !== 'function') return true;
+  return deps.fs.access(command).then(() => true, () => false);
+}
+
+/** The JSON the client printed, as an object; null when it is not one. */
+function jsonOf(text) {
+  try {
+    const value = JSON.parse(String(text ?? ''));
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -260,13 +400,8 @@ export function pointsAt(text, paths, platform = process.platform, format = 'tex
  * an object, names nothing: it is never ours, and it never throws.
  */
 const jsonPointsAt = (text, paths, platform) => {
-  let entry;
-  try {
-    entry = JSON.parse(String(text ?? ''));
-  } catch {
-    return false;
-  }
-  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+  const entry = jsonOf(text);
+  if (!entry) return false;
   const transport = entry.transport;
   if (!transport || typeof transport !== 'object' || Array.isArray(transport)) return false;
   // Only a stdio transport runs our server.

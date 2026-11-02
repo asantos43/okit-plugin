@@ -71,6 +71,7 @@ const SECTION_READERS = Object.freeze({
   }),
   files: Object.freeze({
     'src/cli.js': ['command', 'kit'],
+    'src/doctor/command.js': ['command'],
     'src/env/path.js': ['windowsPlatform', 'pathExtensions', 'command'],
     'src/env/snapshot.js': ['clients', 'kit'],
     'src/todo/index.js': ['projects'],
@@ -115,7 +116,8 @@ const SIZE = [1, Number.MAX_SAFE_INTEGER];
 /** `install.*` numbers (installConfig). */
 export const INSTALL_NUMBERS = Object.freeze({
   'kit.timeoutMs': TIMER, timeoutMs: TIMER, daemonPollMs: TIMER, maxDownloadBytes: SIZE, maxExtractBytes: SIZE,
-  'selfcheck.timeoutMs': TIMER, 'selfcheck.sample.usedPercentage': SIZE, 'selfcheck.sample.resetsInSeconds': SIZE,
+  'selfcheck.timeoutMs': [2501, 2147483647], 'selfcheck.probeMs': [1, 2147481147],
+  'selfcheck.sample.usedPercentage': SIZE, 'selfcheck.sample.resetsInSeconds': SIZE,
 });
 /** The numbers `config set` takes; `integer` or `number`. */
 export const CONFIG_NUMBERS = Object.freeze({
@@ -136,7 +138,7 @@ const INSTALL_BASE = ['install', '--client', 'claude-code', '--dry-run'];
 /** One argv that starts each command, valid by itself. */
 export const COMMAND_BASES = Object.freeze({
   install: INSTALL_BASE, update: ['update', '--dry-run'], uninstall: ['uninstall', '--dry-run'], setup: ['setup', '--defaults'],
-  kit: ['kit'], status: ['status'], config: ['config', 'show'], 'telemetry status': ['telemetry', 'status'],
+  kit: ['kit'], status: ['status'], doctor: ['doctor'], config: ['config', 'show'], 'telemetry status': ['telemetry', 'status'],
   'telemetry export': ['telemetry', 'export'], 'quota set': ['quota', 'set', 'codex', '10'], 'autostart show': ['autostart', 'show'],
   actors: ['actors'], 'daemon status': ['daemon', 'status'],
 });
@@ -148,19 +150,19 @@ const NAMES = ['no-such-name', '', ' ', 'a\nb'];
  * tried with no value after it ("missing value") and in the `--flag=value` form where the command accepts it.
  */
 export const FLAG_TABLE = Object.freeze([
-  { flag: '--client', value: 'client name', commands: ['install', 'update', 'uninstall', 'status', 'actors'], invalid: NAMES },
+  { flag: '--client', value: 'client name', commands: ['install', 'update', 'uninstall', 'status', 'actors', 'doctor'], invalid: NAMES },
   { flag: '--from', value: 'folder of a package', commands: ['install'], invalid: ['/nonexistent/okit-from', ''] },
   { flag: '--repo', value: 'owner/repository', commands: ['install'], invalid: ['invalid', 'a b/c', '../x', './y', '..', '', '/'] },
   { flag: '--dest', value: 'folder', commands: ['install'], invalid: [' ', 'a\nb', ''] },
   { flag: '--asset', value: 'file name', commands: ['install'], invalid: [], missing: true },
-  { flag: '--locale', value: 'en | pt-BR', commands: ['install', 'update', 'uninstall', 'setup', 'kit', 'status', 'actors', 'daemon status'], invalid: ['xx', 'EN', 'pt_BR', ' '] },
+  { flag: '--locale', value: 'en | pt-BR', commands: ['install', 'update', 'uninstall', 'setup', 'kit', 'status', 'actors', 'daemon status', 'doctor'], invalid: ['xx', 'EN', 'pt_BR', ' '] },
   { flag: '--kind', value: 'autostart kind', commands: ['autostart show'], invalid: ['invalid', 'SYSTEMD', ' '] },
   { flag: '--since', value: 'ISO date', commands: ['telemetry export'], invalid: ['nope', '2026-13-45', '', 'yesterday', '5'] },
   { flag: '--window-minutes', value: 'number > 0', commands: ['quota set'], invalid: ['NaN', 'Infinity', '-1', '0', 'abc', '', '1e999'] },
   { flag: '--dry-run', value: 'none', commands: ['install', 'update', 'uninstall'], invalid: [] },
   { flag: '--yes', value: 'none', commands: ['install', 'uninstall'], invalid: [] },
   { flag: '--prerelease', value: 'none', commands: ['install'], invalid: [] },
-  { flag: '--verbose', value: 'none', commands: ['install', 'update', 'uninstall'], invalid: [] },
+  { flag: '--verbose', value: 'none', commands: ['install', 'update', 'uninstall', 'doctor'], invalid: [] },
   { flag: '--defaults', value: 'none', commands: ['setup'], invalid: [] },
   { flag: '--again', value: 'none', commands: ['setup'], invalid: [] },
   { flag: '--require', value: 'none', commands: ['kit'], invalid: [] },
@@ -282,7 +284,7 @@ export const FILE_RULES = Object.freeze([
     note: 'a folder the person named that has no package is a wrong argument (--from), told as such' },
   { file: 'install.json / install.<client>.json (the record)', readBy: 'src/install/place.js, src/install/bootstrap.js', unreadable: 1, wrongType: 2,
     proof: 'test/input-inventory.test.js#${record} ${body}',
-    note: 'every field is checked by RECORD_FIELDS (src/config-schema.js), also in the record the record replaced (`previous`); a wrong type names the field' },
+    note: 'every field is checked by RECORD_FIELDS (src/config-schema.js), also in the record the record replaced (`previous`); a wrong type names the field; the doctor reads the records leniently (readRecordsLenient), so a record it cannot read is a failed row of the diagnosis (exit 1) and never a refusal of the whole run; the install reads them leniently too (a record it cannot read is no usable record for that client: a clean install of it, exit 0), while update, uninstall and status keep the strict reading and its message' },
   { file: 'managed-path.json (the PATH state)', readBy: 'src/install/link.js (pathState)', unreadable: 1, wrongType: 2, proof: 'test/input-inventory.test.js#managed-path.json ${body}',
     note: 'the profile blocks and the Windows PATH entry the installer added; checked by PATH_STATE_SCHEMA (src/config-schema.js)' },
   { file: 'package.json of the downloaded package', readBy: 'src/install/place.js', unreadable: 1, wrongType: 1, proof: 'test/install-invariants.test.js#Package metadata version differs from release',
@@ -387,7 +389,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/telemetry/index.js', arg: /^await readFile\(join\(config\.dir, name\)|^join\(config\.dir, name\)$/, excluded: 'the measurement files okit wrote in telemetry.dir; a damaged one is reported by `telemetry check` as damaged, never as the person\'s usage' },
   { file: 'src/telemetry/index.js', arg: /^(join\(root, 'telemetry-export\.json'\)|file)$/, excluded: 'telemetry-export.json is written by okit (atomic write) and read back for the last-export line (a non-text `at`, from a hand edit, counts as no export time: input inventory test); `file` is the configuration file of `telemetry on|off` (CONFIG_JSON above)' },
   // The installer.
-  { file: 'src/install/place.js', arg: /^(text|join\(destination, 'install\.json'\)|recordPath\(destination, client, config\))$/, rule: RECORD },
+  { file: 'src/install/place.js', arg: /^(text|file|legacy|legacyText|join\(destination, 'install\.json'\)|recordPath\(destination, client, config\))$/, rule: RECORD },
   { file: 'src/install/bootstrap.js', arg: /^(path|recordFile)$/, rule: RECORD },
   { file: 'src/install/place.js', arg: /^join\(staging, 'package\.json'\)$/, rule: 'package.json of the downloaded package' },
   { file: 'src/install/source.js', arg: /^join\(source, 'package\.json'\)$/, rule: 'package.json of --from' },
@@ -406,7 +408,9 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/install/selfcheck.js', arg: /^(file|text)$/, excluded: 'package.json of the package just installed (code of the program itself), read back only to compare its version; a file that cannot be read or is not JSON is a failed check (a row with its fix, exit 1), never a crash' },
   { file: 'src/install/selfcheck.js', arg: /^saved$/, excluded: 'the person\'s config.json, read to copy only the allowed keys (install.selfcheck.stateKeys) into the temporary state root; a file that is not JSON, or whose root is not an object, copies nothing and the scripts use their defaults; never a crash, never a failed check' },
   { file: 'src/install/selfcheck.js', arg: /^path$/, excluded: 'the client\'s settings file, read back to run the status bar and hook strings the installer wrote; a file that cannot be read or is not JSON is a failed check with its fix (exit 1), JSON of another shape finds no status bar and is a skipped row; never a crash' },
+  { file: 'src/install/selfcheck.js', arg: /^last$/, excluded: 'the answer of the probe of the MCP server (one line of JSON a process of the check printed), not a file of the person: parsed inside a try/catch that fails the two checks of the MCP server, so no content makes a command crash' },
   { file: 'src/install/statusline.js', arg: /^saved\.backup$/, excluded: 'the copy of the client\'s settings that okit made before it changed them; restored byte for byte, never parsed' },
+  { file: 'src/setup/autostart-step.js', arg: /^text$/, rule: 'install.json / install.<client>.json (the record)' },
   { file: 'src/install/index.js', arg: /^join\(ctx\.root, 'config\.json'\)$/, rule: CONFIG_JSON },
   { file: 'src/install/bootstrap.js', arg: /^(metadata)$/, rule: 'the release metadata (API)' },
   { file: 'src/install/bootstrap.js', arg: /^hashes$/, rule: 'the release manifest (checksums)' },
@@ -421,9 +425,12 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/mcp/control.js', arg: /^line$/, excluded: 'a line sent over the local control API: parsed inside a try/catch that answers "invalid frame", so no content makes a command fail; it is not an input of the user' },
   { file: 'src/mcp/control-client.js', arg: /^line$/, excluded: 'a line that a server of the local control API wrote: parsed inside a try/catch that answers "not understood", so no content makes a command fail; it is not an input of the user' },
   { file: 'src/mcp/control-endpoint.js', arg: /^file$/, excluded: 'a record of the control folder: parsed inside a try/catch, and a record that cannot be read is pruned, so no content makes a command fail; it is not an input of the user' },
+  { file: 'src/mcp/selfcheck-probe.js', arg: /^line$/, excluded: 'a frame of the MCP protocol the server wrote on its standard output: parsed inside a try/catch that ignores what is not a frame, so no content makes the probe crash; it is not an input of the user' },
   { file: 'src/spawn-process.js', arg: /^(file|stdout)$/, excluded: 'the run file okit wrote for a started executor and the output of a process we started' },
   { file: 'src/state.js', arg: /^(file|raw|join\(lockDir, LOCK_OWNER_FILE\)|claim)$/, excluded: 'the generic reader of state files (each caller is a row of this table) and the lock files okit writes in its own state folder' },
   { file: 'src/skills.js', arg: /^(file|source)$/, excluded: 'the skill files of the package being installed (code and text of the program), copied byte for byte' },
+  // The doctor (src/doctor/diagnose.js): it only looks, and every file it opens is one of the plugin's own.
+  { file: 'src/doctor/diagnose.js', arg: /^(file|stored\.text|read\.text)$/, excluded: 'the files the doctor reads: the package.json of the plugin (the minimum Node it runs on) and the state files (config.json, inbox.json, orders.json); a file that is not JSON, or one of another shape, is a row of the diagnosis with its fix, never a crash and never a write' },
   // Commands outside this inventory: orchestration state, read and written by okit itself.
   { file: 'src/daemon.js', arg: /^(logFile\(root, now\)|lines\[lines\.length - 1\]|pidFile\(root\))$/, excluded: 'the daemon\'s own log and pid file (the daemon command is outside this inventory)' },
   { file: 'src/demand-ref.js', arg: /^paths\(root\)\.project$/, excluded: STATE_OF_OTHER_COMMANDS },

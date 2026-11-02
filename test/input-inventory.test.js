@@ -43,6 +43,23 @@ function withValue(path, value) {
   return config;
 }
 
+// Two numbers of the check are bound to each other (the budget of the probe may not pass the time of the check minus
+// the margin): the other one is set with them, so the pair is always a valid one.
+const BOUND = {
+  'selfcheck.timeoutMs': { 'selfcheck.probeMs': 1 },
+  'selfcheck.probeMs': { 'selfcheck.timeoutMs': 2147483647 },
+};
+/** The value of a path of the settings, with the values its pair needs. */
+function withBound(path, value) {
+  const config = withValue(path, value);
+  for (const [other, otherValue] of Object.entries(BOUND[path] ?? {})) {
+    let at = config;
+    for (const part of parts(other).slice(0, -1)) at = at[part] ??= {};
+    at[parts(other).at(-1)] = otherValue;
+  }
+  return config;
+}
+
 test('input inventory: no configuration key is read that the inventory does not name', () => {
   assert.deepEqual(configReadsOutsideTheInventory(), []);
   // The scanner is alive: it sees the keys we know are read.
@@ -125,9 +142,9 @@ test('input inventory: a number of the installer settings passes at its maximum 
   const nodes = installNodes().filter((entry) => entry.node.kind === 'integer').map((entry) => entry.path).sort();
   assert.deepEqual(Object.keys(INSTALL_NUMBERS).sort(), nodes, 'every integer of INSTALL_SCHEMA has its limits in the inventory');
   for (const [path, [min, max]] of Object.entries(INSTALL_NUMBERS)) {
-    for (const ok of [min, max]) assert.doesNotThrow(() => installConfig(withValue(path, ok)), `${path} = ${ok}`);
+    for (const ok of [min, max]) assert.doesNotThrow(() => installConfig(withBound(path, ok)), `${path} = ${ok}`);
     for (const bad of [min - 1, max + 1]) {
-      assert.throws(() => installConfig(withValue(path, bad)), (error) => kindOf(error) === 'usage' && error.message.startsWith(`Invalid install.${path}: `), `${path} = ${bad}`);
+      assert.throws(() => installConfig(withBound(path, bad)), (error) => kindOf(error) === 'usage' && error.message.startsWith(`Invalid install.${path}: `), `${path} = ${bad}`);
     }
   }
 });
@@ -366,6 +383,8 @@ test('input inventory: the files that are read follow their rule (unreadable is 
   }
   await fs.writeFile(file, JSON.stringify({ install: f.io.config }));
   // The record of an installation: JSON that is not JSON is unreadable (1); the wrong shape is a refusal (2).
+  // The install is the exception: it reads the records leniently, so a record it cannot read is no usable record
+  // for that client (a clean install of it, the one that repairs it) and the run goes on.
   await fs.mkdir(f.destination, { recursive: true });
   for (const locale of LOCALES) {
     for (const [body, expected] of [['{bad', 1], ['[]', 2], ['{"client":5}', 2], ['{"client":"claude-code","path":5}', 2], ['{"client":"claude-code","version":{}}', 2], ['{"client":""}', 2]]) {
@@ -377,8 +396,10 @@ test('input inventory: the files that are read follow their rule (unreadable is 
           f.clear();
           const code = await main([...command, '--locale', locale], f.io);
           const text = f.output.join('\n');
-          assert.equal(code, expected, `${locale} ${record} ${body} ${command[0]}\n${text}`);
+          const wanted = command[0] === 'install' ? 0 : expected;
+          assert.equal(code, wanted, `${locale} ${record} ${body} ${command[0]}\n${text}`);
           assert.doesNotMatch(text, LEAK, `${record} ${body}`);
+          if (command[0] === 'install') continue;
           assert.match(text, locale === 'pt-BR' ? /registro de instalação/i : /installation record/);
         }
         await fs.rm(join(f.destination, record));
@@ -400,8 +421,12 @@ test('input inventory: the files that are read follow their rule (unreadable is 
           f.clear();
           const code = await main([...command, '--locale', locale], f.io);
           const text = f.output.join('\n');
-          assert.equal(code, 2, `${locale} ${name} ${JSON.stringify(record)} ${command[0]}\n${text}`);
+          // The install reads the records leniently: the record of the wrong shape is no usable record for
+          // that client, and the install of it goes on (a clean install of it).
+          const wanted = command[0] === 'install' ? 0 : 2;
+          assert.equal(code, wanted, `${locale} ${name} ${JSON.stringify(record)} ${command[0]}\n${text}`);
           assert.doesNotMatch(text, LEAK);
+          if (command[0] === 'install') continue;
           assert.match(text, /okit-plugin install/);
           assert.match(text, locale === 'pt-BR' ? /Registro de instalação inválido/ : /Invalid installation record/);
         }

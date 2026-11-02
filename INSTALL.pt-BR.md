@@ -165,18 +165,29 @@ registrar, nesta ordem, e imprime uma linha, `Autoverificação (Claude Code)`:
    (`install.selfcheck.stateKeys`: os campos do coletor da barra de status e os limites); qualquer outro ajuste, como
    uma pasta de medições (`telemetry`) ou um comando de cota (`opencodeQuota.sources`), não é copiado. A verificação nunca roda um comando seu: uma barra de status que você encadeou com `--previous`
    não é iniciada por ela (os processos da verificação levam `OKIT_SELFCHECK`, e o coletor então pula `--previous`).
-5. **PATH**: julgado à parte das verificações acima, que acrescentam a pasta do link ao PATH com que começam. Se a
+5. **Servidor MCP e API de controle**: o servidor MCP que esta instalação registrou inicia e responde. Uma pequena
+   sonda da instalação (`src/mcp/selfcheck-probe.js`) inicia o servidor como um cliente inicia
+   (`node <instalação>/src/mcp/server.js`) sob uma pasta de estado temporária, removida depois, então o seu estado
+   nunca é tocado. O servidor tem de responder `initialize` e `tools/list` com uma lista de ferramentas
+   (`Servidor MCP  ok  respondeu com 29 ferramentas`), e, enquanto está vivo, a própria API de controle dele tem de
+   responder a uma chamada de ferramenta (`API de controle  ok  respondeu a uma chamada de ferramenta`). Um servidor
+   que não responde faz a linha falhar e diz por quê
+   (`Servidor MCP  falhou  o servidor MCP não respondeu (...)`), com uma linha `Correção:` que pede a instalação de
+   novo; quando o servidor não responde não há o que perguntar à API, então a linha da API é pulada (`não verificado:
+   o servidor MCP não respondeu`). A sonda espera `install.selfcheck.probeMs` pelo servidor (sempre menos que o limite
+   do processo que a roda, `install.selfcheck.timeoutMs`).
+6. **PATH**: julgado à parte das verificações acima, que acrescentam a pasta do link ao PATH com que começam. Se a
    pasta do link não está no PATH deste terminal e nenhum perfil a adiciona, a verificação falha e dá a linha a
    adicionar. Quando um perfil gerenciado pelo instalador a adiciona, a verificação passa e a execução diz uma só
    vez, nas linhas finais, que é preciso um terminal novo (também quando a versão já estava instalada).
 
-Tudo certo: `Autoverificação (Claude Code)  ok  6 verificações passaram`; a lista dos shells aparece com
-`--verbose`. Qualquer falha: a instalação continua no lugar, a linha diz `instalado, mas não funciona: 1 de 6
+Tudo certo: `Autoverificação (Claude Code)  ok  8 verificações passaram`; a lista dos shells aparece com
+`--verbose`. Qualquer falha: a instalação continua no lugar, a linha diz `instalado, mas não funciona: 1 de 8
 verificações falharam`, cada verificação que falhou tem sua linha seguida de `Correção: ...` com o comando ou a
 edição exata, e o código de saída é 1. Exemplo:
 
 ```
-Autoverificação (Claude Code)  falhou  instalado, mas não funciona: 1 de 6 verificações falharam
+Autoverificação (Claude Code)  falhou  instalado, mas não funciona: 1 de 8 verificações falharam
 Comando (zsh)                  falhou  o zsh não encontra okit-plugin (código de saída 1)
 Correção: Coloque /home/voce/.local/bin no PATH do zsh e rode: okit-plugin install --client claude-code
 ```

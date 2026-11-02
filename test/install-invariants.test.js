@@ -34,6 +34,8 @@ async function installerSources() {
   for (const folder of ['src/install', 'src/setup']) {
     for (const file of await walkJs(folder)) files.push({ file, source: await read(file) });
   }
+  // The doctor of the command line prints through the same presenter and the same door.
+  files.push({ file: 'src/doctor/command.js', source: await read('src/doctor/command.js') });
   // src/cli.js is the whole program; the installer owns the parts that install, set up and probe the kit.
   const cli = await read('src/cli.js');
   const slice = (from, to) => {
@@ -57,7 +59,7 @@ async function installerSources() {
 /** The calls that put text on the screen: the presenter's lines and the writers the commands hold. */
 const OUTPUT = new Set(['row', 'detail', 'warn', 'explain', 'note', 'summary', 'header', 'out', 'err', 'say', 'ok', 'skip', 'plan', 'fail', 'question']);
 // Words that are not text: the status keys of a row and the verb of a request line.
-const NOT_TEXT = new Set(['ok', 'info', 'skipped', 'failed', 'plan', 'GET', 'operational', 'usage', 'language']);
+const NOT_TEXT = new Set(['ok', 'info', 'skipped', 'failed', 'warn', 'plan', 'GET', 'operational', 'usage', 'language']);
 // Output calls that may carry a raw text (what a process or the system said) and why. The key is "file: callee: member".
 const RAW_ALLOWED = new Map([
   ['src/install/policy.js: detail: error.message', 'the text PowerShell raised, shown only with --verbose, after our own label'],
@@ -101,6 +103,9 @@ test('I1: the raw texts that are allowed still exist (an entry no code uses is r
 });
 
 const PROGRAMMER_ERRORS = new Map([
+  ['src/autostart.js: Unknown autostart kind x: expected x', 'the setup selects the kind with detectAutostart; an unknown kind is a bug of the caller'],
+  ['src/autostart.js: applyAutostart needs a run function', 'the CLI always supplies run; a missing executor is a bug of the caller'],
+  ['src/autostart.js: Unknown action x: expected install, uninstall', 'the setup supplies the literal install action; an unknown action is a bug of the caller'],
   ['src/state.js: x: x', 'faultError: the fault a test injects into a step of the state writer (a code, never a sentence for a person)'],
   ['src/env/models.js: listModels is not a function', 'an adapter without listModels: a bug of the caller'],
   ['src/env/snapshot.js: timeout', 'an internal timer rejection, coded ETIMEDOUT and caught by the snapshot'],
@@ -344,6 +349,8 @@ const SCREEN_ELSEWHERE = new Map([
   ['src/cli.js: process.stdout', 'the question of `inbox take` (an inbox command, not the installer), read by a readline on the terminal'],
   ['src/setup/setup.js: process.stdout', 'the default of the reader, which wraps it in redactingStream on the next line'],
   ['src/mcp/control.js: process.stderr', 'the control API tells on the error stream why it could not open; its default, replaced by the tests'],
+  ['src/mcp/selfcheck-probe.js: process.stdout.write', 'the probe of the install self-check answers with one line of JSON; the installer reads it, no person reads it'],
+  ['src/mcp/selfcheck-probe.js: process.stderr.write', 'the probe of the install self-check says on the error stream why it refused to run'],
   ['src/mcp/server.js: process.stdout', 'the MCP protocol: JSON-RPC messages are its output, not text for a person'],
   ['src/mcp/server.js: process.stderr.write', 'the MCP server log of a failure it cannot answer on the protocol'],
   ['src/quota/statusline-collector.js: process.stdout.write', 'the statusline collector prints the line the client shows; not the installer'],
@@ -425,7 +432,7 @@ function exitLiterals(file, tokens) {
 
 test('round 12: no exit code is a number written in the installer\'s path; they all come from exitCodeFor', async () => {
   const raised = [];
-  const files = (await allSources()).filter(({ file }) => (/^src\/(install|setup)\//.test(file) || ['src/cli.js', 'src/config.js', 'src/config-schema.js', 'src/release/install-scripts.js'].includes(file)) && file !== 'src/install/exit.js');
+  const files = (await allSources()).filter(({ file }) => (/^src\/(install|setup)\//.test(file) || ['src/cli.js', 'src/config.js', 'src/config-schema.js', 'src/doctor/command.js', 'src/release/install-scripts.js'].includes(file)) && file !== 'src/install/exit.js');
   assert.ok(files.length > 15);
   for (const { file, tokens } of files) raised.push(...exitLiterals(file, tokens));
   const pkg = JSON.parse(await read('package.json'));

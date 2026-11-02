@@ -325,3 +325,51 @@ test('a record bigger than the limit is pruned', { skip: POSIX_ONLY }, async () 
   assert.deepEqual(alive, []);
   await assert.rejects(stat(join(dir, '61.json')), { code: 'ENOENT' });
 });
+
+test('the record of a dead process is only removed when the caller asks for it', { skip: POSIX_ONLY }, async (t) => {
+  const root = await tempRoot();
+  const dir = await openControlDir(root, { platform: 'linux' });
+  const pid = 15;
+  await writeRecord(root, {
+    pid,
+    endpoint: endpointFor({ root, pid, platform: 'linux' }),
+    token: 'tk-15',
+  }, { platform: 'linux' });
+  await listen(t, endpointFor({ root, pid, platform: 'linux' }));
+
+  // The caller that only looks asks for no pruning: the record is left out of the answer and stays on disk.
+  const alive = await listRecords(root, { platform: 'linux', isAlive: () => false, prune: false });
+  assert.deepEqual(alive, []);
+  assert.ok((await stat(join(dir, '15.json'))).isFile(), 'the record was removed');
+
+  // The default is the same as it always was: the record of a dead process is removed.
+  await listRecords(root, { platform: 'linux', isAlive: () => false });
+  await assert.rejects(stat(join(dir, '15.json')), { code: 'ENOENT' });
+});
+
+test('with prune: false nothing is removed: an entry that is not a plain record and a record whose endpoint is not a socket stay', { skip: POSIX_ONLY }, async (t) => {
+  const pid = process.pid;
+
+  // (a) A record file whose mode is not the private one: the first plain check refuses it.
+  const first = await tempRoot();
+  const endpoint = endpointFor({ root: first, pid, platform: 'linux' });
+  const loose = await writeRecord(first, { pid, endpoint, token: 'tk-a' }, { platform: 'linux' });
+  await listen(t, endpoint);
+  await chmod(loose, 0o666);
+
+  // (b) A record of a process that is alive whose endpoint is a plain file, not a socket.
+  const second = await tempRoot();
+  const other = endpointFor({ root: second, pid, platform: 'linux' });
+  const plain = await writeRecord(second, { pid, endpoint: other, token: 'tk-b' }, { platform: 'linux' });
+  await writeFile(other, '', { mode: 0o600 });
+
+  for (const [root, file] of [[first, loose], [second, plain]]) {
+    // The caller that only looks: the entry is left out of the answer and stays on disk.
+    assert.deepEqual(await listRecords(root, { platform: 'linux', prune: false }), []);
+    assert.ok((await stat(file)).isFile(), 'the record was removed');
+
+    // The default removes it.
+    await listRecords(root, { platform: 'linux' });
+    await assert.rejects(stat(file), { code: 'ENOENT' });
+  }
+});

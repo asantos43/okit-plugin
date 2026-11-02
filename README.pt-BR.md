@@ -16,6 +16,7 @@ Funciona com Claude Code, Codex e opencode, usando os próprios assistentes do c
 ## Primeira coisa para tentar
 
 Execute `okit-plugin env report --locale pt-BR`. Espere clientes instalados, modelos confirmados, cota restante e espaço para ajudantes; informações ausentes vêm com instruções de correção.
+Execute `okit-plugin doctor` quando algo não estiver certo: ele lê a instalação inteira e responde uma linha por coisa que olhou, com o comando que repara cada falha.
 Depois, [peça trabalho ao Diretor](docs/guide/ask-the-director.pt-BR.md).
 
 <a id="documentation"></a>

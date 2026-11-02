@@ -20,6 +20,7 @@ Each row shows a command and example; replace <id> with the identifier returned 
 | `okit-plugin env report` | Inspect client, models, allowance, folders and remedies | `okit-plugin env report` |
 | `okit-plugin actors` | Inspect available model/effort choices | `okit-plugin actors --all --json` |
 | `okit-plugin status` | Inspect allowance and free slots | `okit-plugin status --all` |
+| `okit-plugin doctor` | Diagnose the installation (Node, MCP registration, self-check, state files, session, autostart, daemon) with a Fix line per failure; reads only | `okit-plugin doctor --client codex` |
 | `okit-plugin config show` | Show effective settings, origin and effect | `okit-plugin config show` |
 | `okit-plugin config get` | Read one setting | `okit-plugin config get limits.global` |
 | `okit-plugin config set` | Validate and save one supported setting | `okit-plugin config set limits.global 3` |

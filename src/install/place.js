@@ -1,8 +1,13 @@
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { extract } from './extract.js';
 import { installConfig, renderName } from './config.js';
 import { OperationalError, UsageError } from './exit.js';
 import { recordProblem } from '../config-schema.js';
+
+// The folder of the package that is running: the records of the installation it belongs to are in the folder above
+// it (an installation is `<destination>/<version>-<client>`, and its records are in `<destination>`).
+const packageDirectory = fileURLToPath(new URL('../../', import.meta.url));
 
 const recordPath = (destination, client, config) => join(destination, renderName({ template: config.recordName, values: { client } }));
 // The record is a file the installer wrote and a person may have changed: text that is not JSON is a file that cannot be
@@ -47,8 +52,150 @@ export async function readRecord(destination, client, fs, config = installConfig
   return client ? records[client] ?? null : Object.values(records)[0] ?? null;
 }
 
+/**
+ * The records of the installation, read leniently: a record that cannot be read is named, never thrown.
+ *
+ * The doctor needs this: a record of the wrong shape (a file that is not JSON, a JSON that is not an object, a field
+ * of the wrong type) is a row of the diagnosis, not a refusal that stops the whole run. Every other client is still
+ * diagnosed. `readRecords` keeps its own behaviour for the callers that change the installation: a bad record there
+ * is still a refusal of usage.
+ *
+ * @param {string} destination the folder of the records
+ * @param {object} fs the file system
+ * @param {object} [config] the settings of the installer
+ * @returns {Promise<{records: object, invalid: {file: string, client: string, reason: string}[]}>} the records that
+ * could be read and the ones that could not
+ */
+export async function readRecordsLenient(destination, fs, config = installConfig()) {
+  const records = {};
+  const invalid = [];
+  const why = (error) => (error instanceof Error ? error.message : String(error));
+  const read = async (file, client) => {
+    let text;
+    try { text = await fs.readFile(file, 'utf8'); }
+    catch (error) {
+      // A file that is not there is no record at all; a file that cannot be read is a record that could not be
+      // read: a row of the diagnosis, never a refusal that stops the whole run.
+      if (error.code === 'ENOENT') return;
+      invalid.push({ file, client, reason: why(error) });
+      return;
+    }
+    let value;
+    try { value = JSON.parse(text); } catch {
+      invalid.push({ file, client, reason: `Cannot read installation record: ${file}` });
+      return;
+    }
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      invalid.push({ file, client, reason: `Installation record is not a JSON object: ${file}` });
+      return;
+    }
+    const found = typeof value.client === 'string' && value.client ? recordProblem(value) : { path: 'client' };
+    if (found) {
+      invalid.push({ file, client, reason: `Invalid installation record: ${file} (${found.path})` });
+      return;
+    }
+    records[client] = value;
+  };
+  const legacy = join(destination, 'install.json');
+  let legacyText;
+  try { legacyText = await fs.readFile(legacy, 'utf8'); }
+  catch (error) {
+    // Only a file that is not there means there is no legacy record; a file that cannot be read is a record that
+    // could not be read.
+    if (error.code !== 'ENOENT') invalid.push({ file: legacy, client: '', reason: why(error) });
+    legacyText = null;
+  }
+  if (legacyText !== null) {
+    let value;
+    try { value = JSON.parse(legacyText); } catch { value = undefined; }
+    if (value !== null && typeof value === 'object' && !Array.isArray(value) && typeof value.client === 'string') {
+      const found = recordProblem(value);
+      if (!found) records[value.client] = value;
+      else invalid.push({ file: legacy, client: value.client, reason: `Invalid installation record: ${legacy} (${found.path})` });
+    } else {
+      invalid.push({ file: legacy, client: '', reason: `Cannot read installation record: ${legacy}` });
+    }
+  }
+  for (const client of Object.keys(config.clients)) {
+    const file = recordPath(destination, client, config);
+    await read(file, client);
+  }
+  return { records, invalid };
+}
+
+/**
+ * The records of the installation, and the folder they are in.
+ *
+ * The destination is where the records are looked for first. When it has none, and the caller did not name a
+ * destination of its own, the records of the installation that is running are looked for in the folder above the
+ * package directory: an installation is `<destination>/<version>-<client>` and keeps its records in `<destination>`,
+ * so the doctor (or the installer) that runs from inside one finds them there.
+ *
+ * With `lenient`, a record that cannot be read is named in `invalid` and never thrown: the caller decides what a
+ * record it cannot read means (the doctor: a row of the diagnosis; the install: no usable record for that client).
+ *
+ * @param {string} destination the folder the records are looked for in
+ * @param {{fs: object, config?: object, explicitDestination?: boolean, lenient?: boolean}} options
+ * @returns {Promise<{records: object, invalid: object[], destination: string}>}
+ */
+export async function discoverRecords(destination, { fs, config = installConfig(), explicitDestination = false, lenient = false } = {}) {
+  const read = async (folder) => (lenient
+    ? await readRecordsLenient(folder, fs, config)
+    : { records: await readRecords(folder, fs, config), invalid: [] });
+  const found = await read(destination);
+  if (Object.keys(found.records).length || explicitDestination) return { ...found, destination };
+  // The installation that is running: its records are in the folder above the package directory.
+  const runtime = await read(dirname(packageDirectory.replace(/[\\/]$/, '')));
+  const installed = Object.values(runtime.records).find((record) => record.path === packageDirectory.replace(/[\\/]$/, ''));
+  if (!installed) return { ...found, destination };
+  // Every record that could not be read is named: the one of the destination and the one of the installation
+  // that is running.
+  return { records: runtime.records, invalid: [...found.invalid, ...runtime.invalid],
+    destination: installed.destination ?? destination };
+}
+
+// Include the legacy file: saving a modern record can remove it.
+export async function snapshotRecords(destination, fs, config = installConfig()) {
+  const snapshot = new Map();
+  const capture = async (file) => {
+    try { snapshot.set(file, await fs.readFile(file, 'utf8')); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; snapshot.set(file, null); }
+  };
+  for (const file of new Set([join(destination, 'install.json'),
+    ...Object.keys(config.clients).map((client) => recordPath(destination, client, config))])) await capture(file);
+  // A legacy record (or a changed client field) can name a client outside the configured list.
+  for (const text of [...snapshot.values()]) {
+    let record;
+    try { record = JSON.parse(text); } catch { continue; }
+    if (typeof record?.client !== 'string' || !record.client) continue;
+    const file = recordPath(destination, record.client, config);
+    if (!snapshot.has(file)) await capture(file);
+  }
+  return snapshot;
+}
+
+/** Puts every file back as it was; returns the files that could not be restored (empty: all are). */
+export async function restoreRecords(snapshot, fs) {
+  const failures = [];
+  for (const [file, text] of snapshot) {
+    try {
+      if (text === null) await fs.rm(file, { force: true });
+      else {
+        const current = await fs.readFile(file, 'utf8').catch((error) => {
+          if (error.code !== 'ENOENT') throw error;
+          return null;
+        });
+        if (current !== text) await fs.writeFile(file, text);
+      }
+    } catch (error) { failures.push(`${file}: ${error.message}`); }
+  }
+  return failures;
+}
+
 export async function saveRecord(destination, record, deps) {
-  const records = await readRecords(destination, deps.fs, deps.config);
+  // The records are read leniently: a record of another client that cannot be read is left as it is (its file is
+  // untouched), and the record of the client being saved replaces the one that is there, readable or not.
+  const { records } = await readRecordsLenient(destination, deps.fs, deps.config);
   await writeRecord(destination, record, deps);
   for (const other of Object.values(records)) {
     if (other.client === record.client) continue;
@@ -72,17 +219,52 @@ async function writeRecord(destination, record, deps) {
   } finally { await deps.fs.rm(temp, { force: true }); }
 }
 async function removeLegacy(destination, client, fs, config) {
-  if ((await legacyRecord(destination, fs, config))?.client === client) await fs.rm(join(destination, 'install.json'), { force: true });
+  const file = join(destination, 'install.json');
+  let legacy = null;
+  try { legacy = await legacyRecord(destination, fs, config); }
+  catch { legacy = null; }
+  // A legacy file that cannot be read is stale: the record that was just written replaces it.
+  if (!legacy || legacy.client === client) await fs.rm(file, { force: true });
 }
 export async function removeRecord(destination, client, deps) {
   await deps.fs.rm(recordPath(destination, client, deps.config), { force: true });
   await removeLegacy(destination, client, deps.fs, deps.config ?? installConfig());
 }
 
+/**
+ * Whether the payload of an installation is whole: the MCP server of the installation and the probe of the check are
+ * there, and they are not empty.
+ *
+ * An installation whose payload was deleted (or truncated) is not the installation of that version: the installer
+ * writes it again, so the fix the doctor advertises really repairs.
+ *
+ * @param {object} record the installation record (`path` is the retained folder)
+ * @param {object} config the settings of the installer
+ * @param {object} fs the file system
+ * @returns {Promise<boolean>}
+ */
+export async function payloadComplete(record, config, fs) {
+  if (!record?.path) return false;
+  for (const file of [join(record.path, config.mcp.server), join(record.path, 'src/mcp/selfcheck-probe.js')]) {
+    const content = await fs.readFile(file, 'utf8').catch(() => null);
+    if (content === null || content.trim() === '') return false;
+  }
+  return true;
+}
+
 export async function place(selected, downloaded, details, deps) {
   const { fs, destination, config, now } = deps;
-  const previous = await readRecord(destination, details.client, fs, config);
-  if (previous?.version === selected.version && previous.client === details.client) return { record: previous, unchanged: true };
+  // The record of this client is read leniently: a record that cannot be read is no usable record, and the
+  // installation of this client is written again (a clean install of it).
+  const { records, invalid } = await readRecordsLenient(destination, fs, config);
+  const previous = records[details.client] ?? null;
+  // The file of the record of this client is there, but the record cannot be read: the folder of this
+  // installation is ours (the installer wrote it), so the clean install of this client writes it again.
+  const unreadable = invalid.some((one) => one.file === recordPath(destination, details.client, config));
+  const same = previous?.version === selected.version && previous.client === details.client;
+  // An installation of this version whose payload is whole is left as it is.
+  const whole = same ? await payloadComplete(previous, config, fs) : false;
+  if (same && whole) return { record: previous, unchanged: true };
   const path = join(destination, `${selected.version}-${details.client}`);
   await fs.mkdir(destination, { recursive: true });
   const staging = await fs.mkdtemp(join(destination, '.staging-'));
@@ -91,12 +273,25 @@ export async function place(selected, downloaded, details, deps) {
     else await extract(downloaded.bytes, staging, { fs, format: selected.format, maxExtractBytes: config.maxExtractBytes });
     const pkg = JSON.parse(await fs.readFile(join(staging, 'package.json'), 'utf8'));
     if (pkg.version !== selected.version) throw new Error('Package metadata version differs from release');
-    const existing = await fs.stat(path).catch((error) => { if (error.code !== 'ENOENT') throw error; return null; });
-    if (existing) {
-      let retained = previous;
-      while (retained && retained.path !== path) retained = retained.previous;
-      if (!retained || retained.sha256 !== downloaded.sha256) throw new Error(`Version destination already exists: ${path}`);
-    } else await fs.rename(staging, path);
+    if (same && !whole && previous.path === path) {
+      // The payload of this version is not whole: the folder of the installation is written again. Only the folder
+      // the record names as this very installation is removed: a record is a file a person may have changed, and the
+      // folder it names may be any folder at all. The old folder stays as it was when the download is not good.
+      await fs.rm(path, { recursive: true, force: true });
+      await fs.rename(staging, path);
+    } else {
+      const existing = await fs.stat(path).catch((error) => { if (error.code !== 'ENOENT') throw error; return null; });
+      if (existing && unreadable) {
+        // The record of this client cannot be read and the folder of this version is there: the folder is ours
+        // (the record of this client named it), so the clean install of this client writes it again.
+        await fs.rm(path, { recursive: true, force: true });
+        await fs.rename(staging, path);
+      } else if (existing) {
+        let retained = previous;
+        while (retained && retained.path !== path) retained = retained.previous;
+        if (!retained || retained.sha256 !== downloaded.sha256) throw new Error(`Version destination already exists: ${path}`);
+      } else await fs.rename(staging, path);
+    }
     const record = { ...details, ...(previous?.statusline ? { statusline: previous.statusline } : {}), version: selected.version, path, destination,
       at: new Date(now()).toISOString(), sha256: downloaded.sha256, previous };
     await saveRecord(destination, record, deps);

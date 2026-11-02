@@ -55,8 +55,8 @@ test('a foreign .cmd fails install with an actionable link error in either langu
 /** The install of Claude Code as the installer prints it. */
 function installLines(locale, platform) {
   const windows = platform === 'win32';
-  // the checks that ran: version, the command in each shell found, the written status bar and its reading, the hook (not on Windows)
-  const checks = windows ? 4 : 6;
+  // the checks that ran: version, the command in each shell found, the written status bar and its reading, the hook (not on Windows), the MCP server and its control API
+  const checks = windows ? 6 : 8;
   const asset = `sample-1.0.0-claude-code-${SYSTEM[platform]}-x64.${FORMAT[platform]}`;
   const system = LABEL[platform];
   if (locale === 'en') {
@@ -98,8 +98,8 @@ function installLines(locale, platform) {
 /** The update to 2.0.0; the backup line carries a folder, so it is matched, not spelled. */
 function updateLines(locale, platform) {
   const windows = platform === 'win32';
-  // the checks that ran: version, the command in each shell found, the written status bar and its reading, the hook (not on Windows)
-  const checks = windows ? 4 : 6;
+  // the checks that ran: version, the command in each shell found, the written status bar and its reading, the hook (not on Windows), the MCP server and its control API
+  const checks = windows ? 6 : 8;
   const asset = `sample-2.0.0-claude-code-${SYSTEM[platform]}-x64.${FORMAT[platform]}`;
   const system = LABEL[platform];
   const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

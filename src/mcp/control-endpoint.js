@@ -179,11 +179,15 @@ export async function removeRecord(root, pid, { platform = process.platform, fs 
  * that pid must have is removed too, so the client never connects to an
  * endpoint a record invented.
  *
+ * With `prune: false` nothing is removed: a record that cannot be used is
+ * only left out of the answer. A caller that only looks (the doctor) asks for
+ * that, so its reading never changes the folder it reads.
+ *
  * @param {string} root the state root
- * @param {{isAlive?: (pid: number) => boolean, platform?: string, fs?: object}} [options]
+ * @param {{isAlive?: (pid: number) => boolean, platform?: string, fs?: object, prune?: boolean}} [options]
  * @returns {Promise<object[]>} the records of the live processes
  */
-export async function listRecords(root, { isAlive = defaultIsAlive, platform = process.platform, fs = filesystem } = {}) {
+export async function listRecords(root, { isAlive = defaultIsAlive, platform = process.platform, fs = filesystem, prune: mayPrune = true } = {}) {
   const dir = paths(root).control;
   const isPosix = POSIX_PLATFORMS.has(platform);
   if (isPosix) {
@@ -220,13 +224,13 @@ export async function listRecords(root, { isAlive = defaultIsAlive, platform = p
         && (info.mode & 0o022) === 0
         && info.size <= MAX_RECORD_BYTES;
       if (!plain) {
-        await prune(root, name, { platform, fs });
+        if (mayPrune) await prune(root, name, { platform, fs });
         continue;
       }
     }
     const record = await readRecord(file, fs);
     if (!isUsable(record, name, root, platform, isPosix) || !isAlive(record.pid)) {
-      await prune(root, name, { platform, fs });
+      if (mayPrune) await prune(root, name, { platform, fs });
       continue;
     }
     if (isPosix) {
@@ -234,7 +238,7 @@ export async function listRecords(root, { isAlive = defaultIsAlive, platform = p
       const info = await fs.lstat(record.endpoint).catch(() => null);
       if (info === null || !info.isSocket()
         || info.uid !== process.getuid() || (info.mode & 0o022) !== 0) {
-        await prune(root, name, { platform, fs });
+        if (mayPrune) await prune(root, name, { platform, fs });
         continue;
       }
     }

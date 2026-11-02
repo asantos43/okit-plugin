@@ -42,6 +42,7 @@ const { installConfig, installPaths } = collectorEntry ? {} : await import('./in
 const { detectKit } = collectorEntry ? {} : await import('./install/kit.js');
 const { activationWarning } = collectorEntry ? {} : await import('./install/link.js');
 const { readRecords } = collectorEntry ? {} : await import('./install/place.js');
+const { setupAutostart } = collectorEntry ? {} : await import('./setup/autostart-step.js');
 const { runSetup, setupReader, formatUnreadable, isReadableConfig } = collectorEntry
   ? {} : await import('./setup/setup.js');
 
@@ -146,6 +147,7 @@ const USAGE_LINES = [
   '       {command} daemon status [--table [--locale en|pt-BR]]',
   '       {command} autostart install|uninstall|show [--kind systemd|cron|launchd|schtasks]',
   '       {command} status [--all] [--client <name>] [--locale en|pt-BR]',
+  '       {command} doctor [--client <c>] [--verbose] [--locale en|pt-BR]',
   '       {command} env report [--client <name>] [--locale en|pt-BR]',
   '       {command} actors [--all] [--client <name>] [--json] [--locale en|pt-BR]',
   '       {command} config show',
@@ -322,6 +324,37 @@ function refuse(ctx, locale, reason) {
 }
 
 /**
+ * The entry of the doctor: the language of the run is decided first (a valid `--locale`, then the environment, then
+ * the saved language, then English), then the flags.
+ *
+ * The configuration is read leniently: a `config.json` that is not JSON, or settings of the installer that the
+ * runtime refuses, do not stop the run. The doctor works with the defaults and its row of the configuration says
+ * what is wrong, with the fix. A flag that is not known is still a refusal of usage (exit 2), and so is a `--locale`
+ * that is not a language: a saved language that is not one is a row of the diagnosis, not a stop (the doctor is the
+ * tool that says what is broken in the state of the person).
+ *
+ * @param {object} ctx the context of the command line
+ * @param {string[]} flags the flags of the doctor
+ * @returns {Promise<number>} the exit code
+ */
+async function doctorEntry(ctx, flags) {
+  let stored = {};
+  try { stored = await readJson(paths(ctx.root).config, {}); } catch { stored = {}; }
+  const chosen = resolveLocale({ args: flags, env: ctx.env, saved: stored?.language });
+  // The saved language is not a refusal: only a `--locale` that is not a language stops the doctor.
+  const asked = resolveLocale({ args: flags, env: ctx.env });
+  if (asked.invalid) return refuse(ctx, chosen.locale, 'Choose a language: en, pt-BR.');
+  const parsed = doctorFlags(flags);
+  if (parsed.unknown !== undefined) return refuse(ctx, chosen.locale, parsed.unknown);
+  // The settings of the installer that the runtime refuses are not used: the doctor runs with the defaults and says
+  // so in the row of the configuration.
+  let config;
+  try { config = installConfig(stored?.install); } catch { config = installConfig(); }
+  const { doctorCommand } = await import('./doctor/command.js');
+  return await doctorCommand(ctx, { locale: chosen.locale, config, verbose: parsed.found.verbose, client: parsed.found.client });
+}
+
+/**
  * The entry of `setup` and `kit`, in the installer's order: read the configuration, decide the language with the
  * installer's one function (a valid --locale, then OKIT_LANGUAGE, then the saved language, then English), and only
  * then read the flags. `parse` reads them (`{ found }`, or `{ unknown }` with the reason it refuses a flag);
@@ -366,7 +399,7 @@ async function setupCommand(ctx, flags, io) {
   return enter(ctx, flags, flagsParser(['--defaults', '--again']), (entry) => runSetupCommand(ctx, entry, io));
 }
 
-async function runSetupCommand(ctx, { stored, locale, found }, io) {
+async function runSetupCommand(ctx, { stored, locale, found, install }, io) {
   const defaults = Boolean(found['--defaults']);
   const again = Boolean(found['--again']);
   // A configuration that cannot be read stops the command here: the same
@@ -393,6 +426,9 @@ async function runSetupCommand(ctx, { stored, locale, found }, io) {
       command: ctx.command,
     });
     for (const message of result.messages) ctx.out(message);
+    if (!defaults && result.code === 0 && !result.cancelled) {
+      return await setupAutostart(ctx, { config: install, locale, ask: reader.ask, plan: (record) => installationAutostartPlan(ctx, io, record) });
+    }
     return result.code;
   } finally {
     reader.close();
@@ -553,6 +589,23 @@ async function statusCommand(ctx, rawArgs) {
   });
 }
 
+/** Flags of `doctor`: `--client <name>` or `--client=<name>`, `--verbose`, and `--locale <value>` (read by `resolveLocale`). */
+function doctorFlags(flags) {
+  const found = { verbose: false };
+  for (let index = 0; index < flags.length; index += 1) {
+    const flag = flags[index];
+    if (flag === '--locale') {
+      if (flags[index + 1] === undefined || flags[index + 1].startsWith('--')) return { unknown: 'Missing value for --locale' };
+      index += 1;
+    } else if (flag === '--verbose') found.verbose = true;
+    else if (flag === '--client' || flag.startsWith('--client=')) {
+      found.client = flag === '--client' ? flags[++index] ?? '' : flag.slice('--client='.length);
+      if (!CLIENTS.includes(found.client)) return { unknown: `Unknown flag: ${flag}` };
+    } else return { unknown: `Unknown flag: ${flag}` };
+  }
+  return { found };
+}
+
 // The daemon half runs with the process spawner, so a headless pass starts the
 // clients themselves; an injected spawner replaces it in a test.
 function depsOf(ctx) {
@@ -664,12 +717,15 @@ async function smokeCommand(ctx, args, io) {
   return smoke.usage === true ? ctx.unknown() : smoke.code;
 }
 
-function installerLifecycle(ctx, io) {
-  const plan = (record) => autostartPlan(detectAutostart(ctx.platform), {
+function installationAutostartPlan(ctx, io, record) {
+  return autostartPlan(detectAutostart(ctx.platform), {
     root: ctx.root, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE,
     node: record.settings.node, script: join(record.path, record.bin), command: ctx.command,
   });
-  const autostart = io.autostart ?? ((record, action) => applyAutostart(plan(record), { run: ctx.run, write: ctx.write, action }));
+}
+
+function installerLifecycle(ctx, io) {
+  const autostart = io.autostart ?? ((record, action) => applyAutostart(installationAutostartPlan(ctx, io, record), { run: ctx.run, write: ctx.write, action }));
   return {
     autostart,
     stopDaemon: io.stopDaemon ?? (async (record) => {
@@ -698,7 +754,7 @@ function installerLifecycle(ctx, io) {
 const separateLocale = (args) => args.flatMap((arg) => (arg.startsWith('--locale=') ? ['--locale', arg.slice('--locale='.length)] : [arg]));
 
 const HELP_FLAGS = ['--help', '-h'];
-const HELPED_GROUPS = ['setup', 'install', 'update', 'uninstall', 'kit', 'status'];
+const HELPED_GROUPS = ['setup', 'install', 'update', 'uninstall', 'kit', 'status', 'doctor'];
 
 /** Whether the line asks for the help text: a help flag where a group or an action would be, or anywhere after an installer's group. */
 function wantsHelp([group, action, ...rest]) {
@@ -747,6 +803,8 @@ export async function main(argv = [], io = {}) {
     fs: io.fs ?? filesystem,
     spawn: io.spawn,
     run: io.run ?? runCommand,
+    // The scratch folder of the caller: the doctor runs its own checks there, never in the system one.
+    tmpdir: io.tmpdir,
     write: io.write,
     writeConfig: io.writeConfig,
     signal: io.signal,
@@ -833,6 +891,11 @@ export async function main(argv = [], io = {}) {
     if (group === 'status') {
       // `okit-plugin status` takes no action, so the flag lands where one would be.
       return await statusCommand(ctx, action === undefined ? args : [action, ...args]);
+    }
+    if (group === 'doctor') {
+      // `okit-plugin doctor` takes no action either, so its first flag lands where one would be.
+      const flags = action === undefined ? args : [action, ...args];
+      return await doctorEntry(ctx, separateLocale(flags));
     }
     // `okit-plugin smoke` takes no action either, so its first flag lands where one would be.
     if (group === 'smoke') return await smokeCommand(ctx, action === undefined ? args : [action, ...args], io);

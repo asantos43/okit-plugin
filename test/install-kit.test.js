@@ -208,7 +208,15 @@ test('install/update summaries and status contain kit; dry-run writes nothing', 
   const pkg = { name: 'okit-plugin', version: '1.0.0', bin: { 'okit-plugin': 'src/cli.js' } };
   await fs.writeFile(join(source, 'package.json'), JSON.stringify(pkg));
   await fs.writeFile(join(source, 'src/cli.js'), '// fixture');
-  const io = { ...f.io, pkg, run: f.deps.run, detect: async () => false, fetch: async () => { throw new Error('must stay offline'); } };
+  await fs.mkdir(join(source, 'src/mcp'), { recursive: true });
+  await fs.writeFile(join(source, 'src/mcp/server.js'), '// fixture of the MCP server');
+  await fs.writeFile(join(source, 'src/mcp/selfcheck-probe.js'), '// fixture of the probe');
+  // The payload of the MCP server and the probe of the check are there: the probe itself is answered by the fake
+  // runner below, so the row of the kit is what this test is about.
+  const run = async (input) => (String(input?.args?.[0] ?? '').endsWith('selfcheck-probe.js')
+    ? { stdout: `${JSON.stringify({ mcp: { ok: true, tools: 1, error: '' }, api: { ok: true, error: '' } })}\n` }
+    : f.deps.run(input));
+  const io = { ...f.io, pkg, run, detect: async () => false, fetch: async () => { throw new Error('must stay offline'); } };
   const before = await fs.readdir(f.home, { recursive: true });
   const readonly = { ...fs };
   for (const method of ['writeFile', 'mkdir', 'rename', 'rm', 'chmod', 'copyFile', 'symlink', 'unlink']) readonly[method] = () => { throw new Error(`unexpected write: ${method}`); };

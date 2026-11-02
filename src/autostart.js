@@ -14,10 +14,13 @@ import { DEFAULT_CONFIG } from './profiles.js';
 
 export const AUTOSTART_KINDS = ['systemd', 'cron', 'launchd', 'schtasks'];
 
-const SERVICE_NAME = 'okit-daemon.service';
-const LABEL = 'com.okit.daemon';
+// The names the machine knows the autostart by: the unit file of systemd, the label of
+// launchd and the marker the line of the crontab carries. They are exported because the
+// doctor asks the machine about them (the query of `autostartQuery`).
+export const SERVICE_NAME = 'okit-daemon.service';
+export const LABEL = 'com.okit.daemon';
+export const MARKER = '# okit-daemon';
 const TASK_NAME = 'okit-daemon';
-const MARKER = '# okit-daemon';
 
 // The OS starts the CLI, so every plan points at this file.
 const CLI_PATH = fileURLToPath(new URL('./cli.js', import.meta.url));
@@ -200,6 +203,44 @@ export function autostartPlan(kind, options = {}) {
     throw new TypeError(`Unknown autostart kind ${JSON.stringify(kind)}: expected ${AUTOSTART_KINDS.join(', ')}`);
   }
   return plan(options);
+}
+
+/**
+ * The read-only query that asks the machine whether the autostart of this kind is enabled.
+ *
+ * Pure: it decides which command answers and with which words, it never runs it. The argv
+ * is a list of words, never a shell string, so a path with a space cannot become syntax.
+ *
+ * @param {object} plan the value `autostartPlan` returned
+ * @returns {{command: string, args: string[]}|null} the query of the kind, or null when the
+ * kind has none (the scheduled task of Windows is asked with its own query)
+ */
+export function autostartQuery(plan) {
+  if (plan?.kind === 'systemd') return { command: 'systemctl', args: ['--user', 'is-enabled', SERVICE_NAME] };
+  if (plan?.kind === 'cron') return { command: 'crontab', args: ['-l'] };
+  if (plan?.kind === 'launchd') return { command: 'launchctl', args: ['list', LABEL] };
+  return null;
+}
+
+/**
+ * Whether the scheduled task of Windows is there: the one query, asked with its own argv (never a shell).
+ *
+ * The runner of the installer answers without a code when the command worked and throws when it did not, so a
+ * task that is there is the call that returned with no code, or with the code zero. Read-only.
+ *
+ * @param {Function} [run] the runner of a process
+ * @param {number} [timeoutMs] the deadline of the query
+ * @returns {Promise<boolean>}
+ */
+export async function taskPresent(run, timeoutMs) {
+  if (typeof run !== 'function') return false;
+  try {
+    const answer = await run({ command: 'schtasks', args: ['/Query', '/TN', TASK_NAME], timeoutMs });
+    const code = answer?.code;
+    return code === undefined || code === 0;
+  } catch {
+    return false;
+  }
 }
 
 /**

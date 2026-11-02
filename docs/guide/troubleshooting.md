@@ -14,4 +14,9 @@ Use the environment report to find the missing item and its repair instruction.
 5. If helpers cannot start, run `okit-plugin actors --all --locale en`. Expect models, available places and reasons with remedies. Run `okit-plugin status --all --locale en` to see occupied places. An available model and a running helper are different things.
 6. If a demonstration is refused, use [the preview guide](smoke-demo.md). Confirm the current hash and refresh quota evidence; clients without money reports also require positive integer `smoke.maxTokens`. Confirmation executes real work and spends allowance. For check failures, retain the printed report paths and follow [smoke evidence](../maintainers/SMOKE.md).
 
+<a id="doctor"></a>
+## Run the doctor first
+
+1. Run `okit-plugin doctor --locale en`. Expect one row per thing it looked at: the Node version, the installation, the MCP registration and the self-check of each client, the state files, the session, the autostart and the daemon. A row that failed or warned is followed by a `Fix:` line, which names the exact command that repairs it; read it before anything else. The doctor only reads: it writes no file and removes no record. It answers 0 when no row failed, 1 when a row failed, and a warning never fails the run. See [the CLI reference](../components/cli.md#commands).
+
 [Guide](README.md) · [Português](troubleshooting.pt-BR.md)

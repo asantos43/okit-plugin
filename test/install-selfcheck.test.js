@@ -6,12 +6,15 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { main, runCommand } from '../src/cli.js';
-import { exitCodeFor } from '../src/install/exit.js';
+import { exitCodeFor, kindOf } from '../src/install/exit.js';
 import { Readable } from 'node:stream';
 import { HOME_ENV, SELFCHECK_ENV } from '../src/store.js';
 import { statuslineCommand } from '../src/quota/statusline-collector.js';
 import { runSessionStart } from '../src/hook-session-start.js';
-import { DEFAULT_CONFIG } from '../src/profiles.js';
+import { configOf, DEFAULT_CONFIG } from '../src/profiles.js';
+import { installConfig } from '../src/install/config.js';
+import { createPresenter } from '../src/install/present.js';
+import { reportSelfCheck, selfCheck, probeBudget } from '../src/install/selfcheck.js';
 import { readRecord, saveRecord } from '../src/install/place.js';
 import { cliScript, hookCommand } from '../src/install/register.js';
 import { fixture } from './helpers/install-fixture.js';
@@ -1340,7 +1343,18 @@ async function loginWorld(t, profile, flags = [], files = {}, env = {}) {
   await fs.writeFile(join(f.home, '.profile'), profile);
   for (const [name, content] of Object.entries(files)) await fs.writeFile(join(f.home, name), content);
   const fake = f.io.run;
-  f.io.run = async (spec) => (isCheck(spec) ? runCommand(spec) : fake(spec));
+  f.io.run = async (spec) => {
+    if (!isCheck(spec)) {
+      // The real program is put in the installation, so the probe of the MCP server finds the server of ours.
+      const installed = join(f.destination, '1.0.0-claude-code');
+      await fs.rm(join(installed, 'src'), { recursive: true, force: true });
+      await fs.cp(join(repoRoot, 'src'), join(installed, 'src'), { recursive: true });
+      await fs.cp(join(repoRoot, 'adapters'), join(installed, 'adapters'), { recursive: true });
+      await fs.chmod(join(installed, 'src/cli.js'), 0o755);
+      return fake(spec);
+    }
+    return runCommand(spec);
+  };
   const code = await main(['install', '--client', CLIENT, ...flags], f.io);
   return { ...f, code, text: f.output.join('\n') };
 }
@@ -1482,3 +1496,399 @@ test('D103: real sh, a profile that does not stop: the login launch of the perso
   assert.equal(w.code, 0, w.text);
   assert.match(blockOf(w.lines(), 'en')[0], /ok {2}\d+ checks passed$/, w.text);
 });
+
+// D109: the MCP server of this installation and its control API are part of the self-check.
+//
+// | case | must pass | must refuse |
+// | both answers of the probe | two passed rows | a failed row |
+// | the server does not answer | the mcp row fails, the api row is skipped | a passed row |
+// | the API does not answer | only the api row fails | a failed mcp row |
+// | the probe prints nothing we can read | both rows fail | a passed row |
+// | node is not on the machine | both rows are skipped | a failed row |
+// | the process of the probe times out | both rows fail with the timeout | a passed row |
+// | a client with no MCP server of ours | both rows are skipped, quietly | a failed row |
+// | the state root of the person | a temporary root, removed afterwards | the real state |
+
+const REPO = fileURLToPath(new URL('../', import.meta.url));
+/** The process of the probe of the MCP server (the one of the installation, never the shell of a check). */
+const isProbe = (spec) => (spec.args ?? []).some((argument) => String(argument).endsWith('selfcheck-probe.js'));
+/** What the probe prints when the server answers everything. */
+const PROBE_OK = { mcp: { ok: true, tools: 12, error: '' }, api: { ok: true, error: '' } };
+
+/**
+ * The self-check with the process of the probe under the control of the test: `run` answers it (or does not), every
+ * process is recorded, and the temporary folders that are removed are listed. `install` is what the person wrote under
+ * `install` of the configuration.
+ */
+async function probeWorld(t, { run, locale = 'en', client = CLIENT, install = {} } = {}) {
+  const home = await fs.mkdtemp(join(tmpdir(), 'selfcheck-probe-'));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const temporary = join(home, 'tmp');
+  await fs.mkdir(temporary);
+  const removed = [], calls = [], lines = [];
+  const deps = {
+    config: installConfig(install),
+    fs: { ...fs, rm: async (path, options) => { removed.push(path); return fs.rm(path, options); } },
+    run: async (spec) => { calls.push(spec); return run(spec); },
+    env: { HOME: home, OKWORK_HOME: join(home, 'real-state') },
+    platform: 'linux', out: (line) => lines.push(line),
+    statuslineConfig: configOf({}).statuslineRegistration,
+    collectorConfig: configOf({}).statuslineCollector,
+    destination: join(home, 'data'), home, bin: join(home, 'bin'), temporary,
+    root: join(home, 'state'), clientRoot: join(home, 'client'), now: () => 1700000000000,
+  };
+  deps.ui = createPresenter({ locale, write: (line) => lines.push(line) });
+  const record = { client, path: REPO, version: '1.0.0', destination: deps.destination, link: true };
+  return { deps, record, removed, calls, lines, home };
+}
+
+/** The rows of the two checks, by id. */
+const rowsOf = (results) => Object.fromEntries(results.filter(({ id }) => ['mcp', 'api'].includes(id)).map((row) => [row.id, row]));
+/** The text of a run, with the padding of the columns collapsed. */
+const plain = (lines) => lines.join('\n').replace(/ {2,}/g, '  ');
+
+test('D109: the probe answers both questions: the MCP server and its control API pass', async (t) => {
+  const w = await probeWorld(t, { run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(PROBE_OK)}\n` } : { stdout: '' }) });
+  const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+  assert.equal(rows.mcp.status, 'pass', JSON.stringify(rows));
+  assert.equal(rows.mcp.reason, 'answered with 12 tools');
+  assert.equal(rows.api.status, 'pass', JSON.stringify(rows));
+  assert.equal(rows.api.reason, 'answered a tool call');
+});
+
+test('D109: a server that does not answer fails the MCP row and skips the API row (there is no server to ask)', async (t) => {
+  const answer = { mcp: { ok: false, tools: 0, error: { code: 'timeout', ms: 6000 } }, api: { ok: false, error: null } };
+  const w = await probeWorld(t, { run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
+  const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+  assert.equal(rows.mcp.status, 'fail', JSON.stringify(rows));
+  assert.equal(rows.mcp.reason, 'the MCP server did not answer (the server did not answer in 6000 ms)');
+  assert.equal(rows.api.status, 'skip', JSON.stringify(rows));
+  assert.equal(rows.api.reason, 'not checked: the MCP server did not answer');
+});
+
+test('D109: an answer of an older probe (a plain error) is the generic error and the raw detail', async (t) => {
+  const answer = { mcp: { ok: false, tools: 0, error: 'the server did not answer in 6000 ms' }, api: { ok: false, error: '' } };
+  const w = await probeWorld(t, { run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
+  const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+  assert.equal(rows.mcp.status, 'fail', JSON.stringify(rows));
+  assert.equal(rows.mcp.reason,
+    'the MCP server did not answer (the check itself could not run: the server did not answer in 6000 ms)');
+});
+
+test('D109: every code of the probe has a text of the language of the run', async (t) => {
+  const codes = [
+    { code: 'start-failed', why: 'ENOENT', en: 'the server could not start (ENOENT)' },
+    { code: 'stopped', en: 'the server stopped before it answered' },
+    { code: 'timeout', ms: 6000, en: 'the server did not answer in 6000 ms' },
+    { code: 'init-error', why: 'no initialize here', en: 'the server answered initialize with an error (no initialize here)' },
+    { code: 'list-error', why: 'no tools/list here', en: 'the server answered tools/list with an error (no tools/list here)' },
+    { code: 'no-tools', en: 'the server answered tools/list with no tools' },
+    { code: 'bad-frame', why: 'jsonrpc', en: 'the server answered the protocol wrong (jsonrpc)' },
+    { code: 'long-line', en: 'the server wrote an over-long line' },
+    { code: 'no-control-api', en: 'the server did not open its control API' },
+    { code: 'control-error', why: 'no answer', en: 'the call failed (the call to the okit server failed (detail: no answer))' },
+  ];
+  for (const one of codes) {
+    const answer = { mcp: { ok: false, tools: 0, error: one }, api: { ok: false, error: null } };
+    const w = await probeWorld(t, { run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
+    const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+    assert.equal(rows.mcp.status, 'fail', JSON.stringify(rows));
+    assert.equal(rows.mcp.reason, `the MCP server did not answer (${one.en})`, JSON.stringify(one));
+  }
+});
+
+test('D109: the tail of the error stream of the server follows the row, labelled', async (t) => {
+  const answer = { mcp: { ok: false, tools: 0, error: { code: 'timeout', ms: 6000 } }, api: { ok: false, error: null },
+    stderr: 'the server said no' };
+  const w = await probeWorld(t, { run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
+  w.deps.ui = createPresenter({ locale: 'en', verbose: true, write: (line) => w.lines.push(line) });
+  const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+  assert.equal(rows.mcp.reason,
+    'the MCP server did not answer (the server did not answer in 6000 ms (stderr: the server said no))');
+});
+
+test('D109: an API that does not answer fails only the API row', async (t) => {
+  const answer = { mcp: { ok: true, tools: 12, error: null },
+    api: { ok: false, error: { code: 'control-error', why: 'no okit server is running for this state folder' } } };
+  const w = await probeWorld(t, { run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
+  const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+  assert.equal(rows.mcp.status, 'pass', JSON.stringify(rows));
+  assert.equal(rows.api.status, 'fail', JSON.stringify(rows));
+  assert.equal(rows.api.reason, 'the control API did not answer (the call failed (the call to the okit server failed (detail: no okit server is running for this state folder)))');
+});
+
+test('D109: an answer the installer cannot read fails both rows', async (t) => {
+  for (const stdout of ['', 'not json at all\n', '[]\n']) {
+    const w = await probeWorld(t, { run: async (spec) => (isProbe(spec) ? { stdout } : { stdout: '' }) });
+    const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+    assert.equal(rows.mcp.status, 'fail', `${stdout}: ${JSON.stringify(rows)}`);
+    assert.equal(rows.api.status, 'fail', `${stdout}: ${JSON.stringify(rows)}`);
+  }
+});
+
+test('D109: a node that is not on the machine fails both rows: the client uses our MCP server', async (t) => {
+  const w = await probeWorld(t, { run: async (spec) => {
+    if (!isProbe(spec)) return { stdout: '' };
+    throw Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
+  } });
+  const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+  assert.equal(rows.mcp.status, 'fail', JSON.stringify(rows));
+  assert.match(rows.mcp.reason, /node of the installation is not on this machine/, rows.mcp.reason);
+  assert.match(rows.mcp.reason, new RegExp(w.deps.config.node.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), rows.mcp.reason);
+  assert.ok(rows.mcp.fix, 'the failed row has no fix');
+  assert.match(rows.mcp.fix, /install --client claude-code/, rows.mcp.fix);
+  assert.equal(rows.api.status, 'fail', JSON.stringify(rows));
+  assert.equal(rows.api.reason, rows.mcp.reason);
+});
+
+test('D109: a probe that answers too late fails both rows with the timeout of the check', async (t) => {
+  const w = await probeWorld(t, { run: async (spec) => {
+    if (!isProbe(spec)) return { stdout: '' };
+    throw Object.assign(new Error('timed out'), { killed: true, signal: 'SIGKILL' });
+  } });
+  const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+  assert.equal(rows.mcp.status, 'fail', JSON.stringify(rows));
+  assert.equal(rows.mcp.reason, `the MCP server did not answer (no answer in ${DEFAULT_CONFIG.install.selfcheck.timeoutMs} ms)`);
+  assert.equal(rows.api.status, 'fail', JSON.stringify(rows));
+});
+
+test('D109: a client with no MCP server of ours skips both rows, quietly', async (t) => {
+  const w = await probeWorld(t, { client: 'opencode', run: async () => { throw new Error('the probe must not run'); } });
+  const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+  assert.equal(rows.mcp.status, 'skip', JSON.stringify(rows));
+  assert.equal(rows.mcp.quiet, true);
+  assert.equal(rows.mcp.reason, 'not used by this client');
+  assert.equal(rows.api.status, 'skip', JSON.stringify(rows));
+  assert.equal(rows.api.quiet, true);
+});
+
+test('D109: the state root of the check is temporary, and it is removed even when the probe throws', async (t) => {
+  for (const failure of [null, new Error('the probe could not start')]) {
+    const w = await probeWorld(t, { run: async (spec) => {
+      if (!isProbe(spec)) return { stdout: '' };
+      if (failure !== null) throw failure;
+      return { stdout: `${JSON.stringify(PROBE_OK)}\n` };
+    } });
+    await selfCheck(w.record, '1.0.0', w.deps);
+    const probe = w.calls.find(isProbe);
+    assert.ok(probe, 'the probe did not run: ' + JSON.stringify(w.calls.map((s) => s.args)) + ' rows ' + JSON.stringify(w.deps.config.selfcheck));
+    const folder = probe.env[HOME_ENV];
+    assert.ok(folder.startsWith(w.deps.temporary), `${folder} is not in the temporary area`);
+    assert.notEqual(folder, w.deps.env[HOME_ENV], 'the state of the person was used');
+    assert.equal(probe.env[SELFCHECK_ENV], '1');
+    assert.equal(w.removed.length, 1, JSON.stringify(w.removed));
+    assert.equal(w.removed[0], folder);
+    await assert.rejects(fs.stat(folder), { code: 'ENOENT' }, 'the temporary state root was left behind');
+  }
+});
+
+test('D109: a failure of the MCP check says what to do, in the language of the run', async (t) => {
+  const wanted = {
+    en: { row: 'MCP server  failed  the MCP server did not answer (the server did not answer in 6000 ms)',
+      fix: 'Fix: Install again to register the MCP server: okit-plugin install --client claude-code' },
+    'pt-BR': { row: 'Servidor MCP  falhou  o servidor MCP não respondeu (o servidor não respondeu em 6000 ms)',
+      fix: 'Correção: Instale de novo para registrar o servidor MCP: okit-plugin install --client claude-code' },
+  };
+  // The sentences of the probe are English: none of them may show in a row of another language.
+  const ENGLISH_PROBE = /the server (did not answer|could not start|stopped|answered|wrote)|the control API (did not answer|of ours)|its control API|the check itself could not run/;
+  for (const locale of LOCALES) {
+    const answer = { mcp: { ok: false, tools: 0, error: { code: 'timeout', ms: 6000 } }, api: { ok: false, error: null } };
+    const w = await probeWorld(t, { locale, run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
+    const results = await selfCheck(w.record, '1.0.0', w.deps);
+    assert.equal(reportSelfCheck(w.deps.ui, results, 'Claude Code'), true);
+    const rows = plain(w.lines).split('\n');
+    const at = rows.findIndex((row) => row.includes(wanted[locale].row));
+    assert.ok(at >= 0, `${locale}\n${rows.join('\n')}`);
+    assert.equal(rows[at + 1].trim(), wanted[locale].fix, `${locale}\n${rows.join('\n')}`);
+    if (locale === 'pt-BR') {
+      assert.doesNotMatch(rows[at], ENGLISH_PROBE, rows.join('\n'));
+    }
+  }
+});
+
+test('D109: a failure of the probe in Portuguese never shows an English sentence of the probe', async (t) => {
+  const ENGLISH_PROBE = /the server (did not answer|could not start|stopped|answered|wrote)|the control API (did not answer|of ours)|its control API|the check itself could not run/;
+  const codes = ['start-failed', 'stopped', 'timeout', 'init-error', 'list-error', 'no-tools', 'bad-frame',
+    'long-line', 'no-control-api', 'control-error'];
+  for (const code of codes) {
+    const answer = { mcp: { ok: false, tools: 0, error: { code, ms: 6000, why: 'jsonrpc' } }, api: { ok: false, error: null } };
+    const w = await probeWorld(t, { locale: 'pt-BR', run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }) });
+    const results = await selfCheck(w.record, '1.0.0', w.deps);
+    reportSelfCheck(w.deps.ui, results, 'Claude Code');
+    const text = plain(w.lines);
+    assert.doesNotMatch(text, ENGLISH_PROBE, `${code}\n${text}`);
+    assert.match(text, /Servidor MCP {2}falhou/, `${code}\n${text}`);
+  }
+});
+
+test('D109: the real probe of the real server passes both checks', { skip: process.platform === 'win32' ? 'posix only' : false }, async (t) => {
+  const w = await probeWorld(t, { run: runCommand });
+  const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+  assert.equal(rows.mcp.status, 'pass', JSON.stringify(rows));
+  assert.ok(rows.mcp.reason.includes('answered with'), rows.mcp.reason);
+  assert.equal(rows.api.status, 'pass', JSON.stringify(rows));
+});
+
+test('D109: the probe has a time of its own, and the process that runs it is always longer', () => {
+  const { timeoutMs, probeMs } = DEFAULT_CONFIG.install.selfcheck;
+  assert.equal(probeMs, 6000);
+  assert.ok(timeoutMs > probeMs, `${timeoutMs} is not longer than ${probeMs}`);
+});
+
+test('D109: a probe time that is not a whole number of milliseconds is refused', () => {
+  assert.equal(installConfig({ selfcheck: { probeMs: 1 } }).selfcheck.probeMs, 1);
+  for (const value of [0, -1, 1.5, '5', true, null]) {
+    assert.throws(() => installConfig({ selfcheck: { probeMs: value } }),
+      (error) => kindOf(error) === 'usage' && error.message.startsWith('Invalid install.selfcheck.probeMs: '),
+      JSON.stringify(value));
+  }
+});
+
+test('D109: a probe time that does not fit in the time of the check is shortened, not refused', () => {
+  const { timeoutMs, probeMs } = DEFAULT_CONFIG.install.selfcheck;
+  // The default is a valid pair: the budget of the probe, the time the server takes to go and a margin fit in it.
+  assert.ok(probeMs <= timeoutMs - 2500, `${probeMs} does not fit in ${timeoutMs}`);
+  assert.equal(probeBudget(installConfig()), probeMs);
+  // A configuration saved before the probe had a budget of its own keeps working: the budget it asks for is shortened.
+  assert.doesNotThrow(() => installConfig({ selfcheck: { probeMs: timeoutMs - 2499 } }));
+  assert.equal(probeBudget(installConfig({ selfcheck: { probeMs: timeoutMs - 2499 } })), timeoutMs - 2500);
+  // A longer check takes the same budget: the pair is valid again.
+  assert.equal(installConfig({ selfcheck: { timeoutMs: 20000, probeMs: 17500 } }).selfcheck.probeMs, 17500);
+  assert.equal(probeBudget(installConfig({ selfcheck: { timeoutMs: 20000, probeMs: 17500 } })), 17500);
+});
+
+test('D109: the budget of the probe is never more than the time of the check minus the margin', () => {
+  // The budget of a configuration that asks for more than the check can hold is shortened where it is used.
+  assert.equal(probeBudget(installConfig({ selfcheck: { timeoutMs: 5000 } })), 2500);
+  assert.equal(probeBudget(installConfig({ selfcheck: { timeoutMs: 10000, probeMs: 9000 } })), 7500);
+  assert.equal(probeBudget(installConfig({ selfcheck: { timeoutMs: 20000, probeMs: 15000 } })), 15000);
+  assert.equal(probeBudget(installConfig()), 6000);
+});
+
+test('D109: the probe of an old configuration runs with the budget that fits in the check', async (t) => {
+  // The configuration of a person who installed before the probe had a budget of its own: it loads, and the probe runs
+  // with the time that fits in the check.
+  const w = await probeWorld(t, { install: { selfcheck: { timeoutMs: 5000 } },
+    run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(PROBE_OK)}\n` } : { stdout: '' }) });
+  assert.equal(w.deps.config.selfcheck.probeMs, 6000, 'the configuration of the person is not changed');
+  await selfCheck(w.record, '1.0.0', w.deps);
+  const probe = w.calls.find(isProbe);
+  assert.ok(probe, 'the probe did not run');
+  assert.equal(probe.args[2], '2500', JSON.stringify(probe.args));
+});
+
+test('D109: an old configuration is not a refusal of usage: the install of it runs', async (t) => {
+  const f = await fixture(t, 'linux');
+  f.io.loadAdapter = () => import('../adapters/claude-code/index.js');
+  // The configuration of a person who installed before the probe had a budget of its own.
+  const file = join(f.root, 'config.json');
+  const stored = JSON.parse(await fs.readFile(file, 'utf8'));
+  stored.install.selfcheck = { timeoutMs: 5000 };
+  await fs.writeFile(file, JSON.stringify(stored));
+  const code = await main(['install', '--client', CLIENT, '--statusline'], f.io);
+  assert.notEqual(code, 2, `the configuration was refused:\n${f.output.join('\n')}`);
+  // The probe of the check runs with the budget that fits in the time of the check.
+  const probe = f.commands.find((command) => (command.args ?? []).some((arg) => String(arg).endsWith('selfcheck-probe.js')));
+  assert.ok(probe, 'the probe did not run');
+  assert.equal(probe.args[2], '2500', JSON.stringify(probe.args));
+});
+
+// D109: the answer of the probe is read, not guessed: the last line it printed is the answer, and a row passes only
+// when the answer says so.
+test('D109: the answer of the probe is the last line it printed, whatever came before it', async (t) => {
+  const noise = await probeWorld(t, { run: async (spec) => (isProbe(spec)
+    ? { stdout: `a line of noise\n${JSON.stringify(PROBE_OK)}\n` } : { stdout: '' }) });
+  const rows = rowsOf(await selfCheck(noise.record, '1.0.0', noise.deps));
+  assert.equal(rows.mcp.status, 'pass', JSON.stringify(rows));
+  assert.equal(rows.api.status, 'pass', JSON.stringify(rows));
+  // The last line is not the answer: nothing of the probe can be read, so both rows fail.
+  const after = await probeWorld(t, { run: async (spec) => (isProbe(spec)
+    ? { stdout: `${JSON.stringify(PROBE_OK)}\na line of noise\n` } : { stdout: '' }) });
+  const other = rowsOf(await selfCheck(after.record, '1.0.0', after.deps));
+  assert.equal(other.mcp.status, 'fail', JSON.stringify(other));
+  assert.equal(other.api.status, 'fail', JSON.stringify(other));
+});
+
+test('D109: a row passes only when the answer says ok: anything else is a failed answer', async (t) => {
+  const cases = [
+    { answer: { mcp: {} }, mcp: 'fail', api: 'skip' },
+    { answer: { mcp: { ok: true, tools: 3 }, api: {} }, mcp: 'pass', api: 'fail' },
+    { answer: { mcp: { ok: 'yes' } }, mcp: 'fail', api: 'skip' },
+  ];
+  for (const one of cases) {
+    const w = await probeWorld(t, { run: async (spec) => (isProbe(spec)
+      ? { stdout: `${JSON.stringify(one.answer)}\n` } : { stdout: '' }) });
+    const rows = rowsOf(await selfCheck(w.record, '1.0.0', w.deps));
+    assert.equal(rows.mcp.status, one.mcp, JSON.stringify(rows));
+    assert.equal(rows.api.status, one.api, JSON.stringify(rows));
+  }
+});
+
+test('D109: the probe is given the time the configuration says', async (t) => {
+  const w = await probeWorld(t, { install: { selfcheck: { probeMs: 4321 } },
+    run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(PROBE_OK)}\n` } : { stdout: '' }) });
+  await selfCheck(w.record, '1.0.0', w.deps);
+  const probe = w.calls.find(isProbe);
+  assert.ok(probe, 'the probe did not run');
+  assert.equal(probe.args[2], '4321', JSON.stringify(probe.args));
+});
+
+
+for (const [cause, why, portuguese] of [
+  ['closed', 'the okit server closed the connection', 'o servidor do okit fechou a conexão'],
+  ['not-accepted', 'the okit server did not accept the connection', 'o servidor do okit não aceitou a conexão'],
+  ['no-server', 'no okit server is running for this state folder', 'nenhum servidor do okit está rodando para esta pasta de estado'],
+  ['no-answer', 'no okit server answers on this state folder', 'nenhum servidor do okit responde nesta pasta de estado'],
+  ['not-understood', 'the okit server sent an answer that is not understood', 'o servidor do okit enviou uma resposta não compreendida'],
+  ['timeout', 'the okit server did not answer in 123 ms', 'o servidor do okit não respondeu em 123 ms'],
+  ['arguments', 'the arguments cannot be sent: DATA', 'os argumentos não podem ser enviados (detalhe: DATA)'],
+  ['failed', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
+  [undefined, 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
+  ['future-code', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
+  ['constructor', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
+]) {
+  for (const locale of ['en', 'pt-BR']) {
+    test(`self-check control error ${cause} is localized in ${locale}`, async (t) => {
+      const f = await fixture(t, 'linux'), run = f.io.run;
+      f.io.run = async (spec) => spec.args?.some((arg) => String(arg).endsWith('selfcheck-probe.js'))
+        ? { stdout: JSON.stringify({ mcp: { ok: true, tools: 1 }, api: { ok: false,
+          error: { code: 'control-error', cause, why } } }) } : run(spec);
+      assert.equal(await main(['install', '--client', CLIENT, '--locale', locale], f.io), 1);
+      const row = f.output.find((line) => line.includes(locale === 'en' ? 'Control API' : 'API de controle'));
+      assert.ok(row, f.output.join('\n'));
+      assert.ok(row.includes(locale === 'en' ? (cause === 'arguments' ? 'the arguments cannot be sent (detail: DATA)' : why) : portuguese), row);
+      if (locale === 'pt-BR') for (const sentence of [
+        'the okit server closed the connection', 'the okit server did not accept the connection',
+        'the okit server sent an answer that is not understood', 'the okit server did not answer in',
+        'the arguments cannot be sent:',
+      ]) assert.equal(row.includes(sentence), false, row);
+    });
+  }
+}
+
+for (const verbose of [false, true]) {
+  for (const locale of ['en', 'pt-BR']) {
+    test(`probe stderr verbose=${verbose} in ${locale} redacts only temporary folders`, async (t) => {
+      const f = await fixture(t, 'linux'), run = f.io.run;
+      let folder;
+      f.io.run = async (spec) => {
+        if (!spec.args?.some((arg) => String(arg).endsWith('selfcheck-probe.js'))) return run(spec);
+        folder = spec.env[HOME_ENV];
+        return { stdout: JSON.stringify({ mcp: { ok: false, error: { code: 'init-error',
+          why: `WHY ${folder}/file ${f.scratch}/other ${f.destination}/retained` } },
+          stderr: `STACK ${folder}/trace ${f.scratch}/trace ${f.destination}/retained` }) };
+      };
+      assert.equal(await main(['install', '--client', CLIENT, '--locale', locale, ...(verbose ? ['--verbose'] : [])], f.io), 1);
+      const row = f.output.find((line) => line.includes('WHY'));
+      assert.ok(row, f.output.join('\n'));
+      assert.equal(row.includes(folder), false, row);
+      assert.equal(row.includes(f.scratch), false, row);
+      assert.ok(row.includes(`WHY <temp>/file <temp>/other ${f.destination}/retained`), row);
+      assert.equal(row.includes('STACK'), verbose, row);
+      if (verbose) {
+        assert.ok(row.includes(`STACK <temp>/trace <temp>/trace ${f.destination}/retained`), row);
+        assert.ok(row.includes(locale === 'en' ? 'stderr:' : 'erros em stderr:'), row);
+      }
+    });
+  }
+}
