@@ -474,6 +474,128 @@ test('the doctor writes nothing outside the temporary folder of the caller: the 
   assert.deepEqual(left, [], `the temporary folder holds ${left.join(', ')}`);
 });
 
+// D109 step 7: a state file that cannot be read is a row of the doctor, never a crash: the rows the doctor already
+// has are still told, and the run ends with the failure of the row.
+
+test('a daemon state file that is not JSON is a failed row, and the other rows are still told', async (t) => {
+  for (const locale of LOCALES) {
+    const f = await world(t);
+    // The state file of the daemon is not JSON: the reader of the doctor refuses it.
+    await fs.writeFile(join(f.root, 'daemon.pid.json'), 'not json');
+    const before = await listing(f.root);
+    f.clear();
+    const code = await main(['doctor', '--locale', locale], f.io);
+    const text = f.output.join('\n');
+    assert.equal(code, exitCodeFor('operational'), text);
+    // The row of the daemon failed, with the reason and the Fix that names the file.
+    assert.match(text, locale === 'en'
+      ? /Daemon\s+failed\s+the state file could not be read: /
+      : /Daemon de fundo\s+falhou\s+o arquivo de estado não pôde ser lido: /, text);
+    assert.match(text, locale === 'en' ? /^ {6}Fix: /m : /^ {6}Correção: /m, text);
+    // The other rows are still there.
+    assert.match(text, locale === 'en' ? /Node version\s+ok/ : /Versão do Node\s+ok/, text);
+    assert.match(text, locale === 'en' ? /Installation\s+ok/ : /Instalação\s+ok/, text);
+    assert.match(summaryOf(text), locale === 'en' ? /1 failed,/ : /1 falharam,/);
+    // The state of the person is the same as it was: the doctor only reads.
+    assert.deepEqual(await listing(f.root), before, 'the doctor wrote a file or removed one');
+  }
+});
+
+test('a session reader that fails is a failed row, never a crash', async (t) => {
+  const f = await world(t);
+  f.clear();
+  const code = await doctorCommand(f.io, { locale: 'en', config: f.io.config,
+    readers: { servers: async () => { throw Object.assign(new Error('the control folder cannot be read'), { path: join(f.root, 'control') }); } } });
+  const text = f.output.join('\n');
+  assert.equal(code, exitCodeFor('operational'), text);
+  assert.match(text, /Session\s+failed\s+the state file could not be read: the control folder cannot be read/, text);
+  // The Fix names the file the failure names.
+  assert.match(text, new RegExp(`^ {6}Fix: .*${escape(join(f.root, 'control'))}`, 'm'), text);
+  // The other rows are still there.
+  assert.match(text, /Installation\s+ok/, text);
+});
+
+test('the doctor of the command line works in Portuguese too, when a state file cannot be read', async (t) => {
+  const f = await world(t);
+  await fs.writeFile(join(f.root, 'daemon.pid.json'), 'not json');
+  f.clear();
+  const code = await doctorCommand(f.io, { locale: 'pt-BR', config: f.io.config,
+    readers: { servers: async () => { throw new Error('the control folder cannot be read'); } } });
+  const text = f.output.join('\n');
+  assert.equal(code, exitCodeFor('operational'), text);
+  assert.match(text, /Sessão\s+falhou\s+o arquivo de estado não pôde ser lido/, text);
+  assert.doesNotMatch(text, /the state file could not be read/, text);
+});
+
+// D109 step 7: the doctor is the tool that diagnoses a broken stored state, so a saved language that is not a
+// language is a row of it, never a stop. Only a `--locale` that is not a language is a refusal of usage.
+
+test('a saved language that is not a language is a row of the doctor, not a refusal', async (t) => {
+  const f = await world(t);
+  const file = paths(f.root).config;
+  const stored = JSON.parse(await fs.readFile(file, 'utf8'));
+  stored.language = 'xx';
+  await fs.writeFile(file, JSON.stringify(stored));
+  f.clear();
+  const code = await main(['doctor'], f.io);
+  const text = f.output.join('\n');
+  // The run happened: it failed because of that row, never with the refusal of a usage.
+  assert.equal(code, exitCodeFor('operational'), text);
+  assert.doesNotMatch(text, /Choose a language/, text);
+  // The row of the configuration says what is wrong, and how to correct it.
+  assert.match(text, /Configuration\s+failed\s+the saved language is not valid: xx/, text);
+  // The Fix is a manual edit of the file (`config set` itself refuses while the saved language is not one): it names the file.
+  assert.ok(text.includes(`Fix: Edit ${file}: set "language" to one of en, pt-BR (or remove the key), then run: okit-plugin doctor`), text);
+  // The other rows are still told, in the language the run decided (English: the saved one is not a language).
+  assert.match(text, /Node version\s+ok/, text);
+  assert.match(text, /Installation\s+ok/, text);
+  // Doing what the Fix says repairs the row.
+  delete stored.language;
+  await fs.writeFile(file, JSON.stringify(stored));
+  f.clear();
+  const again = await main(['doctor'], f.io);
+  assert.doesNotMatch(f.output.join('\n'), /saved language is not valid/, f.output.join('\n'));
+  assert.equal(again, exitCodeFor('ok'), f.output.join('\n'));
+});
+
+test('a saved language that is not a language does not stop the doctor in the language of the flag', async (t) => {
+  const f = await world(t);
+  const file = paths(f.root).config;
+  const stored = JSON.parse(await fs.readFile(file, 'utf8'));
+  stored.language = 'xx';
+  await fs.writeFile(file, JSON.stringify(stored));
+  f.clear();
+  const code = await main(['doctor', '--locale', 'pt-BR'], f.io);
+  const text = f.output.join('\n');
+  assert.equal(code, exitCodeFor('operational'), text);
+  // The whole run is in Portuguese, and the row of the configuration says so in Portuguese too.
+  assert.match(text, /doctor: o estado da instalação/, text);
+  assert.match(text, /Configuração\s+falhou\s+o idioma salvo não é válido: xx/, text);
+  assert.doesNotMatch(text, /the saved language is not valid/, text);
+});
+
+test('a --locale that is not a language is still a refusal of usage', async (t) => {
+  const f = await world(t);
+  f.clear();
+  // The flag is not a language: the run is refused, as it always was.
+  assert.equal(await main(['doctor', '--locale', 'xx'], f.io), exitCodeFor('usage'), f.output.join('\n'));
+  assert.match(f.output.join('\n'), /Choose a language: en, pt-BR\./);
+});
+
+test('the other commands still refuse a saved language that is not a language', async (t) => {
+  const f = await world(t);
+  const file = paths(f.root).config;
+  const stored = JSON.parse(await fs.readFile(file, 'utf8'));
+  stored.language = 'xx';
+  await fs.writeFile(file, JSON.stringify(stored));
+  for (const command of [['install', '--client', 'claude-code', '--dry-run'], ['status']]) {
+    f.clear();
+    assert.equal(await main(command, f.io), exitCodeFor('usage'), `${command[0]}: ${f.output.join('\n')}`);
+  }
+});
+
+
+
 // D109 step 6a: the doctor finds the installation that is running, when the records are in the folder above the
 // package directory (the installation is `<destination>/<version>-<client>` and keeps its records in `<destination>`).
 

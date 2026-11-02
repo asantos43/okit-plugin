@@ -706,6 +706,65 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
 });
 
 
+// D109 step 7: the order of the cleanup is the platform's. On Windows `taskkill /pid N /T /F` needs the parent to be
+// there to reach the children it left behind, so the tree is killed BEFORE the wait for the exit.
+
+/** A child of the test: its exit comes when the test says so, and every step is recorded. */
+function fakeChild(order) {
+  const listeners = { exit: [], error: [] };
+  let gone = false;
+  const child = {
+    pid: 4242,
+    exitCode: null,
+    signalCode: null,
+    stdin: { end: () => { order.push('stdin.end'); } },
+    once: (event, listener) => { (listeners[event] ??= []).push(listener); },
+    kill: () => {},
+  };
+  return {
+    child,
+    // A process ends once: the second call says nothing.
+    exits: () => {
+      if (gone) return;
+      gone = true;
+      order.push('exit');
+      for (const listener of listeners.exit) listener();
+    },
+  };
+}
+
+test('on Windows the tree of the server is killed before the wait for its exit', async () => {
+  const { stop } = await import('../src/mcp/selfcheck-probe.js');
+  const order = [];
+  const { child, exits } = fakeChild(order);
+  // The server ends by itself: its exit only comes after the tree was killed.
+  const kill = () => { order.push('kill'); exits(); };
+  const started = Date.now();
+  await stop(child, { platform: 'win32', kill });
+  const elapsed = Date.now() - started;
+  assert.deepEqual(order, ['stdin.end', 'kill', 'exit'], order.join(', '));
+  // The tree is killed before the wait: the kill does not wait for the server to end by itself.
+  assert.ok(elapsed < 500, `the tree was killed after ${elapsed} ms: the wait came first`);
+});
+
+test('on POSIX the group of the server is killed after its exit', async () => {
+  const { stop } = await import('../src/mcp/selfcheck-probe.js');
+  const order = [];
+  const { child, exits } = fakeChild(order);
+  setTimeout(() => exits(), 5);
+  await stop(child, { platform: 'linux', kill: () => { order.push('kill'); } });
+  assert.deepEqual(order, ['stdin.end', 'exit', 'kill'], order.join(', '));
+});
+
+test('a kill that fails never leaves the stop of the server', async () => {
+  const { stop } = await import('../src/mcp/selfcheck-probe.js');
+  const order = [];
+  const { child, exits } = fakeChild(order);
+  setTimeout(() => exits(), 5);
+  await stop(child, { platform: 'linux', kill: () => { order.push('kill'); throw new Error('the tree is gone'); } });
+  assert.deepEqual(order, ['stdin.end', 'exit', 'kill'], order.join(', '));
+});
+
 test('killTree uses the Windows tree command and always tries the child fallback', async () => {
   const { killTree } = await import('../src/mcp/selfcheck-probe.js');
   const calls = [];

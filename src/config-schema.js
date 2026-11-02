@@ -296,12 +296,6 @@ export const INSTALL_SCHEMA = Object.freeze(record({
   selfcheck: record({
     timeoutMs: checkTime, probeMs: probeTime, stateKeys: list(word), shells: table(filled(SELFCHECK_SHELL)), runner: table(word),
     sample: record({ usedPercentage: size, resetsInSeconds: size, hookInput: table(word) }),
-  }, {
-    // The probe of the MCP server has a budget of its own, and the process that runs it has a longer one: the budget
-    // of the probe, the time the server takes to go and a margin must fit in the time of the process.
-    refine: (selfcheck) => (selfcheck.probeMs > selfcheck.timeoutMs - 2500
-      ? { at: 'probeMs', rule: 'probeBudget' }
-      : null),
   }),
 }));
 

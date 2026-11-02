@@ -95,26 +95,45 @@ function parseFrame(line) {
  * killed: a server that started a process of its own takes it with it. On
  * Windows taskkill ends the entire process tree.
  *
+ * The order is the platform's. On Windows the tree is killed BEFORE the wait:
+ * `taskkill /pid N /T /F` needs the parent to be there to reach the children
+ * it left behind, and a server that ends by itself leaves them behind (the
+ * tree is then out of reach). On POSIX the group outlives the parent, so the
+ * wait comes first and the group is killed once more when the server is gone.
+ *
  * The group is killed once more after the server is gone: a server that ends
  * by itself may have left a process of its own behind, and that process is
- * still in the group.
+ * still in the group. On Windows the tree is already gone (the kill before the
+ * wait took it), so the last chance is only taken when that kill failed.
  *
  * @param {import('node:child_process').ChildProcess|null} child
+ * @param {{platform?: string, kill?: Function|null}} [options] the platform and the seam that
+ *   kills the tree (`killTree` of this file by default, with the platform of the run)
  * @returns {Promise<void>}
  */
-async function stop(child) {
+export async function stop(child, { platform = process.platform, kill = null } = {}) {
   if (child === null || child === undefined) return;
+  const tree = kill ?? ((target) => killTree(target, { platform }));
   try { child.stdin.end(); } catch { /* the pipe is already closed */ }
   const gone = new Promise((resolve) => {
     if (child.exitCode !== null || child.signalCode !== null) { resolve(); return; }
     child.once('exit', resolve);
     child.once('error', resolve);
   });
-  const kill = setTimeout(() => killGroup(child), STOP_MS);
+  // Windows: the tree goes before the wait, while the parent of it is still there.
+  let killed = false;
+  if (platform === 'win32') killed = safeKill(child, tree);
+  const timer = setTimeout(() => safeKill(child, tree), STOP_MS);
   await gone;
-  clearTimeout(kill);
-  // The server may have left a process of its own behind: the group is killed once more, always.
-  killGroup(child);
+  clearTimeout(timer);
+  // The server may have left a process of its own behind: the group is killed once more (on Windows only when the
+  // kill before the wait did not work: the tree is already gone).
+  if (!killed) safeKill(child, tree);
+}
+
+/** The kill of the tree, whatever the seam does: the cleanup of the probe never throws. */
+function safeKill(child, kill) {
+  try { kill(child); return true; } catch { /* best effort */ return false; }
 }
 
 /** Kills the entire server tree; cleanup never throws. */

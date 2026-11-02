@@ -329,7 +329,9 @@ function refuse(ctx, locale, reason) {
  *
  * The configuration is read leniently: a `config.json` that is not JSON, or settings of the installer that the
  * runtime refuses, do not stop the run. The doctor works with the defaults and its row of the configuration says
- * what is wrong, with the fix. A flag or a language that is not known is still a refusal of usage (exit 2).
+ * what is wrong, with the fix. A flag that is not known is still a refusal of usage (exit 2), and so is a `--locale`
+ * that is not a language: a saved language that is not one is a row of the diagnosis, not a stop (the doctor is the
+ * tool that says what is broken in the state of the person).
  *
  * @param {object} ctx the context of the command line
  * @param {string[]} flags the flags of the doctor
@@ -339,7 +341,9 @@ async function doctorEntry(ctx, flags) {
   let stored = {};
   try { stored = await readJson(paths(ctx.root).config, {}); } catch { stored = {}; }
   const chosen = resolveLocale({ args: flags, env: ctx.env, saved: stored?.language });
-  if (chosen.invalid) return refuse(ctx, chosen.locale, 'Choose a language: en, pt-BR.');
+  // The saved language is not a refusal: only a `--locale` that is not a language stops the doctor.
+  const asked = resolveLocale({ args: flags, env: ctx.env });
+  if (asked.invalid) return refuse(ctx, chosen.locale, 'Choose a language: en, pt-BR.');
   const parsed = doctorFlags(flags);
   if (parsed.unknown !== undefined) return refuse(ctx, chosen.locale, parsed.unknown);
   // The settings of the installer that the runtime refuses are not used: the doctor runs with the defaults and says

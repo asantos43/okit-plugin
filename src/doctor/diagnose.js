@@ -7,10 +7,10 @@ import { autostartPlan, autostartQuery, detectAutostart, MARKER } from '../autos
 import { daemonStatus } from '../daemon.js';
 import { installConfig, installPaths } from '../install/config.js';
 import { mcpPlan, mcpStatus, shown } from '../install/mcp-register.js';
-import { clientLabel, localizeReason, controlReason } from '../install/present.js';
+import { clientLabel, localizeReason, controlReason, redact } from '../install/present.js';
 import { LABELS, selfCheck } from '../install/selfcheck.js';
 import { callControl, findServers } from '../mcp/control-client.js';
-import { configOf, DEFAULT_CONFIG } from '../profiles.js';
+import { configOf, DEFAULT_CONFIG, LOCALES } from '../profiles.js';
 import { isReadableConfig } from '../setup/setup.js';
 import { paths } from '../store.js';
 
@@ -142,6 +142,54 @@ async function readThrough(readers, file) {
   }
 }
 
+/** The reason of a failure, in plain words. */
+const reasonOf = (error) => (error instanceof Error ? error.message : String(error));
+
+/**
+ * The answer of a reader: its value, or the failure that stopped it.
+ *
+ * A reader that throws is a row of the diagnosis, never an exception out of it: the doctor is the tool that
+ * diagnoses a broken stored state, so a state file it cannot read is what it says, not a crash.
+ *
+ * @param {Function} reader the reader
+ * @param {...unknown} args the arguments of the reader
+ * @returns {Promise<{value?: unknown, error?: unknown}>} the answer of the reader, or its failure
+ */
+async function attempt(reader, ...args) {
+  try { return { value: await reader(...args) }; }
+  catch (error) { return { error }; }
+}
+
+/**
+ * The file a failure names, when it names one (the path of the file the reader was reading); the fallback
+ * otherwise (the state root, or the file the reader of ours knows).
+ *
+ * @param {unknown} error the failure of the reader
+ * @param {string} fallback the file to name when the failure names none
+ * @returns {string}
+ */
+function pathOf(error, fallback) {
+  const carried = error?.path ?? error?.file;
+  return typeof carried === 'string' && carried !== '' ? carried : fallback;
+}
+
+/**
+ * The row of a state file that could not be read: the reason (redacted) and the Fix that names the file when
+ * the failure carries one, and the state root when it does not.
+ *
+ * @param {object} input the id, the label, the failure, the presenter, the command and the state root
+ * @returns {object} the row
+ */
+function unreadableRow({ id, label, error, ui, command, root, path }) {
+  return {
+    id,
+    status: 'failed',
+    label,
+    detail: ui.text('doctorStateUnreadable', { reason: redact(reasonOf(error)) }),
+    fix: ui.text('doctorFixState', { path: pathOf(error, path ?? root), command }),
+  };
+}
+
 /** Whether a value is a plain object (a list, a number, a text and null are not). */
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -221,9 +269,12 @@ export async function diagnose(input) {
   }
 
   // 1. The Node version of this run against the minimum the package asks for.
-  const version = readers.nodeVersion();
+  const node = await attempt(async () => readers.nodeVersion());
+  const version = node.value;
   const minimum = minimumOf(await readPackage(readers));
-  if (minimum === null) {
+  if (node.error !== undefined) {
+    rows.push(unreadableRow({ id: 'node', label: ui.text('doctorNode'), error: node.error, ui, command, root }));
+  } else if (minimum === null) {
     rows.push({ id: 'node', status: 'skipped', label: ui.text('doctorNode'), detail: ui.text('doctorNodeUnknown') });
   } else if (atLeast(version, minimum)) {
     rows.push({ id: 'node', status: 'ok', label: ui.text('doctorNode'), detail: ui.text('doctorNodeOk', { version, minimum }) });
@@ -262,12 +313,12 @@ export async function diagnose(input) {
   // 4. One group per client: the registration of the MCP server and the checks of the install self-check.
   const selfCheckDeps = selfCheckDependencies({ input, settings, env, home, platform, fs, run, now, ui, records, statuslineConfig, collectorConfig });
   for (const record of chosen) {
-    rows.push(await registrationRow(record, { deps, readers, settings, platform, command, ui }));
-    rows.push(...await selfCheckRows(record, { readers, selfCheckDeps, ui }));
+    rows.push(await registrationRow(record, { deps, readers, settings, platform, command, ui, root }));
+    rows.push(...await selfCheckRows(record, { readers, selfCheckDeps, ui, command, root }));
   }
 
   // 5. The state files: the configuration, the inbox and the orders.
-  rows.push(...await stateRows({ readers, root, ui, command, stored }));
+  rows.push(...await stateRows({ readers, root, ui, command, stored, language: storedValue?.language }));
 
   // 6. The session: the server of the state folder, asked one question.
   rows.push(await sessionRow({ readers, root, ui, command }));
@@ -325,40 +376,50 @@ const BROKEN_TEXTS = Object.freeze({
 });
 
 /** The row of the registration of the MCP server of one client: read, never written. */
-async function registrationRow(record, { deps, readers, settings, platform, command, ui }) {
+async function registrationRow(record, { deps, readers, settings, platform, command, ui, root }) {
   const label = ui.text('doctorRegistration');
   const client = clientLabel(record.client);
-  const entry = await readers.mcpEntry(record, deps);
+  const entry = await attempt(async () => readers.mcpEntry(record, deps));
   const base = { id: 'registration', client: record.client, label };
-  if (entry?.state === 'registered') {
+  if (entry.error !== undefined) {
+    return { ...base, ...unreadableRow({ id: 'registration', label, error: entry.error, ui, command, root }) };
+  }
+  const state = entry.value;
+  if (state?.state === 'registered') {
     return { ...base, status: 'ok', detail: ui.text('doctorRegistrationOk', { client }) };
   }
-  if (entry?.state === 'absent') {
+  if (state?.state === 'absent') {
     return { ...base, status: 'failed', detail: ui.text('doctorRegistrationAbsent', { client }),
       fix: ui.text('doctorFixRegistration', { command, client: record.client }) };
   }
-  if (entry?.state === 'foreign') {
+  if (state?.state === 'foreign') {
     // The entry of that name is not ours: the installer will not replace it, so the person takes it out by hand.
     const plan = mcpPlan(record, deps);
     const remove = plan ? shown(plan.remove, platform) : '';
     return { ...base, status: 'warn', detail: ui.text('doctorRegistrationForeign', { name: settings.mcp?.name ?? 'okit', client }),
       fix: ui.text('doctorFixForeign', { remove }) };
   }
-  if (entry?.state === 'broken') {
+  if (state?.state === 'broken') {
     // The entry is ours, but it cannot work: the client has it off, or it launches another program.
-    const key = BROKEN_TEXTS[entry.reason] ?? 'doctorRegistrationBroken';
-    return { ...base, status: 'failed', detail: ui.text(key, { client, command: entry.command ?? '' }),
+    const key = BROKEN_TEXTS[state.reason] ?? 'doctorRegistrationBroken';
+    return { ...base, status: 'failed', detail: ui.text(key, { client, command: state.command ?? '' }),
       fix: ui.text('doctorFixRegistration', { command, client: record.client }) };
   }
-  if (entry?.state === 'unreadable') {
-    return { ...base, status: 'warn', detail: ui.text('doctorRegistrationUnreadable', { client, reason: entry.reason ?? '' }) };
+  if (state?.state === 'unreadable') {
+    return { ...base, status: 'warn', detail: ui.text('doctorRegistrationUnreadable', { client, reason: state.reason ?? '' }) };
   }
   return { ...base, status: 'skipped', detail: ui.text('doctorRegistrationNone') };
 }
 
 /** The rows of the install self-check of one client, in the order it runs them. */
-async function selfCheckRows(record, { readers, selfCheckDeps, ui }) {
-  const checks = await readers.selfCheck(record, record.version, selfCheckDeps);
+async function selfCheckRows(record, { readers, selfCheckDeps, ui, command, root }) {
+  const answer = await attempt(async () => readers.selfCheck(record, record.version, selfCheckDeps));
+  if (answer.error !== undefined) {
+    // The check itself could not run: one row says so, and the run goes on.
+    return [{ client: record.client, ...unreadableRow({ id: 'selfcheck',
+      label: ui.text('selfcheck', { client: clientLabel(record.client) }), error: answer.error, ui, command, root }) }];
+  }
+  const checks = answer.value;
   return (Array.isArray(checks) ? checks : []).map((check) => {
     const key = LABELS[check.id];
     return {
@@ -374,7 +435,7 @@ async function selfCheckRows(record, { readers, selfCheckDeps, ui }) {
 }
 
 /** The rows of the three state files: the configuration, the inbox and the orders. */
-async function stateRows({ readers, root, ui, command, stored }) {
+async function stateRows({ readers, root, ui, command, stored, language }) {
   const rows = [];
   const files = [
     { id: 'config', label: 'doctorConfig', file: paths(root).config, shape: configShape },
@@ -389,8 +450,18 @@ async function stateRows({ readers, root, ui, command, stored }) {
       continue;
     }
     if (read.text === undefined) {
-      rows.push({ id: entry.id, status: 'failed', label, detail: ui.text('doctorStateBad', { path: entry.file }),
+      // The disk refused the file: the reason is said, and the Fix names the file.
+      rows.push({ id: entry.id, status: 'failed', label,
+        detail: ui.text('doctorStateUnreadable', { reason: redact(reasonOf(read.error)) }),
         fix: ui.text('doctorFixState', { path: entry.file, command }) });
+      continue;
+    }
+    // The saved language that is not a language: the row says so, with the way out (the run of the doctor goes on in
+    // the language the flag and the environment decide).
+    if (entry.id === 'config' && language !== undefined && !LOCALES.includes(language)) {
+      rows.push({ id: entry.id, status: 'failed', label,
+        detail: ui.text('doctorLanguageInvalid', { value: String(language) }),
+        fix: ui.text('doctorFixLanguage', { path: entry.file, command, languages: LOCALES.join(', ') }) });
       continue;
     }
     let value;
@@ -413,13 +484,21 @@ async function stateRows({ readers, root, ui, command, stored }) {
 /** The row of the session: the server of the state folder, asked one question. */
 async function sessionRow({ readers, root, ui, command }) {
   const label = ui.text('doctorSession');
-  const servers = [...(await readers.servers(root) ?? [])]
+  const listed = await attempt(async () => readers.servers(root));
+  if (listed.error !== undefined) {
+    return unreadableRow({ id: 'session', label, error: listed.error, ui, command, root });
+  }
+  const servers = [...(listed.value ?? [])]
     .sort((left, right) => (right.startedAt ?? 0) - (left.startedAt ?? 0));
   if (!servers.length) {
     // No server is not a failure: the server starts with a client session.
     return { id: 'session', status: 'warn', label, detail: ui.text('doctorSessionNone') };
   }
-  const answer = await readers.callRead(root, servers[0].pid);
+  const asked = await attempt(async () => readers.callRead(root, servers[0].pid));
+  if (asked.error !== undefined) {
+    return unreadableRow({ id: 'session', label, error: asked.error, ui, command, root });
+  }
+  const answer = asked.value;
   if (answer?.ok) return { id: 'session', status: 'ok', label, detail: ui.text('doctorSessionOk') };
   return { id: 'session', status: 'failed', label, detail: ui.text('doctorSessionFail', { reason: controlReason(ui, answer ?? {}) }),
     fix: ui.text('doctorFixSession', { command }) };
@@ -432,9 +511,13 @@ async function autostartRow({ readers, records, root, home, command, platform, u
   const plan = autostartPlan(detectAutostart(platform), {
     root, home, command, node: first.settings?.node, script: join(first.path ?? '', first.bin ?? ''),
   });
-  const present = await readers.autostartPresent(plan);
-  const recorded = first.autostart === true;
   const label = ui.text('doctorAutostart');
+  const asked = await attempt(async () => readers.autostartPresent(plan));
+  if (asked.error !== undefined) {
+    return unreadableRow({ id: 'autostart', label, error: asked.error, ui, command, root });
+  }
+  const present = asked.value;
+  const recorded = first.autostart === true;
   if (present && recorded) return { id: 'autostart', status: 'ok', label, detail: ui.text('doctorAutostartOk') };
   if (recorded && !present) {
     return { id: 'autostart', status: 'failed', label, detail: ui.text('doctorAutostartMissing'),
@@ -447,7 +530,11 @@ async function autostartRow({ readers, records, root, home, command, platform, u
 /** The row of the daemon: it runs, or it should (the autostart is there) and does not. */
 async function daemonRow({ readers, root, ui, command, autostart }) {
   const label = ui.text('doctorDaemon');
-  const status = await readers.daemon(root);
+  const asked = await attempt(async () => readers.daemon(root));
+  if (asked.error !== undefined) {
+    return unreadableRow({ id: 'daemon', label, error: asked.error, ui, command, root });
+  }
+  const status = asked.value;
   if (status?.running) return { id: 'daemon', status: 'ok', label, detail: ui.text('doctorDaemonOk') };
   if (autostart?.status === 'ok') {
     return { id: 'daemon', status: 'failed', label, detail: ui.text('doctorDaemonDown'),

@@ -55,7 +55,6 @@ const RULES = Object.freeze({
   mcpName: { en: 'a name that starts with a letter or a digit and holds only letters, digits, dashes and underscores', pt: 'um nome que começa com uma letra ou um dígito e só tem letras, dígitos, traços e sublinhados', example: 'a name that starts with a letter or a digit and holds only letters, digits, dashes and underscores' },
   mcpServer: { en: 'a relative path with forward slashes and no .. segment', pt: 'um caminho relativo com barras normais e sem segmento ..', example: 'a relative path with forward slashes and no .. segment' },
   mcpScope: { en: 'a scope only for a client whose own mcp commands take one', pt: 'um escopo só para um cliente cujos comandos mcp aceitam um', example: 'a scope only for a client whose own mcp commands take one' },
-  probeBudget: { en: 'at most install.selfcheck.timeoutMs minus 2500', pt: 'no máximo install.selfcheck.timeoutMs menos 2500', example: 'at most install.selfcheck.timeoutMs minus 2500' },
 });
 
 const fillRule = (template, parts) => template.replace(/%(\d)/g, (_, index) => parts[Number(index) - 1]);
@@ -183,6 +182,7 @@ const TEXTS = Object.freeze({
   autostartInstalled: { en: 'Autostart installed; {command} uninstall removes it.', 'pt-BR': 'Inicialização automática instalada; {command} uninstall a remove.' },
   autostartFailed: { en: 'Could not install autostart: {reason}', 'pt-BR': 'Não foi possível instalar a inicialização automática: {reason}' },
   autostartRolledBack: { en: 'the autostart was taken back: {reason}', 'pt-BR': 'a inicialização automática foi desfeita: {reason}' },
+  autostartKept: { en: 'the service that was already installed was kept: {reason}', 'pt-BR': 'o serviço que já estava instalado foi mantido: {reason}' },
   modelsAsk: { en: 'Choose the models now?', 'pt-BR': 'Escolher os modelos agora?' },
   modelsPending: { en: 'not set yet. Run: {command} setup', 'pt-BR': 'ainda não definidos. Rode: {command} setup' },
   modelsDeclined: { en: 'not set. Run when you want: {command} setup', 'pt-BR': 'não definidos. Rode quando quiser: {command} setup' },
@@ -308,7 +308,10 @@ const TEXTS = Object.freeze({
   doctorStateOk: { en: 'readable', 'pt-BR': 'legível' },
   doctorStateAbsent: { en: 'not created yet', 'pt-BR': 'ainda não criado' },
   doctorStateBad: { en: '{path} is not valid JSON or has another shape', 'pt-BR': '{path} não é um JSON válido ou tem outra forma' },
+  doctorStateUnreadable: { en: 'the state file could not be read: {reason}', 'pt-BR': 'o arquivo de estado não pôde ser lido: {reason}' },
   doctorConfigInvalid: { en: 'the configuration is not valid: {reason}', 'pt-BR': 'a configuração não é válida: {reason}' },
+  doctorLanguageInvalid: { en: 'the saved language is not valid: {value}', 'pt-BR': 'o idioma salvo não é válido: {value}' },
+  doctorFixLanguage: { en: 'Edit {path}: set "language" to one of {languages} (or remove the key), then run: {command} doctor', 'pt-BR': 'Edite {path}: defina "language" como um destes {languages} (ou remova a chave), e rode: {command} doctor' },
   doctorFixState: { en: 'Fix it or move it aside ({path}), then run: {command} doctor', 'pt-BR': 'Corrija o arquivo ou afaste-o ({path}), e rode: {command} doctor' },
   doctorSession: { en: 'Session', 'pt-BR': 'Sessão' },
   doctorSessionNone: { en: 'no okit server is running: it starts with a client session; this is normal when no client is open', 'pt-BR': 'nenhum servidor do okit está rodando: ele começa com uma sessão de cliente; isso é normal quando nenhum cliente está aberto' },

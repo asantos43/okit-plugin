@@ -116,6 +116,23 @@ const shellsOf = (deps) => deps.config.selfcheck.shells[deps.platform] ?? [];
 const shellNamed = (deps, name) => shellsOf(deps).find((shell) => shell.name === name);
 const again = (record, deps) => `${deps.config.command} install --client ${record.client}`;
 
+/**
+ * The budget of the probe of the MCP server: the time the configuration asks for, never more than the time of the
+ * check minus the margin the server takes to go.
+ *
+ * The budget is clamped here and not refused by the schema: a configuration saved before the probe had a budget of its
+ * own keeps working (the budget it asks for is shortened, not the installation refused).
+ *
+ * @param {object} config the settings of the installer
+ * @returns {number} the budget of the probe, in milliseconds
+ */
+export function probeBudget(config) {
+  const selfcheck = config?.selfcheck ?? {};
+  const asked = Number(selfcheck.probeMs);
+  const limit = Number(selfcheck.timeoutMs) - 2500;
+  return Math.max(1, Math.min(Number.isFinite(asked) ? asked : 1, limit));
+}
+
 /** 1. The version the record and the installed package say is the one that was asked for. */
 async function versionCheck(record, expected, deps) {
   const { ui } = deps;
@@ -486,7 +503,7 @@ async function mcpChecks(record, deps) {
   try {
     const outcome = await attempt(deps, { command: config.node,
       args: [join(record.path, 'src/mcp/selfcheck-probe.js'), join(record.path, config.mcp.server),
-        String(config.selfcheck.probeMs)],
+        String(probeBudget(config))],
       env: environment(deps, { [HOME_ENV]: folder, [SELFCHECK_ENV]: '1' }) });
     // A node that is not on the machine is a failure, not a skip: the client uses our MCP server, and it cannot work
     // without the node the installation is configured to run.

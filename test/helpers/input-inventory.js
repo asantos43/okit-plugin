@@ -410,6 +410,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/install/selfcheck.js', arg: /^path$/, excluded: 'the client\'s settings file, read back to run the status bar and hook strings the installer wrote; a file that cannot be read or is not JSON is a failed check with its fix (exit 1), JSON of another shape finds no status bar and is a skipped row; never a crash' },
   { file: 'src/install/selfcheck.js', arg: /^last$/, excluded: 'the answer of the probe of the MCP server (one line of JSON a process of the check printed), not a file of the person: parsed inside a try/catch that fails the two checks of the MCP server, so no content makes a command crash' },
   { file: 'src/install/statusline.js', arg: /^saved\.backup$/, excluded: 'the copy of the client\'s settings that okit made before it changed them; restored byte for byte, never parsed' },
+  { file: 'src/setup/autostart-step.js', arg: /^text$/, rule: 'install.json / install.<client>.json (the record)' },
   { file: 'src/install/index.js', arg: /^join\(ctx\.root, 'config\.json'\)$/, rule: CONFIG_JSON },
   { file: 'src/install/bootstrap.js', arg: /^(metadata)$/, rule: 'the release metadata (API)' },
   { file: 'src/install/bootstrap.js', arg: /^hashes$/, rule: 'the release manifest (checksums)' },

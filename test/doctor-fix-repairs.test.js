@@ -221,6 +221,7 @@ const MANUAL = [
   ['MCP registration', 'the entry of that name is not ours: the installer never replaces the entry of somebody else'],
   ['Inbox', 'the state of the person is not ours to change: a person fixes the file or moves it aside'],
   ['Configuration', 'the settings are the person\'s: the doctor works with the defaults and says which key is wrong'],
+  ['Daemon', 'the state file of the daemon is the person\'s: the doctor only reads it, so a person fixes it or moves it aside'],
 ];
 
 test('the row of a foreign MCP entry says that a person takes it out by hand', async (t) => {
@@ -263,4 +264,21 @@ test('the row of a configuration the runtime refuses says that a person fixes it
   assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*config\.json.*\), then run: okit-plugin doctor$/,
     f.output[index + 1]);
   assert.ok(MANUAL[2][1].length > 0);
+});
+
+// D109 step 7: the state file of the daemon that is not valid is a failed row, and its Fix is manual: the doctor
+// only reads the state of the person, so a person fixes the file or moves it aside.
+
+test('the row of a state file of the daemon that is not valid says that a person fixes it', async (t) => {
+  const { f } = await world(t);
+  await fs.writeFile(join(f.root, 'daemon.pid.json'), 'not json');
+  f.clear();
+  assert.equal(await main(['doctor'], f.io), exitCodeFor('operational'), f.output.join('\n'));
+  const index = f.output.findIndex((line) => line.includes('Daemon'));
+  assert.ok(index >= 0, f.output.join('\n'));
+  assert.match(f.output[index], /\bfailed\b/, f.output[index]);
+  assert.match(f.output[index], /the state file could not be read/, f.output[index]);
+  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*\), then run: okit-plugin doctor$/,
+    f.output[index + 1]);
+  assert.ok(MANUAL[3][1].length > 0);
 });

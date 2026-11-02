@@ -5,6 +5,31 @@ import { exitCodeFor } from '../install/exit.js';
 import { discoverRecords, readRecords, saveRecord, snapshotRecords, restoreRecords } from '../install/place.js';
 import { fill, pick, TEXTS } from '../install/present.js';
 
+/**
+ * Whether the service of the machine was already there before this run.
+ *
+ * The records can disagree with each other: another client of the person may already say that the autostart is on
+ * (so the service is there), and the file of the plan may be on the disk even when no record says so. The rollback
+ * must not take away a service that was already there: the records that survive it still say the autostart is on.
+ *
+ * @param {object} ctx the context of the command line
+ * @param {Map<string, string|null>} snapshot the records as they were before this run
+ * @param {object} selected the plan of the autostart of this machine
+ * @returns {Promise<boolean>}
+ */
+async function alreadyThere(ctx, snapshot, selected) {
+  for (const text of snapshot.values()) {
+    if (typeof text !== 'string') continue;
+    let record;
+    try { record = JSON.parse(text); } catch { continue; }
+    if (record && typeof record === 'object' && record.autostart === true) return true;
+  }
+  if (selected.path === null || selected.path === undefined) return false;
+  if (typeof ctx.fs?.access !== 'function') return false;
+  // A file that cannot be reached is a file that is not there.
+  return await ctx.fs.access(selected.path).then(() => true, () => false);
+}
+
 /** The final interactive setup step, attached to the existing installation. */
 export async function setupAutostart(ctx, { config, locale, ask, plan }) {
   const text = (key, values = {}) => fill(pick(TEXTS[key], locale), values);
@@ -32,6 +57,8 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
       return exitCodeFor('ok');
     }
     const snapshot = await snapshotRecords(destination, ctx.fs, config);
+    // The service of the machine may already be there: the rollback below must not take it away.
+    const existed = await alreadyThere(ctx, snapshot, selected);
     await applyAutostart(selected, { run: ctx.run, write: ctx.write, action: 'install' });
     try {
       await saveRecord(destination, { ...records[0], autostart: true }, { fs: ctx.fs, config });
@@ -39,6 +66,12 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
       let reason = error.message;
       const unrestored = await restoreRecords(snapshot, ctx.fs);
       if (unrestored.length) reason += `; ${unrestored.join('; ')}`;
+      if (existed) {
+        // The service was already installed: it is kept, because the records that survive the rollback still say the
+        // autostart is on.
+        ctx.err(text('autostartFailed', { reason: text('autostartKept', { reason }) }));
+        return exitCodeFor('operational');
+      }
       // The service is installed and the record is not: the service is taken back, so the machine is as it was.
       await applyAutostart(selected, { run: ctx.run, write: ctx.write, action: 'uninstall' }).catch(() => {});
       ctx.err(text('autostartFailed', { reason: text('autostartRolledBack', { reason }) }));

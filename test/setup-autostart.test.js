@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { setupAutostart } from '../src/setup/autostart-step.js';
 import { main } from '../src/cli.js';
 import { autostartPlan, detectAutostart } from '../src/autostart.js';
+import { installConfig } from '../src/install/config.js';
 import { readRecords } from '../src/install/place.js';
 import { fixture } from './helpers/install-fixture.js';
 
@@ -379,4 +380,101 @@ test('autostart saves only in the discovered running installation destination', 
   assert.equal(reads.filter((name) => name === join(destination, 'install.json')).length, 5);
   assert.deepEqual(writes, [file + '.tmp']);
   assert.equal([...files.keys()].some((name) => name.startsWith('configured')), false);
+});
+
+// D109 step 7: the rollback of a failed save never takes away a service that was already there: the records that
+// survive the rollback still say the autostart is on, and a service that is gone contradicts them.
+
+/**
+ * The world of the rollback: the records of the clients in a map, the file of the service of the machine (when it is
+ * already there) and every action of the machine recorded.
+ *
+ * @param {object} options the records, the service of the machine and whether the save fails
+ * @returns {object} the world of the test
+ */
+function rollbackWorld({ records, service = null, failSave = true }) {
+  const config = installConfig();
+  const destination = fileURLToPath(new URL('../rollback-destination', import.meta.url));
+  const servicePath = join(destination, 'okit-daemon.service');
+  const files = new Map(Object.entries(records).map(([client, record]) => [
+    join(destination, config.recordName.replace('{client}', client)), `${JSON.stringify(record)}\n`,
+  ]));
+  if (service !== null) files.set(servicePath, service);
+  const actions = [], errors = [], outputs = [], written = [];
+  const fake = {
+    readFile: async (file) => {
+      if (files.has(file)) return files.get(file);
+      throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+    },
+    writeFile: async (file, text) => {
+      // The record is saved through a file of its own: that is the write that fails.
+      if (failSave && file.endsWith('.tmp')) throw new Error('save denied');
+      files.set(file, text);
+    },
+    rename: async (from, to) => { files.set(to, files.get(from)); files.delete(from); },
+    rm: async (file) => { files.delete(file); },
+    access: async (file) => { if (!files.has(file)) throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
+  };
+  const ctx = { fs: fake, platform: 'linux', env: {}, home: 'home', command: config.command,
+    out: (line) => outputs.push(line), err: (line) => errors.push(line),
+    run: async ({ command }) => { actions.push(command); return {}; },
+    write: async (path, content) => { written.push(path); files.set(path, content); } };
+  const plan = { kind: 'test', path: servicePath, content: '[Service]\nExecStart=okit-plugin daemon start\n',
+    install: [{ command: 'install' }], uninstall: [{ command: 'uninstall' }] };
+  return { config: { ...config, destination }, destination, servicePath, files, actions, errors, outputs, written, ctx, plan };
+}
+
+/** The records of the world, as they are on the disk: the bytes of every file of a client. */
+const recordFiles = (files) => Object.fromEntries([...files.entries()].filter(([file]) => file.endsWith('.json')));
+
+const runRollback = (world) => setupAutostart(world.ctx, {
+  config: world.config, locale: 'en', ask: async () => 'yes', plan: () => world.plan,
+});
+
+test('a save that fails does not take away the service another client had already installed', async () => {
+  const w = rollbackWorld({ records: {
+    'claude-code': { client: 'claude-code', autostart: false, link: false },
+    codex: { client: 'codex', autostart: true, link: false },
+  } });
+  const before = recordFiles(w.files);
+  assert.equal(await runRollback(w), 1);
+  // The service that was already there is kept: the records that survive the rollback still say the autostart is on.
+  assert.deepEqual(w.actions, ['install'], w.actions.join(', '));
+  assert.deepEqual(w.errors, ['Could not install autostart: the service that was already installed was kept: save denied']);
+  // The records are byte for byte what they were.
+  assert.deepEqual(recordFiles(w.files), before);
+});
+
+test('a save that fails does not take away a service that was already on the disk', async () => {
+  const w = rollbackWorld({ records: {
+    'claude-code': { client: 'claude-code', autostart: false, link: false },
+  }, service: '[Service]\nExecStart=okit-plugin daemon start\n' });
+  const before = recordFiles(w.files);
+  assert.equal(await runRollback(w), 1);
+  assert.deepEqual(w.actions, ['install'], w.actions.join(', '));
+  assert.deepEqual(w.errors, ['Could not install autostart: the service that was already installed was kept: save denied']);
+  assert.deepEqual(recordFiles(w.files), before);
+});
+
+test('a save that fails on a clean machine takes the service back', async () => {
+  const w = rollbackWorld({ records: {
+    'claude-code': { client: 'claude-code', autostart: false, link: false },
+  } });
+  const before = recordFiles(w.files);
+  assert.equal(await runRollback(w), 1);
+  // Nothing was there before: the service that this run installed is taken back.
+  assert.deepEqual(w.actions, ['install', 'uninstall'], w.actions.join(', '));
+  assert.deepEqual(w.errors, ['Could not install autostart: the autostart was taken back: save denied']);
+  assert.deepEqual(recordFiles(w.files), before);
+});
+
+test('a save that works keeps the service and records the autostart', async () => {
+  const w = rollbackWorld({ records: {
+    'claude-code': { client: 'claude-code', autostart: false, link: false },
+  }, failSave: false });
+  assert.equal(await runRollback(w), 0, w.errors.join('\n'));
+  assert.deepEqual(w.actions, ['install'], w.actions.join(', '));
+  assert.deepEqual(w.errors, []);
+  assert.equal(JSON.parse(w.files.get(join(w.destination, 'install.claude-code.json'))).autostart, true);
+  assert.deepEqual(w.written, [w.servicePath]);
 });

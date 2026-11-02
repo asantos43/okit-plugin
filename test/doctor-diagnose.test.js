@@ -448,6 +448,83 @@ test('a daemon that is down without an autostart is a warning', async () => {
 });
 
 // ---------------------------------------------------------------------------------------------------------------
+// D109 step 7: a reader that throws is a row of the diagnosis, never an exception out of it.
+
+test('a reader that throws is a failed row, in both languages, and the other rows are still there', async () => {
+  for (const locale of ['en', 'pt-BR']) {
+    const { input } = await world({ locale, readers: {
+      servers: async () => { throw new Error('the control folder cannot be read'); },
+      daemon: async () => { throw new Error('the pid file cannot be read'); },
+    } });
+    const result = await diagnose(input);
+    // The session and the daemon failed: the doctor did not crash.
+    const session = rowOf(result, 'session');
+    assert.equal(session.status, 'failed', JSON.stringify(result.rows));
+    assert.match(session.detail, locale === 'en' ? /the state file could not be read: the control folder cannot be read/
+      : /o arquivo de estado não pôde ser lido: the control folder cannot be read/, session.detail);
+    assert.match(session.fix, /okit-plugin doctor/);
+    const daemon = rowOf(result, 'daemon');
+    assert.equal(daemon.status, 'failed', JSON.stringify(result.rows));
+    assert.match(daemon.fix, /okit-plugin doctor/);
+    assert.equal(result.failed, 2, JSON.stringify(result.rows));
+    // The rows the doctor had are still told.
+    assert.equal(rowOf(result, 'node').status, 'ok');
+    assert.equal(rowOf(result, 'install').status, 'ok');
+    assert.equal(rowOf(result, 'config').status, 'ok');
+  }
+});
+
+test('a reader of the client that throws is a failed row, never a crash', async () => {
+  const { input } = await world({ readers: {
+    mcpEntry: async () => { throw new Error('the entry of the client cannot be read'); },
+    selfCheck: async () => { throw new Error('the check cannot run'); },
+  } });
+  const result = await diagnose(input);
+  const registration = rowOf(result, 'registration');
+  assert.equal(registration.status, 'failed', JSON.stringify(result.rows));
+  assert.match(registration.detail, /the state file could not be read: the entry of the client cannot be read/);
+  const check = result.rows.find((row) => row.id === 'selfcheck');
+  assert.equal(check.status, 'failed', JSON.stringify(result.rows));
+  assert.match(check.detail, /the state file could not be read: the check cannot run/);
+  assert.equal(result.failed, 2, JSON.stringify(result.rows));
+});
+
+test('every other reader that throws is a failed row too, with its reason redacted', async () => {
+  const secret = 'https://example.test/path?token=hunter2&x=1';
+  const { input } = await world({ readers: {
+    nodeVersion: () => { throw new Error('no node here'); },
+    callRead: async () => { throw new Error(`the call failed at ${secret}`); },
+    autostartPresent: async () => { throw new Error('the unit cannot be read'); },
+  } });
+  const result = await diagnose(input);
+  const node = rowOf(result, 'node');
+  assert.equal(node.status, 'failed', JSON.stringify(result.rows));
+  assert.match(node.detail, /the state file could not be read: no node here/);
+  const session = rowOf(result, 'session');
+  assert.equal(session.status, 'failed', JSON.stringify(result.rows));
+  assert.match(session.detail, /the state file could not be read: the call failed at https:\/\/example\.test\/path/);
+  assert.doesNotMatch(session.detail, /hunter2|token=/, session.detail);
+  const autostart = rowOf(result, 'autostart');
+  assert.equal(autostart.status, 'failed', JSON.stringify(result.rows));
+  assert.match(autostart.detail, /the state file could not be read: the unit cannot be read/);
+  assert.equal(result.failed, 3, JSON.stringify(result.rows));
+});
+
+test('a state file the disk refuses to read says the reason of the refusal', async () => {
+  const file = paths('/state').inbox;
+  const { input } = await world();
+  const read = input.readers.readText;
+  input.readers.readText = async (asked) => {
+    if (asked === file) throw denied(asked);
+    return read(asked);
+  };
+  const row = rowOf(await diagnose(input), 'inbox');
+  assert.equal(row.status, 'failed');
+  assert.match(row.detail, /the state file could not be read: /, row.detail);
+  assert.match(row.detail, pattern(file), row.detail);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
 // The order of the rows and the choice of the client.
 
 test('the rows of the clients follow the order of the records', async () => {
@@ -473,7 +550,8 @@ const DOCTOR_KEYS = ['doctorNode', 'doctorNodeOk', 'doctorNodeOld', 'doctorNodeU
   'doctorRegistration', 'doctorRegistrationOk', 'doctorRegistrationAbsent', 'doctorFixRegistration',
   'doctorRegistrationForeign', 'doctorFixForeign', 'doctorRegistrationUnreadable', 'doctorRegistrationNone',
   'doctorRegistrationDisabled', 'doctorRegistrationOther', 'doctorRegistrationMissing', 'doctorRegistrationServerMissing',
-  'doctorConfig', 'doctorInbox', 'doctorOrders', 'doctorStateOk', 'doctorStateAbsent', 'doctorStateBad', 'doctorFixState',
+  'doctorConfig', 'doctorInbox', 'doctorOrders', 'doctorStateOk', 'doctorStateAbsent', 'doctorStateBad',
+  'doctorStateUnreadable', 'doctorFixState',
   'doctorSession', 'doctorSessionNone', 'doctorSessionOk', 'doctorSessionFail', 'doctorFixSession',
   'doctorAutostart', 'doctorAutostartOk', 'doctorAutostartMissing', 'doctorFixAutostart', 'doctorAutostartOptional',
   'doctorAutostartExtra', 'doctorDaemon', 'doctorDaemonOk', 'doctorDaemonDown', 'doctorFixDaemon'];

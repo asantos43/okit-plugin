@@ -14,7 +14,7 @@ import { runSessionStart } from '../src/hook-session-start.js';
 import { configOf, DEFAULT_CONFIG } from '../src/profiles.js';
 import { installConfig } from '../src/install/config.js';
 import { createPresenter } from '../src/install/present.js';
-import { reportSelfCheck, selfCheck } from '../src/install/selfcheck.js';
+import { reportSelfCheck, selfCheck, probeBudget } from '../src/install/selfcheck.js';
 import { readRecord, saveRecord } from '../src/install/place.js';
 import { cliScript, hookCommand } from '../src/install/register.js';
 import { fixture } from './helpers/install-fixture.js';
@@ -1744,18 +1744,53 @@ test('D109: a probe time that is not a whole number of milliseconds is refused',
   }
 });
 
-test('D109: a probe time that does not fit in the time of the check is refused, naming both keys', () => {
+test('D109: a probe time that does not fit in the time of the check is shortened, not refused', () => {
   const { timeoutMs, probeMs } = DEFAULT_CONFIG.install.selfcheck;
   // The default is a valid pair: the budget of the probe, the time the server takes to go and a margin fit in it.
   assert.ok(probeMs <= timeoutMs - 2500, `${probeMs} does not fit in ${timeoutMs}`);
-  assert.doesNotThrow(() => installConfig({ selfcheck: { probeMs } }));
-  assert.throws(() => installConfig({ selfcheck: { probeMs: timeoutMs - 2499 } }),
-    (error) => kindOf(error) === 'usage'
-      && error.message.startsWith('Invalid install.selfcheck.probeMs: ')
-      && error.message.includes('install.selfcheck.timeoutMs'),
-    `${timeoutMs - 2499} must be refused`);
+  assert.equal(probeBudget(installConfig()), probeMs);
+  // A configuration saved before the probe had a budget of its own keeps working: the budget it asks for is shortened.
+  assert.doesNotThrow(() => installConfig({ selfcheck: { probeMs: timeoutMs - 2499 } }));
+  assert.equal(probeBudget(installConfig({ selfcheck: { probeMs: timeoutMs - 2499 } })), timeoutMs - 2500);
   // A longer check takes the same budget: the pair is valid again.
   assert.equal(installConfig({ selfcheck: { timeoutMs: 20000, probeMs: 17500 } }).selfcheck.probeMs, 17500);
+  assert.equal(probeBudget(installConfig({ selfcheck: { timeoutMs: 20000, probeMs: 17500 } })), 17500);
+});
+
+test('D109: the budget of the probe is never more than the time of the check minus the margin', () => {
+  // The budget of a configuration that asks for more than the check can hold is shortened where it is used.
+  assert.equal(probeBudget(installConfig({ selfcheck: { timeoutMs: 5000 } })), 2500);
+  assert.equal(probeBudget(installConfig({ selfcheck: { timeoutMs: 10000, probeMs: 9000 } })), 7500);
+  assert.equal(probeBudget(installConfig({ selfcheck: { timeoutMs: 20000, probeMs: 15000 } })), 15000);
+  assert.equal(probeBudget(installConfig()), 6000);
+});
+
+test('D109: the probe of an old configuration runs with the budget that fits in the check', async (t) => {
+  // The configuration of a person who installed before the probe had a budget of its own: it loads, and the probe runs
+  // with the time that fits in the check.
+  const w = await probeWorld(t, { install: { selfcheck: { timeoutMs: 5000 } },
+    run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(PROBE_OK)}\n` } : { stdout: '' }) });
+  assert.equal(w.deps.config.selfcheck.probeMs, 6000, 'the configuration of the person is not changed');
+  await selfCheck(w.record, '1.0.0', w.deps);
+  const probe = w.calls.find(isProbe);
+  assert.ok(probe, 'the probe did not run');
+  assert.equal(probe.args[2], '2500', JSON.stringify(probe.args));
+});
+
+test('D109: an old configuration is not a refusal of usage: the install of it runs', async (t) => {
+  const f = await fixture(t, 'linux');
+  f.io.loadAdapter = () => import('../adapters/claude-code/index.js');
+  // The configuration of a person who installed before the probe had a budget of its own.
+  const file = join(f.root, 'config.json');
+  const stored = JSON.parse(await fs.readFile(file, 'utf8'));
+  stored.install.selfcheck = { timeoutMs: 5000 };
+  await fs.writeFile(file, JSON.stringify(stored));
+  const code = await main(['install', '--client', CLIENT, '--statusline'], f.io);
+  assert.notEqual(code, 2, `the configuration was refused:\n${f.output.join('\n')}`);
+  // The probe of the check runs with the budget that fits in the time of the check.
+  const probe = f.commands.find((command) => (command.args ?? []).some((arg) => String(arg).endsWith('selfcheck-probe.js')));
+  assert.ok(probe, 'the probe did not run');
+  assert.equal(probe.args[2], '2500', JSON.stringify(probe.args));
 });
 
 // D109: the answer of the probe is read, not guessed: the last line it printed is the answer, and a row passes only
