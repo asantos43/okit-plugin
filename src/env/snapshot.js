@@ -182,8 +182,9 @@ export async function environmentSnapshot(deps = {}) {
     if (available.length && sizes.length) missing.push({ item: 'sizes', client, sizes, command: `${command} setup` });
     const quota = rowOf(client, readingOf(quotas.get(client).reading), quotas.get(client).at,
       config, labelsOf(), now, deps.orders);
-    if (installed !== false && quota.status === 'off') missing.push({ item: 'quota', client,
-      command: `${command} quota set ${client} <pct>` });
+    // The item whose remedy is a tool carries the tool and no command: the model reads this object, so a command of
+    // the kit in it would be a command the model is told to run.
+    if (installed !== false && quota.status === 'off') missing.push({ item: 'quota', client, tool: 'quota_set' });
     const raw = quotas.get(client).reading;
     const recorded = Date.parse(raw?.recordedAt);
     quota.ageMinutes = Number.isFinite(recorded) ? Math.max(0, now - recorded) / 60_000 : raw?.ageMinutes ?? null;

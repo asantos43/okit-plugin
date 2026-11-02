@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { installSkillFiles } from '../src/skills.js';
 import { installSkill } from '../adapters/claude-code/index.js';
+import { TOOL_NAMES } from '../src/mcp/tools.js';
 
 const SKILLS_DIR = fileURLToPath(new URL('../skills/', import.meta.url));
 const EXPECTED_SKILLS = ['okit-critic', 'okit-director', 'okit-environment', 'okit-executor', 'okit-setup', 'okit-smoke'];
@@ -14,37 +15,10 @@ const MAX_DESCRIPTION = 300;
 const MAX_BODY_LINES = 80;
 const FENCE = '---';
 
-// The tools the MCP server exposes. A skill names them by name, so a name that
-// is not here is a stale reference to the old kit CLI.
-const TOOLS = new Set([
-  'telemetry_status',
-  'telemetry_export',
-  'todo_sync',
-  'todo_check',
-  'acquire_slot',
-  'release_slot',
-  'limits_status',
-  'quota_notice',
-  'actors_list',
-  'env_report',
-  'smoke_demo',
-  'classify',
-  'profile_pick',
-  'inbox_add',
-  'inbox_list',
-  'inbox_claim',
-  'inbox_release',
-  'inbox_set_status',
-  'order_add',
-  'order_list',
-  'order_remove',
-  'config_get',
-  'config_set',
-  'quota_show',
-  'quota_set',
-  'daemon',
-  'kit_detect',
-]);
+// The tools the MCP server exposes, read from the table of the server itself: a skill names them by name, so a name
+// that is not there is a stale reference to the old kit CLI.
+const TOOLS = new Set(TOOL_NAMES);
+assert.ok(TOOLS.size > 0, 'the server publishes its tools');
 
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
 const OLD_CLI = /\bkit\s+(?:daemon|autostart|status|inbox|smoke|client-smoke|hook)\b/;
@@ -72,12 +46,12 @@ test('all six skills share bilingual routing, glossary and read-only boundaries'
       'profile / perfil', 'quota / cota', 'source / fonte', 'worker', 'ajudante',
       'remaining limit', 'limite restante', 'sample', 'amostra']) assert.ok(body.includes(phrase), `${name}: ${phrase}`);
     for (const [question, routes] of [
-      ['Where are you?', ['okit-environment', 'env_report', 'okit-plugin env report']],
-      ['Which actors/helpers?', ['okit-director', 'actors_list', 'okit-plugin actors', 'status']],
-      ['How much quota?', ['okit-environment', 'env_report', 'okit-plugin quota show', 'status']],
+      ['Where are you?', ['okit-environment', 'env_report']],
+      ['Which actors/helpers?', ['okit-director', 'actors_list', 'status']],
+      ['How much quota?', ['okit-environment', 'env_report', 'quota_show', 'status']],
       ['What is missing?', ['env_report', 'okit-setup', 'okit-plugin setup']],
       ['What is your role?', ['okit-director', 'okit-executor', 'okit-critic', 'order_list', 'inbox_list', 'actors_list', 'limits_status', 'env_report']],
-      ['Run smoke/demonstration', ['okit-smoke', 'okit-plugin client-smoke --client claude-code --demo', '--dry-run']],
+      ['Run smoke/demonstration', ['okit-smoke', 'smoke_demo']],
     ]) {
       const row = body.split('\n').find((line) => line.startsWith(`| ${question}`));
       assert.ok(row, `${name}: ${question}`);
@@ -277,17 +251,18 @@ test('skills allow naming the kit but never use it for plugin commands', async (
 });
 
 // Must pass / must refuse table, the smoke skill:
-// | case                          | must pass                                                     | must refuse         |
-// | a body that masks the code    | -                                                            | '|| true' anywhere  |
-// | a body that captures the code | 'echo "exit=$?"', the end line of the runner, the artifacts | -                   |
-test('the smoke skill captures the exit code and never masks it', async () => {
+// | case                                | must pass                                    | must refuse                  |
+// | a body that runs a command          | the tool, the plan hash, the consent        | a shell command of its own   |
+// | a body that masks the answer        | -                                            | '|| true' anywhere           |
+test('the smoke skill drives the tool and never a command of its own', async () => {
   const { body } = await readSkill('okit-smoke');
-  assert.doesNotMatch(body, /\|\|\s*true/, 'the smoke skill must never mask the exit code');
-  assert.match(body, /echo "exit=\$\?"/, 'the skill must capture the exit code of the run');
-  assert.match(body, /smoke: end/, 'the skill must read the end line of the runner');
-  assert.match(body, /newest artifact/, 'the skill must read the newest artifact when the output is empty');
-  assert.match(body, /artifact paths/, 'the skill must report the artifact paths');
-  assert.match(body, /actual process exit code/, 'the skill must report the real exit code');
+  assert.doesNotMatch(body, /\|\|\s*true/, 'the smoke skill must never mask the answer');
+  assert.doesNotMatch(body, /okit-plugin\s+client-smoke/, 'the smoke skill must not name the shell flow');
+  assert.doesNotMatch(body, /echo "exit=\$\?"/, 'the smoke skill must not run a command');
+  assert.doesNotMatch(body, /`--[a-z-]+`/, 'the smoke skill must not pass a flag of a command');
+  for (const term of ['smoke_demo', 'planHash', 'Never approve automatically', 'measured usage']) {
+    assert.ok(body.includes(term), `the smoke skill must keep ${term}`);
+  }
 });
 
 // Must pass / must refuse table, the setup skill:
@@ -368,15 +343,17 @@ test('environment skill routes bilingual questions to the report and explains re
   const { fields, body } = await readSkill('okit-environment');
   for (const trigger of ['where you are', 'what you have here', 'which environment',
     'onde você está', 'o que você tem aqui', 'qual ambiente']) assert.ok(fields.description.includes(trigger));
-  assert.match(body, /okit-plugin env report/);
   assert.match(body, /env_report/);
   assert.match(body, /language` is used automatically/);
-  assert.match(body, /config set language pt-BR/);
-  assert.match(body, /`--locale` .*only to choose another language for one call/);
+  assert.match(body, /config_set/);
+  assert.match(body, /pt-BR/);
+  assert.match(body, /`locale` only to choose another language for one call/);
   assert.match(body, /each missing item/);
   assert.match(body, /cada item que falta/);
-  assert.match(body, /comando informado para corrigir/);
-  assert.match(body, /CLAUDE_PLUGIN_ROOT/);
+  assert.match(body, /o que corrige/);
+  // The report is a tool: the skill never tells the model to run a command.
+  assert.doesNotMatch(body, /okit-plugin env report/);
+  assert.doesNotMatch(body, /CLAUDE_PLUGIN_ROOT/);
 });
 
 test('installSkillFiles installs the real skills of the plugin', async (t) => {

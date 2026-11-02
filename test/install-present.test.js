@@ -73,8 +73,8 @@ function installLines(locale, platform) {
       ...(windows ? ['  Command (git-bash)  skipped  git-bash is not installed'] : []),
       '  Models  -  not set yet. Run: okit-plugin setup',
       '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit',
-      windows ? `Done. Next: 1. open a new terminal  2. in this terminal instead: ${HINT('<bin>')}  3. restart Claude Code  4. run: okit-plugin status`
-        : 'Done. Next: 1. open a new terminal  2. restart Claude Code  3. run: okit-plugin status',
+      windows ? `Done. Next: 1. open a new terminal  2. in this terminal instead: ${HINT('<bin>')}  3. restart Claude Code  4. ask your assistant to call \`status\``
+        : 'Done. Next: 1. open a new terminal  2. restart Claude Code  3. ask your assistant to call `status`',
     ];
   }
   return [
@@ -90,8 +90,8 @@ function installLines(locale, platform) {
     ...(windows ? ['  Comando (git-bash)  pulado  git-bash não está instalado'] : []),
     '  Modelos  -  ainda não definidos. Rode: okit-plugin setup',
     '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração',
-    windows ? `Pronto. Próximo: 1. abra um terminal novo  2. neste terminal, rode antes: ${HINT('<bin>')}  3. reinicie o Claude Code  4. rode: okit-plugin status`
-      : 'Pronto. Próximo: 1. abra um terminal novo  2. reinicie o Claude Code  3. rode: okit-plugin status',
+    windows ? `Pronto. Próximo: 1. abra um terminal novo  2. neste terminal, rode antes: ${HINT('<bin>')}  3. reinicie o Claude Code  4. peça ao seu assistente para chamar \`status\``
+      : 'Pronto. Próximo: 1. abra um terminal novo  2. reinicie o Claude Code  3. peça ao seu assistente para chamar `status`',
   ];
 }
 
@@ -119,7 +119,7 @@ function updateLines(locale, platform) {
       ...(windows ? ['  Command (git-bash)  skipped  git-bash is not installed'] : []),
       '  Models  -  not set yet. Run: okit-plugin setup',
       '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit',
-      new RegExp(`^Done\\. Next: 1\\. open a new terminal {2}${windows ? `2\\. in this terminal instead: ${escape(HINT('<bin>'))} {2}3\\. restart Claude Code {2}4` : '2\\. restart Claude Code {2}3'}\\. run: okit-plugin status$`),
+      new RegExp(`^Done\\. Next: 1\\. open a new terminal {2}${windows ? `2\\. in this terminal instead: ${escape(HINT('<bin>'))} {2}3\\. restart Claude Code {2}4` : '2\\. restart Claude Code {2}3'}\\. ask your assistant to call \`status\`$`),
     ];
   }
   return [
@@ -137,7 +137,7 @@ function updateLines(locale, platform) {
     ...(windows ? ['  Comando (git-bash)  pulado  git-bash não está instalado'] : []),
     '  Modelos  -  ainda não definidos. Rode: okit-plugin setup',
     '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração',
-    new RegExp(`^Pronto\\. Próximo: 1\\. abra um terminal novo {2}${windows ? `2\\. neste terminal, rode antes: ${escape(HINT('<bin>'))} {2}3\\. reinicie o Claude Code {2}4` : '2\\. reinicie o Claude Code {2}3'}\\. rode: okit-plugin status$`),
+    new RegExp(`^Pronto\\. Próximo: 1\\. abra um terminal novo {2}${windows ? `2\\. neste terminal, rode antes: ${escape(HINT('<bin>'))} {2}3\\. reinicie o Claude Code {2}4` : '2\\. reinicie o Claude Code {2}3'}\\. peça ao seu assistente para chamar \`status\`$`),
   ];
 }
 

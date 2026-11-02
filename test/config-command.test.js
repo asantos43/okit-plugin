@@ -544,7 +544,7 @@ test('a disabled profile refuses the set and says how to enable it again', async
   assert.equal(refused.code, 2);
   const message = refused.err.join('\n');
   assert.match(message, /The profile "profiles\.codex\.simple" is disabled/);
-  assert.match(message, /config unset profiles\.codex\.simple/);
+  assert.match(message, /config_set` with the key "profiles\.codex\.simple" and no value/);
   assert.match(message, /O perfil "profiles\.codex\.simple" está desligado/);
   assert.ok(!/\b[DO]\d+\b/.test(message));
   assert.equal(await readFile(file, 'utf8'), original);

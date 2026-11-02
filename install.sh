@@ -108,7 +108,7 @@ const TEXTS = Object.freeze({
   nextLabel: { en: 'Next', 'pt-BR': 'O que fazer' },
   nextOpen: { en: 'open a new terminal', 'pt-BR': 'abra um terminal novo' },
   nextRestart: { en: 'restart {client}', 'pt-BR': 'reinicie o {client}' },
-  nextRun: { en: 'run: {command}', 'pt-BR': 'rode: {command}' },
+  nextRun: { en: 'ask your assistant to call `status`', 'pt-BR': 'peça ao seu assistente para chamar `status`' },
   nextHere: { en: 'in this terminal instead: {command}', 'pt-BR': 'neste terminal, rode antes: {command}' },
   yesNo: { en: ['y', 'n'], 'pt-BR': ['s', 'n'] },
   plain: { en: '{asset}', 'pt-BR': '{asset}' },
@@ -178,7 +178,7 @@ const TEXTS = Object.freeze({
   autostartFile: { en: 'Autostart writes: {path}', 'pt-BR': 'A inicialização automática grava: {path}' },
   autostartAsk: { en: 'Install autostart? [y/N]', 'pt-BR': 'Instalar a inicialização automática? [s/N]' },
   autostartAlready: { en: 'Autostart is already installed.', 'pt-BR': 'A inicialização automática já está instalada.' },
-  autostartLater: { en: 'Autostart not installed; to do it later run: {command} autostart install', 'pt-BR': 'Inicialização automática não instalada; para instalar depois rode: {command} autostart install' },
+  autostartLater: { en: 'Autostart not installed; to do it later ask the user to run: {command} setup', 'pt-BR': 'Inicialização automática não instalada; para instalar depois peça ao usuário para rodar: {command} setup' },
   autostartInstalled: { en: 'Autostart installed; {command} uninstall removes it.', 'pt-BR': 'Inicialização automática instalada; {command} uninstall a remove.' },
   autostartFailed: { en: 'Could not install autostart: {reason}', 'pt-BR': 'Não foi possível instalar a inicialização automática: {reason}' },
   autostartRolledBack: { en: 'the autostart was taken back: {reason}', 'pt-BR': 'a inicialização automática foi desfeita: {reason}' },
@@ -330,13 +330,13 @@ const TEXTS = Object.freeze({
   doctorAutostart: { en: 'Autostart', 'pt-BR': 'Início automático' },
   doctorAutostartOk: { en: 'the daemon starts with the machine', 'pt-BR': 'o daemon começa com a máquina' },
   doctorAutostartMissing: { en: 'the daemon was set to start with the machine, but it is not set up', 'pt-BR': 'o daemon deveria começar com a máquina, mas não está configurado' },
-  doctorFixAutostart: { en: 'Set it up: {command} autostart install', 'pt-BR': 'Configure: {command} autostart install' },
+  doctorFixAutostart: { en: 'Set it up: the setup offers the autostart step and installs it when the answer is yes: {command} setup', 'pt-BR': 'Configure: o setup oferece o passo de inicialização automática e o instala quando a resposta for sim: {command} setup' },
   doctorAutostartOptional: { en: 'optional: {command} setup offers it', 'pt-BR': 'opcional: {command} setup oferece isso' },
   doctorAutostartExtra: { en: 'the daemon starts with the machine, but the installation does not record it', 'pt-BR': 'o daemon começa com a máquina, mas a instalação não registra isso' },
   doctorDaemon: { en: 'Daemon', 'pt-BR': 'Daemon de fundo' },
   doctorDaemonOk: { en: 'running', 'pt-BR': 'rodando' },
   doctorDaemonDown: { en: 'not running', 'pt-BR': 'não está rodando' },
-  doctorFixDaemon: { en: 'Start it: {command} daemon start', 'pt-BR': 'Inicie: {command} daemon start' },
+  doctorFixDaemon: { en: 'Start it: the daemon starts with the machine; restart the machine and check again with {command} doctor', 'pt-BR': 'Inicie: o daemon começa com a máquina; reinicie a máquina e confira de novo com {command} doctor' },
   // The doctor of the command line (src/doctor/command.js): the title of the run and its one line of summary.
   doctorHeader: { en: '{command} doctor: the state of the installation', 'pt-BR': '{command} doctor: o estado da instalação' },
   doctorSummaryOk: { en: 'everything looks right ({count} checks)', 'pt-BR': 'tudo está certo ({count} verificações)' },
@@ -670,7 +670,7 @@ function createPresenter({ locale = 'en', verbose = false, write, unicode = fals
       return ui.answer(await read(ui.question(question, defaultYes)), defaultYes);
     },
     summary({ client, command, hint }) {
-      const items = [text('nextOpen'), text('nextRestart', { client }), text('nextRun', { command: `${command} status` })];
+      const items = [text('nextOpen'), text('nextRestart', { client }), text('nextRun')];
       if (hint) items.splice(1, 0, text('nextHere', { command: hint }));
       line(`${text('done')} ${text('next')} ${items.map((item, index) => `${index + 1}. ${item}`).join('  ')}`);
     },

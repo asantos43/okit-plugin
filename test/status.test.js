@@ -159,8 +159,8 @@ test('all overrides detection, client overrides both, and unknown detection expl
   const deps = { env: { CLAUDECODE: '1' }, cache: new Map() };
   assert.equal((await statusTable(root, { ...deps, all: true })).rows.length, 3);
   assert.deepEqual((await statusTable(root, { ...deps, all: true, client: 'codex' })).rows.map((r) => r.client), ['codex']);
-  for (const [locale, phrase] of [['en', /Client not recognized.*--client <name>/],
-    ['pt-BR', /Cliente não reconhecido.*--client <nome>/]]) {
+  for (const [locale, phrase] of [['en', /Client not recognized.*`client` argument/],
+    ['pt-BR', /Cliente não reconhecido.*argumento `client`/]]) {
     const table = await statusTable(root, { env: {}, locale });
     assert.equal(table.rows.length, 3);
     assert.match(table.markdown, phrase);
@@ -186,10 +186,11 @@ test('recorded quota keeps its real value and age across cache refreshes', async
 
 test('missing quota tells how to record it in each language', async (t) => {
   const root = await tempRoot(t);
-  for (const [locale, words] of [['en', 'No quota value recorded. Record it with:'],
-    ['pt-BR', 'Nenhum valor de cota registrado. Registre com:']]) {
+  for (const [locale, words] of [['en', 'No quota value recorded. Call `quota_set` with the client "claude-code"'],
+    ['pt-BR', 'Nenhum valor de cota registrado. Chame `quota_set` com o cliente "claude-code"']]) {
     const table = await statusTable(root, { env: { CLAUDECODE: '1' }, locale, readQuota: async () => null, cache: new Map() });
-    assert.ok(table.markdown.includes(`${words} okit-plugin quota set claude-code <pct>`));
+    assert.ok(table.markdown.includes(words));
+    assert.ok(table.markdown.includes('percentage that is left') === (locale === 'en'));
     assert.equal(table.rows[0].fiveHour, null);
     assert.equal(table.rows[0].week, null);
     assert.ok(!table.markdown.includes('0%'));
@@ -522,7 +523,7 @@ test('okit-plugin status outside a client explains how to select and record quot
   }
   assert.equal(out.filter((line) => line.includes('No quota value recorded.')).length, 3);
   assert.ok(out.some((line) => line.includes('Client not recognized.')));
-  assert.ok(out.some((line) => line.includes('--client <name>')));
+  assert.ok(out.some((line) => line.includes('the `client` argument')));
 });
 
 test('MCP status detects each client and accepts all/client with argument checks', async (t) => {

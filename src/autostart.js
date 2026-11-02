@@ -244,6 +244,90 @@ export async function taskPresent(run, timeoutMs) {
 }
 
 /**
+ * Whether the autostart of this machine is really there.
+ *
+ * It proves the thing works, not that a file exists:
+ *
+ * - the scheduled task of Windows is asked with its own argv (never a shell). The runner of the installer answers
+ *   without a code when the command worked and throws when it did not: a task that is there is the call that returned
+ *   with no code, or with the code zero.
+ * - the other kinds are a file of the plan: it has to be there AND to hold the content of the plan (an empty, corrupt
+ *   or stale file is not the autostart of this installation), and the query of the kind (the unit of systemd, the
+ *   crontab of the user, the label of launchd) has to say that it is enabled. A machine without the tool of the
+ *   query, or without a runner to ask it, is not a machine without an autostart: the file and its content decide
+ *   then.
+ *
+ * The doctor and the last step of the setup ask the same question, so the answer is the same: a service that is
+ * corrupt, stale or disabled is not there.
+ *
+ * @param {object} plan the plan of the autostart of this machine
+ * @param {{fs: object, run?: Function, timeoutMs?: number}} deps the file system and the runner of a process
+ * @returns {Promise<boolean>}
+ */
+export async function autostartPresent(plan, { fs, run, timeoutMs } = {}) {
+  if (!plan) return false;
+  if (plan.kind === 'schtasks') return taskPresent(run, timeoutMs);
+  if (!plan.path) return false;
+  // The file of the plan, with the content of the plan: an empty, corrupt or stale file is not the autostart of this
+  // installation.
+  const file = plan.path;
+  const content = typeof fs?.readFile === 'function'
+    ? await fs.readFile(file, 'utf8').catch(() => null)
+    : null;
+  if (content === null || content !== plan.content) return false;
+  // The query of the kind: the machine itself says whether it is enabled.
+  const query = autostartQuery(plan);
+  if (!query || typeof run !== 'function') return true;
+  try {
+    const answer = await run({ command: query.command, args: query.args, timeoutMs });
+    const code = answer?.code;
+    if (code !== undefined && code !== null && code !== 0) return false;
+    // The crontab of the user: the line of ours is the one that carries the marker of the plan.
+    if (plan.kind === 'cron') return String(answer?.stdout ?? '').includes(MARKER);
+    return true;
+  } catch (error) {
+    // The tool of the query is not on this machine (ENOENT), or the failure says nothing about whether the
+    // autostart is enabled (no numeric code): the query is unknown and the file and its content decide.
+    if (typeof error?.code !== 'number') return true;
+    return false;
+  }
+}
+
+/**
+ * Whether anything of this autostart is on the machine: the file of the plan (whatever its content says), the
+ * scheduled task of Windows or the line of ours in the crontab of the user.
+ *
+ * It is a different question from the one `autostartPresent` asks ("is the autostart working?"): a service that is
+ * there but disabled, stale or corrupt is not working, and it is still there — the rollback of a failed save must not
+ * take it away.
+ *
+ * @param {object} plan the plan of the autostart of this machine
+ * @param {{fs: object, run?: Function, timeoutMs?: number}} deps the file system and the runner of a process
+ * @returns {Promise<boolean>}
+ */
+export async function autostartExists(plan, { fs, run, timeoutMs } = {}) {
+  if (!plan) return false;
+  if (plan.kind === 'schtasks') return taskPresent(run, timeoutMs);
+  const file = async () => {
+    if (!plan.path || typeof fs?.readFile !== 'function') return false;
+    try { await fs.readFile(plan.path, 'utf8'); return true; } catch { return false; }
+  };
+  const query = autostartQuery(plan);
+  if (plan.kind !== 'cron' && plan.path) return file();
+  // The crontab of the user: the line of ours is the one that carries the marker of the plan.
+  if (!query || typeof run !== 'function') return file();
+  try {
+    const answer = await run({ command: query.command, args: query.args, timeoutMs });
+    return String(answer?.stdout ?? '').includes(MARKER);
+  } catch (error) {
+    // The tool of the query is not on this machine (ENOENT), or the failure says nothing about the service: the file
+    // decides, and there is none.
+    if (typeof error?.code === 'number') return false;
+    return file();
+  }
+}
+
+/**
  * The kind this platform autostarts with: a user unit on Linux, a launchd agent
  * on macOS, a scheduled task on Windows and a crontab line anywhere else.
  *

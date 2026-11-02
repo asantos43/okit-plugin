@@ -5,7 +5,7 @@ import { configOf } from '../profiles.js';
 import { readJson, writeJsonAtomic } from '../state.js';
 import { paths, stateRoot as defaultRoot, SELFCHECK_ENV } from '../store.js';
 
-/** The file the person records the quota in (`quota set claude-code`); the collector never writes it. */
+/** The file the person records the quota in (the `quota_set` tool writes it); the collector never writes it. */
 export const READING_FILE = 'claude-code.json';
 
 /** The file the collector writes under the state root: the client's JSON as it came; the core reads it. */

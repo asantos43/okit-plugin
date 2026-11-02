@@ -410,7 +410,6 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/install/selfcheck.js', arg: /^path$/, excluded: 'the client\'s settings file, read back to run the status bar and hook strings the installer wrote; a file that cannot be read or is not JSON is a failed check with its fix (exit 1), JSON of another shape finds no status bar and is a skipped row; never a crash' },
   { file: 'src/install/selfcheck.js', arg: /^last$/, excluded: 'the answer of the probe of the MCP server (one line of JSON a process of the check printed), not a file of the person: parsed inside a try/catch that fails the two checks of the MCP server, so no content makes a command crash' },
   { file: 'src/install/statusline.js', arg: /^saved\.backup$/, excluded: 'the copy of the client\'s settings that okit made before it changed them; restored byte for byte, never parsed' },
-  { file: 'src/setup/autostart-step.js', arg: /^text$/, rule: 'install.json / install.<client>.json (the record)' },
   { file: 'src/install/index.js', arg: /^join\(ctx\.root, 'config\.json'\)$/, rule: CONFIG_JSON },
   { file: 'src/install/bootstrap.js', arg: /^(metadata)$/, rule: 'the release metadata (API)' },
   { file: 'src/install/bootstrap.js', arg: /^hashes$/, rule: 'the release manifest (checksums)' },
@@ -431,6 +430,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/skills.js', arg: /^(file|source)$/, excluded: 'the skill files of the package being installed (code and text of the program), copied byte for byte' },
   // The doctor (src/doctor/diagnose.js): it only looks, and every file it opens is one of the plugin's own.
   { file: 'src/doctor/diagnose.js', arg: /^(file|stored\.text|read\.text)$/, excluded: 'the files the doctor reads: the package.json of the plugin (the minimum Node it runs on) and the state files (config.json, inbox.json, orders.json); a file that is not JSON, or one of another shape, is a row of the diagnosis with its fix, never a crash and never a write' },
+  { file: 'src/autostart.js', arg: /^(file|plan\.path)$/, excluded: 'the unit of the machine that starts the daemon (a file of the system): compared with the content of the plan, never parsed; a file that cannot be read is a service that is not there (the doctor and the setup ask the same question)' },
   // Commands outside this inventory: orchestration state, read and written by okit itself.
   { file: 'src/daemon.js', arg: /^(logFile\(root, now\)|lines\[lines\.length - 1\]|pidFile\(root\))$/, excluded: 'the daemon\'s own log and pid file (the daemon command is outside this inventory)' },
   { file: 'src/demand-ref.js', arg: /^paths\(root\)\.project$/, excluded: STATE_OF_OTHER_COMMANDS },

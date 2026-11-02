@@ -156,7 +156,7 @@ export const CONFIG_SCHEMA = Object.freeze({
     unknownClass: 'Unknown class "{value}" for "{key}". Valid classes: {values}. / Classe desconhecida "{value}" para "{key}". Classes válidas: {values}.',
     invalidValue: 'Invalid value for "{key}". Expected {constraintEn}. / Valor inválido para "{key}". Esperado {constraintPt}.',
     invalidChoice: 'Invalid value for "{key}". Valid values: {values}. / Valor inválido para "{key}". Valores válidos: {values}.',
-    disabledProfile: 'The profile "{path}" is disabled; run `config unset {path}` to enable it before changing a field. / O perfil "{path}" está desligado; rode `config unset {path}` para ligá-lo antes de mudar um campo.',
+    disabledProfile: 'The profile "{path}" is disabled; ask your assistant to call `config_set` with the key "{path}" and no value to enable it before changing a field. / O perfil "{path}" está desligado; peça ao seu assistente para chamar `config_set` com a chave "{path}" e sem valor para ligá-lo antes de mudar um campo.',
     legacyAliasRemoved: 'Removed legacy alias "{alias}"; it is the old name for "{key}". / O apelido legado "{alias}" foi removido; é o nome antigo de "{key}".',
   },
 });
