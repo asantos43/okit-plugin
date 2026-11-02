@@ -223,6 +223,27 @@ export function autostartQuery(plan) {
 }
 
 /**
+ * Whether the scheduled task of Windows is there: the one query, asked with its own argv (never a shell).
+ *
+ * The runner of the installer answers without a code when the command worked and throws when it did not, so a
+ * task that is there is the call that returned with no code, or with the code zero. Read-only.
+ *
+ * @param {Function} [run] the runner of a process
+ * @param {number} [timeoutMs] the deadline of the query
+ * @returns {Promise<boolean>}
+ */
+export async function taskPresent(run, timeoutMs) {
+  if (typeof run !== 'function') return false;
+  try {
+    const answer = await run({ command: 'schtasks', args: ['/Query', '/TN', TASK_NAME], timeoutMs });
+    const code = answer?.code;
+    return code === undefined || code === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The kind this platform autostarts with: a user unit on Linux, a launchd agent
  * on macOS, a scheduled task on Windows and a crontab line anywhere else.
  *

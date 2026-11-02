@@ -510,6 +510,29 @@ test('every other reader that throws is a failed row too, with its reason redact
   assert.equal(result.failed, 3, JSON.stringify(result.rows));
 });
 
+test('a saved language of any shape is a failed row, never a crash', async () => {
+  for (const [saved, shown] of [[{ toString: null }, '{"toString":null}'], [42, '42'], [['en'], '["en"]'], [null, 'null']]) {
+    const { input } = await world({ files: { '/state/config.json': JSON.stringify({ language: saved }) } });
+    const row = rowOf(await diagnose(input), 'config');
+    assert.equal(row.status, 'failed', JSON.stringify(row));
+    assert.ok(row.detail.includes(shown), row.detail);
+  }
+});
+
+test('a saved language that carries a secret does not print it', async () => {
+  const { input } = await world({ files: { '/state/config.json': JSON.stringify({ language: 'https://example.test/x?token=hunter2' }) } });
+  const row = rowOf(await diagnose(input), 'config');
+  assert.equal(row.status, 'failed');
+  assert.doesNotMatch(row.detail, /hunter2|token=/, row.detail);
+});
+
+test('a reader that throws a value that cannot be turned into text is still a row', async () => {
+  const { input } = await world({ readers: { nodeVersion: () => { throw Object.create(null); } } });
+  const row = rowOf(await diagnose(input), 'node');
+  assert.equal(row.status, 'failed', JSON.stringify(row));
+  assert.match(row.detail, /the state file could not be read: object/, row.detail);
+});
+
 test('a state file the disk refuses to read says the reason of the refusal', async () => {
   const file = paths('/state').inbox;
   const { input } = await world();

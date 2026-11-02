@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as filesystem from 'node:fs/promises';
 
-import { autostartPlan, autostartQuery, detectAutostart, MARKER } from '../autostart.js';
+import { autostartPlan, autostartQuery, detectAutostart, MARKER, taskPresent } from '../autostart.js';
 import { daemonStatus } from '../daemon.js';
 import { installConfig, installPaths } from '../install/config.js';
 import { mcpPlan, mcpStatus, shown } from '../install/mcp-register.js';
@@ -27,7 +27,6 @@ import { paths } from '../store.js';
 
 const PACKAGE_FILE = fileURLToPath(new URL('../../package.json', import.meta.url));
 // The name of the scheduled task of the autostart of Windows.
-const TASK_NAME = 'okit-daemon';
 // How long one call to the control API of a session may take.
 const CALL_TIMEOUT_MS = 5000;
 
@@ -72,16 +71,7 @@ function defaultReaders({ fs, run, timeoutMs }) {
  */
 async function autostartPresent(plan, { fs, run, timeoutMs }) {
   if (!plan) return false;
-  if (plan.kind === 'schtasks') {
-    if (typeof run !== 'function') return false;
-    try {
-      const answer = await run({ command: 'schtasks', args: ['/Query', '/TN', TASK_NAME], timeoutMs });
-      const code = answer?.code;
-      return code === undefined || code === 0;
-    } catch {
-      return false;
-    }
-  }
+  if (plan.kind === 'schtasks') return taskPresent(run, timeoutMs);
   if (!plan.path) return false;
   // The file of the plan, with the content of the plan: an empty, corrupt or stale file is
   // not the autostart of this installation.
@@ -143,7 +133,11 @@ async function readThrough(readers, file) {
 }
 
 /** The reason of a failure, in plain words. */
-const reasonOf = (error) => (error instanceof Error ? error.message : String(error));
+const reasonOf = (error) => {
+  if (error instanceof Error) return error.message;
+  // A thrown value can be anything, one that cannot be turned into text included.
+  try { return String(error); } catch { return typeof error; }
+};
 
 /**
  * The answer of a reader: its value, or the failure that stopped it.
@@ -459,8 +453,10 @@ async function stateRows({ readers, root, ui, command, stored, language }) {
     // The saved language that is not a language: the row says so, with the way out (the run of the doctor goes on in
     // the language the flag and the environment decide).
     if (entry.id === 'config' && language !== undefined && !LOCALES.includes(language)) {
+      // The value is whatever the file holds (a number, a list, an object): it is shown as JSON, never as String().
+      const value = typeof language === 'string' ? language : JSON.stringify(language);
       rows.push({ id: entry.id, status: 'failed', label,
-        detail: ui.text('doctorLanguageInvalid', { value: String(language) }),
+        detail: ui.text('doctorLanguageInvalid', { value: redact(value) }),
         fix: ui.text('doctorFixLanguage', { path: entry.file, command, languages: LOCALES.join(', ') }) });
       continue;
     }

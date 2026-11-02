@@ -147,9 +147,11 @@ for (const platform of ['linux', 'darwin', 'win32']) {
     const f = await world(t, { clients: ['codex', 'claude-code'], platform });
     assert.equal(await main(['setup'], f.io), 0);
     assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
-    assert.deepEqual(f.ran, f.plan.install);
+    // The scheduled task of Windows has no file: the step asks the platform whether the task is there (read-only) first.
+    const asked = f.plan.kind === 'schtasks' ? [{ command: 'schtasks', args: ['/Query', '/TN', 'okit-daemon'], timeoutMs: undefined }] : [];
+    assert.deepEqual(f.ran, [...asked, ...f.plan.install]);
     assert.deepEqual(f.written, f.plan.path === null ? [] : [{ path: f.plan.path, content: f.plan.content }]);
-    assert.deepEqual(f.order, [...(f.plan.path === null ? [] : ['file']), ...f.plan.install.map(() => 'run'), 'record', 'record']);
+    assert.deepEqual(f.order, [...asked.map(() => 'run'), ...(f.plan.path === null ? [] : ['file']), ...f.plan.install.map(() => 'run'), 'record', 'record']);
     const records = await readRecords(f.destination, fs, f.io.config);
     assert.deepEqual(records, Object.fromEntries(Object.entries(f.records).map(([client, record]) => [client, { ...record, autostart: true }])));
     assert.deepEqual(stepLines(f), [...explain(f), 'Autostart installed; okit-plugin uninstall removes it.']);
@@ -392,7 +394,7 @@ test('autostart saves only in the discovered running installation destination', 
  * @param {object} options the records, the service of the machine and whether the save fails
  * @returns {object} the world of the test
  */
-function rollbackWorld({ records, service = null, failSave = true }) {
+function rollbackWorld({ records, service = null, failSave = true, task = null }) {
   const config = installConfig();
   const destination = fileURLToPath(new URL('../rollback-destination', import.meta.url));
   const servicePath = join(destination, 'okit-daemon.service');
@@ -417,9 +419,18 @@ function rollbackWorld({ records, service = null, failSave = true }) {
   };
   const ctx = { fs: fake, platform: 'linux', env: {}, home: 'home', command: config.command,
     out: (line) => outputs.push(line), err: (line) => errors.push(line),
-    run: async ({ command }) => { actions.push(command); return {}; },
+    run: async ({ command }) => {
+      // The query of the scheduled task of Windows: it answers when the task is there and throws when it is not.
+      if (command === 'schtasks') {
+        actions.push('query');
+        if (task === 'present') return {};
+        throw Object.assign(new Error('not found'), { code: 1 });
+      }
+      actions.push(command);
+      return {};
+    },
     write: async (path, content) => { written.push(path); files.set(path, content); } };
-  const plan = { kind: 'test', path: servicePath, content: '[Service]\nExecStart=okit-plugin daemon start\n',
+  const plan = { kind: task === null ? 'test' : 'schtasks', path: task === null ? servicePath : null, content: '[Service]\nExecStart=okit-plugin daemon start\n',
     install: [{ command: 'install' }], uninstall: [{ command: 'uninstall' }] };
   return { config: { ...config, destination }, destination, servicePath, files, actions, errors, outputs, written, ctx, plan };
 }
@@ -454,6 +465,27 @@ test('a save that fails does not take away a service that was already on the dis
   assert.deepEqual(w.actions, ['install'], w.actions.join(', '));
   assert.deepEqual(w.errors, ['Could not install autostart: the service that was already installed was kept: save denied']);
   assert.deepEqual(recordFiles(w.files), before);
+});
+
+test('a save that fails does not take away a scheduled task that was already there (Windows has no file)', async () => {
+  const w = rollbackWorld({ records: {
+    'claude-code': { client: 'claude-code', autostart: false, link: false },
+  }, task: 'present' });
+  const before = recordFiles(w.files);
+  assert.equal(await runRollback(w), 1);
+  // The platform was asked first, the task was kept: no uninstall ran.
+  assert.deepEqual(w.actions, ['query', 'install'], w.actions.join(', '));
+  assert.deepEqual(w.errors, ['Could not install autostart: the service that was already installed was kept: save denied']);
+  assert.deepEqual(recordFiles(w.files), before);
+});
+
+test('a save that fails on a Windows machine without the task takes the task back', async () => {
+  const w = rollbackWorld({ records: {
+    'claude-code': { client: 'claude-code', autostart: false, link: false },
+  }, task: 'absent' });
+  assert.equal(await runRollback(w), 1);
+  assert.deepEqual(w.actions, ['query', 'install', 'uninstall'], w.actions.join(', '));
+  assert.deepEqual(w.errors, ['Could not install autostart: the autostart was taken back: save denied']);
 });
 
 test('a save that fails on a clean machine takes the service back', async () => {

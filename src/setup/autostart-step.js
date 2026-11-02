@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { applyAutostart } from '../autostart.js';
+import { applyAutostart, taskPresent } from '../autostart.js';
 import { installPaths } from '../install/config.js';
 import { exitCodeFor } from '../install/exit.js';
 import { discoverRecords, readRecords, saveRecord, snapshotRecords, restoreRecords } from '../install/place.js';
@@ -9,8 +9,9 @@ import { fill, pick, TEXTS } from '../install/present.js';
  * Whether the service of the machine was already there before this run.
  *
  * The records can disagree with each other: another client of the person may already say that the autostart is on
- * (so the service is there), and the file of the plan may be on the disk even when no record says so. The rollback
- * must not take away a service that was already there: the records that survive it still say the autostart is on.
+ * (so the service is there), and the file of the plan (or, on Windows, the scheduled task) may be there even when no
+ * record says so. The rollback must not take away a service that was already there: the records that survive it
+ * still say the autostart is on.
  *
  * @param {object} ctx the context of the command line
  * @param {Map<string, string|null>} snapshot the records as they were before this run
@@ -24,6 +25,8 @@ async function alreadyThere(ctx, snapshot, selected) {
     try { record = JSON.parse(text); } catch { continue; }
     if (record && typeof record === 'object' && record.autostart === true) return true;
   }
+  // The scheduled task of Windows has no file: the platform itself is asked (read-only).
+  if (selected.kind === 'schtasks') return taskPresent(ctx.run);
   if (selected.path === null || selected.path === undefined) return false;
   if (typeof ctx.fs?.access !== 'function') return false;
   // A file that cannot be reached is a file that is not there.
