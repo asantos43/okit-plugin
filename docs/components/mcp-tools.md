@@ -2,9 +2,9 @@
 
 ![okit-plugin: Components](../images/banners/components.svg)
 
-MCP tools expose validated core operations to the client assistant.
+MCP tools expose validated core operations to the client assistant. The person has five commands — `okit-plugin install`, `update`, `uninstall`, `setup` and `doctor`; everything else is asked of the assistant, which uses the MCP tools.
 
-Every `locale` field is optional and lists default `en` from the built-in `language` setting. Calls that omit it use the saved `language`; set Portuguese once with `okit-plugin config set language pt-BR`. An explicit `locale` (`en` or `pt-BR`) takes priority for that call.
+Every `locale` field is optional and lists default `en` from the built-in `language` setting. Calls that omit it use the saved `language`; ask the assistant to call `config_set` with the key `language` and the value `pt-BR` to set Portuguese once. An explicit `locale` (`en` or `pt-BR`) takes priority for that call.
 
 <a id="tools"></a>
 ## Tool contract

@@ -18,11 +18,11 @@ Os hooks restauram contexto e coletam cota nos eventos do cliente.
 
 A instalação registra SessionStart em settings.json. O payload Claude inclui hooks/hooks.json para pós-compactação; o instalador opencode escreve um wrapper em plugins/okit-plugin.js. Codex não recebe hooks pelo adaptador.
 O coletor requer --statusline ou confirmação em terminal. Sem terminal e sem flag, o registro é pulado. O backup fica no estado do plugin; desinstalar restaura bytes originais se intactos, ou somente o campo anterior se outros ajustes mudaram.
-A execução direta de `okit-plugin statusline-collector` não registra a barra. O coletor guarda o JSON do cliente como ele veio; o núcleo lê quota/claude-code-statusline.json e deduz dele a leitura de cota. Entrada sem rate limits mantém a amostra anterior; falhas do comando anterior não interrompem o cliente.
+O coletor é uma entrada interna que o cliente inicia: a execução direta de `okit-plugin statusline-collector` não registra a barra. O coletor guarda o JSON do cliente como ele veio; o núcleo lê quota/claude-code-statusline.json e deduz dele a leitura de cota. Entrada sem rate limits mantém a amostra anterior; falhas do comando anterior não interrompem o cliente.
 
 <a id="try"></a>
 ## Conferir
 
-Passe JSON com cwd no stdin de `okit-plugin hook post-compact`: espere resumo só se houver trabalho/ordens aplicáveis. `okit-plugin hook session-start` aceita o mesmo JSON e devolve contexto de papel ou diagnóstico. São entradas internas usadas pelo cliente: o cliente as inicia e elas não são comandos da ajuda.
+Passe JSON com cwd no stdin de `okit-plugin hook post-compact`: espere resumo só se houver trabalho/ordens aplicáveis. `okit-plugin hook session-start` aceita o mesmo JSON e devolve contexto de papel ou diagnóstico. São entradas internas usadas pelo cliente: o cliente as inicia e elas não são comandos da ajuda. O coletor da barra de status é uma delas também.
 
 [Visão geral](README.pt-BR.md) · [Adaptadores](adapters.pt-BR.md) · [English](hooks.md)

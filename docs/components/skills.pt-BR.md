@@ -17,7 +17,7 @@ Mantém as tarefas dos projetos habilitados em dia; pergunta antes de usar uma s
 
 | Skill | Uso e instrução | Recursos principais |
 | :- | :- | :- |
-| `okit-director` | Orquestra trabalho solicitado; carregada ao dirigir ou delegar. Lê ordens e fila, classifica, escolhe atores, assume trabalho, reserva/libera vagas, orienta Executor e Critic, verifica provas e registra transições. Quando a cota bloqueia uma assinatura, chama `quota_notice` sem evento antes de esperar. Se a resposta disser que o aviso está indisponível, explica que o kit ainda não avisa quando a cota volta; relê a cota com `okit-plugin quota show` ou `okit-plugin daemon status`, sem esperar um evento que não virá. Caso contrário, espera em segundo plano, sem consultar a cada instante, e repassa o evento com `quota_notice`. | `order_list`, `inbox_list`, `inbox_claim`, `inbox_release`, `limits_status`, `status`, `quota_notice`, `actors_list`, `env_report`, `classify`, `profile_pick`, `acquire_slot`, `release_slot`, `inbox_add`, `inbox_set_status`, `order_add` |
+| `okit-director` | Orquestra trabalho solicitado; carregada ao dirigir ou delegar. Lê ordens e fila, classifica, escolhe atores, assume trabalho, reserva/libera vagas, orienta Executor e Critic, verifica provas e registra transições. Quando a cota bloqueia uma assinatura, chama `quota_notice` sem evento antes de esperar. Se a resposta disser que o aviso está indisponível, explica que o kit ainda não avisa quando a cota volta; relê a cota com `quota_show` ou `daemon`, sem esperar um evento que não virá. Caso contrário, espera em segundo plano, sem consultar a cada instante, e repassa o evento com `quota_notice`. | `order_list`, `inbox_list`, `inbox_claim`, `inbox_release`, `limits_status`, `status`, `quota_notice`, `actors_list`, `env_report`, `classify`, `profile_pick`, `acquire_slot`, `release_slot`, `inbox_add`, `inbox_set_status`, `order_add` |
 
 <a id="okit-executor"></a>
 ## okit-executor
@@ -38,24 +38,24 @@ Mantém as tarefas dos projetos habilitados em dia; pergunta antes de usar uma s
 
 | Skill | Uso e instrução | Recursos principais |
 | :- | :- | :- |
-| `okit-setup` | Orienta configuração de modelos; carregada para /okit-setup ou pedido de configuração por conversa. Executa a proposta existente, explica escolhas detectadas, pergunta só fatos ausentes e salva após confirmação final. Não edita ajustes individuais. | `okit-plugin setup`, `okit-plugin config show` |
+| `okit-setup` | Orienta configuração de modelos; carregada para /okit-setup ou pedido de configuração por conversa. Executa a proposta existente, explica escolhas detectadas, pergunta só fatos ausentes e salva após confirmação final. Não edita ajustes individuais. | `okit-plugin setup`, `config_get` |
 
 <a id="okit-smoke"></a>
 ## okit-smoke
 
 | Skill | Uso e instrução | Recursos principais |
 | :- | :- | :- |
-| `okit-smoke` | Narra demonstrações e verificações; carregada para /okit-smoke ou pedido de demonstração/teste real. Mostra prévia e limites, pede consentimento explícito de cota vinculado ao plano, executa trabalho real e relata uso medido e saída. Clientes sem custo em dinheiro exigem smoke.maxTokens. A prova paga cabe ao dono. | `smoke_demo`, `okit-plugin smoke-demo`, `okit-plugin client-smoke`, `okit-plugin quota set` |
+| `okit-smoke` | Narra demonstrações e verificações; carregada para /okit-smoke ou pedido de demonstração/teste real. Mostra prévia e limites, pede consentimento explícito de cota vinculado ao plano, executa trabalho real e relata uso medido e saída. Clientes sem custo em dinheiro exigem smoke.maxTokens. A prova paga cabe ao dono. | `smoke_demo`, `quota_set` |
 
 <a id="okit-environment"></a>
 ## okit-environment
 
 | Skill | Uso e instrução | Recursos principais |
 | :- | :- | :- |
-| `okit-environment` | Responde perguntas de ambiente; carregada para perguntas sobre cliente, modelos, cota, pastas ou configuração ausente. Explica observações confirmadas e comandos de reparo, preserva desconhecidos e não altera nada. | `env_report`, `okit-plugin env report` |
+| `okit-environment` | Responde perguntas de ambiente; carregada para perguntas sobre cliente, modelos, cota, pastas ou configuração ausente. Explica observações confirmadas e comandos de reparo, preserva desconhecidos e não altera nada. | `env_report` |
 
 Experimente pedir “mostre o ambiente” e conferir o relatório, sem iniciar trabalho.
 
-A skill de ambiente também explica medições opcionais por telemetry_status e telemetry_export ou okit-plugin telemetry. Gravação e envio começam desligados e exigem pedidos separados; mensagens e conteúdo de arquivos são excluídos.
+A skill de ambiente também explica medições opcionais por telemetry_status e telemetry_export. Gravação e envio começam desligados e exigem pedidos separados; mensagens e conteúdo de arquivos são excluídos.
 
 [Visão geral](README.pt-BR.md) · [MCP](mcp-tools.pt-BR.md) · [English](skills.md)

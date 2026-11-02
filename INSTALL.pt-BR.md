@@ -16,7 +16,7 @@ Install/update escolhem um candidato gravável já no PATH (`~/.local/bin`, depo
 
 Use `--no-path` em install/update (também nos scripts de instalação), ou `install.path.enabled: false`, para receber a instrução manual sem editar perfis/ambiente. `install.path` configura `candidates`, `shells`, `fallbackShell`, `begin`, `end`, `stateFile`, parâmetros Windows e `messages` bilíngues; `install.linkDirectory` sobrepõe a seleção. A mensagem final mostra o link, perfis alterados ou PATH existente e a resolução com o PATH resultante. Reinicie o cliente de IA para ele herdar o PATH. Se uma skill não encontrar o comando, execute o `src/cli.js` da instalação com Node e os mesmos argumentos.
 
-Quando o PATH do terminal atual não contém o diretório bin, install/update e `okit-plugin status` mostram uma dica de ativação no idioma da execução. Rode manualmente o comando informado: `. '<perfil>'` para bash/zsh, `source '<perfil>'` para fish ou `$env:Path = '<bin>' + ';' + $env:Path` para PowerShell no Windows. Os modelos vêm de `install.path.activate`; `shellVariable` usa `SHELL` por padrão. O comando é apenas exibido para execução manual. Para shell desconhecida ou perfil gerenciado ausente, abra um terminal novo. A dica desaparece quando o diretório bin já está no PATH.
+Quando o PATH do terminal atual não contém o diretório bin, install/update mostram uma dica de ativação no idioma da execução. Rode manualmente o comando informado: `. '<perfil>'` para bash/zsh, `source '<perfil>'` para fish ou `$env:Path = '<bin>' + ';' + $env:Path` para PowerShell no Windows. Os modelos vêm de `install.path.activate`; `shellVariable` usa `SHELL` por padrão. O comando é apenas exibido para execução manual. Para shell desconhecida ou perfil gerenciado ausente, abra um terminal novo. A dica desaparece quando o diretório bin já está no PATH.
 
 Leia o script antes de executá-lo. Node >=20 deve estar no PATH
 ([obter Node](https://nodejs.org/)). Só Linux foi exercitado pelo Diretor;
@@ -54,7 +54,7 @@ e o manifesto para uma pasta temporária, confere SHA-256 antes de extrair e cha
 o núcleo Node com `install --from`. O núcleo copia para um destino fixo, grava
 um `install.<client>.json` por cliente, registra o cliente, cria o link compartilhado e opcionalmente
 configura autostart. Atualizações guardam backup e versão anterior, ativam a nova
-e rodam `okit-plugin smoke`. O temporário é apagado em sucesso e falha.
+e rodam as verificações locais da instalação. O temporário é apagado em sucesso e falha.
 No Linux: `${XDG_DATA_HOME:-$HOME/.local/share}/okit-plugin`; macOS:
 `$HOME/Library/Application Support/okit-plugin`; Windows:
 `%LOCALAPPDATA%/okit-plugin` (alternativa `%USERPROFILE%/AppData/Local/okit-plugin`).
@@ -215,7 +215,7 @@ removem um `okit-plugin.ps1` que este plugin gravou numa versão anterior (um `.
 que não é nosso fica como está) e reescrevem uma entrada antiga da barra de status que
 usava o nome do comando solto; desinstalar remove os atalhos. Um arquivo com qualquer um
 dos dois nomes que não seja nosso é preservado como qualquer comando alheio.
-`okit-plugin env report` avisa quando o coletor está registrado mas ainda não recebeu nenhuma leitura.
+O relatório do ambiente avisa quando o coletor está registrado mas ainda não recebeu nenhuma leitura; peça o relatório ao seu assistente (ele chama `env_report`).
 Um comando existente de terceiros é preservado e faz o passo do comando e a
 instalação falharem. Renomeie ou remova esse comando, ou escolha outra pasta em
 `install.linkDirectory` na configuração, e tente novamente.
@@ -248,10 +248,11 @@ do arquivo. O plugin consulta somente a versão; nunca instala nem altera o kit.
 O caminho identifica o executável, não as pastas de home/configuração do kit,
 que não podem ser inferidas com segurança por essa consulta.
 
-Execute `okit-plugin kit [--require]`. A linha `kit: …`, em inglês, informa `installed`,
-`absent` ou `broken`. Apenas `--require` (ou `require: true` configurado) retorna 1
-quando a consulta não confirma instalação. Install/update, inclusive `--dry-run`,
-e status também imprimem a linha. Quando instalado, consulte as
+Install/update, inclusive `--dry-run`, imprimem a linha `kit: …`, em inglês: `installed`,
+`absent` ou `broken`. Seu assistente consulta o kit quando quiser; ele chama `kit_detect` e
+diz se o kit está instalado, qual versão tem e por que está com defeito. A configuração
+`require: true` (padrão `false`) faz uma consulta sem instalação contar como falha.
+Quando instalado, consulte as
 [regras D1](docs/maintainers/ARCHITECTURE.md#kit-and-plugin-overlap-d1).
 
 Em `OKWORK_HOME/config.json`, configure `install.kit`:
@@ -291,7 +292,7 @@ registrado é recusado antes de alterações. Cada cliente tem versões retidas 
 próprios; uma falha permite que os demais terminem. O resumo lista cada resultado
 (saída 0: todos passaram, 1: falha, 2: recusado antes de começar).
 
-Uma só política de saída serve o comando instalado e os dois scripts de instalação (`src/install/exit.js`, `exitCodeFor`): sucesso e simulação saem com 0; falha do trabalho (nenhuma versão publicada, arquivo ausente, soma de verificação errada, erro de rede) sai com 1; erro de uso, de opção ou de idioma sai com 2. O idioma da execução é decidido primeiro (`--locale`, `OKIT_LANGUAGE`, idioma salvo, inglês), antes de qualquer opção ser analisada; assim `--help`, `status` e toda recusa, inclusive as de `install.sh` e `install.ps1`, falam um só idioma; toda linha passa pela porta que oculta segredos, então uma dica do kit com credenciais, consulta ou fragmento aparece sem eles. Isso vale também para o texto de uso (`--version`, nenhum argumento, comando ou ação desconhecidos). A classe de um erro é decidida só pelo seu `kind`: um erro que não diz nada é falha do trabalho (saída 1), então uma versão ou um arquivo ausente nunca é tomado por erro de uso, no comando instalado ou nos scripts. Toda recusa dos ajustes de `config.json` tem um código estável e seus parâmetros e aparece no idioma da execução, a partir de um só catálogo (`CONFIG_MESSAGES`). Um teste gerado (`test/install-matrix.test.js`) executa cada comando da tabela de uso em cada fonte de idioma e verifica que nenhuma linha mistura idiomas, que nenhuma credencial chega à saída e que o código de saída tem a classe da política; Toda configuração passa pelo esquema único (`src/config-schema.js`): um ajuste de `config.json` que não é válido (`install.timeoutMs` como `0`, como texto ou acima de 2147483647, um shell nulo, uma versão que não é texto num pacote de `--from`) é uma só recusa de uso, saída 2, que nomeia a chave e a regra no idioma da execução, com o arquivo intacto, em `install`, `update`, `uninstall`, `setup`, `kit`, `status` e `config`; `config set` de um valor inválido e `config get|unset` de uma chave desconhecida também saem com 2. Um teste gerado (`test/install-config-fuzz.test.js`) prova isso para toda chave do esquema; os comandos que mantêm a própria convenção bilíngue (`config`, `quota`, `telemetry`, `trajectory`) e os protocolos de máquina (`hook`, `statusline-collector`) estão listados ali com o motivo.
+Uma só política de saída serve o comando instalado e os dois scripts de instalação (`src/install/exit.js`, `exitCodeFor`): sucesso e simulação saem com 0; falha do trabalho (nenhuma versão publicada, arquivo ausente, soma de verificação errada, erro de rede) sai com 1; erro de uso, de opção ou de idioma sai com 2. O idioma da execução é decidido primeiro (`--locale`, `OKIT_LANGUAGE`, idioma salvo, inglês), antes de qualquer opção ser analisada; assim `--help` e toda recusa, inclusive as de `install.sh` e `install.ps1`, falam um só idioma; toda linha passa pela porta que oculta segredos, então uma dica do kit com credenciais, consulta ou fragmento aparece sem eles. Isso vale também para o texto de uso (`--version`, nenhum argumento, comando ou ação desconhecidos). A classe de um erro é decidida só pelo seu `kind`: um erro que não diz nada é falha do trabalho (saída 1), então uma versão ou um arquivo ausente nunca é tomado por erro de uso, no comando instalado ou nos scripts. Toda recusa dos ajustes de `config.json` tem um código estável e seus parâmetros e aparece no idioma da execução, a partir de um só catálogo (`CONFIG_MESSAGES`). Um teste gerado (`test/install-matrix.test.js`) executa cada comando da tabela de uso em cada fonte de idioma e verifica que nenhuma linha mistura idiomas, que nenhuma credencial chega à saída e que o código de saída tem a classe da política; Toda configuração passa pelo esquema único (`src/config-schema.js`): um ajuste de `config.json` que não é válido (`install.timeoutMs` como `0`, como texto ou acima de 2147483647, um shell nulo, uma versão que não é texto num pacote de `--from`) é uma só recusa de uso, saída 2, que nomeia a chave e a regra no idioma da execução, com o arquivo intacto, em `install`, `update`, `uninstall`, `setup` e `doctor`; um valor inválido e uma chave desconhecida são recusados pelas ferramentas `config_get` e `config_set`, com uma mensagem do mesmo catálogo, que nomeia a chave e a regra. Um teste gerado (`test/install-config-fuzz.test.js`) prova isso para toda chave do esquema; os protocolos de máquina (`hook`, `statusline-collector`) estão listados ali com o motivo.
 
 Os nomes dos registros vêm de `install.recordName`. O `install.json` antigo é lido
 como registro do seu cliente e migrado na primeira escrita, mantendo toda a cadeia

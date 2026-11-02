@@ -18,11 +18,11 @@ Hooks restore context and collect allowance at client events.
 
 Installation registers SessionStart in settings.json. The Claude payload includes hooks/hooks.json for compaction; the opencode installer writes a plugins/okit-plugin.js wrapper. Codex receives no hooks through the adapter.
 The collector requires --statusline or terminal confirmation. Without a terminal or flag, registration is skipped. The backup lives in plugin state; uninstall restores original bytes when intact, or only the previous field if other settings changed.
-Running `okit-plugin statusline-collector` directly does not register the bar. The collector stores the JSON of the client as it came; the core reads quota/claude-code-statusline.json and derives the quota reading from it. Input without rate limits keeps the previous sample; previous-command failures do not interrupt the client.
+The collector is an internal entry point the client launches: running `okit-plugin statusline-collector` directly does not register the bar. The collector stores the JSON of the client as it came; the core reads quota/claude-code-statusline.json and derives the quota reading from it. Input without rate limits keeps the previous sample; previous-command failures do not interrupt the client.
 
 <a id="try"></a>
 ## Check it
 
-Pass JSON containing cwd on stdin to `okit-plugin hook post-compact`: expect a summary only when applicable work/orders exist. `okit-plugin hook session-start` accepts the same JSON and returns role context or a diagnostic. These are internal client entry points: the client launches them and they are not commands of the user help.
+Pass JSON containing cwd on stdin to `okit-plugin hook post-compact`: expect a summary only when applicable work/orders exist. `okit-plugin hook session-start` accepts the same JSON and returns role context or a diagnostic. These are internal client entry points: the client launches them and they are not commands of the user help. The status bar collector is one of them too.
 
 [Overview](README.md) · [Adapters](adapters.md) · [Português](hooks.pt-BR.md)
