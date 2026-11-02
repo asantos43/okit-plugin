@@ -1,9 +1,9 @@
 // The quota table and inbox view. `statusTable`
 // builds no command and prints no ANSI: the readings, the clock,
 // the cap counts and the clock the cache ages with all arrive in `deps`, so
-// the same table can be printed by the CLI, answered over MCP and asserted in a
-// test without anything real.
-import { configOf, DEFAULT_CONFIG, setupPending } from './profiles.js';
+// the same table can be answered over MCP and asserted in a test without
+// anything real.
+import { configOf } from './profiles.js';
 import { CLIENTS } from './spawn-process.js';
 import { environmentSnapshot } from './env/snapshot.js';
 import { labelsOf, clientsOf, rowOf, readingOf } from './env/quota.js';
@@ -85,20 +85,6 @@ export async function statusTable(root, deps = {}) {
     missing: snapshot.plugin.missing,
     demands,
   };
-}
-
-/**
- * The one line the status shows while the setup is pending: what is missing and
- * the command that does it. `null` once the setup is done, so the line is gone
- * and the rest of the table is untouched.
- *
- * @param {object} config the settings of the root
- * @param {{locale?: string, command?: string}} [deps]
- * @returns {string|null}
- */
-export function setupPendingLine(config, { locale = 'en', command = DEFAULT_CONFIG.install.command } = {}) {
-  if (!setupPending(config)) return null;
-  return labelsOf(locale).setupPending(command);
 }
 
 /**

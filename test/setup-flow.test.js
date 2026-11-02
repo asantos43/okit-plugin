@@ -12,14 +12,15 @@ import { installConfig } from '../src/install/config.js';
 import { tarGz } from '../src/release/archive.js';
 import { formatOffer } from '../src/setup/offer.js';
 import { answerCheck } from './helpers/install-fixture.js';
+import { callTool } from './helpers/tools.js';
 
 test('the remaining install question recommends review in both languages', () => {
   assert.match(formatOffer('question', 'en'), /Recommended: yes, review the detected choices together/);
   assert.match(formatOffer('question', 'pt-BR'), /Recomendação: sim, revisar juntos as escolhas encontradas/);
 });
 
-const PENDING = /Setup is not done yet/;
-const PENDING_PT = /O setup ainda não foi feito/;
+const PENDING = /model choices have not been saved/;
+const PENDING_PT = /a escolha de modelos ainda não foi salva/;
 // The installer shows the pending setup as one `Models` row, and the command-and-PATH row ends the files part.
 const MODELS_PENDING = (line) => /^\s*Models\s+-\s+not set yet\. Run: /.test(line);
 const LINK_ROW = /\bCommand and PATH\b/;
@@ -50,19 +51,16 @@ function terminal(text) {
   };
 }
 
-async function statusOf(root, home, extra = {}, argv = ['status']) {
-  const out = [];
-  const code = await main(argv, {
+async function statusOf(root, home, extra = {}, locale = 'en') {
+  const report = await callTool('env_report', { locale }, {
     root,
     home,
     env: { HOME: home, OKWORK_HOME: root },
     readQuota: async () => ({ source: 'off' }),
     run: answerCheck,
-    stdout: (line) => out.push(line),
-    stderr: (line) => out.push(line),
     ...extra,
   });
-  return { code, out };
+  return { code: 0, out: report.text.split('\n') };
 }
 
 /**
@@ -144,15 +142,15 @@ async function installation(t, { tty = false, ask } = {}) {
 // | install with a terminal | the question, the setup runs | a failed installation |
 // | a setup that cannot run | the installation still succeeds | a failed installation |
 
-test('status shows one pending setup line before the setup and none after it', async (t) => {
+test('the report of the environment shows one pending setup line before the setup and none after it', async (t) => {
   const { home, root } = await temporaryHome(t);
   const before = await statusOf(root, home);
   assert.equal(before.code, 0);
   const pending = before.out.filter((line) => PENDING.test(line));
   assert.equal(pending.length, 1, before.out.join(' / '));
-  assert.match(pending[0], /Run okit-plugin setup to choose the models\./);
+  assert.match(pending[0], /run `okit-plugin setup`/);
 
-  const portuguese = await statusOf(root, home, {}, ['status', '--locale', 'pt-BR']);
+  const portuguese = await statusOf(root, home, {}, 'pt-BR');
   assert.equal(portuguese.code, 0);
   assert.equal(portuguese.out.filter((line) => PENDING_PT.test(line)).length, 1, portuguese.out.join(' / '));
 
@@ -178,7 +176,7 @@ test('the pending setup line names the configured command', async (t) => {
   assert.equal(status.code, 0);
   const pending = status.out.filter((line) => PENDING.test(line));
   assert.equal(pending.length, 1, status.out.join(' / '));
-  assert.match(pending[0], /Run my-okit setup/);
+  assert.match(pending[0], /run `my-okit setup`/);
 });
 
 test('the end of an install offers the setup and never fails the installation', async (t) => {
@@ -333,5 +331,5 @@ test('the status keeps asking for the setup after a setup that found no client',
   assert.equal(status.code, 0);
   const pending = status.out.filter((line) => PENDING.test(line));
   assert.equal(pending.length, 1, status.out.join(' / '));
-  assert.match(pending[0], /Run okit-plugin setup to choose the models\./);
+  assert.match(pending[0], /run `okit-plugin setup`/);
 });

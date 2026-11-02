@@ -6,7 +6,7 @@ import { Readable, Writable } from 'node:stream';
 import test from 'node:test';
 
 import { main } from '../src/cli.js';
-import { configCommand } from '../src/config.js';
+import { configSet } from '../src/core/config.js';
 import { configOf } from '../src/profiles.js';
 import { runSetup, SetupSaveError } from '../src/setup/setup.js';
 import codex from '../adapters/codex/index.js';
@@ -328,13 +328,10 @@ test('setup --again writes the detected profiles again', async (t) => {
 
 test('a change made during the confirmation is kept and the other classes are saved', async (t) => {
   const { home, root } = await temporaryHome(t);
-  const ctx = { root, out: () => {}, err: () => {}, unknown: () => 2 };
   const ask = async (question) => {
     if (question.startsWith('Save these model settings')) {
-      const code = await configCommand(ctx, 'set', [
-        'profiles.claude-code.simple.model', 'opus',
-      ]);
-      assert.equal(code, 0);
+      const change = await configSet(root, { key: 'profiles.claude-code.simple.model', value: 'opus' });
+      assert.equal(change.after.value, 'opus');
       return 'yes';
     }
     return '';

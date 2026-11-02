@@ -46,6 +46,8 @@ async function cli(deps, argv) {
     run: deps.run,
     signal: deps.signal,
     sleep: deps.sleep,
+    // The entry points the client launches read their JSON here; nothing waits for a terminal.
+    stdin: JSON.stringify({ cwd: deps.root }),
     write: async (path, content) => {
       wrote.push({ path, content });
       return path;
@@ -72,13 +74,14 @@ async function filesPlaced(deps) {
   for (const file of wanted) await access(file);
 }
 
-// I2: the three groups `main` knows answer 0, and anything else answers 2.
+// I2: the entry points the machine starts answer 0, and a group that is not
+// one of them answers 2.
 async function commandsRegistered(deps) {
-  for (const argv of [['daemon', 'status'], ['autostart', 'show'], ['status']]) {
+  for (const argv of [['daemon', 'run-once'], ['hook', 'session-start'], ['hook', 'post-compact'], ['statusline-collector']]) {
     const run = await cli(deps, argv);
     need(run.code === 0, `${DEFAULT_CONFIG.install.command} ${argv.join(' ')} must exit 0, got ${run.code}: ${run.err.join(' ')}`);
   }
-  for (const argv of [[], ['nope'], ['daemon', 'frobnicate']]) {
+  for (const argv of [[], ['nope'], ['daemon', 'frobnicate'], ['status'], ['autostart', 'show']]) {
     const run = await cli(deps, argv);
     need(run.code === 2, `${DEFAULT_CONFIG.install.command} ${argv.join(' ')} must exit 2, got ${run.code}`);
   }
@@ -156,23 +159,24 @@ async function permissionsReadable(deps) {
   need(files.length === SKILLS.length + 1, `the package must ship ${SKILLS.length} skills, found ${files.length - 1}`);
 }
 
-// I7: the version the MCP server reports is the one in package.json, and
-// `okit-plugin status` prints the table under the capacity line.
+// I7: the version the MCP server reports is the one in package.json, and the
+// status tool shows the table under the capacity line.
 async function versionMatches(deps) {
   const pkg = JSON.parse(await readFile(join(deps.root, 'package.json'), 'utf8'));
   const version = await serverVersion();
   need(version === pkg.version, `serverVersion() is ${version}, package.json says ${pkg.version}`);
 
-  const run = await cli(deps, ['status']);
-  need(run.code === 0, `${DEFAULT_CONFIG.install.command} status must exit 0, got ${run.code}: ${run.err.join(' ')}`);
-  need(run.out.some((line) => line.startsWith('| Subscription |')),
-    `${DEFAULT_CONFIG.install.command} status must print the table header, got ${run.out.join(' / ')}`);
-  need(run.out.some((line) => line.includes('executors that can launch now')),
-    `${DEFAULT_CONFIG.install.command} status must print the capacity line`);
+  const tool = TOOLS.find((entry) => entry.name === 'status');
+  need(tool !== undefined, 'the server publishes the status tool');
+  const table = JSON.parse(await tool.handler({ all: true, locale: 'en' },
+    { root: deps.stateRoot, env: deps.env, snapshot: deps.snapshot, now: deps.now }));
+  const lines = table.markdown.split('\n');
+  need(lines[0].startsWith('| Subscription |'), `the status tool must print the table header, got ${lines[0]}`);
+  need(table.capacityLine.includes('executors that can launch now'), 'the status tool must print the capacity line');
   if (deps.snapshot) {
     for (const row of deps.snapshot.clients.filter((entry) => !deps.snapshot.inUse
       || entry.client === deps.snapshot.inUse)) {
-      need(run.out.some((line) => line.includes(row.client)), 'status must retain snapshot clients');
+      need(lines.some((line) => line.includes(row.client)), 'the status must retain snapshot clients');
     }
   }
 }

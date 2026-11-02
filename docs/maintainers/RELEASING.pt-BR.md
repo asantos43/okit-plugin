@@ -90,7 +90,7 @@ Após verificar o SHA-256, coloca o pacote em uma pasta estável por versão no 
 
 Link, autostart e estado são compartilhados, com dados compartilhados em cada registro. Uninstall remove só o registro e as pastas retidas do cliente selecionado; caminhos compartilhados passam a um pacote restante e o link só é removido com o último cliente. `--purge --yes` recusa se algum cliente for permanecer. Para esse formato use o CLI Node: os scripts de bootstrap permanecem localizando registros antigos `install.json`.
 
-`okit-plugin update --check` só consulta. `okit-plugin update` para o daemon, copia estado e configuração do cliente para backup datado, mantém a versão anterior, refaz registro/link/autostart, reinicia e executa o smoke da nova CLI. Se a prova falhar, informa `okit-plugin update --rollback`, que reativa a versão mantida sem baixar novamente. Skills e módulos editados são preservados. `okit-plugin uninstall` desfaz a integração e remove versões gerenciadas, mantendo estado e configuração; `--purge --yes` também remove a raiz de estado configurada. Os três aceitam `--dry-run`: consultam metadados quando necessário, sem baixar pacotes nem gravar.
+`okit-plugin update --check` só consulta. `okit-plugin update` para o daemon, copia estado e configuração do cliente para backup datado, mantém a versão anterior, refaz registro/link/autostart, reinicia e importa e executa o runner interno `src/smoke.js` do novo payload. Se a prova falhar, informa `okit-plugin update --rollback`, que reativa a versão mantida sem baixar novamente. Skills e módulos editados são preservados. `okit-plugin uninstall` desfaz a integração e remove versões gerenciadas, mantendo estado e configuração; `--purge --yes` também remove a raiz de estado configurada. Os três aceitam `--dry-run`: consultam metadados quando necessário, sem baixar pacotes nem gravar.
 
 SHA-256 detecta bytes alterados, mas **não autentica a origem**. A extração tar.gz/zip usa apenas Node, preserva execução, limita o tamanho descomprimido e recusa caminhos absolutos, travessia, links e arquivos especiais.
 
@@ -191,7 +191,7 @@ Imediatamente antes de chamar o GitHub, o git é verificado novamente: árvore s
 <a id="section-9"></a>
 ## Proof per pair
 
-Cada marca significa **ambas** as camadas no candidato instalado daquele par: `okit-plugin smoke` (em processo, home temporário) e cenário smoke no cliente dentro do cliente real indicado, carregando a instalação real com login/estado reais. `--dry-run`, ensaio e spawns simulados não provam uso real. `okit-plugin client-smoke` está implementado para Claude Code; veja [SMOKE.pt-BR.md](SMOKE.pt-BR.md#in-client-smoke-real). Os demais drivers reais estão pendentes. Manter cada par desmarcado até registrar e aceitar ambas as camadas.
+Cada marca significa **ambas** as camadas no candidato instalado daquele par: `npm run smoke` (runner interno `scripts/smoke.js`, em processo, home temporário; executar naquele payload instalado) e cenário smoke no cliente dentro do cliente real indicado, carregando a instalação real com login/estado reais. `--dry-run`, ensaio e spawns simulados não provam uso real. A API interna `runClientSmoke` em `src/smoke/client.js` está implementada para Claude Code; veja [SMOKE.pt-BR.md](SMOKE.pt-BR.md#in-client-smoke-real). Os demais drivers reais estão pendentes. Manter cada par desmarcado até registrar e aceitar ambas as camadas.
 
 **Claude Code**
 

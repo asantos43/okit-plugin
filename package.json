@@ -12,7 +12,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "smoke": "node src/cli.js smoke",
+    "smoke": "node scripts/smoke.js",
     "release:build": "node scripts/build-release.js",
     "test": "node --test",
     "docs:banners": "node scripts/docs-banners.js",

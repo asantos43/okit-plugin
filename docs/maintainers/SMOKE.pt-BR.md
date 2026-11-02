@@ -20,11 +20,11 @@ Contratos de verificação e provas para verificações isoladas e smoke em clie
 
 Para executar a prévia, consulte o [guia](../guide/smoke-demo.pt-BR.md); contratos do motor e relatórios estão em [DEMO](DEMO.pt-BR.md).
 
-`okit-plugin smoke-demo --confirm <planHash>` e MCP `smoke_demo` com `confirm` executam os cinco trabalhos com o cliente real escolhido e gastam sua cota. Veja antes a prévia com `--dry-run`; o texto e o contrato do hash não mudam. A confirmação exige o mesmo plano, evidência atual de cota e `smoke.demoRequireQuotaConfirmation: true`. Códigos de saída: 0 para sucesso, 2 para recusa antes do lançamento e 1 para falha/parcial. A prova paga cabe ao dono; testes offline usam processos falsos e não gastam cota. A demonstração real executa os trabalhos um de cada vez. A demonstração pelo MCP não pode ser cancelada no meio; ela termina pelos limites (`smoke.maxMinutes` e tetos de custo).
+MCP `smoke_demo` com `confirm: "<planHash>"` executa os cinco trabalhos com o cliente real escolhido e gastam sua cota. Veja antes a prévia com `dryRun: true`; o texto e o contrato do hash não mudam. A confirmação exige o mesmo plano, evidência atual de cota e `smoke.demoRequireQuotaConfirmation: true`. Códigos de saída: 0 para sucesso, 2 para recusa antes do lançamento e 1 para falha/parcial. A prova paga cabe ao dono; testes offline usam processos falsos e não gastam cota. A demonstração real executa os trabalhos um de cada vez. A demonstração pelo MCP não pode ser cancelada no meio; ela termina pelos limites (`smoke.maxMinutes` e tetos de custo).
 
 Cada chamada reserva `min(driver.maxCostUsd, saldo total, saldo da demanda)` e recebe esse teto em dinheiro. O ledger compartilhado cobre execução, revisão e correção; tetos esgotados de dinheiro, tokens, turnos ou tempo impedem novos trabalhos. Falhas com uso medido preservam dinheiro e tokens; uso não medido impede novos trabalhos. Clientes sem custo em dinheiro exigem `smoke.maxTokens` inteiro positivo antes de iniciar e mostram dinheiro como não informado. O teto de tokens é conferido após respostas; chamadas em andamento podem ultrapassá-lo.
 
-O ambiente real mantém os caminhos temporários de home/estado/configuração e recebe de `deps.env` (CLI e MCP fornecem o ambiente do processo na fronteira; `src/smoke/demo` nunca lê `process.env`) somente `PATH` e credenciais explícitas: Claude Code recebe `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_BASE_URL`; Codex recebe `OPENAI_API_KEY`, `OPENAI_BASE_URL`; OpenCode não recebe variáveis de autenticação porque nenhuma consta do contrato de cliente do repositório. `OPENCODE_CONFIG` e a pasta de configuração do host não são repassados. As listas de credenciais seguem a demanda D84; as demais variáveis do host ficam de fora. Um `PATH` ausente ou vazio recusa antes de montar os drivers (saída 2, nada pago, nenhum lançamento, pasta de exemplo removida). A pasta de exemplo é isolada e **não** herda a sessão de login do cliente: exporte antes a chave ou o token do cliente (Claude Code: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` ou `CLAUDE_CODE_OAUTH_TOKEN`; Codex: `OPENAI_API_KEY`; OpenCode: ainda sem variável aceita, então a demonstração real não autentica); senão a chamada falha sem gastar nada.
+O ambiente real mantém os caminhos temporários de home/estado/configuração e recebe de `deps.env` (a entrada e MCP fornecem o ambiente do processo na fronteira; `src/smoke/demo` nunca lê `process.env`) somente `PATH` e credenciais explícitas: Claude Code recebe `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_BASE_URL`; Codex recebe `OPENAI_API_KEY`, `OPENAI_BASE_URL`; OpenCode não recebe variáveis de autenticação porque nenhuma consta do contrato de cliente do repositório. `OPENCODE_CONFIG` e a pasta de configuração do host não são repassados. As listas de credenciais seguem a demanda D84; as demais variáveis do host ficam de fora. Um `PATH` ausente ou vazio recusa antes de montar os drivers (saída 2, nada pago, nenhum lançamento, pasta de exemplo removida). A pasta de exemplo é isolada e **não** herda a sessão de login do cliente: exporte antes a chave ou o token do cliente (Claude Code: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` ou `CLAUDE_CODE_OAUTH_TOKEN`; Codex: `OPENAI_API_KEY`; OpenCode: ainda sem variável aceita, então a demonstração real não autentica); senão a chamada falha sem gastar nada.
 
 O ledger da demonstração mantém `smoke.maxTokens` como `null` ou inteiro positivo seguro e soma o inteiro seguro não negativo `usage.tokens` de cada tentativa iniciada. Ao atingir ou ultrapassar o teto, nenhuma nova reserva começa. Uso de tokens ausente ou inválido com teto habilitado deixa o uso sem resolução e bloqueia novas reservas. Reservas e acertos continuam síncronos: trabalhos paralelos compartilham o total, mas tentativas já reservadas podem terminar acima do teto. Uma tentativa que não iniciou não consome tokens.
 
@@ -59,12 +59,12 @@ Verificação offline: `node --test test/smoke-demo-driver.test.js test/smoke-cl
 
 Migração: execute o plugin como `okit-plugin`; instalar/atualizar removem apenas seus links antigos `okit`. Mantenha `okit`/`kit` do kit separados; o detector ignora executáveis do plugin.
 
-Implementado: `okit-plugin smoke` executa 32 verificações isoladas. Acrescentar `--client claude-code`, `--client codex` ou `--client opencode` seleciona verificações no cliente real, também disponíveis por `client-smoke`. Os testes offline comprovam o tratamento dos comandos; o Produtor precisa verificar instalação e uso reais em cada cliente.
+Implementado: o runner offline interno executa 32 verificações isoladas. As verificações no cliente real usam a API interna separada `runClientSmoke` em `src/smoke/client.js`. Os testes offline comprovam o tratamento das entradas; o Produtor precisa verificar instalação e uso reais em cada cliente.
 
 <a id="section-1"></a>
 ## Commands
 
-`npm run smoke` roda o runner deste checkout e `okit-plugin smoke` o mesmo runner pelo binário instalado; os dois usam um home descartável e respondem `0` quando todo check selecionado passou, `1` quando um falhou ou estourou o tempo e `2` quando a execução foi recusada.
+`npm run smoke` roda `scripts/smoke.js`, que chama o runner interno `runSmoke` em `src/smoke.js` deste checkout. Update importa e executa o runner do próprio payload instalado; testes também o chamam diretamente. Smoke offline é código interno de teste, não um comando CLI da pessoa. As execuções usam um home descartável e respondem `0` quando todo check selecionado passou, `1` quando um falhou ou estourou o tempo e `2` quando a execução foi recusada.
 
 | Flag | Significado |
 | :- | :- |
@@ -95,12 +95,12 @@ Cada check tem id, nome, timeout e corpo. `status` é `pass`, `fail`, `timeout` 
 | id | nome | o que faz | timeout |
 | :- | :- | :- | :- |
 | `I1` | `files.placed` | `src/cli.js` (o bin `okit-plugin`), `src/mcp/server.js`, `adapters/claude-code/index.js` e `skills/okit-{director,executor,critic,smoke}/SKILL.md` são legíveis | 5 s |
-| `I2` | `commands.registered` | `main()` aceita `daemon`, `autostart`, `status`; cada uma sai com `0`, um grupo desconhecido sai com `2` | 15 s |
+| `I2` | `commands.registered` | `main()` aceita as entradas internas `daemon run-once`, ambos os hooks e o coletor; cada uma sai com `0`, grupos desconhecidos ou removidos saem com `2` | 15 s |
 | `I3` | `mcp.registered` | `initialize` e `tools/list` por `handleLine` nomeiam as ferramentas de `TOOL_NAMES` | 15 s |
 | `I4` | `skills.installed` | `installSkill('okit-director')` escreve `skills/okit-director/SKILL.md` na raiz de configuração descartável; a segunda chamada reporta `identical` | 10 s |
 | `I5` | `hooks.merged` | `installHooks` escreve `hooks/hooks.json`; sobre um arquivo editado pelo usuário mantém a entrada dele e reporta `written: false` | 10 s |
 | `I6` | `permissions.readable` | a entrada `bin` e cada `SKILL.md` são arquivos legíveis; o modo é verificado fora do Windows | 5 s |
-| `I7` | `version.matches` | `serverVersion()` é igual ao `version` de `package.json`, e `okit-plugin status` imprime a tabela | 10 s |
+| `I7` | `version.matches` | `serverVersion()` é igual ao `version` de `package.json`, e MCP `status` retorna a tabela | 10 s |
 
 **B. Cada recurso, de ponta a ponta (`E`)**
 
@@ -151,7 +151,7 @@ Cada check tem id, nome, timeout e corpo. `status` é `pass`, `fail`, `timeout` 
 | id | nome | o que faz | timeout |
 | :- | :- | :- | :- |
 | `E18` | `status.table` | `statusTable` tem suas seis colunas, uma linha de capacidade, nenhum ANSI, e outra palavra por idioma | 15 s |
-| `E19` | `commands.every` | cada ação do CLI (`daemon start|stop|status|pause|resume|run-once`, `autostart show|install|uninstall`, `status`) sai com `0` com `run`/`spawn` injetados | 30 s |
+| `E19` | `commands.every` | cada entrada interna (`daemon start/stop/run-once`, ambos os hooks e o coletor) sai com `0` com `run`/`spawn` injetados | 30 s |
 | `E20` | `quota.below-launch-floor` | com runner de processos, `kit quota --cached --json` lê amostras locais simuladas, `kit capacity` informa zero executores disponíveis e `kit run` recusa com saída `6`, o motivo de cada executor e o horário de retorno mais próximo; mudar `parallel.minQuotaPercent` muda o gate para a mesma amostra; a orientação do plugin usa palavras simples em inglês e português | 15 s |
 
 Sem um resultado de processo do runner de comandos injetado, E20 não afirma nada sobre o kit. Seu teste de integração encontra o kit instalado com `detectKit` e se pula com mensagem clara quando ele está ausente ou o sandbox nega a execução de processos com EPERM. HOME, configuração e registro de cota são temporários; KIT_HOME continua identificando o código do kit.
@@ -187,7 +187,7 @@ Um objeto por check, e os mesmos campos no log humano: `id`, `name`, `group` (`E
 <a id="section-7"></a>
 ## Output
 
-O stdout é um fato por linha, a forma que `report()` de `src/cli.js` já imprime: `okit-plugin smoke`, `run: <runid>`, uma linha `pass E7 state.locks 120ms` por check, depois `passed: 32 failed: 0 skipped: 0`, os caminhos dos artefatos e, com `--keep`, o caminho do scratch.
+O stdout de `src/smoke.js` é um fato por linha: o rótulo legado do relatório smoke (não um comando CLI), `run: <runid>`, uma linha `pass E7 state.locks 120ms` por check, depois `passed: 32 failed: 0 skipped: 0`, os caminhos dos artefatos e, com `--keep`, o caminho do scratch.
 
 Dois arquivos caem em `<state root>/logs/smoke/`: `smoke-<runid>.jsonl`, um objeto JSON por linha (o cabeçalho da execução e um registro por check, na ordem de execução), e `smoke-<runid>.log`, o texto humano com o bloco de ambiente inteiro no topo e cada tail na linha. Ambos são UTF-8 só com `\n`, então o arquivo do Windows cola numa issue sem mudança. O run id é o instante UTC mais o pid (`20261023T091530Z-4242`), o que separa duas execuções e as ordena.
 
@@ -205,15 +205,15 @@ Dois arquivos caem em `<state root>/logs/smoke/`: `smoke-<runid>.jsonl`, um obje
 
 As verificações isoladas não iniciam clientes nem gastam cota. Escolher um cliente executa **dentro de uma sessão real do cliente** com Claude Code, Codex ou OpenCode e gasta a cota do usuário. As verificações buscam provas de que o plugin está instalado e em uso: ferramentas respondem, skills estão disponíveis e registros persistem. A falta de evidência continua sem comprovação.
 
-Os testes sintéticos já existem: o `okit-plugin smoke` acima cobre o código. O que falta é um teste de **uso real**, então esta camada tem dois propósitos, e os checks se dividem assim:
+Os testes sintéticos já existem: o `npm run smoke` acima cobre o código. O que falta é um teste de **uso real**, então esta camada tem dois propósitos, e os checks se dividem assim:
 
 1. **a instalação** — o plugin, as skills, os hooks, o servidor MCP e o daemon da instalação que o cliente realmente carrega;
 2. **a lógica em uso real** — não que a ferramenta respondeu, mas que respondeu *certo* para uma entrada conhecida, julgado pelo disco ou pelo JSON da própria ferramenta.
 
 | camada | a pergunta que responde | custo | onde roda |
 | :- | :- | :- | :- |
-| `okit-plugin smoke` (acima) | o código funciona? | segundos, sem cota | o processo do próprio plugin |
-| `okit-plugin client-smoke` (esta seção) | o plugin está instalado, e funciona em uso real? | minutos, cota real | uma sessão real do cliente |
+| `npm run smoke` (acima) | o código funciona? | segundos, sem cota | o processo do próprio plugin |
+| `runClientSmoke` interno (esta seção) | o plugin está instalado, e funciona em uso real? | minutos, cota real | uma sessão real do cliente |
 
 As duas camadas escrevem o mesmo formato de registro na mesma pasta de artefatos e respondem os mesmos três códigos de saída (0, 1, 2), então um leitor lê os dois logs. O que o `0` in-client *significa* é mais estrito que o do runner em processo, e a seção "Recusa, skip e falha" abaixo diz exatamente como.
 
@@ -299,9 +299,9 @@ Um roteiro, quatro maneiras de rodá-lo.
 | driver | como | o que o usuário vê |
 | :- | :- | :- |
 | skill | o plugin traz a skill `okit-smoke`; o usuário digita `/okit-smoke` numa sessão com o plugin instalado | a narração de cada passo, depois o relatório |
-| headless | `okit-plugin client-smoke --client claude-code --headless` | só o relatório, sem deixar sessão aberta |
-| demo | `okit-plugin client-smoke --client claude-code --demo` | a narração de cada passo *enquanto* roda, depois o mesmo relatório de uma linha por check dos outros modos |
-| dry run | `okit-plugin client-smoke --client claude-code --dry-run` | o que o roteiro *chamaria*, passo a passo — sem cliente, sem modelo, sem cota |
+| headless | Interno: `runClientSmoke(["--client", "claude-code", "--headless"])` | só o relatório, sem deixar sessão aberta |
+| demo | Interno: `runClientSmoke(["--client", "claude-code", "--demo"])` | a narração de cada passo *enquanto* roda, depois o mesmo relatório de uma linha por check dos outros modos |
+| dry run | Interno: `runClientSmoke(["--client", "claude-code", "--dry-run"])` | o que o roteiro *chamaria*, passo a passo — sem cliente, sem modelo, sem cota |
 
 O runner sempre imprime duas linhas em volta da execução: `smoke: start client=claude-code mode=<mode>` antes de começar e `smoke: end exit=<code> artifacts=<folder>` quando termina, mesmo quando a execução é recusada ou falha. Quem perdeu a saída de uma execução ainda tem o código de saída e a pasta dos artefatos.
 

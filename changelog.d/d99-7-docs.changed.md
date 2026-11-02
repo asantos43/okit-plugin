@@ -1,0 +1,1 @@
+Document the five public CLI commands, internal entry points and smoke runner, and assistant MCP tools in English and Portuguese. / Documenta os cinco comandos públicos da CLI, as entradas e o runner smoke internos e as ferramentas MCP do assistente em inglês e português.

@@ -6,8 +6,7 @@ import { environmentSnapshot } from './env/snapshot.js';
 const fill = (text, values) => text.replace(/\{(\w+)\}/g, (_, key) => values[key]);
 const cell = (value) => String(value).replaceAll('|', '\\|').replace(/[\r\n]+/g, ' ');
 
-export function formatActors(result, { json = false } = {}) {
-  if (json) return JSON.stringify(result);
+export function formatActors(result) {
   const line = (values) => `| ${values.map(cell).join(' | ')} |`;
   return [line(result.columns), line(result.columns.map(() => '---')),
     ...result.actors.map((actor) => line(actor.cells)), ...result.notes].join('\n');

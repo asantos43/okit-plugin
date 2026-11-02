@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../src/cli.js';
+import { callTool } from './helpers/tools.js';
 import { detectKit } from '../src/install/kit.js';
 import { installConfig } from '../src/install/config.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
@@ -96,20 +97,17 @@ test('custom executable and version arguments work on injected PATH; only versio
   assert.equal(result.path, path);
   assert.equal(result.version, 'custom v2.3.4-beta.1');
   assert.match(result.message, /ARCHITECTURE.md#kit-and-plugin-overlap-d1/);
-  assert.equal(await main(['kit', '--require'], f.io), 0);
-  assert.equal(f.output.length, 1);
+  const detected = await callTool('kit_detect', {}, { root: f.home, env: f.deps.env, platform: f.deps.platform, run: f.deps.run });
+  assert.equal(detected.state, 'installed');
+  assert.equal(detected.version, 'custom v2.3.4-beta.1');
 });
 
-test('absent detector uses configured hint, optional and required exit codes', async (t) => {
+test('absent detector uses the configured hint', async (t) => {
   const f = await fixture(t, { hint: 'Read custom installation documentation.' });
   assert.deepEqual(await detectKit(f.deps), { state: 'absent', path: null, version: null, message: 'kit: absent. Read custom installation documentation.' });
-  assert.equal(await main(['kit'], f.io), 0);
-  assert.equal(await main(['kit', '--require'], f.io), 1);
-  assert.equal(await main(['kit', '--require=true'], f.io), 2);
-  assert.equal(await main(['kit', 'unknown'], f.io), 2);
-  f.config.kit.require = true;
-  await fs.writeFile(join(f.home, 'config.json'), JSON.stringify({ install: f.config }));
-  assert.equal(await main(['kit'], f.io), 1);
+  const detected = await callTool('kit_detect', {}, { root: f.home, env: f.deps.env, platform: f.deps.platform, run: f.deps.run });
+  assert.equal(detected.state, 'absent');
+  assert.match(detected.message, /Read custom installation documentation/);
 });
 
 test('PATH discovery tries the second configured executable name', async (t) => {
@@ -147,9 +145,9 @@ test('garbage version, empty output and failed command are broken and informatio
   for (const body of ["console.log('not a version')", "console.log('build 123')", '', "console.log('1.2.3'); process.exit(4)"]) {
     await f.executable(body);
     assert.equal((await detectKit(f.deps)).state, 'broken');
-    assert.equal(await main(['kit'], f.io), 0);
-    assert.equal(await main(['kit', '--require'], f.io), 1);
-    assert.match(f.output.at(-1), /^kit: broken/);
+    const detected = await callTool('kit_detect', {}, { root: f.home, env: f.deps.env, platform: f.deps.platform, run: f.deps.run });
+    assert.equal(detected.state, 'broken');
+    assert.match(detected.message, /^kit: broken/);
   }
 });
 
@@ -190,8 +188,9 @@ test('configured deadline changes outcome and kills an unresponsive process', as
   f.config.kit.timeoutMs = 2000;
   assert.equal((await detectKit(f.deps)).state, 'installed');
   f.config.kit.timeoutMs = 10;
-  assert.equal(await main(['kit', '--require'], f.io), 1);
-  assert.match(f.output.at(-1), /timed out after 10 ms/);
+  const detected = await callTool('kit_detect', {}, { root: f.home, env: f.deps.env, platform: f.deps.platform, run: f.deps.run });
+  assert.equal(detected.state, 'broken');
+  assert.match(detected.message, /timed out after 10 ms/);
 });
 
 test('configuration rejects invalid detector settings', () => {
@@ -240,6 +239,7 @@ test('install/update summaries and status contain kit; dry-run writes nothing', 
     assert.equal(kitRow().length, 1);
     assert.match(kitRow()[0], kitInstalled);
   }
-  assert.equal(await main(['status'], { ...io, clients: [], orders: [] }), 0);
-  assert.match(f.output.at(-1), /^kit: installed/);
+  const detected = await callTool('kit_detect', {}, { root: f.home, env: f.deps.env, platform: f.deps.platform, run: f.deps.run });
+  assert.equal(detected.state, 'installed');
+  assert.match(detected.message, /^kit: installed/);
 });

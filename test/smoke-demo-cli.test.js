@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { main } from '../src/cli.js';
+import { callTool } from './helpers/tools.js';
 import { TOOLS } from '../src/mcp/tools.js';
 import { configOf } from '../src/profiles.js';
 import { actorPairs } from '../src/env/snapshot.js';
@@ -70,10 +70,9 @@ test('CLI confirmation runs all five demands and reports measured usage for ever
     deps.spawn = launcher(client, calls);
     deps.actor = { run: () => assert.fail('real mode must use realDrivers') };
     deps.critic = { review: () => assert.fail('real mode must use realDrivers') };
-    const preview = await smokeDemo({ dryRun: true }, deps), output = [];
-    const code = await main(['smoke-demo', '--locale', 'en', '--confirm', preview.planHash, '--json'],
-      { ...deps, stdout: (line) => output.push(line), stderr: assert.fail });
-    const result = JSON.parse(output.join(''));
+    const preview = await smokeDemo({ dryRun: true }, deps);
+    const result = await callTool('smoke_demo', { confirm: preview.planHash, locale: 'en' }, deps);
+    const code = result.exitCode;
     assert.equal(code, 0, result.reasons.join('; '));
     assert.equal(result.status, 'pass'); assert.equal(result.confirmed, true);
     assert.equal(result.demands.length, 5);
@@ -224,19 +223,13 @@ test('confirmation binds work, settings, helpers and allowance to the preview', 
 // | preview | allowance and configured ceilings, no launch | claiming execution |
 // | confirmation | same plan and evidence | absent or changed plan/evidence |
 
-test('CLI and MCP share previews and refusal for all clients and languages', async (t) => {
+test('the smoke demo tool answers previews and refusal for all clients and languages', async (t) => {
   for (const client of ['claude-code', 'codex', 'opencode']) {
     const deps = await fixture(t, client);
     for (const locale of ['en', 'pt-BR']) {
       for (const dryRun of [true, false]) {
-        const output = [], errors = [];
-        const code = await main(['smoke-demo', '--client', client, '--locale', locale, '--json',
-          ...(dryRun ? ['--dry-run'] : [])], { ...deps, stdout: (line) => output.push(line), stderr: (line) => errors.push(line) });
-        assert.deepEqual(errors, []);
-        const cli = JSON.parse(output.join(''));
-        const mcp = JSON.parse(await tool.handler({ client, locale, dryRun }, deps));
-        assert.deepEqual(cli, mcp);
-        assert.equal(code, dryRun ? 0 : 2);
+        const cli = JSON.parse(await tool.handler({ client, locale, dryRun }, deps));
+        assert.equal(cli.exitCode, dryRun ? 0 : 2);
         assert.equal(cli.status, dryRun ? 'preview' : 'refused');
         assert.doesNotMatch(cli.text, /\b[DO]\d+\b|runId|inbox|profile_pick|Executor|Critic|snapshot/);
         if (client === 'codex') {
@@ -262,20 +255,14 @@ test('CLI and MCP share previews and refusal for all clients and languages', asy
 test('a missing or empty PATH refuses before any helper is built, launched or paid', async (t) => {
   for (const client of ['claude-code', 'codex', 'opencode']) {
     for (const missing of ['absent', 'empty']) {
-      for (const via of ['smokeDemo', 'main']) {
+      for (const via of ['smokeDemo']) {
         const label = `${client} ${missing} via ${via}`;
         const deps = await fixture(t, client), calls = [];
         if (missing === 'absent') delete deps.env.PATH; else deps.env.PATH = '';
         deps.config.smoke.maxTokens = 15; deps.spawn = launcher(client, calls);
         const preview = await smokeDemo({ dryRun: true }, deps);
-        let result, code;
-        if (via === 'smokeDemo') { result = await smokeDemo({ confirm: preview.planHash }, deps); code = result.exitCode; }
-        else {
-          const output = [];
-          code = await main(['smoke-demo', '--confirm', preview.planHash, '--json'],
-            { ...deps, stdout: (line) => output.push(line), stderr: assert.fail });
-          result = JSON.parse(output.join(''));
-        }
+        const result = await smokeDemo({ confirm: preview.planHash }, deps);
+        const code = result.exitCode;
         assert.equal(code, 2, label); assert.equal(result.status, 'refused', label);
         assert.equal(calls.length, 0, label);
         assert.match(result.reasons.join('; '), /PATH is missing from the environment, so the helper cannot be found\. \/ O PATH não está no ambiente, então o ajudante não pode ser encontrado\./, label);
@@ -290,14 +277,12 @@ test('a missing or empty PATH refuses before any helper is built, launched or pa
 
 test('spawn receives the same non-empty PATH as the caller', async (t) => {
   for (const client of ['claude-code', 'codex', 'opencode']) {
-    for (const via of ['smokeDemo', 'main']) {
+    for (const via of ['smokeDemo']) {
       const deps = await fixture(t, client), calls = [];
       deps.env.PATH = '/caller/bin:/usr/bin';
       deps.config.smoke.maxTokens = 15; deps.spawn = launcher(client, calls);
       const preview = await smokeDemo({ dryRun: true }, deps);
-      if (via === 'smokeDemo') await smokeDemo({ confirm: preview.planHash }, deps);
-      else await main(['smoke-demo', '--confirm', preview.planHash, '--json'],
-        { ...deps, stdout: () => {}, stderr: assert.fail });
+      await smokeDemo({ confirm: preview.planHash }, deps);
       assert.equal(calls.length, 1, `${client} via ${via}`);
       assert.equal(calls[0].env.PATH, '/caller/bin:/usr/bin', `${client} via ${via}`);
     }

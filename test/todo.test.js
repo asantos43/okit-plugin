@@ -7,9 +7,8 @@ import { inboxAdd, inboxClaim, inboxList, inboxRelease, inboxSetStatus } from '.
 import { syncProject, todoRun } from '../src/todo/index.js';
 import { readSnapshot, writeSnapshot } from '../src/todo/safe.js';
 import { writeJsonAtomic } from '../src/state.js';
-import { main } from '../src/cli.js';
 import { TOOLS } from '../src/mcp/tools.js';
-import { configCommand } from '../src/config.js';
+import { configSet } from '../src/core/config.js';
 
 async function fixture(t, options = {}) {
   const base = await mkdtemp(join(tmpdir(), 'okit-todo-'));
@@ -226,15 +225,13 @@ test('TODO failure never rolls back an inbox transition', async t => {
   assert.equal((await inboxList(root))[0].status, 'delegated');
 });
 
-test('CLI and MCP share synchronization and status; invalid flags and types refuse', async t => {
+test('the core and the MCP share synchronization and status; invalid flags and types refuse', async t => {
   const { root, project, file } = await fixture(t);
   await inboxAdd(root, { title: 'Telemetry', appliesTo: project });
-  const output = [], errors = [];
-  const io = { root, stdout: value => output.push(value), stderr: value => errors.push(value) };
-  assert.equal(await main(['todo', 'check', '--project', project], io), 0);
-  assert.match(output.join('\n'), /Telemetry/);
-  assert.equal(await main(['todo', 'sync', '--dry-run'], io), 0);
-  assert.equal(await main(['todo', 'check', '--dry-run'], io), 2);
+  const checked = await todoRun(root, { project, check: true });
+  assert.equal(checked.reports[0].demandsWithoutItem[0].title, 'Telemetry');
+  const synced = await todoRun(root, { project, dryRun: true, check: false });
+  assert.ok(Array.isArray(synced.reports));
   const tool = name => TOOLS.find(tool => tool.name === name);
   const status = JSON.parse(await tool('todo_check').handler({ project }, { root }));
   assert.equal(status.reports[0].demandsWithoutItem[0].title, 'Telemetry');
@@ -247,9 +244,9 @@ test('CLI and MCP share synchronization and status; invalid flags and types refu
 
 test('configuration accepts project settings and custom checkbox characters', async t => {
   const { root } = await fixture(t);
-  const ctx = { root, out() {}, err() {}, unknown: () => 2 };
-  assert.equal(await configCommand(ctx, 'set', ['todo.enabled', 'true']), 0);
-  assert.equal(await configCommand(ctx, 'set', ['todo.checkbox.open', ' ']), 0);
-  assert.equal(await configCommand(ctx, 'set', ['todo.checkbox.done', 'bad']), 2);
-  assert.equal(await configCommand(ctx, 'set', ['todo.projects', '{"relative":{"enabled":true}}']), 2);
+  const set = (key, value) => configSet(root, { key, value });
+  assert.equal((await set('todo.enabled', 'true')).after.value, true);
+  assert.equal((await set('todo.checkbox.open', ' ')).after.value, ' ');
+  await assert.rejects(set('todo.checkbox.done', 'bad'), /Invalid value/);
+  await assert.rejects(set('todo.projects', '{"relative":{"enabled":true}}'), /Invalid value/);
 });

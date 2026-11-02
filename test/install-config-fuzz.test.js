@@ -9,6 +9,7 @@ import { installConfig } from '../src/install/config.js';
 import { exitCodeFor, kindOf } from '../src/install/exit.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { fixture } from './helpers/install-fixture.js';
+import { configGet, configSet } from '../src/core/config.js';
 
 // Round 17 / I9: every configuration is read through one schema (src/config-schema.js), so a value that is not valid
 // is one refusal of usage (exit 2) that names the key and the rule in the language of the run, for every command that
@@ -17,8 +18,7 @@ import { fixture } from './helpers/install-fixture.js';
 
 const LOCALES = ['en', 'pt-BR'];
 const COMMANDS = [
-  ['install', '--client', 'claude-code', '--dry-run'], ['update'], ['uninstall'], ['setup', '--defaults'], ['kit'], ['status'],
-  ['doctor'], ['config', 'show'],
+  ['install', '--client', 'claude-code', '--dry-run'], ['update'], ['uninstall'], ['setup', '--defaults'], ['doctor'],
 ];
 const LEAK = /TypeError|RangeError|undefined|\bat .*\(.*:\d+:\d+\)|node:internal/;
 const ENGLISH_RULE = /\b(non-empty|an integer from|a list of|true or false|an object|a name without|text, which may|an HTTP header|environment variable name|an address that)/;
@@ -234,22 +234,21 @@ test('every key of CONFIG_SCHEMA has a type this test knows, and refuses what it
       for (const text of refusedTexts(entry)) {
         const body = JSON.stringify({ language: locale });
         await fs.writeFile(file, body);
-        f.clear();
-        const code = await main(['config', 'set', key, text], f.io);
-        const output = f.output.join('\n');
-        assert.equal(code, 2, `${locale} config set ${key} ${JSON.stringify(text)}\n${output}`);
-        assert.match(output, new RegExp(escape(key.split('.').at(-1))), key);
-        assert.doesNotMatch(output, LEAK, key);
+        await assert.rejects(configSet(f.root, { key, value: text }), (error) => {
+          const output = error.message;
+          assert.equal(error.kind, 'usage', `${locale} config set ${key} ${JSON.stringify(text)}\n${output}`);
+          assert.match(output, new RegExp(escape(key.split('.').at(-1))), key);
+          assert.doesNotMatch(output, LEAK, key);
+          return true;
+        });
         assert.equal(await fs.readFile(file, 'utf8'), body, key);
         refused += 1;
       }
     }
   }
   assert.ok(refused > 40, `${refused} refusals`);
-  for (const verb of [['get'], ['unset']]) {
-    f.clear();
-    assert.equal(await main(['config', ...verb, 'no.such.key'], f.io), 2);
-  }
+  await assert.rejects(configGet(f.root, { key: 'no.such.key' }), (error) => error.kind === 'usage');
+  await assert.rejects(configSet(f.root, { key: 'no.such.key' }), (error) => error.kind === 'usage');
 });
 
 test('a --from package whose name or version is not text is one refusal of usage, in both languages', async (t) => {

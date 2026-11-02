@@ -588,7 +588,7 @@ test('the other commands still refuse a saved language that is not a language', 
   const stored = JSON.parse(await fs.readFile(file, 'utf8'));
   stored.language = 'xx';
   await fs.writeFile(file, JSON.stringify(stored));
-  for (const command of [['install', '--client', 'claude-code', '--dry-run'], ['status']]) {
+  for (const command of [['install', '--client', 'claude-code', '--dry-run'], ['update'], ['uninstall'], ['setup', '--defaults']]) {
     f.clear();
     assert.equal(await main(command, f.io), exitCodeFor('usage'), `${command[0]}: ${f.output.join('\n')}`);
   }

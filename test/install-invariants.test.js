@@ -45,9 +45,8 @@ async function installerSources() {
     assert.ok(end > start, `src/cli.js: end of ${from} not found`);
     return cli.slice(start, end);
   };
-  files.push({ file: 'src/cli.js (setupCommand)', source: slice('function refuse(ctx, locale', '\nasync function quotaCommand') });
+  files.push({ file: 'src/cli.js (setupCommand)', source: slice('function refuse(ctx, locale', '\nasync function doctorEntry') });
   files.push({ file: 'src/cli.js (installerLifecycle)', source: slice('function installerLifecycle', '\n/**\n * Runs one') });
-  files.push({ file: 'src/cli.js (kit)', source: slice("if (group === 'kit')", "if (['install', 'update', 'uninstall'].includes(group))") });
   files.push({ file: 'src/cli.js (door)', source: slice('const door = ', "const now = io.now") });
   files.push({ file: 'src/cli.js (main)', source: slice('export async function main', '\n/**\n * The `okit` entry point') });
   return files.filter(({ file }) => file !== 'src/install/present.js').map((item) => ({ ...item, tokens: tokenize(item.source) }));
@@ -66,7 +65,6 @@ const RAW_ALLOWED = new Map([
   ['src/install/bootstrap.js: fail: result.stderr', 'what a child process (uname, curl, PowerShell) printed is passed on as it came'],
   ['src/install/bootstrap.js: fail: result.error', 'the system error of a child process that could not start'],
   ['src/install/register.js: detail: error.message', 'the text the adapter module raised when it could not be loaded, shown only with --verbose after our own label'],
-  ['src/install/index.js: detail: result.stdout', 'what the smoke command printed, shown only with --verbose'],
   ['src/install/index.js: failure: error.message', 'the presenter translates the reason (REASONS) and redacts it'],
   ['src/cli.js (main): err: error.message', 'an unexpected failure of any command, after the command name; the door redacts it for the installer\'s groups'],
 ]);
@@ -119,8 +117,6 @@ const PROGRAMMER_ERRORS = new Map([
 // (each with the reason it is not the installer's output). A new module the installer imports is scanned at once.
 const OTHER_COMMANDS = new Map([
   ['adapters/', 'the client adapters: their errors go to the daemon and the MCP tools, never to the installer\'s screen'],
-  ['src/telemetry/', 'the telemetry command: its own refusals, in its own words'],
-  ['src/trajectory/', 'the trajectory command: its own refusals, in its own words'],
   ['src/orders.js', 'standing orders: argument checks of the MCP tools and the inbox, English by contract'],
   ['src/applies.js', 'appliesTo checks of the MCP tools, English by contract'],
   ['src/skills.js', 'skill checks of the MCP tools, English by contract'],
@@ -346,7 +342,6 @@ async function allSources() {
 
 // Writes to the screen that are not the installer's, each with the reason it is not (key: "file: name").
 const SCREEN_ELSEWHERE = new Map([
-  ['src/cli.js: process.stdout', 'the question of `inbox take` (an inbox command, not the installer), read by a readline on the terminal'],
   ['src/setup/setup.js: process.stdout', 'the default of the reader, which wraps it in redactingStream on the next line'],
   ['src/mcp/control.js: process.stderr', 'the control API tells on the error stream why it could not open; its default, replaced by the tests'],
   ['src/mcp/selfcheck-probe.js: process.stdout.write', 'the probe of the install self-check answers with one line of JSON; the installer reads it, no person reads it'],

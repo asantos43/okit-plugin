@@ -13,7 +13,6 @@ import { capture } from '../src/trajectory/capture.js';
 import { settings } from '../src/trajectory/config.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { makeSpawner } from '../src/spawn-process.js';
-import { main } from '../src/cli.js';
 import { TOOLS } from '../src/mcp/tools.js';
 import { attempt } from '../src/smoke/demo/attempt.js';
 import { ledger } from '../src/smoke/demo/budget.js';
@@ -168,22 +167,22 @@ test('total storage cap removes older runs', async t => {
   assert.ok(buffers.reduce((sum, buffer) => sum + buffer.length, 0) <= 2300);
   assert.ok(!names.includes('okit-plugin-attempt-1.json'));
 });
-test('show and export through CLI and MCP retain step details and explain failed tools', async t => {
+test('show and export through the core and the MCP retain step details and explain failed tools', async t => {
   const root = await rootOf(t, {});
   await save(root, claude(claudeFixture, context));
   const summary = await show(root, 'attempt-1');
   assert.match(summary, /Stopped at step \/ Parou no passo: 2/);
   assert.match(summary, /Failed tool \/ Ferramenta que falhou: read_file/);
   assert.match(summary, /Tokens in \/ entrada: 12/);
-  for (const action of ['list', 'show', 'export', 'status', 'prune', 'off', 'on']) {
-    const output = [], errors = [];
-    const code = await main(['trajectory', action, ...(['show', 'export'].includes(action) ? ['attempt-1'] : [])],
-      { root, stdout: text => output.push(text), stderr: text => errors.push(text) });
-    assert.equal(code, 0, errors.join('\n'));
-    if (action === 'show') assert.equal(output.join(''), summary);
-    if (action === 'export') assert.deepEqual(JSON.parse(output.join('')), await exportTrajectory(root, 'attempt-1'));
-    if (action === 'on') assert.match(output.join(''), /somente neste computador/);
-  }
+  const listed = await list(root);
+  assert.ok(listed.some((entry) => entry.session_id === 'attempt-1'), 'the saved run must be listed');
+  const exported = await exportTrajectory(root, 'attempt-1');
+  assert.equal(exported.agent.model_name, 'example-model');
+  const state = await status(root);
+  assert.equal(typeof state.enabled, 'boolean');
+  assert.match(state.what, /somente neste computador/);
+  assert.deepEqual(await prune(root), { removed: 0 });
+  assert.match(await configure(root, true), /somente neste computador/);
   const tool = TOOLS.find(item => item.name === 'trajectory_show');
   assert.equal(JSON.parse(await tool.handler({ run: 'attempt-1' }, { root })), summary);
   await assert.rejects(exportTrajectory(root, '../config'));

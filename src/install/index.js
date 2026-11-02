@@ -1,7 +1,7 @@
 import * as filesystem from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { DEFAULT_CONFIG, configOf } from '../profiles.js';
 import { createPresenter, planSteps, fill, localizeReason, pick, TEXTS, redactingStream, redactingWriter, resolveLocale, supportsUnicode, headerValues, clientLabel, finish, finishLink } from './present.js';
@@ -67,6 +67,26 @@ const readerOf = (hide) => async (question) => {
 function setupReaderOf(io, hide) {
   if (typeof io.ask === 'function') return { ask: io.ask, close: () => {} };
   return setupReader({ stdin: io.stdin, output: redactingStream(io.output ?? process.stdout, hide) });
+}
+
+/**
+ * The proof of an update: the offline smoke checks of the payload that was just placed. The checks are
+ * internal test code, not a command of the program, so there is no installed command to call: the runner
+ * of the payload is imported and asked for the same run, in this process. It is the payload's own runner,
+ * so the proof is about the installation and not about this checkout.
+ *
+ * @param {object} record the record of the installation that was just placed
+ * @param {object} deps the dependencies of the installer
+ * @returns {Promise<{code: number, records: object[], report: string}>}
+ */
+async function smokeProof(record, deps) {
+  const { runSmoke } = await import(pathToFileURL(join(record.path, 'src', 'smoke.js')).href);
+  const lines = [];
+  // The run builds a scratch home of its own: a state root the user chose is never the one it reads.
+  const env = { ...deps.env };
+  delete env.OKWORK_HOME;
+  const smoke = await runSmoke([], { command: deps.config.command, env, out: (line) => lines.push(line) });
+  return { code: smoke.code, records: smoke.records, report: lines.join('\n') };
 }
 
 export async function installerCommand(command, args, ctx, io = {}) {
@@ -358,10 +378,11 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
         if (io.smoke) {
           const smoke = await io.smoke(record);
           if (smoke.code !== 0 || smoke.records?.some((check) => check.status !== 'pass')) throw new Error('Smoke proof failed');
+          if (smoke.report) ui.detail(smoke.report);
         } else {
-          const result = await deps.run({ command: deps.config.node, args: [join(record.path, record.bin), 'smoke'] });
-          if (result.code && result.code !== 0) throw new Error('Smoke proof failed');
-          if (result.stdout) ui.detail(result.stdout);
+          const smoke = await smokeProof(record, deps);
+          if (smoke.code !== 0 || smoke.records?.some((check) => check.status !== 'pass')) throw new Error('Smoke proof failed');
+          ui.detail(smoke.report);
         }
         next('smoke').ok();
       }

@@ -10,6 +10,8 @@ import { readQuota } from '../adapters/claude-code/index.js';
 import { configOf } from '../src/profiles.js';
 import { main } from '../src/cli.js';
 import { readingOf } from '../src/core/statusline-reading.js';
+import { LABELS, quotaOrigin } from '../src/status.js';
+import { callTool } from './helpers/tools.js';
 
 const input = Buffer.from('{"rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1793003358},"seven_day":{"used_percentage":41.2,"resets_at":1793513484}},"extra":true}\n');
 const now = () => Date.UTC(2026, 9, 26);
@@ -435,16 +437,16 @@ test('CLI bounded stdin and raw stdout; quota show has bilingual origin and age'
     stdout: (bytes) => output.push(bytes), run: async ({ input }) => input };
   assert.equal(await main(['statusline-collector'], io), 0);
   assert.deepEqual(Buffer.concat(output), input);
-  const lines = [];
-  assert.equal(await main(['quota', 'show', 'claude-code'], { root, now,
-    env: { HOME: root }, stdout: (line) => lines.push(line) }), 0);
-  assert.match(lines.join('\n'), /automatic.*automática/);
-  assert.match(lines.join('\n'), /0 min/);
-  const manualIo = { root, now, env: { HOME: root }, stdout: (line) => lines.push(line) };
-  assert.equal(await main(['quota', 'set', 'claude-code', '80'], manualIo), 0);
+  const shown = await callTool('quota_show', { client: 'claude-code' }, { root, now, env: { HOME: root } });
+  const [reading] = shown.clients;
+  assert.equal(reading.reading.source, 'automatic');
+  assert.match(`${quotaOrigin(reading.reading, shown.now, LABELS.en)}\n${quotaOrigin(reading.reading, shown.now, LABELS['pt-BR'])}`, /automatic[\s\S]*automática/);
+  assert.match(quotaOrigin(reading.reading, shown.now, LABELS.en), /0 minutes ago/);
+  await callTool('quota_set', { client: 'claude-code', pct: 80 }, { root, now, env: { HOME: root } });
   assert.equal((await readQuota({ stateRoot: root, now })).source, 'user');
-  assert.equal(await main(['quota', 'show', 'claude-code'], manualIo), 0);
-  assert.match(lines.at(-1), /manual.*manual/);
+  const manual = await callTool('quota_show', { client: 'claude-code' }, { root, now, env: { HOME: root } });
+  const [recorded] = manual.clients;
+  assert.match(`${quotaOrigin(recorded.reading, manual.now, LABELS.en)}\n${quotaOrigin(recorded.reading, manual.now, LABELS['pt-BR'])}`, /manual[\s\S]*manual/);
   assert.equal(await statuslineCommand([], { ...io, stdin: Readable.from(['x'.repeat(501)]),
     run: () => assert.fail('must not forward truncated stdin') }), 0);
   const previous = [process.execPath, '-e', 'process.exit(1)'];

@@ -33,8 +33,8 @@ function allChecks() {
 
 // The plugin root of the default mode is this checkout: the folder that holds
 // `skills/` and `adapters/` beside the `src/` this file is in. An installed
-// plugin is laid out the same way, so `okit-plugin smoke` through the installed bin
-// verifies that install and not this one.
+// plugin is laid out the same way, so importing its runner verifies that
+// installation. The installer calls this after activation.
 const PLUGIN_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 // The ceiling `--timeout` raises a slow host to, `60000`, and the cap of the

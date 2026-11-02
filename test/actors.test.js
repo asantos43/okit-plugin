@@ -3,7 +3,6 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { listActors, formatActors } from '../src/actors.js';
-import { main } from '../src/cli.js';
 import { TOOLS } from '../src/mcp/tools.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { limitsStatus } from '../src/limits.js';
@@ -35,7 +34,7 @@ for (const client of ['claude-code', 'codex', 'opencode']) test(`injected profil
   assert.deepEqual(result.actors.flatMap((actor) => actor.sizes), ['S', 'M', 'L']);
   assert.equal(result.actors[3].critic, true);
   assert.match(formatActors(result), new RegExp(`${client}-critic`));
-  const json = formatActors(result, { json: true });
+  const json = JSON.stringify(result);
   assert.equal(json, JSON.stringify(JSON.parse(json)));
   assert.deepEqual(JSON.parse(json).clients, [client]);
 });
@@ -175,27 +174,18 @@ test('markdown cells escape model pipes and flatten newlines', async (t) => {
   assert.equal(result.actors[0].model, 'model|variant\nnext');
 });
 
-// Must pass: detection, all, explicit client, JSON. Must refuse: unknown client/flag.
-test('CLI and MCP share selection, JSON and validation', async (t) => {
+// Must pass: detection, all, explicit client. Must refuse: unknown client/flag.
+test('the core and the MCP share selection and validation', async (t) => {
   const deps = await fixture(t);
   const tool = TOOLS.find((entry) => entry.name === 'actors_list');
-  for (const [args, clients] of [[[], ['claude-code']], [['--all'], ['claude-code', 'codex', 'opencode']],
-    [['--all', '--client', 'codex'], ['codex']]]) {
-    const out = [];
-    const err = [];
-    const code = await main(['actors', ...args, '--json'], { ...deps, env: { CLAUDECODE: '1' },
-      stdout: (line) => out.push(line), stderr: (line) => err.push(line) });
-    assert.equal(code, 0, err.join('\n'));
-    assert.equal(out.length, 1);
-    assert.equal(out[0], JSON.stringify(JSON.parse(out[0])));
-    assert.deepEqual(JSON.parse(out[0]).clients, clients);
-    const input = args.includes('--client') ? { all: true, client: 'codex' } : args.length ? { all: true } : {};
+  for (const [input, clients] of [[{}, ['claude-code']], [{ all: true }, ['claude-code', 'codex', 'opencode']],
+    [{ all: true, client: 'codex' }, ['codex']]]) {
     const mcp = JSON.parse(await tool.handler(input, { ...deps, env: { CLAUDECODE: '1' } }));
     assert.deepEqual(mcp.clients, clients);
+    assert.deepEqual(JSON.parse(JSON.stringify(mcp)).clients, clients);
+    const core = await listActors({ ...deps, env: { CLAUDECODE: '1' }, ...input });
+    assert.deepEqual(core.clients, clients);
   }
-  const errors = [];
-  assert.equal(await main(['actors', '--client', 'xyz'], { ...deps, stderr: (line) => errors.push(line) }), 2);
-  assert.match(errors.join('\n'), /^usage:/);
   await assert.rejects(tool.handler({ client: 'xyz' }, deps), /claude-code/);
   await assert.rejects(tool.handler({ all: 'yes' }, deps), /boolean/);
   await assert.rejects(tool.handler({ extra: true }, deps), /unknown argument/);
@@ -212,25 +202,17 @@ test('red quota never exposes active order text in markdown or JSON', async (t) 
   assert.match(status.markdown, /D50/);
   assert.ok(status.rows[0].cells.at(-1).endsWith('(30s)'));
   for (const locale of ['en', 'pt-BR']) {
-    for (const json of [false, true]) {
-      const out = [];
-      assert.equal(await main(['actors', '--client', 'codex', '--locale', locale, ...(json ? ['--json'] : [])],
-        { ...deps, now, readQuota, stdout: (line) => out.push(line) }), 0);
-      assert.doesNotMatch(out.join('\n'), /D50/);
-      const expected = locale === 'en' ? 'red; 2%; age 30s' : 'vermelho; 2%; idade 30s';
-      if (json) assert.equal(JSON.parse(out[0]).actors[0].cells[5], expected);
-      else assert.ok(out.some((line) => line.includes(expected)));
-    }
+    const actors = await listActors({ ...deps, now, readQuota, locale, client: 'codex' });
+    assert.doesNotMatch(actors.markdown, /D50/);
+    const expected = locale === 'en' ? 'red; 2%; age 30s' : 'vermelho; 2%; idade 30s';
+    assert.equal(actors.actors[0].cells[5], expected);
   }
 });
 
-test('CLI markdown emits one collector call per table line', async (t) => {
+test('the markdown of the actors has one line per actor and no line breaks', async (t) => {
   const deps = await fixture(t);
-  const out = [];
-  const code = await main(['actors', '--client', 'codex'], {
-    ...deps, stdout: (line) => out.push(line),
-  });
-  assert.equal(code, 0);
+  const actors = await listActors({ ...deps, client: 'codex' });
+  const out = actors.markdown.split('\n');
   assert.equal(out.length, 6);
   assert.ok(out.every((line) => !line.includes('\n')));
   assert.match(out[0], /^\| Client \|/);

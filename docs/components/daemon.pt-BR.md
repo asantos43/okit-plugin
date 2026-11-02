@@ -7,13 +7,13 @@ O daemon processa trabalho pendente e recorrente respeitando limites e controles
 <a id="run"></a>
 ## Executar e interromper
 
-Use `okit-plugin daemon run-once` para uma passagem; `okit-plugin daemon start` mantém o loop em primeiro plano. Cada passagem lê configuração, verifica pausa/parada, limpa ordens fora da retenção, observa cota, abre recorrências devidas e atende pendências das mais antigas às mais novas. O adaptador PROCESS executa o trabalho; o núcleo recebe o lançador como dependência.
+Peça ao assistente para usar a ferramenta MCP `daemon` com ação `run-once` para uma passagem. A entrada interna `daemon start` mantém o loop em primeiro plano, iniciado pelo autostart configurado por `okit-plugin setup` ou `okit-plugin install --autostart`. Cada passagem lê configuração, verifica pausa/parada, limpa ordens fora da retenção, observa cota, abre recorrências devidas e atende pendências das mais antigas às mais novas. O adaptador PROCESS executa o trabalho; o núcleo recebe o lançador como dependência.
 O intervalo padrão é 60 segundos, piso de cota 10% e retenção de logs 14 dias. Uma cota conhecida abaixo do piso interrompe a passagem; ausência de leitura não é tratada como abaixo do piso nessa verificação do daemon. Vagas são limites separados por cliente; um período com filho ativo não é duplicado.
 
-- `okit-plugin daemon status --table`: PID, pausa, última passagem e tabela de capacidade.
-- `okit-plugin daemon pause`: impede trabalho novo sem encerrar o loop.
-- `okit-plugin daemon resume`: remove somente o marcador de pausa.
-- `okit-plugin daemon stop`: cria daemon.stop para encerrar o loop; SIGINT/SIGTERM também encerram. O próximo daemon start limpa esse marcador automaticamente; resume e run-once não o limpam. O marcador de pausa sobrevive ao reinício.
+- MCP `daemon`, ação `status`: PID, pausa e última passagem; peça MCP `status` para capacidade.
+- MCP `daemon`, action `pause`: impede trabalho novo sem encerrar o loop.
+- MCP `daemon`, action `resume`: remove somente o marcador de pausa.
+- O instalador usa a entrada interna `daemon stop`: cria daemon.stop para encerrar o loop; SIGINT/SIGTERM também encerram. O próximo daemon start limpa esse marcador automaticamente; resume e run-once não o limpam. O marcador de pausa sobrevive ao reinício.
 
 <a id="schedules"></a>
 ## Recorrências
@@ -33,7 +33,7 @@ O fuso padrão é UTC. window limita horários; minQuotaPct, onlyWhenIdle e skip
 <a id="autostart"></a>
 ## Inicialização automática
 
-`okit-plugin autostart show` mostra o plano antes da aplicação. install/uninstall registram/removem systemd ou cron no Linux, launchd no macOS ou schtasks no Windows. Confira o plano do sistema real; um daemon pode consumir cota ao receber trabalho. Logs e marcadores ficam na [pasta de estado](state.pt-BR.md).
+`okit-plugin setup` oferece o plano de inicialização antes da aplicação; `okit-plugin install --autostart` também o registra. O instalador registra/remove systemd ou cron no Linux, launchd no macOS ou schtasks no Windows. Confira o plano do sistema real; um daemon pode consumir cota ao receber trabalho. Logs e marcadores ficam na [pasta de estado](state.pt-BR.md).
 O plano cron instala seu arquivo como o crontab inteiro do usuário; uninstall executa crontab -r. Confira e copie as entradas existentes antes de aplicar esse plano.
 
 [Visão geral](README.pt-BR.md) · [Configuração](configuration.pt-BR.md) · [English](daemon.md)

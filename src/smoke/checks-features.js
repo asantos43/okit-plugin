@@ -115,6 +115,8 @@ async function cli(deps, argv, options = {}) {
     now: deps.now,
     platform: deps.platform,
     run: deps.run,
+    // The entry points the client launches read their JSON here; nothing waits for a terminal.
+    stdin: JSON.stringify({ cwd: deps.projectRoot }),
     write: async (path, content) => {
       wrote.push({ path, content });
       return path;
@@ -625,19 +627,17 @@ async function statusTableCheck(deps) {
   need(pt.markdown.split('\n')[2].includes('64%'), 'the reading must reach the row');
 }
 
-// E19: every listed CLI action exits 0 with the injected run,
-// spawn and write.
+// E19: the entry points the machine starts exit 0 with the injected run,
+// spawn and write: the daemon loop, the kill switch, the single pass, the two
+// hooks and the collector.
 async function commandsEvery(deps) {
   const actions = [
-    ['daemon', 'start'], ['daemon', 'stop'], ['daemon', 'status'],
-    ['daemon', 'pause'], ['daemon', 'resume'], ['daemon', 'run-once'],
-    ['autostart', 'show'], ['autostart', 'install'], ['autostart', 'uninstall'],
-    ['status'], ['actors'],
+    ['daemon', 'start'], ['daemon', 'stop'], ['daemon', 'run-once'],
+    ['hook', 'session-start'], ['hook', 'post-compact'], ['statusline-collector'],
   ];
   for (const argv of actions) {
     const run = await cli(deps, argv, { ...onePass(), spawn: deps.spawn });
     need(run.code === 0, `${deps.command ?? DEFAULT_CONFIG.install.command} ${argv.join(' ')} must exit 0, got ${run.code}: ${run.err.join(' / ')}`);
-    if (argv[1] === 'install') need(run.wrote.length === 1, 'autostart install must report the file it wrote');
   }
 }
 

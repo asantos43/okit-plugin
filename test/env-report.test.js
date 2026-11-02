@@ -3,11 +3,11 @@ import test from 'node:test';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { main } from '../src/cli.js';
+import { callTool } from './helpers/tools.js';
 import { environmentReadings, environmentReport, formatEnvironmentReport } from '../src/env/report.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { environmentSnapshot } from '../src/env/snapshot.js';
-import { statusTable } from '../src/status.js';
+import { LABELS, quotaOrigin, statusTable } from '../src/status.js';
 import { listActors } from '../src/actors.js';
 import { runSetup } from '../src/setup/setup.js';
 import { collectStatusline, collectorArgsValid, STATUSLINE_FILE } from '../src/quota/statusline-collector.js';
@@ -199,7 +199,7 @@ for (const platform of ['linux', 'darwin', 'win32']) {
         assert.match(blockedStatus.markdown, /okit-plugin setup --again/);
         assert.match(blockedStatus.markdown, /quota_set/);
       }
-      assert.equal(await main(['quota', 'set', client, '80'], { ...deps, stdout: () => {} }), 0);
+      await callTool('quota_set', { client, pct: 80 }, { ...deps });
       ready = await environmentSnapshot(deps);
       assert.equal(ready.clients[0].quota.remainingPct, 80);
       assert.ok(ready.clients[0].candidates.every((actor) => actor.canLaunch));
@@ -437,16 +437,13 @@ test('quota set refreshes the injected cache and show consumes its sample', asyn
   t.after(() => rm(root, { recursive: true, force: true }));
   const now = () => Date.parse('2026-10-26T12:00:00Z');
   const quotaCache = new Map([[`${root}\ncodex`, { at: now(), reading: { source: 'manual', remainingPct: 10 } }]]);
-  const output = [];
   const io = { root, quotaCache, now, env: { HOME: root, CODEX_HOME: `${root}/codex` },
-    plugin: {}, versions: {}, detectClients: async () => ({ clients: [] }),
-    stdout: (text) => output.push(text) };
-  assert.equal(await main(['quota', 'set', 'codex', '73'], io), 0);
+    plugin: {}, versions: {}, detectClients: async () => ({ clients: [] }) };
+  await callTool('quota_set', { client: 'codex', pct: 73 }, io);
   assert.equal(quotaCache.get(`${root}\ncodex`).reading.remainingPct, 73);
-  output.length = 0;
-  assert.equal(await main(['quota', 'show', 'codex'], io), 0);
-  assert.match(output[0], /"remainingPct":73/);
-  assert.match(output[0], /manual.*0 minutes ago/);
+  const shown = await callTool('quota_show', { client: 'codex' }, io);
+  assert.equal(shown.clients[0].reading.remainingPct, 73);
+  assert.match(quotaOrigin(shown.clients[0].reading, shown.now, LABELS.en), /manual.*0 minutes ago/);
 });
 
 test('shared runtime readings use configured version commands and the selected client', async () => {
@@ -601,13 +598,11 @@ test('D95 R9: a disabled (null) profile confirms nothing and never breaks env re
   try {
     await writeFile(join(root, 'config.json'), JSON.stringify({ profiles: { codex: { normal: null } } }));
     for (const locale of ['en', 'pt-BR']) {
-      for (const argv of [['env', 'report'], ['status']]) {
-        const output = [];
-        const code = await main([...argv, '--client', 'codex', '--locale', locale], {
-          ...readings({ detectClients: detect }), config: undefined, root, home: root,
-          stdout: (text) => output.push(text), stderr: (text) => output.push(text) });
-        assert.equal(code, 0, `${argv} ${locale}: ${output.join('\n')}`);
-        assert.doesNotMatch(output.join('\n'), /Cannot read properties/);
+      for (const name of ['env_report', 'status']) {
+        const answer = await callTool(name, { client: 'codex', locale },
+          { ...readings({ detectClients: detect }), config: undefined, root, home: root });
+        const text = name === 'env_report' ? answer.text : answer.markdown;
+        assert.doesNotMatch(text, /Cannot read properties/);
       }
     }
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -627,12 +622,9 @@ test('D102: formatEnvironmentReport names an ignored installation record, in bot
       // The record is read from install.destination of the saved configuration; the readings are injected except the plugin's own.
       for (const locale of ['en', 'pt-BR']) {
         await writeFile(join(root, 'config.json'), JSON.stringify({ language: locale, install: { destination } }));
-        const output = [];
-        const code = await main(['env', 'report', '--client', 'codex'], {
-          ...readings({ plugin: undefined }), config: undefined, root, home: root, env: { HOME: root },
-          stdout: (text) => output.push(text), stderr: (text) => output.push(text) });
-        const text = output.join('\n');
-        assert.equal(code, 0, `${body} ${locale}: ${text}`);
+        const answer = await callTool('env_report', { client: 'codex' },
+          { ...readings({ plugin: undefined }), config: undefined, root, home: root, env: { HOME: root } });
+        const text = answer.text;
         assert.doesNotMatch(text, /Cannot read properties/);
         assert.ok(text.includes(file), `${body} ${locale}: the file path\n${text}`);
         assert.match(text, locale === 'pt-BR' ? /Registro de instalação ignorado/ : /Installation record ignored/);
@@ -655,36 +647,30 @@ test('catalog fallback never claims active models; saved setup and command are r
   assert.ok(!done.plugin.missing.some((item) => item.item === 'setup'));
 });
 
-test('CLI reports both locales and system language with injected readings', async () => {
+test('the report of the environment answers in the language asked for or the saved one', async () => {
   const root = '.delegate/env-report-test-state';
   await mkdir(root, { recursive: true });
   for (const [locale, language, expected] of [
     ['en', undefined, 'en'], ['pt-BR', undefined, 'pt-BR'],
     ['en', 'pt-BR', 'en'], [null, undefined, 'en'], [null, 'pt-BR', 'pt-BR'],
   ]) {
-    const output = [];
     const deps = readings();
     await writeFile(join(root, 'config.json'), JSON.stringify(language ? { language } : {}));
-    const code = await main(['env', 'report', '--client', 'codex', ...(locale ? ['--locale', locale] : [])], {
-      ...deps, root, home: '.delegate/env-report-test-home',
+    const answer = await callTool('env_report', { client: 'codex', ...(locale ? { locale } : {}) }, {
+      ...deps, config: undefined, root, home: '.delegate/env-report-test-home',
       env: { LANG: 'pt_BR.UTF-8', CODEX_THREAD_ID: 'session' },
-      stdout: (text) => output.push(text), stderr: (text) => output.push(text),
     });
-    assert.equal(code, 0, output.join('\n'));
-    assert.match(output.join('\n'), expected === 'en' ? /codex \(in use\)/ : /codex \(em uso\)/);
-    assert.doesNotMatch(output.join('\n'), /claude-code:|opencode:/);
+    const text = answer.text;
+    assert.match(text, expected === 'en' ? /codex \(in use\)/ : /codex \(em uso\)/);
+    assert.doesNotMatch(text, /claude-code:|opencode:/);
   }
 });
 
-test('unknown client gets a simple sentence and exit code one in either language', async () => {
+test('unknown client gets a simple sentence in either language', async () => {
   for (const locale of ['en', 'pt-BR']) {
-    const output = [];
-    const code = await main(['env', 'report', '--client', 'unknown', '--locale', locale], {
-      root: '.delegate/env-report-test-state', env: {}, stdout: (text) => output.push(text), stderr: (text) => output.push(text),
-    });
-    assert.equal(code, 1);
-    assert.equal(output.length, 1);
-    assert.equal(output[0], formatEnvironmentReport(await environmentReport({ client: 'unknown' }), locale));
-    assert.doesNotMatch(output[0], /Usage|TypeError|D\d+|ENOENT/);
+    const answer = await callTool('env_report', { client: 'unknown', locale },
+      { root: '.delegate/env-report-test-state', env: {} });
+    assert.equal(answer.text, formatEnvironmentReport(await environmentReport({ client: 'unknown' }), locale));
+    assert.doesNotMatch(answer.text, /Usage|TypeError|D\d+|ENOENT/);
   }
 });

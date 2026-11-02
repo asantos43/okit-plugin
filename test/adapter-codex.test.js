@@ -7,10 +7,11 @@ import fsPromises from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import adapter, { capabilities, configRoot, installHooks, installSkill, readQuota, spawn }
   from '../adapters/codex/index.js';
-import { adapterQuotaReader } from '../src/status.js';
+import { adapterQuotaReader, LABELS, quotaOrigin } from '../src/status.js';
+import { callTool } from './helpers/tools.js';
 import { readCodexSessionQuota } from '../adapters/codex/session-quota.js';
 import { configOf } from '../src/profiles.js';
-import { runCli } from '../src/cli.js';
+import { configSet } from '../src/core/config.js';
 import { statusTable } from '../src/status.js';
 import { rolePrompt } from '../src/roles.js';
 const brief = (text) => `Role: Executor\n${text}`;
@@ -144,15 +145,14 @@ test('status displays automatic source, real windows and age in both languages',
     assert.ok(table.markdown.includes(words));
   }
 });
-test('config commands persist quota settings and refuse invalid values without changing them', async () => {
-  const { root, opts } = await quotaFixture();
-  const io = { root, env: opts.env, stdout() {}, stderr() {} };
-  assert.equal(await runCli(['config', 'set', 'codexQuota.tailBytes', '32768'], io), 0);
+test('the configuration persists quota settings and refuses invalid values without changing them', async () => {
+  const { root } = await quotaFixture();
+  await configSet(root, { key: 'codexQuota.tailBytes', value: '32768' });
   const file = join(root, 'config.json');
   const before = await readFile(file, 'utf8');
   assert.equal(JSON.parse(before).codexQuota.tailBytes, 32768);
   for (const [key, value] of [['recentFiles', '0'], ['maxTailBytes', '1'], ['fields.usedPercent', '']]) {
-    assert.equal(await runCli(['config', 'set', `codexQuota.${key}`, value], io), 2);
+    await assert.rejects(configSet(root, { key: `codexQuota.${key}`, value }), /Invalid value/);
     assert.equal(await readFile(file, 'utf8'), before);
   }
 });
@@ -217,10 +217,14 @@ test('empty sessions fall back to manual; newer manual and equal timestamps win'
   await writeFile(join(directory, 'rollout-test.jsonl'), quotaEvent(42, QUOTA_TIME + 1000));
   assert.equal((await readQuota(opts)).source, 'automatic');
   assert.equal(await readCodexSessionQuota({ ...opts, now: () => QUOTA_TIME + 121 * 60_000 }), null);
-  const out = [];
-  await runCli(['quota', 'show', 'codex'], { root, env: opts.env,
-    now: () => QUOTA_TIME + 121 * 60_000, stdout: (line) => out.push(line) });
-  assert.match(out.join('\n'), /manual \(121 minutes ago\).*manual \(há 121 minutos\)/);
+  const shown = await callTool('quota_show', { client: 'codex' },
+    { root, env: opts.env, now: () => QUOTA_TIME + 121 * 60_000 });
+  const [reading] = shown.clients;
+  assert.equal(reading.reading.source, 'manual');
+  assert.equal(reading.reading.ageMinutes, 121);
+  for (const [locale, words] of [['en', 'manual \\(121 minutes ago\\)'], ['pt-BR', 'manual \\(há 121 minutos\\)']]) {
+    assert.match(quotaOrigin(reading.reading, shown.now, LABELS[locale]), new RegExp(words));
+  }
 });
 test('session quota selects newest mtime and last valid event without writes', async () => {
   const { directory, opts } = await quotaFixture();

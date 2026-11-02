@@ -488,7 +488,7 @@ test('static import scan corpus: must pass declarations / must refuse other text
   for (const [source, expected] of cases) assert.deepEqual(staticRelativeImports(source), expected);
 });
 
-test('all eighteen extracted payloads run status and resolve every static source import', async () => {
+test('all eighteen extracted payloads run the daemon pass and resolve every static source import', async () => {
   const config = releaseConfig();
   const out = await temp('all-payloads');
   const result = await buildRelease({ root: REPO, out, env: { SOURCE_DATE_EPOCH: EPOCH } });
@@ -514,14 +514,14 @@ test('all eighteen extracted payloads run status and resolve every static source
         assert.ok((await stat(target)).isFile(), `${artifact.file}: ${source} -> ${specifier}`);
       }
     }
-    const run = spawnSync(process.execPath, [join(extracted, 'src/cli.js'), 'status'], {
+    const run = spawnSync(process.execPath, [join(extracted, 'src/cli.js'), 'daemon', 'run-once'], {
       cwd: extracted, env: { ...process.env, OKWORK_HOME: await temp('status-state') },
       timeout: 15000, encoding: 'utf8',
     });
     assert.ifError(run.error);
     assert.doesNotMatch(run.stderr, /ERR_MODULE_NOT_FOUND/, artifact.file);
     assert.equal(run.status, 0, `${artifact.file}: ${run.stderr}`);
-    assert.match(run.stdout, /executors that can launch now:/, artifact.file);
+    assert.match(run.stdout, /opened: 0/, artifact.file);
   }
 });
 

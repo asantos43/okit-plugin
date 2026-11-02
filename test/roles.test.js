@@ -4,8 +4,8 @@ import { roleContext, formatRoleContext, briefedRole } from '../src/roles.js';
 import { mkdtemp, readdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { main } from '../src/cli.js';
 import { runSessionStart } from '../src/hook-session-start.js';
+import { environmentReport } from '../src/env/report.js';
 
 // | Must pass | Must refuse |
 // | main Director; explicit Executor/Critic; same bilingual facts | missing/conflicting briefed role |
@@ -60,7 +60,8 @@ test('environment question and native startup never save, launch or spend quota'
   const before = await readdir(root);
   const io = { root, env: { HOME: root, CODEX_HOME: join(root, 'codex'), CLAUDE_CONFIG_DIR: join(root, 'claude') },
     snapshot, writeConfig: refuse, write: refuse, spawn: refuse, run: refuse, stdout: (text) => output.push(text) };
-  assert.equal(await main(['env', 'report'], io), 0);
+  const report = await environmentReport({ ...io, root, env: io.env, config: {}, clients: [], readQuota: async () => ({ source: 'off' }) });
+  assert.equal(report.clients.length, 0);
   assert.equal(await runSessionStart({ ...io, stdin: JSON.stringify({ cwd: root }) }), 0);
   const hook = JSON.parse(output.at(-1));
   assert.match(hook.hookSpecificOutput.additionalContext, /Role: Director/);

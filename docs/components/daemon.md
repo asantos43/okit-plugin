@@ -7,13 +7,13 @@ The daemon processes pending and recurring work within concurrency limits and st
 <a id="run"></a>
 ## Run and stop
 
-Use `okit-plugin daemon run-once` for one pass; `okit-plugin daemon start` keeps the foreground loop running. Each pass reads configuration, checks pause/stop, purges orders past retention, observes allowance, opens due recurrences and serves pending work oldest first. The PROCESS adapter executes work; the core receives its launcher as a dependency.
+Ask the assistant to use the MCP tool `daemon` with action `run-once` for one pass. The internal `daemon start` entry point keeps the foreground loop running, started by autostart configured through `okit-plugin setup` or `okit-plugin install --autostart`. Each pass reads configuration, checks pause/stop, purges orders past retention, observes allowance, opens due recurrences and serves pending work oldest first. The PROCESS adapter executes work; the core receives its launcher as a dependency.
 Defaults are a 60-second interval, 10% quota floor and 14-day log retention. Known allowance below the floor stops the pass; no reading is not treated as below the floor in this daemon check. Slots are separate per-client limits; a period with a live child is not duplicated.
 
-- `okit-plugin daemon status --table`: PID, pause, last pass and capacity table.
-- `okit-plugin daemon pause`: prevents new work without ending the loop.
-- `okit-plugin daemon resume`: removes the pause marker only.
-- `okit-plugin daemon stop`: creates daemon.stop to end the loop; SIGINT/SIGTERM also stop it. The next daemon start clears this marker automatically; resume and run-once do not clear it. The pause marker survives a restart.
+- MCP `daemon`, action `status`: PID, pause and last pass; ask for MCP `status` for capacity.
+- MCP `daemon`, action `pause`: prevents new work without ending the loop.
+- MCP `daemon`, action `resume`: removes the pause marker only.
+- The installer uses internal `daemon stop`: creates daemon.stop to end the loop; SIGINT/SIGTERM also stop it. The next daemon start clears this marker automatically; resume and run-once do not clear it. The pause marker survives a restart.
 
 <a id="schedules"></a>
 ## Recurrences
@@ -33,7 +33,7 @@ The default time zone is UTC. window bounds time of day; minQuotaPct, onlyWhenId
 <a id="autostart"></a>
 ## Automatic startup
 
-`okit-plugin autostart show` displays the plan before applying it. install/uninstall register/remove systemd or cron on Linux, launchd on macOS or schtasks on Windows. Inspect the actual platform plan; a daemon can spend allowance when work arrives. Logs and markers live in [state](state.md).
+`okit-plugin setup` offers the startup plan before applying it; `okit-plugin install --autostart` also registers it. The installer registers/removes systemd or cron on Linux, launchd on macOS or schtasks on Windows. Inspect the actual platform plan; a daemon can spend allowance when work arrives. Logs and markers live in [state](state.md).
 The cron plan installs its file as the user's entire crontab; uninstall runs crontab -r. Review and back up existing entries before applying that plan.
 
 [Overview](README.md) · [Configuration](configuration.md) · [Português](daemon.pt-BR.md)
