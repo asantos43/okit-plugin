@@ -167,7 +167,7 @@ function forbiddenSkillTool(text) {
     if (!TOOL_NAMES_SET.has(match[1] ?? match[2])) return true;
   }
   // The same phrases without the backticks ("doctor tool", "ferramenta doctor"): the word names a tool of the server.
-  for (const match of text.matchAll(/\b(\w+) tool\b|\bferramenta (\w+)/gi)) {
+  for (const match of text.matchAll(/(?<![\w-])([\w-]+)\s+tool\b|(?<![\w-])ferramenta\s+([\w-]+)/gi)) {
     const word = match[1] ?? match[2];
     if (TOOL_NOUNS.has(word.toLowerCase())) continue;
     if (!TOOL_NAMES_SET.has(word)) return true;
@@ -608,6 +608,12 @@ test('skill tool checks reject unknown words and tool phrases in both languages'
   // The same phrases without the backticks: the word names a tool of the server or it is ordinary prose.
   assert.ok(forbiddenSkillTool('doctor tool'), 'doctor tool');
   assert.ok(forbiddenSkillTool('ferramenta doctor'), 'ferramenta doctor');
+  // Whatever the spaces are, and the whole name counts, not its first word.
+  assert.ok(forbiddenSkillTool('doctor\ntool'), 'a line break before tool');
+  assert.ok(forbiddenSkillTool('ferramenta\ndoctor'), 'a line break after ferramenta');
+  assert.ok(forbiddenSkillTool('ferramenta daemon-start'), 'a hyphenated name is validated whole');
+  assert.ok(forbiddenSkillTool('the daemon-start tool'), 'a hyphenated name before tool');
+  assert.ok(forbiddenSkillTool('doctor  tool'), 'two spaces');
   assert.ok(!forbiddenSkillTool('`smoke_demo` tool'), '`smoke_demo` tool');
   assert.ok(!forbiddenSkillTool('the tool answers'), 'the tool answers');
   assert.ok(!forbiddenSkillTool('The tool answers'), 'a capital at the start of a sentence');
