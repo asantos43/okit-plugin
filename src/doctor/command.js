@@ -8,7 +8,7 @@ import { clientLabel, createPresenter } from '../install/present.js';
 import { diagnose } from './diagnose.js';
 
 // The doctor of the command line: it looks at the whole installation and tells what it found. One row per thing it
-// looked at, a `Fix:` line under every row that failed or warned, and one line of summary at the end.
+// looked at, the summary first and repair instructions below the data table.
 //
 // It only reads. The state of the person is the same before and after the run: no file is written, no record is
 // removed and nothing is registered. The rows come from the diagnosis (src/doctor/diagnose.js), which is the only
@@ -38,27 +38,51 @@ export async function doctorCommand(ctx, { locale, config, verbose = false, clie
   // other clients are still diagnosed. The records of the installation that is running are found too, when the
   // destination has none (the doctor that runs from inside an installation sees it).
   const { records, invalid, destination: discovered } = await discoverRecords(destination, { fs: ctx.fs, config, lenient: true });
-  ctx.out(ui.text('doctorHeader', { command: config.command }));
   const result = await diagnose({
     root: ctx.root, config, records: Object.values(records), invalid, ui, destination: discovered,
     command: config.command, platform: ctx.platform, env: ctx.env, home,
     fs: ctx.fs, run: ctx.run, now: ctx.now, client, temporary: ctx.tmpdir, readers,
   });
-  // The rows that are told: a quiet one is one the person did not ask for (it is told with --verbose).
+  presentDiagnosis(result, { ui, command: config.command, client, verbose, out: ctx.out });
+  return exitCodeFor(result.failed > 0 ? 'operational' : 'ok');
+}
+
+export function presentDiagnosis(result, { ui, command, client, verbose = false, out }) {
+  const pt = ui.locale === 'pt-BR';
+  out(`${command} — ${pt ? 'Verificação da instalação' : 'Installation check'}`);
+  const { failed, warnings } = result;
+  if (!failed && !warnings) out(pt
+    ? `Pronto. ${result.rows.length === 1 ? 'A verificação passou' : `As ${result.rows.length} verificações passaram`}.`
+    : `Ready. ${result.rows.length === 1 ? 'The check passed' : `All ${result.rows.length} checks passed`}.`);
+  else {
+    const failures = pt ? `${failed} ${failed === 1 ? 'verificação falhou' : 'verificações falharam'}` : `${failed} failed ${failed === 1 ? 'check' : 'checks'}`;
+    const alerts = pt ? `${warnings} ${warnings === 1 ? 'aviso' : 'avisos'}` : `${warnings} ${warnings === 1 ? 'warning' : 'warnings'}`;
+    out(`${pt ? 'Precisa de atenção' : 'Needs attention'}: ${failed ? failures : alerts}${failed && warnings ? `; ${alerts}` : ''}; ${pt ? 'as demais passaram' : 'other checks passed'}.`);
+  }
   const shown = result.rows.filter((row) => !row.quiet || verbose);
   // The rows of a client name it, so two clients are told apart. The labels share one width, so every mark of the run
   // is in the same column.
-  const labels = shown.map((row) => (row.client ? `${clientLabel(row.client)}: ${row.label}` : row.label));
-  const width = labels.reduce((most, label) => Math.max(most, label.length), 0);
+  const labels = shown.map((row) => row.id === 'registration'
+    ? (pt ? `Conexão com ${clientLabel(row.client)}` : `${clientLabel(row.client)} connection`)
+    : (row.client ? `${clientLabel(row.client)}: ${row.label}` : row.label));
+  out(pt ? '| Verificação | Resultado |' : '| Check | Result |');
+  out('| --- | --- |');
+  const cell = (value) => String(value).replaceAll('|', '\\|').replaceAll('\n', ' ');
   for (const [index, row] of shown.entries()) {
-    ui.row(labels[index].padEnd(width), row.status, row.detail);
-    if (row.fix && (row.status === 'failed' || row.status === 'warn')) ui.note(ui.text('selfcheckFix', { fix: row.fix }));
+    out(`| ${cell(labels[index])} | ${cell(row.detail)} |`);
   }
-  const { failed, warnings } = result;
-  const summary = failed === 0 && warnings === 0
-    ? ui.text('doctorSummaryOk', { count: result.rows.length })
-    : ui.text('doctorSummary', { failed, warnings });
-  ui.row(''.padEnd(width), failed > 0 ? 'failed' : warnings > 0 ? 'warn' : 'ok', summary);
-  // A warning never fails the run: only a failed row does.
-  return exitCodeFor(failed > 0 ? 'operational' : 'ok');
+  const check = `${command} doctor${client ? ` --client ${client}` : ''}`;
+  const fixes = [...new Set(shown.filter((row) => ['failed', 'warn'].includes(row.status) && row.fix).map((row) => row.fix))];
+  for (const fix of fixes) {
+    out(`${pt ? 'Correção' : 'Fix'}: ${fix}`);
+    // One verification command is enough when several checks need repair.
+  }
+  if (fixes.length) out(`${pt ? 'Depois confira' : 'Then check'}: ${check}`);
+  if (shown.some((row) => row.id === 'session' && row.status === 'warn' && !row.fix)) out(pt
+    ? `Nenhuma sessão de cliente aberta. Abra ${clientLabel(client ?? 'codex')} e rode: ${check}`
+    : `No client session is open. Open ${clientLabel(client ?? 'codex')}, then run: ${check}`);
+  if (labels.some((label) => /MCP/.test(label)) || shown.some((row) => /MCP/.test(`${row.detail} ${row.fix ?? ''}`))) out(pt
+    ? 'MCP é a conexão usada pelo assistente para chamar ferramentas do plugin.'
+    : 'MCP is the connection your assistant uses to call plugin tools.');
+  if (!fixes.length) out(`${pt ? 'Verifique novamente quando precisar' : 'Check again when needed'}: ${check}`);
 }

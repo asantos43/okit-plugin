@@ -9,7 +9,7 @@ import { configOf, DEFAULT_CONFIG, PROFILE_EFFORTS } from '../profiles.js';
 import { readJson, withLock, writeJsonAtomic } from '../state.js';
 import { paths } from '../store.js';
 import { environmentSnapshot } from '../env/snapshot.js';
-import { redactingStream } from '../install/present.js';
+import { clientLabel, redactingStream } from '../install/present.js';
 import { labelsOf } from '../env/quota.js';
 
 /**
@@ -42,6 +42,7 @@ export function setupReader({ stdin = process.stdin, output = process.stdout } =
         reader.prompt();
       }
       const answer = await lines.next();
+      if (!stdin?.isTTY) output.write('\n');
       return answer.done ? undefined : answer.value;
     },
     close: () => reader.close(),
@@ -52,16 +53,16 @@ export function setupReader({ stdin = process.stdin, output = process.stdout } =
 // offer at the end of an installation and the command line all say the same
 // thing, in the two languages, without ids and without jargon.
 export const CONFIG_UNREADABLE = Object.freeze({
-  en: 'Could not check the configuration: the file is not readable. Ask your assistant to call `config_get` to see the settings.',
-  'pt-BR': 'Não foi possível verificar a configuração: o arquivo não está legível. Peça ao seu assistente para chamar `config_get` e ver os ajustes.',
+  en: 'Settings could not be read. Inspect them: MCP config_get {}',
+  'pt-BR': 'Não foi possível ler os ajustes. Confira: MCP config_get {}',
 });
 
 // The one sentence for a configuration that could not be saved: the folder
 // that holds it refused the write. It names that folder and the command to
 // run again, and never the technical text of the system.
 export const CONFIG_NOT_SAVED = Object.freeze({
-  en: 'Could not save the configuration: check the permissions of the folder `{path}` and run `{command} setup` again.',
-  'pt-BR': 'Não foi possível salvar a configuração: verifique as permissões da pasta `{path}` e rode `{command} setup` de novo.',
+  en: 'Choices could not be saved. Check write permission for the settings folder, then run: {command} setup\n{path}',
+  'pt-BR': 'Não foi possível salvar as escolhas. Confira a permissão de gravação da pasta de ajustes e rode: {command} setup\n{path}',
 });
 
 /**
@@ -473,8 +474,23 @@ function negative(value) {
   return /^(n|no|nao|não)$/i.test(value);
 }
 
-async function askModel({ ask, locale, client, className, proposal, candidates, attempts }) {
+async function askModel({ ask, locale, client, className, proposal, candidates, attempts, out }) {
   const recommended = candidates[0];
+  if (out) {
+    const pt = locale === 'pt-BR';
+    out(`\n${workLabel(className, locale)} — ${clientLabel(client)}`);
+    candidates.forEach((model, index) => out(`${index + 1}. ${model}${index === 0 ? (pt ? ' (recomendado)' : ' (recommended)') : ''}`));
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const answer = await askValue(ask, pt ? 'Escolha um modelo [1]:' : 'Choose a model [1]:');
+      if (answer == null) return { cancelled: true };
+      const clean = String(answer).trim();
+      const index = clean === '' ? 0 : /^[1-9]\d*$/.test(clean) ? Number(clean) - 1 : -1;
+      if (candidates[index]) return { value: candidates[index] };
+      const options = candidates.map((_, i) => i + 1).join(pt ? ' ou ' : ' or ');
+      out(pt ? `Escolha ${options}.` : `Choose ${options}.`);
+    }
+    return { invalid: true };
+  }
   const values = {
     client,
     class: className,
@@ -492,15 +508,53 @@ async function askModel({ ask, locale, client, className, proposal, candidates, 
     const clean = String(answer).trim();
     const selected = clean === '' ? recommended : clean;
     if (candidates.includes(selected)) return { value: selected };
-    question = `${format('invalid', locale)} ${question}`;
+    question = `${format('invalid', locale)} ${languages.map((language) => format('question', language,
+      { ...values, purpose: format(className, language) })).join(' / ')}`;
   }
   return { invalid: true };
 }
 
-async function confirmSetup({ ask, locale, attempts, changes, ui }) {
+function workLabel(name, locale) {
+  const labels = locale === 'pt-BR'
+    ? { simple: 'Tarefas pequenas', normal: 'Tarefas do dia a dia', hard: 'Tarefas complexas' }
+    : { simple: 'Small tasks', normal: 'Everyday tasks', hard: 'Complex tasks' };
+  return labels[name] ?? name;
+}
+
+export function setupResultLines(result, locale, command) {
+  const pt = locale === 'pt-BR';
+  if (result.cancelled) return [pt ? 'Cancelado. Nada foi salvo.' : 'Cancelled. Nothing was saved.',
+    pt ? `Tente novamente quando quiser: ${command} setup` : `Try again when ready: ${command} setup`];
+  const clients = [...new Set([...result.changes, ...result.skipped].map((entry) => entry.client))];
+  const check = `${command} doctor${clients.length === 1 ? ` --client ${clients[0]}` : ''}`;
+  if (result.kept?.length) return [pt ? 'As escolhas mais novas foram mantidas. Confira: MCP config_get {}' : 'Newer choices were kept. Check them: MCP config_get {}'];
+  if (result.changes.length) return [pt
+    ? `${result.changes.length} escolhas de modelos salvas para ${clients.map(clientLabel).join(', ')}.`
+    : `Saved ${result.changes.length} model choices for ${clients.map(clientLabel).join(', ')}.`,
+  `${pt ? 'Próximo' : 'Next'}: ${check}`];
+  if (result.skipped.length) return [pt ? 'Todas as escolhas de modelos já estão salvas. Nada mudou.' : 'All model choices are already saved. Nothing changed.',
+    `${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`,
+    `${pt ? 'Altere os modelos' : 'Change models'}: ${command} setup --again`];
+  return [pt ? 'Nenhum cliente com modelo ativo foi encontrado. Nada foi salvo.' : 'No client with an active model was found. Nothing was saved.',
+    pt ? `Instale ou ative um modelo no seu cliente de programação e rode: ${command} setup` : `Install or enable a model in your coding client, then run: ${command} setup`,
+    `${pt ? 'Confira os clientes disponíveis' : 'Check which clients are available'}: MCP env_report {"locale":"${locale}"}`];
+}
+
+async function confirmSetup({ ask, locale, attempts, changes, ui, out, command }) {
   // With a presenter the reason is said once, the choices are listed, and the question comes last.
   let question = ui ? ui.question(ui.text('modelsSave')) : formatConfirmation(locale, changes);
-  if (ui) {
+  if (out) {
+    const pt = locale === 'pt-BR';
+    out(pt ? '\nEscolhas de modelos' : '\nModel choices');
+    out(pt ? '| Trabalho | Modelo |' : '| Work | Model |');
+    out('| --- | --- |');
+    for (const change of changes) out(`| ${workLabel(change.class, locale)} | ${change.model} |`);
+    out(pt
+      ? `\nAs escolhas valem para trabalhos futuros. Para alterá-las: ${command} setup --again`
+      : `\nThese choices apply to future work. You can change them with: ${command} setup --again`);
+    question = pt ? 'Salvar estas escolhas? [s/N]:' : 'Save these choices? [y/N]:';
+  }
+  if (ui && !out) {
     const reasons = [...new Set(changes.map((change) => reasonParts(change.reason)[ui.locale] || reasonParts(change.reason).en).filter(Boolean))];
     ui.explain([...reasons, ui.text('modelsPlan'), ...changes.map((change) => `  ${change.client} (${change.class}): ${change.model}`)]);
   }
@@ -510,8 +564,9 @@ async function confirmSetup({ ask, locale, attempts, changes, ui }) {
     const clean = String(answer).trim();
     if (clean === '' || negative(clean)) return { cancelled: true };
     if (affirmative(clean)) return { confirmed: true };
-    if (ui) ui.explain([format('invalidConfirmation', locale)]);
-    else question = `${format('invalidConfirmation', locale)} ${question}`;
+    if (out) out(format('invalidConfirmation', locale));
+    else if (ui) ui.explain([format('invalidConfirmation', locale)]);
+    else question = `${format('invalidConfirmation', locale)} ${formatConfirmation(locale, changes)}`;
   }
   return { invalid: true };
 }
@@ -615,10 +670,12 @@ export async function runSetup({
   again = false,
   command = DEFAULT_CONFIG.install.command,
   ui,
+  out,
 } = {}) {
   if (!root) throw new TypeError('root is required');
   // With a presenter (the installer) the language is the presenter's and the plan is shown once, at the question.
   if (ui) locale = ui.locale;
+  if (ui?.humanOutput && !out) out = (line) => ui.explain([line]);
   if (!defaults && typeof ask !== 'function') {
     // Asked for something impossible in this mode (an interactive setup with no reader): usage (2), not a failure of
     // the environment; the command always hands a reader, so only a caller of runSetup can reach it.
@@ -673,6 +730,22 @@ export async function runSetup({
   const messages = [];
   const done = wasDone(stored);
 
+  if (out) {
+    const names = configurableClients(detected).map((client) => clientLabel(client.client)).join(', ');
+    const pending = again || !done;
+    if (pending && !defaults) out(locale === 'pt-BR'
+      ? `Escolha modelos para ${names}; nada é salvo até sua confirmação.`
+      : `Choose models for ${names}; nothing is saved until you confirm.`);
+    const fallbackClients = configurableClients(detected).filter((client) => client.source === 'catalog');
+    for (const client of fallbackClients) {
+      if (!pending || client.source !== 'catalog') continue;
+      const reason = locale === 'pt-BR'
+        ? 'Não foi possível ler a lista de modelos; estas opções vêm da lista incluída no plugin.'
+        : 'The model list could not be read; these choices come from the built-in list.';
+      out(`${fallbackClients.length > 1 ? `${clientLabel(client.client)}: ` : ''}${reason}`);
+    }
+  }
+
   for (const clientProposal of proposals.clients) {
     const detectedClient = clients.get(clientProposal.client);
     if (!clientCanBeConfigured(detectedClient)) continue;
@@ -701,7 +774,7 @@ export async function runSetup({
         previous: profileValue(resolved.profiles, clientProposal.client, className),
         reason: proposal.reason,
       });
-      if (!ui) {
+      if (!ui && !out) {
         messages.push(formatWithReason('plan', locale, {
           client: clientProposal.client,
           class: className,
@@ -727,7 +800,7 @@ export async function runSetup({
       }
       const answer = await askModel({
         ask, locale, client: clientProposal.client, className,
-        proposal, candidates, attempts,
+        proposal, candidates, attempts, out,
       });
       if (answer.cancelled) {
         return { code: 0, cancelled: true, changes: [], skipped, omitted, messages: [format('cancelled', locale)] };
@@ -760,7 +833,7 @@ export async function runSetup({
   }
 
   if (!defaults) {
-    const confirmation = await confirmSetup({ ask, locale, attempts, changes, ui });
+    const confirmation = await confirmSetup({ ask, locale, attempts, changes, ui, out, command });
     if (confirmation.cancelled) {
       return { code: 0, cancelled: true, changes: [], skipped, omitted, messages: [format('cancelled', locale)] };
     }

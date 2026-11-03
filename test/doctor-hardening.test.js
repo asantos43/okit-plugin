@@ -132,7 +132,7 @@ test('the self-check reads the records of the folder the record names', async (t
   f.clear();
   await doctorCommand(f.io, { locale: 'en', config: f.io.config });
   const text = f.output.join('\n');
-  assert.match(text, /Claude Code: Version\s+ok\s+1\.0\.0/, text);
+  assert.match(text, /Claude Code: Version \| 1\.0\.0/, text);
   assert.ok(path);
 });
 
@@ -150,9 +150,9 @@ test('a legacy record of the old shape with an existing payload is an installati
   const text = f.output.join('\n');
   assert.equal(code, exitCodeFor('ok'), text);
   // The installation is there: no row says it is broken.
-  assert.match(text, /0 failed, \d+ to look at/, text);
-  assert.match(text, /Claude Code: Version\s+ok\s+1\.0\.0/, text);
-  assert.match(text, /Claude Code: Payload\s+ok/, text);
+  assert.match(text, /Needs attention: \d+ warnings?;|Ready\./, text);
+  assert.match(text, /Claude Code: Version \| 1\.0\.0/, text);
+  assert.match(text, /Claude Code: Payload \|/, text);
   assert.ok(path);
 });
 
@@ -165,7 +165,7 @@ test('a legacy record that cannot be read says why, in plain words', async (t) =
   const text = f.output.join('\n');
   assert.equal(code, exitCodeFor('operational'), text);
   // The row says what is wrong and which file it is.
-  assert.match(text, /Installation record\s+failed\s+installation record unreadable: /, text);
+  assert.match(text, /Installation record \| installation record unreadable: /, text);
   assert.ok(text.includes(join(f.destination, 'install.json')), text);
   // The Fix repairs it: the install of every client (the record belongs to no client).
   assert.ok(text.includes(`Fix: Install it again: ${shown([process.execPath, fileURLToPath(new URL('../src/cli.js', import.meta.url))])} install`), text);
@@ -181,7 +181,7 @@ test('the payload of an installation is whole when every file it lists is there'
   const code = await main(['doctor'], f.io);
   const text = f.output.join('\n');
   assert.equal(code, exitCodeFor('ok'), text);
-  assert.match(text, /Claude Code: Payload\s+ok\s+every file of the installation is there/, text);
+  assert.match(text, /Claude Code: Payload \| every file of the installation is there/, text);
 });
 
 for (const damage of ['remove', 'empty']) {
@@ -200,7 +200,7 @@ for (const damage of ['remove', 'empty']) {
         const code = await main(['doctor'], f.io);
         const text = f.output.join('\n');
         assert.equal(code, exitCodeFor('operational'), `${file}: ${text}`);
-        const row = text.split('\n').find((line) => /Opencode: Payload\s+failed/.test(line));
+        const row = text.split('\n').find((line) => /OpenCode: Payload \|/.test(line));
         assert.ok(row?.includes(join(path, file)), `${file}: ${text}`);
         const script = fileURLToPath(new URL('../src/cli.js', import.meta.url));
         assert.ok(text.includes(`Fix: Install again: ${shown([process.execPath, script, 'install', '--client', 'opencode'])}`), text);
@@ -242,7 +242,7 @@ test('the Fix and the detail of a self-check row quote the path and the command 
   // The detail names the file as one shell word.
   assert.ok(text.includes(`'${join(path, PROBE)}'`), text);
   // The Fix is the command as the shell reads it: the program in one word.
-  const fix = /^ +Fix: Install again: (.*)$/m.exec(text);
+  const fix = /^Fix: Install again: (.*)$/m.exec(text);
   assert.ok(fix, text);
   assert.deepEqual(argvOf(fix[1]), [process.execPath, fileURLToPath(new URL('../src/cli.js', import.meta.url)), 'install', '--client', CLIENT], fix[1]);
 });
@@ -273,7 +273,7 @@ test('the Fix of an installation without a link names the running node, never a 
   await fs.rm(join(path, PROBE));
   f.clear();
   await main(['doctor'], f.io);
-  const fix = /^ +Fix: Install again: (.*)$/m.exec(f.output.join('\n'));
+  const fix = /^Fix: Install again: (.*)$/m.exec(f.output.join('\n'));
   assert.ok(fix, f.output.join('\n'));
   assert.deepEqual(argvOf(fix[1]).slice(0, 2), [process.execPath, fileURLToPath(new URL('../src/cli.js', import.meta.url))], fix[1]);
 });

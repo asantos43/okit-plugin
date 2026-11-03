@@ -7,7 +7,7 @@ import process from 'node:process';
 import { readJson } from '../state.js';
 import { paths } from '../store.js';
 import { setupPending, DEFAULT_CONFIG } from '../profiles.js';
-import { runSetup, formatUnreadable, isReadableConfig, CONFIG_UNREADABLE } from './setup.js';
+import { runSetup, setupResultLines, formatUnreadable, isReadableConfig, CONFIG_UNREADABLE } from './setup.js';
 
 // Every text here is simple, bilingual and free of demand or order ids.
 export const OFFER_MESSAGES = Object.freeze({
@@ -16,7 +16,7 @@ export const OFFER_MESSAGES = Object.freeze({
     'pt-BR': 'O setup ainda não foi feito. Rode {command} setup para escolher os modelos.',
   },
   question: {
-    en: 'Configure now? [S/n] Recommended: yes, review the detected choices together.',
+    en: 'Configure now? [Y/n] Recommended: yes, review the detected choices together.',
     'pt-BR': 'Configurar agora? [S/n] Recomendação: sim, revisar juntos as escolhas encontradas.',
   },
   declined: {
@@ -152,6 +152,11 @@ async function runOfferRow({
       return { pending: true, offered: true, ran: false, declined: true };
     }
     const result = await runSetup({ root, config: stored, env, run, ask, adapters, snapshot, write, command, ui });
+    if (ui.humanOutput) {
+      ui.explain(setupResultLines(result, ui.locale, command));
+      if (result.changes.length) row('ok', ui.text('modelsSaved', { models: [...new Set(result.changes.map((change) => change.model))].join(', ') }));
+      return { pending: true, offered: true, ran: true, code: result.code };
+    }
     const models = [...new Set(result.changes.map((change) => change.model))];
     if (result.cancelled || !models.length) row(result.cancelled ? 'skipped' : 'info', result.messages[0] ?? '');
     else row('ok', ui.text('modelsSaved', { models: models.join(', ') }));

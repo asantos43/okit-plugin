@@ -1,0 +1,1 @@
+- Present setup, installation checks and installer outcomes with summaries, numbered choices and exact next commands in English and Brazilian Portuguese. / Apresenta configuração, verificações da instalação e resultados do instalador com resumos, escolhas numeradas e próximos comandos exatos em inglês e português brasileiro.

@@ -11,6 +11,7 @@ import { main } from '../src/cli.js';
 import { installConfig } from '../src/install/config.js';
 import { tarGz } from '../src/release/archive.js';
 import { formatOffer } from '../src/setup/offer.js';
+import { createPresenter } from '../src/install/present.js';
 import { answerCheck } from './helpers/install-fixture.js';
 import { callTool } from './helpers/tools.js';
 
@@ -134,6 +135,8 @@ async function installation(t, { tty = false, ask } = {}) {
     stdout: (line) => out.push(line),
     stderr: (line) => out.push(line),
   };
+  // These lifecycle tests inject failures at presenter events; CLI layout has its own goldens.
+  io.ui = createPresenter({ locale: 'en', write: (line) => io.stdout(line) });
   return { home, root, bin, config, io, out, setVersion: (value) => { version = value; } };
 }
 
@@ -252,7 +255,7 @@ test('a corrupted configuration at the end of the install keeps the installation
   };
   assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.out.join(' / '));
   assert.ok(
-    f.out.some((line) => /Could not check the configuration/.test(line)),
+    f.out.some((line) => /Settings could not be read/.test(line)),
     f.out.join(' / '),
   );
 });
@@ -266,7 +269,7 @@ test('a configuration without an object root at the end of the install keeps the
   };
   assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.out.join(' / '));
   assert.ok(
-    f.out.some((line) => /Could not check the configuration/.test(line)),
+    f.out.some((line) => /Settings could not be read/.test(line)),
     f.out.join(' / '),
   );
   // One language per run: the Portuguese sentence belongs to --locale pt-BR.
@@ -275,13 +278,14 @@ test('a configuration without an object root at the end of the install keeps the
 
 test('the unreadable configuration is reported in Portuguese with --locale pt-BR only', async (t) => {
   const f = await installation(t);
+  f.io.ui = createPresenter({ locale: 'pt-BR', write: (line) => f.io.stdout(line) });
   const original = f.io.stdout;
   f.io.stdout = (line) => {
     original(line);
     if (LINK_ROW_PT.test(line)) writeFileSync(join(f.root, 'config.json'), 'null');
   };
   assert.equal(await main(['install', '--client', 'codex', '--locale', 'pt-BR'], f.io), 0, f.out.join(' / '));
-  assert.ok(f.out.some((line) => /não está legível/.test(line)), f.out.join(' / '));
+  assert.ok(f.out.some((line) => /Não foi possível ler os ajustes/.test(line)), f.out.join(' / '));
   assert.ok(!f.out.some((line) => /Could not check/.test(line)), f.out.join(' / '));
 });
 

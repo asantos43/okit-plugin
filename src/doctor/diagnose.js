@@ -250,7 +250,7 @@ export async function diagnose(input) {
       fix: ui.text('doctorFixClientInstall', { command: program, client: quotedWord(input.client, platform) }) });
   } else if (!records.length) {
     rows.push({ id: 'install', status: 'failed', label: ui.text('doctorInstall'),
-      detail: ui.text('doctorInstallNone'), fix: ui.text('doctorFixInstall', { command: program }) });
+      detail: ui.text('doctorInstallNone'), fix: ui.text('doctorFixClientInstall', { command: program, client: quotedWord(input.client ?? 'codex', platform) }) });
   } else {
     // The row tells about the clients the run looked at, not about every record of the machine.
     const versions = [...new Set(chosen.map((record) => record.version).filter(Boolean))].join(', ');
@@ -351,7 +351,7 @@ async function registrationRow(record, { deps, readers, settings, platform, comm
   }
   if (state?.state === 'absent') {
     return { ...base, status: 'failed', detail: ui.text('doctorRegistrationAbsent', { client }),
-      fix: ui.text('doctorFixRegistration', { command, client: quotedWord(record.client, platform) }) };
+      fix: ui.text('doctorFixRegistration', { command, name: client, client: quotedWord(record.client, platform) }) };
   }
   if (state?.state === 'foreign') {
     // The entry of that name is not ours: the installer will not replace it, so the person takes it out by hand.
@@ -364,7 +364,7 @@ async function registrationRow(record, { deps, readers, settings, platform, comm
     // The entry is ours, but it cannot work: the client has it off, or it launches another program.
     const key = BROKEN_TEXTS[state.reason] ?? 'doctorRegistrationBroken';
     return { ...base, status: 'failed', detail: ui.text(key, { client, command: state.command ?? '' }),
-      fix: ui.text('doctorFixRegistration', { command, client: quotedWord(record.client, platform) }) };
+      fix: ui.text('doctorFixRegistration', { command, name: client, client: quotedWord(record.client, platform) }) };
   }
   if (state?.state === 'unreadable') {
     return { ...base, status: 'warn', detail: ui.text('doctorRegistrationUnreadable', { client, reason: state.reason ?? '' }) };
@@ -512,7 +512,7 @@ async function autostartRow({ readers, fs, records, root, home, command, program
     return { id: 'autostart', status: 'failed', label, detail: ui.text('doctorAutostartMissing'), fix };
   }
   if (present && !recorded) return { id: 'autostart', status: 'warn', label, detail: ui.text('doctorAutostartExtra') };
-  return { id: 'autostart', status: 'warn', label, detail: ui.text('doctorAutostartOptional', { command: program }) };
+  return { id: 'autostart', status: 'warn', label, detail: ui.text('doctorAutostartOptional'), fix: ui.text('doctorFixAutostart', { command: program }) };
 }
 
 /** The row of the daemon: it runs, or it should (the autostart is there) and does not. */

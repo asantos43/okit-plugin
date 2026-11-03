@@ -37,7 +37,7 @@ async function existedOnMachine(ctx, selected) {
 
 /** The final interactive setup step, attached to the existing installation. */
 export async function setupAutostart(ctx, { config, locale, ask, plan }) {
-  const text = (key, values = {}) => fill(pick(TEXTS[key], locale), values);
+  const text = (key, values = {}) => fill(pick(TEXTS[key], locale), { command: ctx.command, ...values });
   try {
     const home = ctx.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir();
     const { destination: configuredDestination } = installPaths(config, { ...ctx, home });
@@ -84,7 +84,6 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
     }
     // Validate every record before changing the service; an unreadable record must fail before installation.
     await readRecords(destination, ctx.fs, config);
-    ctx.out(text('autostartExplain', { kind: selected.kind }));
     if (selected.path !== null) ctx.out(text('autostartFile', { path: selected.path }));
     let answer;
     try { answer = await ask(text('autostartAsk')); } catch { /* A missing answer declines. */ }

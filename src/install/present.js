@@ -58,9 +58,9 @@ export const TEXTS = Object.freeze({
   removePurge: { en: '{path} (settings removed too)', 'pt-BR': '{path} (ajustes removidos também)' },
   unlinkDone: { en: '{command} removed', 'pt-BR': '{command} removido' },
   unlinkShared: { en: '{command} kept for the other client', 'pt-BR': '{command} mantido para o outro cliente' },
-  clientChoose: { en: 'Which client do you want to install for?', 'pt-BR': 'Para qual cliente você quer instalar?' },
+  clientChoose: { en: 'Choose a coding client before installing.', 'pt-BR': 'Escolha um cliente de programação antes de instalar.' },
   clientDetected: { en: 'found', 'pt-BR': 'encontrado' },
-  clientAsk: { en: 'Number (1,3) or all: ', 'pt-BR': 'Número (1,3) ou all: ' },
+  clientAsk: { en: 'Choose a client [1–3, or all]:', 'pt-BR': 'Escolha um cliente [1–3, ou all]:' },
   clientNoTty: { en: 'Without a terminal to ask in, choose a client with --client.', 'pt-BR': 'Sem terminal para perguntar, escolha o cliente com --client.' },
   linkOff: { en: 'not created (--no-link)', 'pt-BR': 'não criado (--no-link)' },
   linkUser: { en: '{command}  (added to your user PATH)', 'pt-BR': '{command}  (adicionado ao PATH do seu usuário)' },
@@ -116,12 +116,12 @@ export const TEXTS = Object.freeze({
   modelsExplain: { en: 'Setup chooses the models for simple, everyday and hard tasks. You can redo it later with {command} setup.', 'pt-BR': 'O setup escolhe os modelos para tarefas simples, do dia a dia e difíceis. Você pode refazer depois com {command} setup.' },
   autostartExplain: { en: 'Start the daemon with this machine using {kind}.', 'pt-BR': 'Iniciar o daemon com esta máquina usando {kind}.' },
   autostartFile: { en: 'Autostart writes: {path}', 'pt-BR': 'A inicialização automática grava: {path}' },
-  autostartAsk: { en: 'Install autostart? [y/N]', 'pt-BR': 'Instalar a inicialização automática? [s/N]' },
-  autostartAlready: { en: 'Autostart is already installed.', 'pt-BR': 'A inicialização automática já está instalada.' },
-  autostartLater: { en: 'Autostart not installed; to do it later ask the user to run: {command} setup', 'pt-BR': 'Inicialização automática não instalada; para instalar depois peça ao usuário para rodar: {command} setup' },
-  autostartInstalled: { en: 'Autostart installed; {command} uninstall removes it.', 'pt-BR': 'Inicialização automática instalada; {command} uninstall a remove.' },
+  autostartAsk: { en: 'Background service — runs waiting work while your client is closed. Start it with this machine? [y/N]:', 'pt-BR': 'Serviço em segundo plano — executa trabalhos em espera enquanto o cliente está fechado. Iniciar com esta máquina? [s/N]:' },
+  autostartAlready: { en: 'Automatic start is on. Check it: {command} doctor', 'pt-BR': 'Início automático ligado. Verifique: {command} doctor' },
+  autostartLater: { en: 'Automatic start is off. To enable it later: {command} setup', 'pt-BR': 'Início automático desligado. Para ativar depois: {command} setup' },
+  autostartInstalled: { en: 'Automatic start is on. Check it: {command} doctor', 'pt-BR': 'Início automático ligado. Verifique: {command} doctor' },
   autostartNoPlan: { en: 'no installation can supply an autostart plan', 'pt-BR': 'nenhuma instalação fornece um plano de início automático' },
-  autostartFailed: { en: 'Could not install autostart: {reason}', 'pt-BR': 'Não foi possível instalar a inicialização automática: {reason}' },
+  autostartFailed: { en: 'Automatic start could not be configured.\n{reason}\nTry again after fixing the cause: {command} setup', 'pt-BR': 'Não foi possível configurar o início automático.\n{reason}\nTente de novo após corrigir a causa: {command} setup' },
   autostartRolledBack: { en: 'the autostart was taken back: {reason}', 'pt-BR': 'a inicialização automática foi desfeita: {reason}' },
   autostartKept: { en: 'the service that was already installed was kept: {reason}', 'pt-BR': 'o serviço que já estava instalado foi mantido: {reason}' },
   modelsAsk: { en: 'Choose the models now?', 'pt-BR': 'Escolher os modelos agora?' },
@@ -232,8 +232,8 @@ export const TEXTS = Object.freeze({
   doctorFixInstall: { en: 'Install it: {command} install', 'pt-BR': 'Instale: {command} install' },
   doctorRegistration: { en: 'MCP registration', 'pt-BR': 'Registro do MCP' },
   doctorRegistrationOk: { en: 'the MCP server is registered in {client}', 'pt-BR': 'o servidor MCP está registrado no {client}' },
-  doctorRegistrationAbsent: { en: 'the MCP server is not registered in {client}', 'pt-BR': 'o servidor MCP não está registrado no {client}' },
-  doctorFixRegistration: { en: 'Register it: {command} install --client {client}', 'pt-BR': 'Registre: {command} install --client {client}' },
+  doctorRegistrationAbsent: { en: 'Not registered', 'pt-BR': 'Sem registro' },
+  doctorFixRegistration: { en: 'register the plugin in {name}: {command} install --client {client}', 'pt-BR': 'registre o plugin no {name}: {command} install --client {client}' },
   doctorRegistrationForeign: { en: 'the MCP server named {name} in {client} is not ours, and the installer will not replace it', 'pt-BR': 'o servidor MCP chamado {name} no {client} não é nosso, e o instalador não vai trocá-lo' },
   doctorFixForeign: { en: 'Remove the entry by hand: {remove}', 'pt-BR': 'Tire a entrada à mão: {remove}' },
   doctorRegistrationUnreadable: { en: 'the MCP entry of {client} could not be read ({reason})', 'pt-BR': 'a entrada MCP do {client} não pôde ser lida ({reason})' },
@@ -255,7 +255,7 @@ export const TEXTS = Object.freeze({
   doctorFixLanguage: { en: 'Edit {path}: set "language" to one of {languages} (or remove the key), then run: {command} doctor', 'pt-BR': 'Edite {path}: defina "language" como um destes {languages} (ou remova a chave), e rode: {command} doctor' },
   doctorFixState: { en: 'Fix it or move it aside ({path}), then run: {command} doctor', 'pt-BR': 'Corrija o arquivo ou afaste-o ({path}), e rode: {command} doctor' },
   doctorSession: { en: 'Session', 'pt-BR': 'Sessão' },
-  doctorSessionNone: { en: 'no okit server is running: it starts with a client session; this is normal when no client is open', 'pt-BR': 'nenhum servidor do okit está rodando: ele começa com uma sessão de cliente; isso é normal quando nenhum cliente está aberto' },
+  doctorSessionNone: { en: 'No client session is open', 'pt-BR': 'Nenhuma sessão de cliente aberta' },
   doctorSessionOk: { en: 'the server of the session answers', 'pt-BR': 'o servidor da sessão responde' },
   controlClosed: { en: 'the okit server closed the connection', 'pt-BR': 'o servidor do okit fechou a conexão' },
   controlNotAccepted: { en: 'the okit server did not accept the connection', 'pt-BR': 'o servidor do okit não aceitou a conexão' },
@@ -273,10 +273,10 @@ export const TEXTS = Object.freeze({
   doctorAutostartUnknown: { en: 'the installed daemon script could not be identified', 'pt-BR': 'não foi possível identificar o script do daemon instalado' },
   doctorAutostartScriptGone: { en: 'the daemon was set to start with the machine, but the installed daemon script is missing or empty', 'pt-BR': 'o daemon deveria começar com a máquina, mas o script do daemon instalado não existe ou está vazio' },
   doctorAutostartMissing: { en: 'the daemon was set to start with the machine, but it is not set up', 'pt-BR': 'o daemon deveria começar com a máquina, mas não está configurado' },
-  doctorFixAutostart: { en: 'Set it up: the setup offers the autostart step and installs it when the answer is yes: {command} setup', 'pt-BR': 'Configure: o setup oferece o passo de inicialização automática e o instala quando a resposta for sim: {command} setup' },
-  doctorAutostartOptional: { en: 'optional: {command} setup offers it', 'pt-BR': 'opcional: {command} setup oferece isso' },
+  doctorFixAutostart: { en: 'Automatic start is optional. Enable it: {command} setup', 'pt-BR': 'Início automático é opcional. Ative: {command} setup' },
+  doctorAutostartOptional: { en: 'Optional', 'pt-BR': 'Opcional' },
   doctorAutostartExtra: { en: 'the daemon starts with the machine, but the installation does not record it', 'pt-BR': 'o daemon começa com a máquina, mas a instalação não registra isso' },
-  doctorDaemon: { en: 'Daemon', 'pt-BR': 'Daemon de fundo' },
+  doctorDaemon: { en: 'Background service', 'pt-BR': 'Serviço em segundo plano' },
   doctorDaemonOk: { en: 'running', 'pt-BR': 'rodando' },
   doctorDaemonDown: { en: 'not running', 'pt-BR': 'não está rodando' },
   doctorFixDaemon: { en: 'Start it: the daemon starts with the machine; restart the machine and check again with {command} doctor', 'pt-BR': 'Inicie: o daemon começa com a máquina; reinicie a máquina e confira de novo com {command} doctor' },
@@ -525,6 +525,7 @@ export function planSteps({ upToDate = false, get = 'get', backup = false, quota
 
 /** A client key as people read it: every dash-separated word capitalised. */
 export function clientLabel(name) {
+  if (name === 'opencode') return 'OpenCode';
   return String(name).split('-').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
@@ -662,4 +663,150 @@ export function presenterOf(deps) {
   if (deps.ui) return deps.ui;
   if (!cache.has(deps)) cache.set(deps, createPresenter({ write: deps.out }));
   return cache.get(deps);
+}
+
+/** Collect installer observations so the outcome can precede completed steps. */
+export function createInstallerView({ operation, command, locale, write, verbose = false, hide = [] }) {
+  const ui = createPresenter({ locale, write, verbose, hide });
+  const pt = ui.locale === 'pt-BR';
+  const emit = redactingWriter(write, hide);
+  const headers = [], steps = [], notes = [], failures = [];
+  let current = false, menu = false, titled = false, pathHint, modelsConfirmed = false;
+  const title = () => { if (titled) return; titled = true; emit(`${command} — ${pt
+    ? { install: 'Instalação', update: 'Atualização', uninstall: 'Desinstalação' }[operation]
+    : { install: 'Install', update: 'Update', uninstall: 'Uninstall' }[operation]}`); };
+  const original = { ...ui };
+  ui.humanOutput = true;
+  ui.header = (values) => headers.push(values);
+  ui.row = (label, status, detail = '') => {
+    if (label === ui.text('models') && status === 'ok') modelsConfirmed = true;
+    if (label === ui.text('upToDate')) current = true;
+    if (status === 'failed') failures.push({ step: label, reason: detail });
+    else if (verbose || status === 'warn' || status === 'skipped' && [ui.text('models'), ui.text('policy')].includes(label) || label === ui.text('kit') && /broken|defeito/.test(detail)) notes.push(`${label}: ${detail}`);
+  };
+  ui.note = (value) => {
+    const content = typeof value === 'string' ? value : value.global;
+    if (verbose || operation === 'uninstall' && /kept|mantid|edited|editad/.test(content)) notes.push(content);
+  };
+  ui.detail = (value) => { if (verbose) notes.push(`      > ${typeof value === 'string' ? value : value.global}`); };
+  ui.warn = (value) => notes.push(value);
+  ui.summary = ({ hint }) => { pathHint = hint; };
+  ui.failure = (failure) => { failures.push(failure); return []; };
+  ui.sequence = (keys, values = {}) => {
+    let n = 0;
+    return (key) => ui.step(++n, keys.length, ui.text(key, values), key);
+  };
+  ui.step = (n, total, label, key) => {
+    let ended = false;
+    const end = (status, detail = '', extra = []) => {
+      if (ended) return;
+      ended = true;
+      steps.push({ label, key, status, detail, client: headers.at(-1)?.client });
+      if (status === 'failed') failures.push({ step: label, reason: detail });
+      if (key === 'register' && status === 'skipped') notes.push(...extra.map((note) => typeof note === 'string' ? note : note.global));
+      else extra.forEach(ui.note);
+    };
+    return { label, ok: (d, e) => end('ok', d, e), skip: (d, e) => end('skipped', d, e),
+      plan: (d, e) => end('plan', d, e), fail: (d, e) => end('failed', d, e), get ended() { return ended; } };
+  };
+  ui.explain = (lines) => {
+    if (lines[0] === ui.text('clientChoose')) {
+      title(); menu = true;
+      emit(pt ? 'Escolha um cliente de programação antes de instalar.' : 'Choose a coding client before installing.');
+      for (const line of lines.slice(1)) emit(line.trimStart().replace(/claude-code|codex|opencode/g, clientLabel));
+    } else if (!lines.includes(ui.text('dryRunDone'))) { title(); original.explain(lines); }
+  };
+  return { ui, finish };
+  function finish({ code, before = {}, after = {}, client, dryRun = false, purge = false, checkOnly = false }) {
+    if (!menu && !headers.length && !failures.length) return;
+    if (!menu) title();
+    const ids = client && client !== 'all' ? [client] : headers.length
+      ? headers.map((header) => Object.keys({ ...before, ...after }).find((id) => clientLabel(id) === header.client)).filter(Boolean)
+      : Object.keys(before);
+    const target = ids[0] ?? client ?? 'codex';
+    const label = clientLabel(target);
+    const install = `${command} install --client ${target}`;
+    const check = `${command} doctor --client ${target}`;
+    const once = new Set();
+    const say = (line) => { if (!once.has(line)) { once.add(line); emit(line); } };
+    if (menu && code !== 0) {
+      for (const id of ['claude-code', 'codex', 'opencode']) say(`${pt ? 'Instale para' : 'Install for'} ${clientLabel(id)}: ${command} install --client ${id}`);
+      return;
+    }
+    const absent = failures.some(({ reason }) => reason === 'No installation record found' || reason.startsWith('Client not registered:'));
+    if (absent && operation !== 'install') {
+      say(pt ? `Nenhuma instalação do plugin encontrada. Nada foi ${operation === 'update' ? 'atualizado' : 'removido'}.`
+        : `No plugin installation was found. Nothing was ${operation === 'update' ? 'updated' : 'removed'}.`);
+      say(operation === 'update' ? `${pt ? 'Instale primeiro' : 'Install first'}: ${install}`
+        : `${pt ? 'Confira o estado local' : 'Check the local state'}: ${command} doctor`);
+      return;
+    }
+    if (code !== 0) {
+      const failure = failures[0];
+      const download = failure?.step === ui.text('get');
+      if (download && operation === 'install') say(pt ? 'Não foi possível baixar a versão. Nada foi instalado.' : 'The release could not be downloaded. Nothing was installed.');
+      else if (failure?.step) say(`${pt ? 'Falhou em' : 'Failed at'} ${failure.step}: ${localizeReason(failure.reason, ui.locale)}`);
+      if (failure && (download || !failure.step)) say(localizeReason(failure.reason, ui.locale));
+      say(download ? `${pt ? 'Confira sua conexão e tente' : 'Check your connection, then retry'}: ${command} ${operation} --client ${target}`
+        : `${pt ? 'Tente novamente' : 'Try again'}: ${command} ${operation} --client ${target}`);
+      if (operation === 'update' && before[target]?.previous) say(`${pt ? 'Volte à versão guardada' : 'Return to the retained version'}: ${command} update --rollback`);
+      if (verbose) notes.forEach(say);
+      return;
+    }
+    if (dryRun) {
+      say(pt ? 'Somente prévia. Nada mudou.' : 'Preview only. Nothing changed.');
+      say(`${pt ? 'Para aplicar' : 'Apply'}: ${command} ${operation} --client ${target}`);
+      if (verbose) notes.forEach(say);
+      return;
+    }
+    if (operation === 'update' && current) {
+      say(pt ? `${label} está em dia. Nada mudou.` : `${label} is up to date. Nothing changed.`);
+      say(`${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`);
+      notes.forEach(say);
+      return;
+    }
+    if (checkOnly) {
+      say(`${pt ? 'Nova versão disponível' : 'New version available'}: ${headers.at(-1)?.version}`);
+      say(`${pt ? 'Para atualizar' : 'Update'}: ${command} update --client ${target}`);
+      notes.forEach(say);
+      return;
+    }
+    if (operation === 'uninstall') {
+      const remaining = Object.keys(after);
+      if (remaining.length) {
+        say(pt ? `Integração do ${label} removida. O comando foi mantido para ${remaining.map(clientLabel).join(', ')}.`
+          : `Removed ${label} integration. The command is kept for ${remaining.map(clientLabel).join(', ')}.`);
+        say(`${pt ? 'Verifique a instalação restante' : 'Check the remaining installation'}: ${command} doctor --client ${remaining[0]}`);
+      } else {
+        say(pt ? `Plugin removido do ${label}.${purge ? '' : ' Seus ajustes foram mantidos.'}`
+          : `Removed the plugin from ${label}.${purge ? '' : ' Your settings were kept.'}`);
+        if (purge) say(pt ? 'Os ajustes também foram removidos.' : 'Settings were also removed.');
+        say(`${pt ? 'Instale novamente quando precisar' : 'Install again when needed'}: ${install}`);
+      }
+      notes.forEach(say);
+      return;
+    }
+    for (const id of ids.length ? ids : [target]) {
+      const name = clientLabel(id), record = after[id];
+      say(operation === 'install'
+        ? (pt ? `Instalado para ${name}.${modelsConfirmed ? '' : ' Falta confirmar os modelos.'}` : `Installed for ${name}.${modelsConfirmed ? '' : ' Model choices still need confirmation.'}`)
+        : (pt ? `${name} atualizado de ${before[id]?.version} para ${record?.version}.` : `Updated ${name} from ${before[id]?.version} to ${record?.version}.`));
+    }
+    let number = 0;
+    for (const step of steps.filter((entry) => ['get', 'local', 'files', 'register'].includes(entry.key))) {
+      const name = step.key === 'register' ? `${pt ? 'Conectar' : 'Connect'} ${step.client}` : step.label;
+      const complete = step.status === 'ok' && step.detail !== ui.text('registerMarketplaceManual');
+      say(`${++number}. ${name}: ${complete ? (pt ? 'concluído' : 'complete') : step.detail}`);
+    }
+    say(operation === 'install' ? `${pt ? 'Próximo' : 'Next'}: ${command} setup`
+      : (pt ? `Próximo: reinicie ${label} e rode: ${check}` : `Next: restart ${label}, then run: ${check}`));
+    if (operation === 'install') say(`${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`);
+    if (pathHint) {
+      say(pt ? 'PATH é a lista de pastas onde o terminal procura comandos.' : 'PATH is the list of folders your terminal searches for commands.');
+      say(pathHint);
+    }
+    if (operation === 'update' && ids.some((id) => after[id]?.previous)) say(`${pt ? 'Volte à versão guardada' : 'Return to the retained version'}: ${command} update --rollback`);
+    for (const note of notes) say(note);
+    if (verbose && notes.some((note) => note.startsWith(ui.text('kit')))) say(`${pt ? 'Confira novamente' : 'Check again'}: MCP kit_detect {}`);
+  }
 }

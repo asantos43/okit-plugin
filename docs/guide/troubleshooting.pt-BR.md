@@ -17,6 +17,6 @@ Use o relatório do ambiente para encontrar o item ausente e a instrução de co
 <a id="doctor"></a>
 ## Rode o doctor primeiro
 
-1. Execute `okit-plugin doctor --locale pt-BR`. Espere uma linha por coisa que olhou: a versão do Node, a instalação, o registro do MCP e a autoverificação de cada cliente, os arquivos de estado, a sessão, o início automático e o daemon. Uma linha que falhou ou avisou vem seguida de uma linha `Correção:`, que nomeia o comando exato que repara aquilo; leia antes de qualquer outra coisa. O doctor só lê: não grava arquivo nem remove registro. Ele responde 0 quando nenhuma linha falhou, 1 quando alguma falhou, e um aviso nunca faz a execução falhar. Veja [a referência do CLI](../components/cli.pt-BR.md#commands).
+1. Execute `okit-plugin doctor --locale pt-BR`. Leia primeiro o resumo “Pronto” ou “Precisa de atenção” e depois a tabela de verificações. Abaixo da tabela, linhas `Correção:` indicam reparos e um comando exato verifica a instalação novamente. O doctor só lê: não grava arquivo nem remove registro. Ele responde 0 quando nenhuma linha falhou, 1 quando alguma falhou, e um aviso nunca faz a execução falhar. Veja [a referência do CLI](../components/cli.pt-BR.md#commands).
 
 [Guia](README.pt-BR.md) · [English](troubleshooting.md)
