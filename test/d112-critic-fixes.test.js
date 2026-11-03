@@ -683,3 +683,18 @@ test('D112 round 10, 1: the bare command is not told while no Node is on the PAT
   const text = f.output.join('\n');
   assert.doesNotMatch(text, /(^|[\s'"])okit-plugin (update|doctor|setup)/m, text);
 });
+
+// Round 11.
+test('D112 round 11, 1: the bare command is not told when its link is gone, even with its folder and Node on the PATH', async (t) => {
+  const f = await fixture(t, 'linux');
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.output.join('\n'));
+  f.clear();
+  await main(['update', '--check', '--client', 'codex'], f.io);
+  assert.match(f.output.join('\n'), /(^|[\s'"])okit-plugin (update|doctor|setup)/m, 'with the link in place the short name is told');
+  await filesystem.rm(join(f.bin, 'okit-plugin'), { force: true });
+  f.clear();
+  await main(['update', '--check', '--client', 'codex'], f.io);
+  const text = f.output.join('\n');
+  assert.doesNotMatch(text, /(^|[\s'"])okit-plugin (update|doctor|setup)/m, text);
+  assert.ok(text.includes(RUNNING), text);
+});
