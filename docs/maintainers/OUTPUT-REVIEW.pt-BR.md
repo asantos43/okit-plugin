@@ -149,6 +149,8 @@ Mesmos emissores comuns da §4. `uninstall --locale en` e `pt-BR` executados com
 <a id="section-7"></a>
 ## 7. Respostas MCP
 
+D113 implementa apenas as correções de texto de P21–P23: aviso neutro ao mostrar todos os clientes, mensagem explícita de capacidade sem clientes, explicações separadas de vagas e cota, definições simples de vaga/ator e cota não registrada em en/pt-BR. Chaves, tipos, envelopes JSON e `isError` permanecem iguais; o redesenho das tabelas e a transferência de instruções para fora das células ficam adiados.
+
 Fronteira: `src/mcp/tools.js:TOOLS` (5 ferramentas explícitas), `src/mcp/registry-tools.js:toolsFromRegistry` e `src/core/operations.js` (24 ferramentas do registro): **29 nomes publicados**. Cada manipulador serializa seu resultado em JSON; `src/mcp/call-tool.js:callTool` retorna `{text,isError}` e repassa mensagens de exceção. `src/mcp/server.js:toolResult` envolve isso em conteúdo textual MCP. Prosa/Markdown renderizado fica dentro de campos JSON; substituir a resposta inteira por um mock-up mudaria contrato de máquina.
 
 ### 7.1 Visões principais — trechos executados

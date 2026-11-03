@@ -1,6 +1,7 @@
 // The golden contract of D106: the answers of the old MCP tools, recorded
 // literally. It changes only by decision, never by accident.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -13,6 +14,33 @@ import { TOOLS } from '../src/mcp/tools.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(HERE, 'fixtures', 'mcp-golden.json');
 const UPDATE = process.env.GOLDEN_UPDATE === '1';
+
+// Captured from the pre-D113 replies, before changing any display text.
+const DISPLAY_SHAPES = {
+  status: '1d5b24e2e73f9f69f631161534b143133b0cbaeb1f72e945aa2c924899f0625f',
+  actors_list: '7ce389f5861b56a3e49e6aad988ced46da0690507e6dc4d1e0d745c6bac061ab',
+};
+function jsonShape(value) {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return [...new Set(value.map((item) => JSON.stringify(jsonShape(item))))].sort();
+  if (typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, jsonShape(value[key])]));
+  return typeof value;
+}
+
+test('display replies preserve pre-D113 JSON keys, types and MCP envelope in both locales', async () => {
+  for (const locale of ['en', 'pt-BR']) for (const [name, expected] of Object.entries(DISPLAY_SHAPES)) {
+    const root = await tempRoot();
+    const frame = await respond({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { locale } } },
+      { tools: TOOLS, ctx: context(root), version: '0.0.0-golden' });
+    assert.deepEqual(Object.keys(frame).sort(), ['id', 'jsonrpc', 'result']);
+    assert.deepEqual(Object.keys(frame.result).sort(), ['content', 'isError']);
+    assert.equal(frame.result.isError, false);
+    assert.deepEqual(Object.keys(frame.result.content[0]).sort(), ['text', 'type']);
+    assert.equal(frame.result.content[0].type, 'text');
+    const shape = jsonShape(JSON.parse(frame.result.content[0].text));
+    assert.equal(createHash('sha256').update(JSON.stringify(shape)).digest('hex'), expected, `${name}/${locale}`);
+  }
+});
 
 // The clock of the golden: one instant, so nothing reads the wall clock.
 const NOW = 1_750_000_000_000;

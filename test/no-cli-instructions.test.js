@@ -288,8 +288,8 @@ async function replyOf(name, args, deps) {
   return tool.handler(args, { root, ...rest });
 }
 
-// The note of the world where the client cannot be chosen.
-const UNKNOWN = { en: 'Client not recognized', 'pt-BR': 'Cliente não reconhecido' };
+// The neutral note when no client was selected or detected.
+const UNKNOWN = { en: 'Showing all clients', 'pt-BR': 'Mostrando todos os clientes' };
 
 // | the text | must hold | must refuse |
 // | the report of the environment | the tool that fixes it, the command of the person | `okit-plugin quota set` |

@@ -149,6 +149,8 @@ Same shared writers as §4. Executed `uninstall --locale en` and `pt-BR` with se
 <a id="section-7"></a>
 ## 7. MCP replies
 
+D113 implements only the display-text corrections from P21–P23: neutral all-client wording, an explicit no-client capacity message, separate slot/quota explanations, plain slot/actor definitions and unrecorded quota wording in en/pt-BR. JSON keys, types, envelopes and `isError` remain unchanged; table redesign and moving remedies out of cells remain deferred.
+
 Boundary: `src/mcp/tools.js:TOOLS` (5 explicit tools) plus `src/mcp/registry-tools.js:toolsFromRegistry` and `src/core/operations.js` (24 registry tools): **29 published names**. Each handler JSON-stringifies its result; `src/mcp/call-tool.js:callTool` returns `{text,isError}` and passes thrown messages through. `src/mcp/server.js:toolResult` wraps it as MCP text content. Rendered prose/Markdown lives inside JSON fields; replacing the whole reply with a mock-up would change a machine contract.
 
 ### 7.1 Main views — executed excerpts

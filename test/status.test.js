@@ -49,6 +49,33 @@ test('status displays qualified demands and preserves the JSON id', async (t) =>
 });
 
 const T0 = 1_760_000_000_000;
+// Must pass: omitted client, explicit known client. Must refuse: unknown client.
+for (const locale of ['en', 'pt-BR']) test(`MCP display text and refusals (${locale})`, async (t) => {
+  const root = await tempRoot(t);
+  const server = harness({ root, env: {}, plugin: {}, versions: installedVersions,
+    detectClients: async () => ({ clients: [] }), readQuota: async () => null, orders: [], limits: {}, config: {} });
+  t.after(() => server.stop());
+  for (const name of ['status', 'actors_list']) {
+    const frame = await server.call(name, { locale });
+    assert.equal(frame.result.isError, false);
+    const data = server.data(frame);
+    assert.doesNotMatch(data.markdown, /Client not recognized|Cliente não reconhecido/);
+    assert.match(data.markdown, locale === 'en' ? /Showing all clients.*`client`/ : /Mostrando todos os clientes.*`client`/);
+    if (name === 'actors_list') {
+      assert.ok(data.actors.length > 0);
+      assert.match(data.actors[0].cells[5], locale === 'en' ? /not recorded/ : /não registrada/);
+      assert.doesNotMatch(data.actors[0].cells[5], /0%/);
+      assert.equal(data.actors[0].quota.remainingPct, null);
+    }
+    const known = await server.call(name, { locale, client: 'codex' });
+    assert.equal(known.result.isError, false);
+    assert.doesNotMatch(server.data(known).markdown, /Showing all clients|Mostrando todos os clientes/);
+    const unknown = await server.call(name, { locale, client: 'unknown' });
+    assert.equal(unknown.result.isError, true);
+    assert.equal(unknown.result.content[0].text, `${name}: client must be one of claude-code|codex|opencode when given`);
+  }
+});
+
 const CLIENT_CASES = [
   [{ CLAUDECODE: '1' }, 'claude-code'],
   [{ CODEX_THREAD_ID: 'session' }, 'codex'],
@@ -56,6 +83,22 @@ const CLIENT_CASES = [
   [{ OPENCODE: '1' }, 'opencode'],
   [{ OPENCODE_PID: '123' }, 'opencode'],
 ];
+
+for (const locale of ['en', 'pt-BR']) test(`capacity has an explicit empty state (${locale})`, async (t) => {
+  const root = await tempRoot(t);
+  const server = harness({ root, env: {}, config: {}, plugin: {},
+    versions: Object.fromEntries(Object.keys(installedVersions).map((client) => [client, { installed: false }])),
+    detectClients: async () => ({ clients: [] }), orders: [], limits: {} });
+  t.after(() => server.stop());
+  const data = server.data(await server.call('status', { locale }));
+  assert.equal(data.capacityLine, locale === 'en'
+    ? 'No coding client was found.\nMinimum quota to launch: 15%.'
+    : 'Nenhum cliente de programação foi encontrado.\nCota mínima para iniciar: 15%.');
+  assert.doesNotMatch(data.capacityLine, /:\s*;/);
+  assert.match(data.markdown, locale === 'en'
+    ? /A slot allows one executor to run at a time\.\nAn actor is a model and its reasoning effort/
+    : /Uma vaga permite executar um executor por vez\.\nUm ator é um modelo e seu esforço de raciocínio/);
+});
 
 test('client marker table must pass session markers and must refuse configuration alone', () => {
   assert.deepEqual(Object.keys(CLIENT_ENV_MARKERS), ['claude-code', 'codex', 'opencode']);
@@ -154,13 +197,13 @@ test('detected client filters both rows and capacity, including unconfigured cli
   }
 });
 
-test('all overrides detection, client overrides both, and unknown detection explains selection', async (t) => {
+test('all overrides detection, client overrides both, and no detection explains selection', async (t) => {
   const root = await tempRoot(t);
   const deps = { env: { CLAUDECODE: '1' }, cache: new Map() };
   assert.equal((await statusTable(root, { ...deps, all: true })).rows.length, 3);
   assert.deepEqual((await statusTable(root, { ...deps, all: true, client: 'codex' })).rows.map((r) => r.client), ['codex']);
-  for (const [locale, phrase] of [['en', /Client not recognized.*`client` argument/],
-    ['pt-BR', /Cliente não reconhecido.*argumento `client`/]]) {
+  for (const [locale, phrase] of [['en', /Showing all clients.*`client` argument/],
+    ['pt-BR', /Mostrando todos os clientes.*argumento `client`/]]) {
     const table = await statusTable(root, { env: {}, locale });
     assert.equal(table.rows.length, 3);
     assert.match(table.markdown, phrase);
@@ -333,7 +376,7 @@ test('the capacity line counts the room the live runs leave, never below zero', 
   // alpha leaves 3 - 2 = 1 slot, beta leaves 3 - 0 = 3; the tightest is 1.
   assert.equal(
     table.capacityLine,
-    'executors that can launch now: alpha: 2/3 (default), 1 available; beta: 0/100 (client), 100 available; quota floor 15%',
+    'Executor slots (running/limit; one executor at a time): alpha: 2/3 (default), 1 available; beta: 0/100 (client), 100 available.\nMinimum quota to launch: 15%.',
   );
 
   const full = await statusTable(root, {
@@ -342,7 +385,7 @@ test('the capacity line counts the room the live runs leave, never below zero', 
   });
   assert.equal(
     full.capacityLine,
-    'executors that can launch now: alpha: 2/2 (default), 0 available; beta: 2/2 (default), 0 available; quota floor 15%',
+    'Executor slots (running/limit; one executor at a time): alpha: 2/2 (default), 0 available; beta: 2/2 (default), 0 available.\nMinimum quota to launch: 15%.',
     'a cap that is already crossed reads as zero, never as a negative room',
   );
 });
@@ -423,7 +466,7 @@ test('pt-BR translates the same table, and an unknown locale falls back to en', 
   const pt = await statusTable(root, { ...deps, locale: 'pt-BR' });
   assert.ok(pt.markdown.startsWith('| Assinatura | Restante 5h | Restante semana |'), pt.markdown);
   assert.ok(pt.markdown.includes('| alpha | 12% | - | 3m | vermelho: lowQuotaPct é 15% | api (0s) |'), pt.markdown);
-  assert.equal(pt.capacityLine, 'executores que podem iniciar agora: alpha: 0/3 (padrão), 3 disponíveis; piso de cota 15%');
+  assert.equal(pt.capacityLine, 'Vagas de executores (em execução/limite; um executor por vez): alpha: 0/3 (padrão), 3 disponíveis.\nCota mínima para iniciar: 15%.');
   assert.equal(pt.rows[0].order, 'lowQuotaPct é 15%', 'the floor is quoted in the same language');
 
   const unknown = await statusTable(root, { ...deps, locale: 'fr' });
@@ -467,11 +510,11 @@ test('the status tool prints the table and the capacity line, in either language
     '| --- | --- | --- | --- | --- | --- |',
   ]);
   assert.equal(lines[2], '| claude-code | 77% | - | - | green | api (0s) |');
-  assert.ok(run.capacityLine.includes('executors that can launch now: claude-code: 0/3 (default), 3 available; quota floor 15%'));
+  assert.equal(run.capacityLine, 'Executor slots (running/limit; one executor at a time): claude-code: 0/3 (default), 3 available.\nMinimum quota to launch: 15%.');
 
   const pt = await answer({ locale: 'pt-BR' });
   assert.ok(pt.markdown.startsWith('| Assinatura |'), pt.markdown);
-  assert.ok(pt.capacityLine.startsWith('executores que podem iniciar agora:'), pt.capacityLine);
+  assert.ok(pt.capacityLine.startsWith('Vagas de executores'), pt.capacityLine);
 
   // An argument that is not one is a refusal.
   await assert.rejects(answer({ locale: 'fr' }), /locale/);
@@ -511,7 +554,7 @@ test('okit-plugin status outside a client explains how to select and record quot
     assert.ok(out.some((line) => line.includes(`| ${client} |`)), `${client} has a row`);
   }
   assert.equal(out.filter((line) => line.includes('No quota value recorded.')).length, 3);
-  assert.ok(out.some((line) => line.includes('Client not recognized.')));
+  assert.ok(out.some((line) => line.includes('Showing all clients;')));
   assert.ok(out.some((line) => line.includes('the `client` argument')));
 });
 
@@ -544,7 +587,7 @@ test('the MCP status tool answers the table and only adds showBefore when asked'
   assert.equal(plain.rows[0].fiveHour, 41, 'the number comes from the adapter reading of this root');
   assert.equal(plain.rows[0].status, 'green');
   assert.equal(plain.showBefore, undefined, 'no showBefore without the three facts');
-  assert.equal(plain.capacityLine, 'executors that can launch now: claude-code: 0/3 (default), 3 available; codex: 0/3 (default), 3 available; opencode: 0/3 (default), 3 available; quota floor 15%');
+  assert.equal(plain.capacityLine, 'Executor slots (running/limit; one executor at a time): claude-code: 0/3 (default), 3 available; codex: 0/3 (default), 3 available; opencode: 0/3 (default), 3 available.\nMinimum quota to launch: 15%.');
 
   const big = server.data(await server.call('status', { size: 'L' }));
   assert.equal(big.showBefore, true);
