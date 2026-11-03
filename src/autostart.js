@@ -25,12 +25,7 @@ export async function installationScript(record, { readText, command }) {
     try {
       const pkg = JSON.parse(await readText(join(record.path, 'package.json')));
       bin = pkg.bin?.[command];
-    } catch {
-      try {
-        const pkg = JSON.parse(await readText(fileURLToPath(new URL('../package.json', import.meta.url))));
-        bin = pkg.bin?.[command];
-      } catch { /* No package metadata means there is no safe script candidate. */ }
-    }
+    } catch { /* No installed package metadata means there is no safe script candidate. */ }
   }
   return record.path && typeof bin === 'string' && bin ? join(record.path, bin) : null;
 }

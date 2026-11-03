@@ -193,3 +193,20 @@ test('an unidentified legacy script supplies neither a plan nor a false missing 
   assert.equal(row.fix.includes('daemon start'), false);
   assert.equal(row.detail.includes('not set up'), false);
 });
+
+for (const command of ['my=plugin', '%plugin']) {
+  for (const platform of ['linux', 'win32']) {
+    test(`Fix quotes the program ${command} on ${platform}`, async () => {
+      const { input } = await world({ command });
+      const result = await diagnose({ ...input, platform });
+      const row = rowOf(result, 'install');
+      const line = row.fix.slice(row.fix.indexOf(': ') + 2);
+      assert.equal(line, `${platform === 'win32' ? '& ' : ''}'${command}' install`);
+      assert.deepEqual(platform === 'win32' ? powershellWords(line) : argvOf(line),
+        platform === 'win32' ? ['&', command, 'install'] : [command, 'install']);
+      assert.equal(shown([command, '--dest=/x', '%argument'], platform),
+        `${platform === 'win32' ? '& ' : ''}'${command}' --dest=/x %argument`);
+      assert.equal(quotedWord(command, platform), command);
+    });
+  }
+}

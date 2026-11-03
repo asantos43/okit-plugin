@@ -290,14 +290,17 @@ test('absoluteNode accepts platform paths and replaces PATH-dependent node names
   assert.equal(absoluteNode('C:node.exe', 'win32'), process.execPath);
 });
 
-test('legacy script recovery falls back to the installer package only when its metadata cannot be read', async () => {
+test('legacy script recovery uses only the installed metadata', async () => {
   const { installationScript } = await import('../src/autostart.js');
-  const reads = [];
-  const script = await installationScript({ path: '/payload' }, { command: 'okit-plugin', readText: async (path) => {
-    reads.push(path);
-    if (path === '/payload/package.json') throw new Error('unreadable');
-    return JSON.stringify({ bin: { 'okit-plugin': 'src/cli.js' } });
-  } });
-  assert.equal(script, '/payload/src/cli.js');
-  assert.equal(reads.length, 2);
+  for (const metadata of [undefined, '{', '{}', '{"bin":{"okit-plugin":""}}', '{"bin":{"okit-plugin":true}}']) {
+    const reads = [];
+    const script = await installationScript({ path: '/payload' }, { command: 'okit-plugin', readText: async (path) => {
+      reads.push(path);
+      if (path !== '/payload/package.json') return JSON.stringify({ bin: { 'okit-plugin': 'src/cli.js' } });
+      if (metadata === undefined) throw new Error('unreadable');
+      return metadata;
+    } });
+    assert.equal(script, null);
+    assert.deepEqual(reads, ['/payload/package.json']);
+  }
 });

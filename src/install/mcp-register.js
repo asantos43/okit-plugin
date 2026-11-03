@@ -55,7 +55,13 @@ export const quotedWord = (word, platform) => {
  * @returns {string} the command line, every word a shell would read differently quoted
  */
 export function shown(words, platform = process.platform) {
-  const quoted = words.map((word) => quotedWord(word, platform));
+  const quoted = words.map((word, index) => {
+    const text = String(word);
+    if (index === 0 && (text.includes('=') || text.startsWith('%'))) {
+      return platform === 'win32' ? `'${text.replaceAll("'", "''")}'` : `'${text.replaceAll("'", "'\\''")}'`;
+    }
+    return quotedWord(word, platform);
+  });
   const line = quoted.join(' ');
   // The first word is the program: when it had to be quoted, PowerShell reads it as a string, not as a command.
   if (platform === 'win32' && quoted.length > 0 && quoted[0] !== String(words[0])) return `& ${line}`;

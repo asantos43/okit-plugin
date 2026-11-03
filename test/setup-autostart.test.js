@@ -699,3 +699,46 @@ test('an installation whose daemon script cannot be identified does not run an a
   assert.deepEqual(f.ran.filter((command) => /systemctl|crontab|launchctl|schtasks/.test(command.command ?? command[0] ?? '')), []);
   assert.match(f.output.join('\n'), /could not be identified/);
 });
+
+for (const metadata of ['malformed', 'missing']) {
+  for (const locale of ['en', 'pt-BR']) {
+    test(`unknown legacy bin with ${metadata} metadata preserves the service (${locale})`, async (t) => {
+      const f = await world(t, { installed: true });
+      const record = { ...f.records.codex };
+      delete record.bin;
+      await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', record.client)), JSON.stringify(record));
+      if (metadata === 'malformed') await fs.writeFile(join(record.path, 'package.json'), '{');
+      else await fs.unlink(join(record.path, 'package.json'));
+      const expected = autostartPlan('systemd', { root: f.root, home: f.home, node: record.settings.node,
+        script: join(record.path, 'legacy-cli.js'), command: f.io.config.command });
+      await fs.mkdir(dirname(expected.path), { recursive: true });
+      await fs.writeFile(expected.path, expected.content);
+      const before = await snapshot(f);
+      const errors = [];
+      f.io.stderr = (line) => errors.push(line);
+      f.io.ask = async () => 'yes';
+      assert.equal(await main(['setup', '--locale', locale], f.io), exitCodeFor('operational'));
+      const { createPresenter } = await import('../src/install/present.js');
+      const ui = createPresenter({ locale, write: () => {} });
+      assert.deepEqual(errors, [ui.text('autostartFailed', { reason: ui.text('autostartNoPlan') })]);
+      assert.deepEqual(f.written, []);
+      assert.deepEqual(f.ran, []);
+      assert.deepEqual(f.order, []);
+      assert.deepEqual(await snapshot(f), before);
+      assert.equal(await fs.readFile(expected.path, 'utf8'), expected.content);
+      const { diagnose } = await import('../src/doctor/diagnose.js');
+      const plans = [];
+      const result = await diagnose({ root: f.root, home: f.home, config: f.io.config, records: [record],
+        command: f.io.config.command, platform: 'linux', fs, ui,
+        readers: { readText: (path) => fs.readFile(path, 'utf8'), selfCheck: async () => [],
+          mcpEntry: async () => ({ state: 'registered' }), servers: async () => [], daemon: async () => ({ running: true }),
+          autostartPresent: async (plan) => { plans.push(plan); return plan.content === expected.content; } } });
+      const row = result.rows.find((row) => row.id === 'autostart');
+      assert.deepEqual(plans, []);
+      assert.equal(row.status, 'skipped');
+      assert.equal(row.detail, ui.text('doctorAutostartUnknown'));
+      assert.equal(row.fix.includes('daemon start'), false);
+      assert.equal(row.fix.includes('src/cli.js'), false);
+    });
+  }
+}
