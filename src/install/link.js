@@ -152,9 +152,20 @@ export async function managedProfile(deps, shell) {
  */
 export { binInPath } from '../env/path.js';
 
-/** Whether a new terminal finds the command: its folder is on the PATH now, or the installer writes it there. */
-export function commandReachable({ config, env, platform, bin, noPath = false }) {
-  return binInPath({ env, config, platform, bin }) || (config.path.enabled !== false && !noPath);
+/**
+ * Whether a new terminal finds the command: its folder is on the PATH now, this run writes it there (`manages`: an
+ * install that was not told `--no-path`), or an earlier install did (the PATH state the installer keeps).
+ */
+export async function commandReachable({ config, env, platform, bin, fs, destination, manages = false }) {
+  if (binInPath({ env, config, platform, bin })) return true;
+  if (manages && config.path.enabled !== false) return true;
+  const stateFile = join(destination, config.path.stateFile);
+  const saved = await fs.readFile(stateFile, 'utf8').catch(() => null);
+  // Only a hint for the text of a message: a state that cannot be read is no proof (the commands that manage it refuse it).
+  try {
+    const state = saved ? pathState(saved, basename(stateFile), config.command) : null;
+    return Boolean(state?.profiles?.length || state?.windows);
+  } catch { return false; }
 }
 
 /**

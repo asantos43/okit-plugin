@@ -597,3 +597,57 @@ for (const locale of LOCALES) test(`D112 round 7, 3: the copy the release instal
   // Without a run to look back on, the copy that is running is still the program.
   assert.equal(await fromTemp({ config: f.io.config, platform: 'linux', env: { PATH: '' }, fs: filesystem }), shown([process.execPath, join(unpacked, 'src/cli.js')], 'linux'));
 });
+
+// Round 8.
+const BOOTSTRAP = '/tmp/okit-bootstrap-abc123/extracted';
+for (const locale of LOCALES) test(`D112 round 8, 1: a retry of the release installer never carries the flags it hands to the unpacked CLI: ${locale}`, () => {
+  const pt = locale === 'pt-BR';
+  const internal = ['--from', BOOTSTRAP, '--repo', 'owner/repo', '--asset', 'okit.zip', '--fallback'];
+  const tryAgain = (program, platform) => render('install', locale, (ui) => { ui.header({ client: 'Codex', version: '1' }); ui.failure({ client: 'codex', step: ui.text('files'), reason: 'boom' }); },
+    { code: 1, client: 'codex', flags: ['--client', 'codex', '--no-link', ...internal], program, platform })
+    .find((line) => line.startsWith(`${pt ? 'Tente novamente' : 'Try again'}: `));
+  assert.ok(tryAgain(null, 'linux')?.endsWith(': sh install.sh --client codex --no-link'), tryAgain(null, 'linux'));
+  assert.ok(tryAgain(null, 'win32')?.endsWith(': ./install.ps1 --client codex --no-link'), tryAgain(null, 'win32'));
+  const kept = tryAgain(RUNNING, 'linux');
+  assert.ok(kept?.endsWith(`: ${RUNNING} install --client codex --no-link`), kept);
+  assert.doesNotMatch(kept, /okit-bootstrap|--repo|--asset|--fallback/);
+  // What a person typed is theirs: a folder given to `update --from` stays.
+  const update = render('update', locale, (ui) => ui.header({ client: 'Codex', version: '2' }),
+    { code: 0, checkOnly: true, flags: ['--check', '--from', 'a b'], program: RUNNING, before: { codex: { version: '1' } } });
+  assert.ok(update.some((line) => line.includes("update --from 'a b'")), update.join('\n'));
+});
+
+test('D112 round 8, 2: an install with --no-path names the program that runs on every line, also those written during the run', async (t) => {
+  const f = await fixture(t, 'linux');
+  f.io.env.PATH = '/usr/bin';
+  assert.equal(await main(['install', '--client', 'codex', '--no-path'], f.io), 0, f.output.join('\n'));
+  const text = f.output.join('\n');
+  assert.ok(text.includes(`${RUNNING} setup`), text);
+  assert.doesNotMatch(text, /(^|[\s'"])okit-plugin (setup|doctor)/m, text);
+});
+
+test('D112 round 8, 3: what update --check tells to type follows the PATH state, not the setting that enables it', async (t) => {
+  const f = await fixture(t, 'linux');
+  f.io.env.PATH = '/usr/bin';
+  assert.equal(await main(['install', '--client', 'codex', '--no-path'], f.io), 0, f.output.join('\n'));
+  f.clear();
+  await main(['update', '--check', '--client', 'codex'], f.io);
+  const text = f.output.join('\n');
+  assert.doesNotMatch(text, /(^|[\s'"])okit-plugin (update|doctor|setup)/m, text);
+  assert.ok(text.includes(RUNNING), text);
+});
+
+test('D112 round 8, 4: the Fix of the self-check, run from the copy the release installer unpacks, never names that copy', async (t) => {
+  const { f } = await failingCheck(t, 'en');
+  const unpacked = join(f.root, 'okit-bootstrap-abc123', 'extracted');
+  await filesystem.mkdir(unpacked, { recursive: true });
+  for (const entry of ['src', 'adapters', 'package.json']) {
+    await filesystem.cp(fileURLToPath(new URL(`../${entry}`, import.meta.url)), join(unpacked, entry), { recursive: true });
+  }
+  const { main: fromTemp } = await import(new URL(`file://${join(unpacked, 'src/cli.js')}`).href);
+  const dest = join(f.home, 'custom-dest');
+  assert.equal(await fromTemp(['install', '--client', 'claude-code', '--no-link', '--dest', dest], f.io), 1, f.output.join('\n'));
+  const text = f.output.join('\n');
+  assert.doesNotMatch(text, /okit-bootstrap/, text);
+  assert.ok(f.output.some((line) => line.includes('Fix:') && line.includes('install')), text);
+});

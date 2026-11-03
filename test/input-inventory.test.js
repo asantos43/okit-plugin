@@ -513,7 +513,8 @@ test('input inventory: every read of a file in src/ is classified, and every cla
   }
   // The scan finds the PATH state by itself: it is not written in the inventory by hand.
   const state = fileReads().filter((found) => found.file === 'src/install/link.js' && found.arg === 'stateFile');
-  assert.equal(state.length, 1);
+  // Two readers: the PATH change itself and the check that a printed command is reachable (both tolerant of a missing file).
+  assert.equal(state.length, 2);
   assert.ok(READ_POINTS.some((row) => row.rule === 'managed-path.json (the PATH state)'));
   // The same scan covers the adapters: the quota file of each client is found by it, and has a rule.
   for (const client of ['claude-code', 'codex', 'opencode']) {

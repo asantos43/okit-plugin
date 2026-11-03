@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { createPresenter as basePresenter, TEXTS as BASE_TEXTS, clientLabel as baseClientLabel,
   redactingWriter, localizeReason } from './install/present.js';
 import { quotedWord, shown as shownCommand } from './install/mcp-register.js';
-import { programWords } from './install/where.js';
+import { EPHEMERAL, isEphemeral, programWords } from './install/where.js';
 import { flagsOf } from './install/flags.js';
 import { commandToken, hasCommand, resolveTokens } from './install/command-token.js';
 export * from './install/present.js';
@@ -49,7 +49,7 @@ export async function programLine({ config, platform, env, fs, remaining }) {
   // temporary folder and removes when it ends. The CLI of an installation that is left takes its place; with none, and no
   // link, nothing is left (null) and the view points to the installer of the release.
   const exists = (path) => fs.access(path).then(() => true, () => false);
-  if (remaining && words.length > 1 && (EPHEMERAL.test(words[1]) || !await exists(words[1]))) {
+  if (remaining && words.length > 1 && (isEphemeral(words) || !await exists(words[1]))) {
     for (const folder of remaining) {
       const script = join(folder, 'src/cli.js');
       if (await exists(script)) return shownCommand([words[0], script], platform);
@@ -58,8 +58,6 @@ export async function programLine({ config, platform, env, fs, remaining }) {
   }
   return shownCommand(words, platform);
 }
-// The folder the release installer unpacks into (`mkdtemp(tmpdir()/okit-bootstrap-)` in `install/bootstrap.js`).
-const EPHEMERAL = /[\\/]okit-bootstrap-[^\\/]+[\\/]/;
 /** Collect installer observations so the outcome can precede completed steps. */
 export function createInstallerView({ operation, command, locale, write, verbose = false, hide = [], launch: start = {} }) {
   const notes = [];
@@ -175,8 +173,12 @@ export function createInstallerView({ operation, command, locale, write, verbose
     Object.assign(launch, { program, platform, linked: pathReady && Object.values(after).some((record) => record?.link), dest: options.dest });
     const custom = operation === 'install' && Boolean(options.dest);
     const withClient = (id) => (id ? ['--client', id] : []);
+    // A run of the release installer hands the CLI it unpacked the folder it unpacked into and the release it chose
+    // (`--from`, `--repo`, `--asset`, `--fallback`): they are the installer's own business, never part of a retry.
+    const unpacked = EPHEMERAL.test(`/${options.from ?? ''}/`);
+    const internal = unpacked ? ['from', 'repo', 'asset', 'fallback'] : [];
     const replay = ({ omit = [], client: scope } = {}) => type([operation, ...withClient(scope),
-      ...Object.entries(options).filter(([flag]) => !['client', 'locale', 'verbose', ...omit].includes(flag))
+      ...Object.entries(options).filter(([flag]) => !['client', 'locale', 'verbose', ...omit, ...internal].includes(flag))
         .flatMap(([flag, value]) => [`--${flag}`, ...(value === true ? [] : [value])])]);
     const doctor = (id) => type(['doctor', ...withClient(id)], { later: true });
     const check = doctor(sole ? ids[0] : undefined);

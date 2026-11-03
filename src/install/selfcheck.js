@@ -10,7 +10,7 @@ import { mcpPlan, quotedWord, shown } from './mcp-register.js';
 import { clientRoot } from './config.js';
 import { presenterOf, clientLabel, redact, controlReason } from './present.js';
 import { extraText } from './texts.js';
-import { installationOf, missingFile, programWords } from './where.js';
+import { installationOf, isEphemeral, missingFile, programWords } from './where.js';
 
 // The check after an install or an update: the installation is only done when it WORKS on this machine. It reads back what
 // the installer wrote (the record, the client's settings) and runs it the way the client will, in a temporary state root,
@@ -139,8 +139,9 @@ const shellNamed = (deps, name) => shellsOf(deps).find((shell) => shell.name ===
 // view (the doctor) it is written here from the program as this machine starts it.
 const again = async (record, deps) => {
   const program = await programWords({ config: deps.config, platform: deps.platform, env: deps.env, fs: deps.fs });
+  // The copy the release installer unpacked is gone when it ends: the view names the program that is left, as for any other text.
   return typeof deps.ui?.command === 'function'
-    ? deps.ui.command(['install', '--client', record.client], { program: shown(program, deps.platform) })
+    ? deps.ui.command(['install', '--client', record.client], isEphemeral(program) ? {} : { program: shown(program, deps.platform) })
     : shown([...program, 'install', '--client', record.client], deps.platform);
 };
 // A path, written for the shell of the platform (the same quoting of the commands).

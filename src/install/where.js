@@ -125,3 +125,8 @@ export async function programWords({ config, platform, env, fs = filesystem }) {
   if (found && node) return [config.command === DEFAULT_CONFIG.install.command ? config.command : resolve(found)];
   return [process.execPath, fileURLToPath(new URL('../cli.js', import.meta.url))];
 }
+
+// The folder the release installer unpacks into (`mkdtemp(tmpdir()/okit-bootstrap-)` in `install/bootstrap.js`): a CLI
+// that runs from there is gone when the installer ends, so no text may tell a person to type it.
+export const EPHEMERAL = /[\\/]okit-bootstrap-[^\\/]+[\\/]/;
+export const isEphemeral = (words) => words.length > 1 && EPHEMERAL.test(words[1]);

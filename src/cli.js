@@ -231,20 +231,21 @@ async function presentInstaller(group, flags, ctx, io, stored) {
   } catch { return invoke(); }
   // The program as this terminal starts it is known before the run: the lines the installer prints while it works name it too.
   const program = await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs }).catch(() => config.command);
-  const linked = group === 'install' ? !options['no-link'] : Object.values(before).some((record) => record?.link);
+  // A new terminal finds the command only when its folder is on the PATH or the installer put it there.
+  const reachable = (manages) => commandReachable({ config, env: ctx.env, platform: ctx.platform, bin, fs: ctx.fs, destination, manages }).catch(() => false);
+  const manages = group === 'install' && !flags.includes('--no-path');
+  const linked = (group === 'install' ? !options['no-link'] : Object.values(before).some((record) => record?.link)) && await reachable(manages);
   const view = createInstallerView({ operation: group, command: config.command, locale: ctx.locale,
     write: ctx.out, verbose: flags.includes('--verbose'), hide: [io.tmpdir ?? tmpdir()],
     launch: { program, platform: ctx.platform, linked, dest: options.dest } });
   const code = await invoke({ ui: view.ui });
   const after = await discoverRecords(destination, { fs: ctx.fs, config, lenient: true }).then((found) => found.records).catch(() => ({}));
-  // An uninstall that takes the last client away can take the command off the PATH and the payload that holds this CLI
-  // with it: what the output tells to type afterwards is worked out again from what is left.
   // What the output tells to type afterwards is worked out again from what is left: the CLI that ran may be gone (the
   // payload of an uninstall, or the copy the release installer unpacks and removes). A new terminal finds the command
   // only when its folder is on the PATH, or the installer wrote it there.
   const remaining = await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs,
     remaining: Object.values(after).map((record) => record?.path).filter(Boolean) }).catch(() => program);
-  const pathReady = commandReachable({ config, env: ctx.env, platform: ctx.platform, bin, noPath: flags.includes('--no-path') });
+  const pathReady = await reachable(manages);
   view.finish({ code, before, after, client: options.client,
     dryRun: flags.includes('--dry-run'), purge: flags.includes('--purge'), checkOnly: flags.includes('--check'),
     flags, program: remaining, platform: ctx.platform, destination, pathReady });
