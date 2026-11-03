@@ -10,6 +10,7 @@ import { main } from '../src/cli.js';
 import { doctorCommand } from '../src/doctor/command.js';
 import { diagnose } from '../src/doctor/diagnose.js';
 import { exitCodeFor } from '../src/install/exit.js';
+import { shown } from '../src/install/mcp-register.js';
 import { createPresenter } from '../src/install/present.js';
 import { writeRecord } from '../src/mcp/control-endpoint.js';
 import { paths } from '../src/store.js';
@@ -32,6 +33,8 @@ const MARKS = { en: 'warn', 'pt-BR': 'aviso' };
 const SUMMARIES = { en: /(\d+) failed, (\d+) to look at/, 'pt-BR': /(\d+) falharam, (\d+) para olhar/ };
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const unlinkedProgram = (f) => shown([process.execPath, fileURLToPath(new URL('../src/cli.js', import.meta.url))]);
+
 /**
  * A made-up installation: the record of each client, the entry of the client registered as the installer registers it,
  * the state files and a fake runner that answers the shell and the probe of the self-check.
@@ -44,6 +47,9 @@ async function world(t, { clients = ['claude-code'], inbox, orders } = {}) {
     await fs.writeFile(join(path, 'package.json'), JSON.stringify({ name: 'sample', version: '1.0.0' }));
     // The server the entry names has to be on this machine: an entry that names a file that is gone is broken.
     await fs.writeFile(join(path, SERVER), '// fake MCP server\n');
+    await fs.writeFile(join(path, 'okit-plugin'), '// fake installed CLI\n');
+    // The payload of an installation is whole: the probe of the check is one of the files of it.
+    await fs.writeFile(join(path, 'src/mcp/selfcheck-probe.js'), '// fake probe of the check\n');
     const record = { client, version: '1.0.0', path, bin: 'okit-plugin', autostart: false, link: false,
       linkDirectory: null, settings: { node: process.execPath } };
     await fs.writeFile(join(f.destination, `install.${client}.json`), JSON.stringify(record));
@@ -104,7 +110,7 @@ test('no installation: exit 1 and a Fix line with the command that installs it',
   const code = await main(['doctor'], f.io);
   const text = f.output.join('\n');
   assert.equal(code, exitCodeFor('operational'), text);
-  assert.match(text, /^ {6}Fix: Install it: okit-plugin install$/m, text);
+  assert.ok(text.includes(`Fix: Install it: ${unlinkedProgram(f)} install`), text);
   assert.match(text, /1 failed, [0-9]+ to look at/, summaryOf(text));
 });
 
@@ -238,8 +244,8 @@ test('a record that cannot be read is a failed row, in both languages, and the o
       : `registro de instalação ilegível: ${file}`;
     assert.ok(text.includes(expected), text);
     const fix = locale === 'en'
-      ? 'Fix: Install it again: okit-plugin install --client codex'
-      : 'Correção: Instale de novo: okit-plugin install --client codex';
+      ? `Fix: Install it again: ${unlinkedProgram(f)} install --client codex`
+      : `Correção: Instale de novo: ${unlinkedProgram(f)} install --client codex`;
     assert.ok(text.includes(fix), text);
     // The client whose record is whole is still diagnosed.
     assert.match(text, /Claude Code: /, text);
@@ -359,8 +365,7 @@ test('an entry that is broken is a failed row, with the fix that registers it ag
     assert.match(text, /MCP registration|Registro do MCP/, text);
     assert.match(text, locale === 'en' ? /the MCP entry of Claude Code is disabled in the client/
       : /a entrada MCP do Claude Code está desligada no cliente/, text);
-    assert.match(text, locale === 'en' ? /Fix: Register it: okit-plugin install --client claude-code/
-      : /Correção: Registre: okit-plugin install --client claude-code/, text);
+    assert.ok(text.includes(`${locale === 'en' ? 'Fix: Register it:' : 'Correção: Registre:'} ${unlinkedProgram(f)} install --client claude-code`), text);
   }
 });
 
@@ -373,8 +378,7 @@ test('a client that was named and is not installed is a failed row, with the com
     const text = f.output.join('\n');
     assert.match(text, locale === 'en' ? /Installation\s+failed\s+Codex is not installed/
       : /Instalação\s+falhou\s+Codex não está instalado/, text);
-    assert.match(text, locale === 'en' ? /Fix: Install it: okit-plugin install --client codex/
-      : /Correção: Instale: okit-plugin install --client codex/, text);
+    assert.ok(text.includes(`${locale === 'en' ? 'Fix: Install it:' : 'Correção: Instale:'} ${unlinkedProgram(f)} install --client codex`), text);
   }
 });
 
@@ -545,7 +549,7 @@ test('a saved language that is not a language is a row of the doctor, not a refu
   // The row of the configuration says what is wrong, and how to correct it.
   assert.match(text, /Configuration\s+failed\s+the saved language is not valid: xx/, text);
   // The Fix is a manual edit of the file (`config set` itself refuses while the saved language is not one): it names the file.
-  assert.ok(text.includes(`Fix: Edit ${file}: set "language" to one of en, pt-BR (or remove the key), then run: okit-plugin doctor`), text);
+  assert.ok(text.includes(`Fix: Edit ${file}: set "language" to one of en, pt-BR (or remove the key), then run: ${unlinkedProgram(f)} doctor`), text);
   // The other rows are still told, in the language the run decided (English: the saved one is not a language).
   assert.match(text, /Node version\s+ok/, text);
   assert.match(text, /Installation\s+ok/, text);
@@ -616,4 +620,29 @@ test('the doctor finds the installation that is running, when the records are in
   // The installation is found: the row of the installation is not the row of a machine with no installation.
   assert.match(text, new RegExp(`Installation\\s+ok\\s+installed ${version.replace(/\./g, '\\.')}`), text);
   assert.doesNotMatch(text, /no installation record was found/, text);
+});
+
+test('doctor client filter checks the shared autostart against both installed clients', async (t) => {
+  const f = await world(t, { clients: ['claude-code', 'codex'] });
+  const { autostartPlan } = await import('../src/autostart.js');
+  for (const client of ['claude-code', 'codex']) {
+    const file = join(f.destination, `install.${client}.json`);
+    const record = JSON.parse(await fs.readFile(file, 'utf8'));
+    await fs.writeFile(file, JSON.stringify({ ...record, autostart: true }));
+    if (client === 'codex') {
+      const plan = autostartPlan('systemd', { root: f.root, home: f.home, node: process.execPath,
+        script: join(record.path, record.bin), command: f.io.config.command });
+      await fs.mkdir(dirname(plan.path), { recursive: true });
+      await fs.writeFile(plan.path, plan.content);
+    }
+  }
+  await fs.writeFile(join(f.root, 'daemon.pid.json'), JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
+  const originalRun = f.io.run;
+  f.io.run = async (command) => command.command === 'systemctl'
+    ? { stdout: 'enabled\n' } : originalRun(command);
+  for (const args of [['doctor'], ['doctor', '--client', 'claude-code']]) {
+    f.clear();
+    assert.equal(await main(args, f.io), exitCodeFor('ok'), f.output.join('\n'));
+    assert.match(f.output.join('\n'), /Autostart\s+ok\s/);
+  }
 });

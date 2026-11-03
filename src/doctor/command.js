@@ -37,10 +37,10 @@ export async function doctorCommand(ctx, { locale, config, verbose = false, clie
   // The records of the installation, read leniently: a record that cannot be read is a row of the diagnosis, and the
   // other clients are still diagnosed. The records of the installation that is running are found too, when the
   // destination has none (the doctor that runs from inside an installation sees it).
-  const { records, invalid } = await discoverRecords(destination, { fs: ctx.fs, config, lenient: true });
+  const { records, invalid, destination: discovered } = await discoverRecords(destination, { fs: ctx.fs, config, lenient: true });
   ctx.out(ui.text('doctorHeader', { command: config.command }));
   const result = await diagnose({
-    root: ctx.root, config, records: Object.values(records), invalid, ui,
+    root: ctx.root, config, records: Object.values(records), invalid, ui, destination: discovered,
     command: config.command, platform: ctx.platform, env: ctx.env, home,
     fs: ctx.fs, run: ctx.run, now: ctx.now, client, temporary: ctx.tmpdir, readers,
   });

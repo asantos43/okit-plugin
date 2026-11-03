@@ -89,6 +89,9 @@ async function installation(t, { tty = false, ask } = {}) {
   const payload = () => tarGz([
     { path: 'package.json', mode: 0o644, data: JSON.stringify({ ...pkg, version }) },
     { path: 'src/cli.js', mode: 0o755, data: '#!/usr/bin/env node\n' },
+    // The payload of an installation is whole: the MCP server and the probe of the check are files of it.
+    { path: 'src/mcp/server.js', mode: 0o644, data: '// fake MCP server\n' },
+    { path: 'src/mcp/selfcheck-probe.js', mode: 0o644, data: '// fake probe of the check\n' },
   ]);
   const name = (client) => `sample-${version}-${client}-linux-x64.tar.gz`;
   const selected = () => ({

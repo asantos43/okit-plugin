@@ -33,11 +33,28 @@ const PLAIN = /^[A-Za-z0-9_@%+=:,./-]+$/;
 /** The same on Windows, where the separator of the paths is a backslash. */
 const PLAIN_WIN = /^[A-Za-z0-9_@%+=:,./\\-]+$/;
 
+// Reserved command words must be quoted in program position; each shell has its own fixed vocabulary.
+const SHELL_RESERVED = {
+  posix: new Set('elif repeat nocorrect foreach end if then else fi do done case esac while until for in function select time coproc ! { } [[ ]]'.split(' ')),
+  win32: new Set('if foreach function switch while do until for trap try catch finally return break continue throw param begin process end class data else elseif exit filter from in inlinescript parallel sequence workflow using var define dynamicparam enum hidden static'.split(' ')),
+};
+
+/** Only a plain command name with a safe initial character may be emitted bare. */
+function bareProgram(word, platform) {
+  const text = String(word);
+  const windows = platform === 'win32';
+  return (windows ? PLAIN_WIN : PLAIN).test(text)
+    && /^[A-Za-z_/\\]/.test(text)
+    && !text.includes('=')
+    // POSIX keywords are case-sensitive; PowerShell keywords are not.
+    && !SHELL_RESERVED[windows ? 'win32' : 'posix'].has(windows ? text.toLowerCase() : text);
+}
+
 /**
  * The word as the shell of the platform reads it: as it is when the shell reads it that way, quoted when it does not
  * (a space, a quote, a `$`, a `;`, a `~` at its front, an empty word: anything a shell would not give back as it is).
  */
-const quotedWord = (word, platform) => {
+export const quotedWord = (word, platform) => {
   const text = String(word);
   if ((platform === 'win32' ? PLAIN_WIN : PLAIN).test(text)) return text;
   return platform === 'win32' ? `'${text.replaceAll("'", "''")}'` : `'${text.replaceAll("'", "'\\''")}'`;
@@ -55,7 +72,13 @@ const quotedWord = (word, platform) => {
  * @returns {string} the command line, every word a shell would read differently quoted
  */
 export function shown(words, platform = process.platform) {
-  const quoted = words.map((word) => quotedWord(word, platform));
+  const quoted = words.map((word, index) => {
+    const text = String(word);
+    if (index === 0 && !bareProgram(text, platform)) {
+      return platform === 'win32' ? `'${text.replaceAll("'", "''")}'` : `'${text.replaceAll("'", "'\\''")}'`;
+    }
+    return quotedWord(word, platform);
+  });
   const line = quoted.join(' ');
   // The first word is the program: when it had to be quoted, PowerShell reads it as a string, not as a command.
   if (platform === 'win32' && quoted.length > 0 && quoted[0] !== String(words[0])) return `& ${line}`;

@@ -3,12 +3,14 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as filesystem from 'node:fs/promises';
 
-import { autostartPlan, autostartPresent, detectAutostart } from '../autostart.js';
+import { usableNode, installationScript, autostartPlan, autostartPresent, detectAutostart } from '../autostart.js';
 import { daemonStatus } from '../daemon.js';
 import { installConfig, installPaths } from '../install/config.js';
-import { mcpPlan, mcpStatus, shown } from '../install/mcp-register.js';
+import { mcpPlan, mcpStatus, quotedWord, shown } from '../install/mcp-register.js';
 import { clientLabel, localizeReason, controlReason, redact } from '../install/present.js';
-import { LABELS, selfCheck } from '../install/selfcheck.js';
+import { checkLabel, selfCheck } from '../install/selfcheck.js';
+import { extraText } from '../install/texts.js';
+import { programWords, resolvedRecord } from '../install/where.js';
 import { callControl, findServers } from '../mcp/control-client.js';
 import { configOf, DEFAULT_CONFIG, LOCALES } from '../profiles.js';
 import { isReadableConfig } from '../setup/setup.js';
@@ -126,13 +128,13 @@ function pathOf(error, fallback) {
  * @param {object} input the id, the label, the failure, the presenter, the command and the state root
  * @returns {object} the row
  */
-function unreadableRow({ id, label, error, ui, command, root, path }) {
+function unreadableRow({ id, label, error, ui, command, root, path, platform }) {
   return {
     id,
     status: 'failed',
     label,
     detail: ui.text('doctorStateUnreadable', { reason: redact(reasonOf(error)) }),
-    fix: ui.text('doctorFixState', { path: pathOf(error, path ?? root), command }),
+    fix: ui.text('doctorFixState', { path: quotedWord(pathOf(error, path ?? root), platform), command }),
   };
 }
 
@@ -173,7 +175,7 @@ const ordersShape = (value) => ({ ok: plain(value) && Array.isArray(value.orders
  * of the MCP server and the checks of the install self-check), then the state files, the session, the autostart and the
  * daemon.
  *
- * @param {object} input the state root, the settings, the records, the presenter and the readers
+ * @param {object} input the state root, the settings, the records, the folder they were found in (`destination`), the presenter and the readers
  * @returns {Promise<{rows: object[], failed: number, warnings: number}>}
  */
 export async function diagnose(input) {
@@ -181,6 +183,8 @@ export async function diagnose(input) {
   const ui = input.ui;
   const command = input.command ?? settings.command;
   const platform = input.platform ?? process.platform;
+  // Every command the doctor advertises is written for the shell of the platform: a command with a space or a quote
+  // in it is runnable as it is shown.
   const env = input.env ?? {};
   const home = input.home ?? env.HOME ?? env.USERPROFILE ?? homedir();
   const root = input.root;
@@ -190,6 +194,15 @@ export async function diagnose(input) {
   // A caller that has no runner of its own gets one that refuses: a reader that cannot run is a row, never a crash.
   const run = input.run ?? (async () => { throw Object.assign(new Error('no runner of processes was given'), { code: 'ENOENT' }); });
   const readers = { ...defaultReaders({ fs, run, timeoutMs: settings.timeoutMs }), ...(input.readers ?? {}) };
+  const chosen = input.client ? records.filter((record) => record.client === input.client) : records;
+  // The folder of the records: the one they were found in, else the default one.
+  let destination = typeof input.destination === 'string' && input.destination !== '' ? input.destination : undefined;
+  if (destination === undefined) {
+    try { destination = installPaths(settings, { home, env, platform }).destination; } catch { /* unsupported platforms have no default folder */ }
+  }
+  const allResolved = records.map((record) => resolvedRecord(record, destination));
+  const resolved = input.client ? allResolved.filter((record) => record.client === input.client) : allResolved;
+  const program = shown(await programWords({ config: { ...settings, command }, platform, env, fs }), platform);
   const rows = [];
 
   // The dependencies of the readers that need them: the settings, the runner of a process and the presenter.
@@ -219,26 +232,25 @@ export async function diagnose(input) {
   const version = node.value;
   const minimum = minimumOf(await readPackage(readers));
   if (node.error !== undefined) {
-    rows.push(unreadableRow({ id: 'node', label: ui.text('doctorNode'), error: node.error, ui, command, root }));
+    rows.push(unreadableRow({ id: 'node', label: ui.text('doctorNode'), error: node.error, ui, command: program, root, platform }));
   } else if (minimum === null) {
     rows.push({ id: 'node', status: 'skipped', label: ui.text('doctorNode'), detail: ui.text('doctorNodeUnknown') });
   } else if (atLeast(version, minimum)) {
     rows.push({ id: 'node', status: 'ok', label: ui.text('doctorNode'), detail: ui.text('doctorNodeOk', { version, minimum }) });
   } else {
     rows.push({ id: 'node', status: 'failed', label: ui.text('doctorNode'),
-      detail: ui.text('doctorNodeOld', { version, minimum }), fix: ui.text('doctorFixNode', { minimum, command }) });
+      detail: ui.text('doctorNodeOld', { version, minimum }), fix: ui.text('doctorFixNode', { minimum, command: program }) });
   }
 
   // 2. The installation itself: no record at all is one failed row, and no row of a client follows. A client that was
   // named and has no record is a failed row too: the installation of that client is not there.
-  const chosen = input.client ? records.filter((record) => record.client === input.client) : records;
   if (input.client && !chosen.length) {
     rows.push({ id: 'install', status: 'failed', label: ui.text('doctorInstall'),
       detail: ui.text('doctorClientNone', { client: clientLabel(input.client) }),
-      fix: ui.text('doctorFixClientInstall', { command, client: input.client }) });
+      fix: ui.text('doctorFixClientInstall', { command: program, client: quotedWord(input.client, platform) }) });
   } else if (!records.length) {
     rows.push({ id: 'install', status: 'failed', label: ui.text('doctorInstall'),
-      detail: ui.text('doctorInstallNone'), fix: ui.text('doctorFixInstall', { command }) });
+      detail: ui.text('doctorInstallNone'), fix: ui.text('doctorFixInstall', { command: program }) });
   } else {
     // The row tells about the clients the run looked at, not about every record of the machine.
     const versions = [...new Set(chosen.map((record) => record.version).filter(Boolean))].join(', ');
@@ -249,32 +261,35 @@ export async function diagnose(input) {
   // 3. The records that could not be read: one failed row each, and the other clients are still diagnosed.
   for (const one of input.invalid ?? []) {
     rows.push({ id: 'record', status: 'failed', label: ui.text('doctorRecord'),
-      detail: ui.text('doctorRecordUnreadable', { file: one.file }),
+      detail: ui.text('doctorRecordUnreadable', { file: quotedWord(one.file, platform) }),
       // A record of no client (a legacy file that is corrupt) is repaired by the install of
       // every client: the fix never names an empty client.
-      fix: one.client ? ui.text('doctorFixRecord', { command, client: one.client })
-        : ui.text('doctorFixRecordAll', { command }) });
+      fix: one.client ? ui.text('doctorFixRecord', { command: program, client: quotedWord(one.client, platform) })
+        : ui.text('doctorFixRecordAll', { command: program }) });
   }
 
   // 4. One group per client: the registration of the MCP server and the checks of the install self-check.
+  // The record is resolved first: where the installation is, is read from the record (a custom `--dest` or a moved
+  // installation is the record's own folder), never rebuilt out of the settings.
   const selfCheckDeps = selfCheckDependencies({ input, settings, env, home, platform, fs, run, now, ui, records, statuslineConfig, collectorConfig });
-  for (const record of chosen) {
-    rows.push(await registrationRow(record, { deps, readers, settings, platform, command, ui, root }));
-    rows.push(...await selfCheckRows(record, { readers, selfCheckDeps, ui, command, root }));
+  for (const record of resolved) {
+    rows.push(await registrationRow(record, { deps, readers, settings, platform, command: program, ui, root }));
+    rows.push(...await selfCheckRows(record, { readers,
+      selfCheckDeps: { ...selfCheckDeps, destination: record.destination }, ui, command: program, root, platform }));
   }
 
   // 5. The state files: the configuration, the inbox and the orders.
-  rows.push(...await stateRows({ readers, root, ui, command, stored, language: storedValue?.language }));
+  rows.push(...await stateRows({ readers, root, ui, command: program, stored, language: storedValue?.language, platform }));
 
   // 6. The session: the server of the state folder, asked one question.
-  rows.push(await sessionRow({ readers, root, ui, command }));
+  rows.push(await sessionRow({ readers, root, ui, command: program, platform }));
 
-  // 7. The autostart: the plan of this machine, seen from the first record.
-  const autostart = await autostartRow({ readers, records, root, home, command, platform, ui });
+  // 7. The shared autostart: every retained payload can be its current command, even with a client filter.
+  const autostart = await autostartRow({ readers, fs, records: allResolved, root, home, command, program, platform, ui });
   if (autostart) rows.push(autostart);
 
   // 8. The daemon: it runs, or it should (the autostart is there) and does not.
-  rows.push(await daemonRow({ readers, root, ui, command, autostart }));
+  rows.push(await daemonRow({ readers, root, ui, command: program, autostart, platform }));
 
   const failed = rows.filter((row) => row.status === 'failed').length;
   const warnings = rows.filter((row) => row.status === 'warn').length;
@@ -328,7 +343,7 @@ async function registrationRow(record, { deps, readers, settings, platform, comm
   const entry = await attempt(async () => readers.mcpEntry(record, deps));
   const base = { id: 'registration', client: record.client, label };
   if (entry.error !== undefined) {
-    return { ...base, ...unreadableRow({ id: 'registration', label, error: entry.error, ui, command, root }) };
+    return { ...base, ...unreadableRow({ id: 'registration', label, error: entry.error, ui, command, root, platform }) };
   }
   const state = entry.value;
   if (state?.state === 'registered') {
@@ -336,7 +351,7 @@ async function registrationRow(record, { deps, readers, settings, platform, comm
   }
   if (state?.state === 'absent') {
     return { ...base, status: 'failed', detail: ui.text('doctorRegistrationAbsent', { client }),
-      fix: ui.text('doctorFixRegistration', { command, client: record.client }) };
+      fix: ui.text('doctorFixRegistration', { command, client: quotedWord(record.client, platform) }) };
   }
   if (state?.state === 'foreign') {
     // The entry of that name is not ours: the installer will not replace it, so the person takes it out by hand.
@@ -349,7 +364,7 @@ async function registrationRow(record, { deps, readers, settings, platform, comm
     // The entry is ours, but it cannot work: the client has it off, or it launches another program.
     const key = BROKEN_TEXTS[state.reason] ?? 'doctorRegistrationBroken';
     return { ...base, status: 'failed', detail: ui.text(key, { client, command: state.command ?? '' }),
-      fix: ui.text('doctorFixRegistration', { command, client: record.client }) };
+      fix: ui.text('doctorFixRegistration', { command, client: quotedWord(record.client, platform) }) };
   }
   if (state?.state === 'unreadable') {
     return { ...base, status: 'warn', detail: ui.text('doctorRegistrationUnreadable', { client, reason: state.reason ?? '' }) };
@@ -358,21 +373,20 @@ async function registrationRow(record, { deps, readers, settings, platform, comm
 }
 
 /** The rows of the install self-check of one client, in the order it runs them. */
-async function selfCheckRows(record, { readers, selfCheckDeps, ui, command, root }) {
+async function selfCheckRows(record, { readers, selfCheckDeps, ui, command, root, platform }) {
   const answer = await attempt(async () => readers.selfCheck(record, record.version, selfCheckDeps));
   if (answer.error !== undefined) {
     // The check itself could not run: one row says so, and the run goes on.
     return [{ client: record.client, ...unreadableRow({ id: 'selfcheck',
-      label: ui.text('selfcheck', { client: clientLabel(record.client) }), error: answer.error, ui, command, root }) }];
+      label: ui.text('selfcheck', { client: clientLabel(record.client) }), error: answer.error, ui, command, root, platform }) }];
   }
   const checks = answer.value;
   return (Array.isArray(checks) ? checks : []).map((check) => {
-    const key = LABELS[check.id];
     return {
       id: check.id,
       client: record.client,
       status: check.status === 'pass' ? 'ok' : check.status === 'fail' ? 'failed' : 'skipped',
-      label: key ? ui.text(key) : String(check.id),
+      label: checkLabel(check, ui),
       detail: check.reason ?? '',
       ...(check.fix ? { fix: check.fix } : {}),
       quiet: check.status === 'skip' && check.quiet === true,
@@ -381,7 +395,7 @@ async function selfCheckRows(record, { readers, selfCheckDeps, ui, command, root
 }
 
 /** The rows of the three state files: the configuration, the inbox and the orders. */
-async function stateRows({ readers, root, ui, command, stored, language }) {
+async function stateRows({ readers, root, ui, command, stored, language, platform }) {
   const rows = [];
   const files = [
     { id: 'config', label: 'doctorConfig', file: paths(root).config, shape: configShape },
@@ -399,7 +413,7 @@ async function stateRows({ readers, root, ui, command, stored, language }) {
       // The disk refused the file: the reason is said, and the Fix names the file.
       rows.push({ id: entry.id, status: 'failed', label,
         detail: ui.text('doctorStateUnreadable', { reason: redact(reasonOf(read.error)) }),
-        fix: ui.text('doctorFixState', { path: entry.file, command }) });
+        fix: ui.text('doctorFixState', { path: quotedWord(entry.file, platform), command }) });
       continue;
     }
     // The saved language that is not a language: the row says so, with the way out (the run of the doctor goes on in
@@ -409,7 +423,7 @@ async function stateRows({ readers, root, ui, command, stored, language }) {
       const value = typeof language === 'string' ? language : JSON.stringify(language);
       rows.push({ id: entry.id, status: 'failed', label,
         detail: ui.text('doctorLanguageInvalid', { value: redact(value) }),
-        fix: ui.text('doctorFixLanguage', { path: entry.file, command, languages: LOCALES.join(', ') }) });
+        fix: ui.text('doctorFixLanguage', { path: quotedWord(entry.file, platform), command, languages: LOCALES.join(', ') }) });
       continue;
     }
     let value;
@@ -419,9 +433,9 @@ async function stateRows({ readers, root, ui, command, stored, language }) {
     if (!problem.ok) {
       const detail = problem.reason
         ? ui.text('doctorConfigInvalid', { reason: localizeReason(problem.reason, ui.locale) })
-        : ui.text('doctorStateBad', { path: entry.file });
+        : ui.text('doctorStateBad', { path: quotedWord(entry.file, platform) });
       rows.push({ id: entry.id, status: 'failed', label, detail,
-        fix: ui.text('doctorFixState', { path: entry.file, command }) });
+        fix: ui.text('doctorFixState', { path: quotedWord(entry.file, platform), command }) });
       continue;
     }
     rows.push({ id: entry.id, status: 'ok', label, detail: ui.text('doctorStateOk') });
@@ -430,11 +444,11 @@ async function stateRows({ readers, root, ui, command, stored, language }) {
 }
 
 /** The row of the session: the server of the state folder, asked one question. */
-async function sessionRow({ readers, root, ui, command }) {
+async function sessionRow({ readers, root, ui, command, platform }) {
   const label = ui.text('doctorSession');
   const listed = await attempt(async () => readers.servers(root));
   if (listed.error !== undefined) {
-    return unreadableRow({ id: 'session', label, error: listed.error, ui, command, root });
+    return unreadableRow({ id: 'session', label, error: listed.error, ui, command, root, platform });
   }
   const servers = [...(listed.value ?? [])]
     .sort((left, right) => (right.startedAt ?? 0) - (left.startedAt ?? 0));
@@ -444,7 +458,7 @@ async function sessionRow({ readers, root, ui, command }) {
   }
   const asked = await attempt(async () => readers.callRead(root, servers[0].pid));
   if (asked.error !== undefined) {
-    return unreadableRow({ id: 'session', label, error: asked.error, ui, command, root });
+    return unreadableRow({ id: 'session', label, error: asked.error, ui, command, root, platform });
   }
   const answer = asked.value;
   if (answer?.ok) return { id: 'session', status: 'ok', label, detail: ui.text('doctorSessionOk') };
@@ -452,35 +466,61 @@ async function sessionRow({ readers, root, ui, command }) {
     fix: ui.text('doctorFixSession', { command }) };
 }
 
-/** The row of the autostart: the plan of this machine, seen from the first record of the installation. */
-async function autostartRow({ readers, records, root, home, command, platform, ui }) {
+/**
+ * The row of the autostart: the plan of this machine, for every record of the installation (one service covers them
+ * all, and the current command may be the one of any client's retained payload).
+ */
+async function autostartRow({ readers, fs, records, root, home, command, program, platform, ui }) {
   const first = records[0];
   if (!first) return null;
-  const plan = autostartPlan(detectAutostart(platform), {
-    root, home, command, node: first.settings?.node, script: join(first.path ?? '', first.bin ?? ''),
-  });
+  // The node of a plan of this machine: the one of the installation, or the node of this process (absolute: a bare
+  // `node` would be resolved by the PATH of a shell nobody knows).
+  const planOf = async (record) => {
+    const node = await usableNode(record.settings?.node, platform, (path, mode) => fs.access(path, mode), (path) => fs.stat(path));
+    const script = await installationScript(record, { readText: readers.readText, command });
+    if (!script) return null;
+    return { node, script, plan: autostartPlan(detectAutostart(platform), { root, home, command, node, script }) };
+  };
+  const plans = (await Promise.all(records.map(planOf))).filter(Boolean);
+  const { node, script } = plans[0] ?? {};
   const label = ui.text('doctorAutostart');
-  const asked = await attempt(async () => readers.autostartPresent(plan));
+  if (!plans.length) {
+    // A known script that is gone cannot start anything: the service is broken, and only a reinstall restores the payload.
+    if (records.some((record) => record.autostart === true) && records.every((record) => record.bin)) {
+      return { id: 'autostart', status: 'failed', label, detail: ui.text('doctorAutostartScriptGone'),
+        fix: ui.text('doctorFixInstall', { command: program }) };
+    }
+    return { id: 'autostart', status: 'skipped', label,
+      detail: ui.text('doctorAutostartUnknown'), fix: ui.text('doctorFixAutostart', { command: program }) };
+  }
+  const asked = await attempt(async () => {
+    for (const { plan } of plans) if (await readers.autostartPresent(plan)) return true;
+    return false;
+  });
   if (asked.error !== undefined) {
-    return unreadableRow({ id: 'autostart', label, error: asked.error, ui, command, root });
+    return unreadableRow({ id: 'autostart', label, error: asked.error, ui, command: program, root, platform });
   }
   const present = asked.value;
-  const recorded = first.autostart === true;
+  const recorded = records.some((record) => record.autostart === true);
   if (present && recorded) return { id: 'autostart', status: 'ok', label, detail: ui.text('doctorAutostartOk') };
   if (recorded && !present) {
-    return { id: 'autostart', status: 'failed', label, detail: ui.text('doctorAutostartMissing'),
-      fix: ui.text('doctorFixAutostart', { command }) };
+    // The Fix names the command that starts the daemon, with the node the plan writes: the program is never
+    // resolved by the PATH of a shell nobody knows.
+    const daemon = script ? shown([node, script, 'daemon', 'start'], platform) : '';
+    const fix = daemon ? extraText('doctorFixAutostartDaemon', ui.locale, { daemon, command: program })
+      : ui.text('doctorFixAutostart', { command: program });
+    return { id: 'autostart', status: 'failed', label, detail: ui.text('doctorAutostartMissing'), fix };
   }
   if (present && !recorded) return { id: 'autostart', status: 'warn', label, detail: ui.text('doctorAutostartExtra') };
-  return { id: 'autostart', status: 'warn', label, detail: ui.text('doctorAutostartOptional', { command }) };
+  return { id: 'autostart', status: 'warn', label, detail: ui.text('doctorAutostartOptional', { command: program }) };
 }
 
 /** The row of the daemon: it runs, or it should (the autostart is there) and does not. */
-async function daemonRow({ readers, root, ui, command, autostart }) {
+async function daemonRow({ readers, root, ui, command, autostart, platform }) {
   const label = ui.text('doctorDaemon');
   const asked = await attempt(async () => readers.daemon(root));
   if (asked.error !== undefined) {
-    return unreadableRow({ id: 'daemon', label, error: asked.error, ui, command, root });
+    return unreadableRow({ id: 'daemon', label, error: asked.error, ui, command, root, platform });
   }
   const status = asked.value;
   if (status?.running) return { id: 'daemon', status: 'ok', label, detail: ui.text('doctorDaemonOk') };

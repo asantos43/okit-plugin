@@ -1,4 +1,5 @@
 import { UsageError } from './exit.js';
+import { resolvedRecord } from './where.js';
 import { readRecords, removeRecord } from './place.js';
 import { register, registrationPlan } from './register.js';
 import { mcpPlan, shown } from './mcp-register.js';
@@ -10,7 +11,8 @@ export async function uninstall(record, flags, deps) {
   if (flags.purge && !flags.yes) throw new UsageError('--purge requires --yes');
   if (!record) throw new UsageError('No installation record found');
   const records = await readRecords(deps.destination, deps.fs, deps.config);
-  const remaining = Object.values(records).filter((item) => item.client !== record.client);
+  const remaining = Object.values(records).filter((item) => item.client !== record.client)
+    .map((item) => resolvedRecord(item, deps.destination));
   if (flags.purge && remaining.length && !deps.dryRun) throw new UsageError('--purge requires no remaining clients');
   const ui = presenterOf(deps);
   const next = ui.sequence([...(record.statusline ? ['quotaUndo'] : []), 'unregister', ...(record.link ? ['unlink'] : []), 'remove'],
@@ -40,8 +42,15 @@ export async function uninstall(record, flags, deps) {
     const survivor = remaining.find((item) => item.link) ?? remaining[0];
     if (record.link || survivor.link) await applyLink(survivor, deps, record);
     if (record.link) next('unlink').ok(ui.text('unlinkShared', { command: deps.config.command }));
-    if (record.autostart || survivor.autostart) await deps.autostart(survivor, 'install');
-    else if (wasRunning) await deps.startDaemon(survivor);
+    if (record.autostart || survivor.autostart) {
+      // The service moves to a survivor whose payload can run it. When none can, it stays removed (the stop above took
+      // the departing record's service away): it is not left pointing at the payload that is being deleted, and the
+      // doctor reports the survivors' autostart with its Fix.
+      for (const candidate of [survivor, ...remaining.filter((item) => item !== survivor)]) {
+        try { await deps.autostart(candidate, 'install'); break; }
+        catch (error) { if (!error?.noPlan) throw error; }
+      }
+    } else if (wasRunning) await deps.startDaemon(survivor);
   } else {
     if (record.link) await applyLink(record, deps, null, true);
     if (record.link) next('unlink').ok(ui.text('unlinkDone', { command: deps.config.command }));

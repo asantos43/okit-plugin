@@ -3,14 +3,47 @@
 // remove it — so the autostart preview can print the whole plan before a single
 // command runs, and a test can assert it without touching the machine.
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access as fileAccess, stat as fileStat, mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, isAbsolute, win32 } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { stateRoot } from './store.js';
 import { DEFAULT_CONFIG } from './profiles.js';
+
+/** Login services must not depend on the interactive shell's PATH. */
+export function absoluteNode(node, platform = process.platform) {
+  return typeof node === 'string' && (platform === 'win32' ? win32.isAbsolute(node) : isAbsolute(node))
+    ? node : process.execPath;
+}
+
+/** A saved Node must still be an executable file when the service plan is built. */
+export async function usableNode(node, platform = process.platform, access = fileAccess, stat = fileStat) {
+  const absolute = absoluteNode(node, platform);
+  try {
+    if (!(await stat(absolute)).isFile()) return process.execPath;
+    await access(absolute, platform === 'win32' ? constants.F_OK : constants.X_OK);
+    return absolute;
+  } catch { return process.execPath; }
+}
+
+/** Resolve legacy records using the same package bin key as the installer, through a read-only seam. */
+export async function installationScript(record, { readText, command, verify = true }) {
+  let bin = record.bin;
+  if (!bin && record.path) {
+    try {
+      const pkg = JSON.parse(await readText(join(record.path, 'package.json')));
+      bin = pkg.bin?.[command];
+    } catch { /* No installed package metadata means there is no safe script candidate. */ }
+  }
+  if (!record.path || typeof bin !== 'string' || !bin) return null;
+  const script = join(record.path, bin);
+  // Removing a service needs only to name it: a deleted payload must not keep the service alive.
+  if (!verify) return script;
+  try { return (await readText(script))?.trim() ? script : null; } catch { return null; }
+}
 
 export const AUTOSTART_KINDS = ['systemd', 'cron', 'launchd', 'schtasks'];
 
@@ -222,75 +255,68 @@ export function autostartQuery(plan) {
   return null;
 }
 
-/**
- * Whether the scheduled task of Windows is there: the one query, asked with its own argv (never a shell).
- *
- * The runner of the installer answers without a code when the command worked and throws when it did not, so a
- * task that is there is the call that returned with no code, or with the code zero. Read-only.
- *
- * @param {Function} [run] the runner of a process
- * @param {number} [timeoutMs] the deadline of the query
- * @returns {Promise<boolean>}
- */
-export async function taskPresent(run, timeoutMs) {
-  if (typeof run !== 'function') return false;
+// Existence is deliberately weaker than readiness: rollback must keep disabled tasks too.
+async function taskQuery(run, timeoutMs, xml = false) {
+  if (typeof run !== 'function') return null;
   try {
-    const answer = await run({ command: 'schtasks', args: ['/Query', '/TN', TASK_NAME], timeoutMs });
-    const code = answer?.code;
-    return code === undefined || code === 0;
-  } catch {
-    return false;
-  }
+    const answer = await run({ command: 'schtasks', args: ['/Query', '/TN', TASK_NAME, ...(xml ? ['/XML'] : [])], timeoutMs });
+    return answer?.code === undefined || answer?.code === 0 ? answer ?? {} : null;
+  } catch { return null; }
+}
+
+/** Whether the language-independent XML says the task will run, rather than merely that it exists. */
+export async function taskPresent(run, timeoutMs) {
+  const answer = await taskQuery(run, timeoutMs, true);
+  return answer !== null && !/<Enabled\s*>\s*false\s*<\/Enabled\s*>/i.test(String(answer.stdout ?? ''));
+}
+
+/** The installed crontab must carry the exact current @reboot command, including its marker. */
+export async function cronPresent(plan, run, timeoutMs) {
+  if (typeof run !== 'function' || !plan?.content?.trimEnd().endsWith(MARKER)) return false;
+  try {
+    const answer = await run({ ...autostartQuery(plan), timeoutMs });
+    if (answer?.code !== undefined && answer?.code !== null && answer.code !== 0) return false;
+    return String(answer?.stdout ?? '').split(/\r?\n/).includes(plan.content.trimEnd());
+  } catch { return false; }
 }
 
 /**
- * Whether the autostart of this machine is really there.
- *
- * It proves the thing works, not that a file exists:
- *
- * - the scheduled task of Windows is asked with its own argv (never a shell). The runner of the installer answers
- *   without a code when the command worked and throws when it did not: a task that is there is the call that returned
- *   with no code, or with the code zero.
- * - the other kinds are a file of the plan: it has to be there AND to hold the content of the plan (an empty, corrupt
- *   or stale file is not the autostart of this installation), and the query of the kind (the unit of systemd, the
- *   crontab of the user, the label of launchd) has to say that it is enabled. A machine without the tool of the
- *   query, or without a runner to ask it, is not a machine without an autostart: the file and its content decide
- *   then.
- *
- * The doctor and the last step of the setup ask the same question, so the answer is the same: a service that is
- * corrupt, stale or disabled is not there.
- *
- * @param {object} plan the plan of the autostart of this machine
- * @param {{fs: object, run?: Function, timeoutMs?: number}} deps the file system and the runner of a process
- * @returns {Promise<boolean>}
+ * Whether the autostart of this machine is really there: the plan's current command, written where the machine reads
+ * it, and the query of the kind saying that it is enabled. A cron line, a scheduled task or a launchd override that
+ * disables it is not there. A machine without the tool of the query (or whose tool did not answer) is not a machine
+ * without an autostart: the file and its content decide then. Existence for the rollback is `autostartExists`.
  */
 export async function autostartPresent(plan, { fs, run, timeoutMs } = {}) {
   if (!plan) return false;
   if (plan.kind === 'schtasks') return taskPresent(run, timeoutMs);
+  if (plan.kind === 'cron') return cronPresent(plan, run, timeoutMs);
   if (!plan.path) return false;
-  // The file of the plan, with the content of the plan: an empty, corrupt or stale file is not the autostart of this
-  // installation.
-  const file = plan.path;
   const content = typeof fs?.readFile === 'function'
-    ? await fs.readFile(file, 'utf8').catch(() => null)
-    : null;
+    ? await fs.readFile(plan.path, 'utf8').catch(() => null) : null;
   if (content === null || content !== plan.content) return false;
-  // The query of the kind: the machine itself says whether it is enabled.
   const query = autostartQuery(plan);
   if (!query || typeof run !== 'function') return true;
   try {
-    const answer = await run({ command: query.command, args: query.args, timeoutMs });
-    const code = answer?.code;
-    if (code !== undefined && code !== null && code !== 0) return false;
-    // The crontab of the user: the line of ours is the one that carries the marker of the plan.
-    if (plan.kind === 'cron') return String(answer?.stdout ?? '').includes(MARKER);
-    return true;
+    const answer = await run({ ...query, timeoutMs });
+    if (answer?.code !== undefined && answer?.code !== null && answer.code !== 0) return false;
+    // `enabled-runtime`, `static` or an empty answer do not start the daemon at the next login.
+    if (plan.kind === 'systemd') return String(answer?.stdout ?? '').trim() === 'enabled';
   } catch (error) {
-    // The tool of the query is not on this machine (ENOENT), or the failure says nothing about whether the
-    // autostart is enabled (no numeric code): the query is unknown and the file and its content decide.
-    if (typeof error?.code !== 'number') return true;
-    return false;
+    // The tool of the query is not on this machine, or it did not answer: the query is unknown and the file decides.
+    return typeof error?.code !== 'number';
   }
+  return plan.kind === 'launchd' ? !(await launchdDisabled(run, timeoutMs)) : true;
+}
+
+// The user's overrides of launchd: `"label" => disabled` (current) or `=> true` (old). An override that cannot be read
+// says nothing, and the plist decides.
+async function launchdDisabled(run, timeoutMs) {
+  if (typeof process.getuid !== 'function') return false;
+  try {
+    const answer = await run({ command: 'launchctl', args: ['print-disabled', `gui/${process.getuid()}`], timeoutMs });
+    if (answer?.code !== undefined && answer?.code !== null && answer.code !== 0) return false;
+    return new RegExp(`"${LABEL.replaceAll('.', '\\.')}"\\s*=>\\s*(?:true|disabled)\\b`).test(String(answer?.stdout ?? ''));
+  } catch { return false; }
 }
 
 /**
@@ -307,7 +333,7 @@ export async function autostartPresent(plan, { fs, run, timeoutMs } = {}) {
  */
 export async function autostartExists(plan, { fs, run, timeoutMs } = {}) {
   if (!plan) return false;
-  if (plan.kind === 'schtasks') return taskPresent(run, timeoutMs);
+  if (plan.kind === 'schtasks') return (await taskQuery(run, timeoutMs)) !== null;
   const file = async () => {
     if (!plan.path || typeof fs?.readFile !== 'function') return false;
     try { await fs.readFile(plan.path, 'utf8'); return true; } catch { return false; }

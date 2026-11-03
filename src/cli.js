@@ -32,7 +32,7 @@ export function isCollectorLaunch(argv = []) {
 }
 
 const collectorEntry = isCollectorLaunch(process.argv.slice(2));
-const { applyAutostart, autostartPlan, detectAutostart } = collectorEntry
+const { usableNode, installationScript, applyAutostart, autostartPlan, detectAutostart } = collectorEntry
   ? {} : await import('./autostart.js');
 const { run } = collectorEntry ? {} : await import('./core/operations.js');
 const { daemonRun, daemonStatus } = collectorEntry
@@ -41,6 +41,7 @@ import { DEFAULT_CONFIG } from './profiles.js';
 const { CLIENTS, makeSpawner, runCommand } = collectorEntry ? {} : await import('./spawn-process.js');
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
+import { OperationalError } from './install/exit.js';
 const { installerCommand } = collectorEntry ? {} : await import('./install/index.js');
 const { createPresenter, localizeReason, redactingWriter, resolveLocale } = collectorEntry
   ? {} : await import('./install/present.js');
@@ -323,20 +324,31 @@ async function daemonCommand(ctx, action, args) {
   return exitCodeFor('ok');
 }
 
-function installationAutostartPlan(ctx, io, record) {
+async function installationAutostartPlan(ctx, io, record, verify = true) {
+  const script = await installationScript(record, { readText: (path) => ctx.fs.readFile(path, 'utf8'), command: ctx.command, verify });
+  if (!script) return null;
   return autostartPlan(detectAutostart(ctx.platform), {
     root: ctx.root, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE,
-    node: record.settings.node, script: join(record.path, record.bin), command: ctx.command,
+    node: await usableNode(record.settings?.node, ctx.platform, (path, mode) => ctx.fs.access(path, mode), (path) => ctx.fs.stat(path)), script, command: ctx.command,
   });
 }
 
 function installerLifecycle(ctx, io) {
-  const autostart = io.autostart ?? ((record, action) => applyAutostart(installationAutostartPlan(ctx, io, record), { run: ctx.run, write: ctx.write, action }));
+  // The records whose service the stop already took away: the uninstall that follows must not remove it a second time
+  // (a manager that errors on a missing service would abort it).
+  const stopped = new WeakSet();
+  const autostart = io.autostart ?? (async (record, action) => {
+    if (action === 'uninstall' && stopped.has(record)) return null;
+    stopped.delete(record);
+    const plan = await installationAutostartPlan(ctx, io, record, action !== 'uninstall');
+    if (!plan) throw Object.assign(new OperationalError('the installed daemon script could not be identified'), { noPlan: true });
+    return applyAutostart(plan, { run: ctx.run, write: ctx.write, action });
+  });
   return {
     autostart,
     stopDaemon: io.stopDaemon ?? (async (record) => {
       const status = await daemonStatus(ctx.root);
-      if (record.autostart) await autostart(record, 'uninstall');
+      if (record.autostart) { await autostart(record, 'uninstall'); stopped.add(record); }
       if (!status.running) return false;
       await daemonCommand(ctx, 'stop', []);
       const until = ctx.now() + record.settings.timeoutMs;

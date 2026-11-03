@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 import { autostartPlan, detectAutostart } from '../src/autostart.js';
+import { shown } from '../src/install/mcp-register.js';
 import { main } from '../src/cli.js';
 import { exitCodeFor } from '../src/install/exit.js';
 import { paths } from '../src/store.js';
@@ -40,6 +41,9 @@ const failedRow = (lines, label) => {
 
 /** The command of a Fix line: the words after the name of the command, as the argv of the command line. */
 const commandOf = (fix, name) => {
+  const escapedNode = shown([process.execPath]).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const installed = new RegExp(`${escapedNode} [^ \n]+/src/cli\\.js ((?:install|update|uninstall|autostart|daemon|doctor|setup)(?: [A-Za-z0-9_./=-]+)*)$`).exec(fix);
+  if (installed) return installed[1].split(' ');
   const found = new RegExp(`(${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} `
     + '(?:install|update|uninstall|autostart|daemon|doctor|setup)(?: [^\\n]*)?)$').exec(fix);
   return found ? found[1].split(' ').slice(1) : null;
@@ -178,6 +182,18 @@ test('the Fix of an installation whose payload is gone installs it again', async
   }, 'MCP registration');
 });
 
+test('the Fix of a damaged legacy installation that names no folder installs it again', async (t) => {
+  await repaired(t, async (f, io, path) => {
+    // The record names neither the folder of the installation nor the folder of the records, and the server is gone.
+    const file = join(f.destination, `install.${CLIENT}.json`);
+    const record = JSON.parse(await fs.readFile(file, 'utf8'));
+    delete record.path;
+    delete record.destination;
+    await fs.writeFile(file, JSON.stringify(record));
+    await fs.rm(join(path, SERVER));
+  }, 'MCP registration');
+});
+
 test('the Fix of an autostart that is not set up installs it again', async (t) => {
   // The installation that is running: the doctor and the `setup` of the command line build the same plan of the
   // autostart, so the file the Fix writes is the one the doctor looks for.
@@ -224,6 +240,8 @@ test('the row of a daemon that is down says that the daemon starts with the mach
     command: f.io.config.command });
   await fs.mkdir(dirname(plan.path), { recursive: true });
   await fs.writeFile(plan.path, plan.content);
+  const base = f.io.run;
+  f.io.run = async (call) => ((call.args ?? []).includes('is-enabled') ? { code: 0, stdout: 'enabled\n' } : base(call));
   // The daemon is not running: the file of its state is gone.
   await fs.rm(join(f.root, 'daemon.pid.json'));
   f.clear();
@@ -263,6 +281,8 @@ async function autostartWorld(t) {
     write: async (file, content) => { files.set(file, content); },
     // The setup asks whether the autostart is installed: the answer is yes.
     ask: async () => 'yes',
+    // The machine says what systemctl says of an enabled unit.
+    run: async (call) => ((call.args ?? []).includes('is-enabled') ? { code: 0, stdout: 'enabled\n' } : f.io.run(call)),
   };
   return { f, io, files, plan: planOf(f, record) };
 }
@@ -294,7 +314,7 @@ test('the Fix of a disabled autostart enables it again', async (t) => {
   let enabled = false;
   io.run = async (call) => {
     const args = call.args ?? [];
-    if (args.includes('is-enabled')) return { code: enabled ? 0 : 1, stdout: '' };
+    if (args.includes('is-enabled')) return { code: enabled ? 0 : 1, stdout: enabled ? 'enabled\n' : 'disabled\n' };
     if (args.includes('enable')) enabled = true;
     return f.io.run(call);
   };
@@ -333,7 +353,7 @@ test('the row of a state file that is not valid says that a person fixes it', as
   const index = f.output.findIndex((line) => line.includes('Inbox'));
   assert.ok(index >= 0, f.output.join('\n'));
   assert.match(f.output[index], /\bfailed\b/, f.output[index]);
-  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*inbox\.json.*\), then run: okit-plugin doctor$/,
+  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*inbox\.json.*\), then run: .*\/src\/cli\.js doctor$/,
     f.output[index + 1]);
   assert.ok(MANUAL[1][1].length > 0);
 });
@@ -348,7 +368,7 @@ test('the row of a configuration the runtime refuses says that a person fixes it
   const index = f.output.findIndex((line) => line.includes('Configuration'));
   assert.ok(index >= 0, f.output.join('\n'));
   assert.match(f.output[index], /\bfailed\b/, f.output[index]);
-  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*config\.json.*\), then run: okit-plugin doctor$/,
+  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*config\.json.*\), then run: .*src\/cli\.js doctor$/,
     f.output[index + 1]);
   assert.ok(MANUAL[2][1].length > 0);
 });
@@ -365,7 +385,7 @@ test('the row of a state file of the daemon that is not valid says that a person
   assert.ok(index >= 0, f.output.join('\n'));
   assert.match(f.output[index], /\bfailed\b/, f.output[index]);
   assert.match(f.output[index], /the state file could not be read/, f.output[index]);
-  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*\), then run: okit-plugin doctor$/,
+  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*\), then run: .*\/src\/cli\.js doctor$/,
     f.output[index + 1]);
   assert.ok(MANUAL[3][1].length > 0);
 });

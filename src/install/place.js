@@ -1,5 +1,6 @@
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { destinationOf, installationOf, missingFile, resolvedRecord } from './where.js';
 import { extract } from './extract.js';
 import { installConfig, renderName } from './config.js';
 import { OperationalError, UsageError } from './exit.js';
@@ -27,6 +28,12 @@ async function legacyRecord(destination, fs, config, skipped) {
   try { return checked(await fs.readFile(join(destination, 'install.json'), 'utf8'), 'install.json', config.command, skipped); }
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
+// A record of an old shape may name neither its folder nor the folder of its records: every reader gets them filled in
+// (`resolvedRecord`), the retained versions too, so no caller works from an `undefined` path.
+function resolvedRecords(records, destination) {
+  return Object.fromEntries(Object.entries(records).map(([client, record]) => [client,
+    record !== null && typeof record === 'object' ? resolvedRecord(record, destination) : record]));
+}
 /**
  * The records of the installation, by client. With `options.unreadable` (an array), a record that is not a JSON object
  * (null, a list, a number, text) is left out and its file path is pushed there, so a caller that only looks (`status`,
@@ -44,7 +51,7 @@ export async function readRecords(destination, fs, config = installConfig(), opt
       if (record || !lenient) records[client] = record;
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
-  return records;
+  return resolvedRecords(records, destination);
 }
 export async function readRecord(destination, client, fs, config = installConfig()) {
   if (typeof client !== 'string') { fs = client; client = null; }
@@ -120,7 +127,7 @@ export async function readRecordsLenient(destination, fs, config = installConfig
     const file = recordPath(destination, client, config);
     await read(file, client);
   }
-  return { records, invalid };
+  return { records: resolvedRecords(records, destination), invalid };
 }
 
 /**
@@ -135,23 +142,26 @@ export async function readRecordsLenient(destination, fs, config = installConfig
  * record it cannot read means (the doctor: a row of the diagnosis; the install: no usable record for that client).
  *
  * @param {string} destination the folder the records are looked for in
- * @param {{fs: object, config?: object, explicitDestination?: boolean, lenient?: boolean}} options
+ * @param {{fs: object, config?: object, explicitDestination?: boolean, lenient?: boolean, running?: string}} options (`running`: the folder of the running package, for tests)
  * @returns {Promise<{records: object, invalid: object[], destination: string}>}
  */
-export async function discoverRecords(destination, { fs, config = installConfig(), explicitDestination = false, lenient = false } = {}) {
+export async function discoverRecords(destination, { fs, config = installConfig(), explicitDestination = false, lenient = false, running = packageDirectory } = {}) {
   const read = async (folder) => (lenient
     ? await readRecordsLenient(folder, fs, config)
     : { records: await readRecords(folder, fs, config), invalid: [] });
   const found = await read(destination);
   if (Object.keys(found.records).length || explicitDestination) return { ...found, destination };
-  // The installation that is running: its records are in the folder above the package directory.
-  const runtime = await read(dirname(packageDirectory.replace(/[\\/]$/, '')));
-  const installed = Object.values(runtime.records).find((record) => record.path === packageDirectory.replace(/[\\/]$/, ''));
+  // The installation that is running: its records are in the folder above the package directory, and the record of it
+  // names its folder or is the one that places it there (`<destination>/<version>-<client>`).
+  const packageFolder = running.replace(/[\\/]$/, '');
+  const runtimeFolder = dirname(packageFolder);
+  const runtime = await read(runtimeFolder);
+  const installed = Object.values(runtime.records).find((record) => installationOf(record, runtimeFolder) === packageFolder);
   if (!installed) return { ...found, destination };
   // Every record that could not be read is named: the one of the destination and the one of the installation
-  // that is running.
+  // that is running. A legacy record names no destination: the folder its records were read from is the one.
   return { records: runtime.records, invalid: [...found.invalid, ...runtime.invalid],
-    destination: installed.destination ?? destination };
+    destination: destinationOf(installed, runtimeFolder) };
 }
 
 // Include the legacy file: saving a modern record can remove it.
@@ -204,6 +214,25 @@ export async function saveRecord(destination, record, deps) {
   }
 }
 
+/**
+ * Whether a record is stored without its folders (an old shape, or the legacy `install.json`): the records are read
+ * with the folders filled in, so only the file says it.
+ */
+export async function recordsStoredIncomplete(destination, records, fs, config = installConfig()) {
+  for (const record of records) {
+    let stored = null;
+    try { stored = JSON.parse(await fs.readFile(recordPath(destination, record.client, config), 'utf8')); } catch { /* Not stored by itself. */ }
+    const named = (value) => typeof value === 'string' && value !== '';
+    if (!stored || !named(stored.path) || !named(stored.destination)) return true;
+  }
+  return false;
+}
+
+/** Updates only autostart for all clients covered by the destination's single service. */
+export async function saveAutostartRecords(destination, records, deps) {
+  for (const record of records) await writeRecord(destination, { ...record, autostart: true }, deps);
+}
+
 async function writeRecord(destination, record, deps) {
   const path = recordPath(destination, record.client, deps.config ?? installConfig());
   if (deps.writeJsonAtomic) {
@@ -232,8 +261,7 @@ export async function removeRecord(destination, client, deps) {
 }
 
 /**
- * Whether the payload of an installation is whole: the MCP server of the installation and the probe of the check are
- * there, and they are not empty.
+ * Whether every required file of the installed package and client is readable and nonempty.
  *
  * An installation whose payload was deleted (or truncated) is not the installation of that version: the installer
  * writes it again, so the fix the doctor advertises really repairs.
@@ -245,11 +273,7 @@ export async function removeRecord(destination, client, deps) {
  */
 export async function payloadComplete(record, config, fs) {
   if (!record?.path) return false;
-  for (const file of [join(record.path, config.mcp.server), join(record.path, 'src/mcp/selfcheck-probe.js')]) {
-    const content = await fs.readFile(file, 'utf8').catch(() => null);
-    if (content === null || content.trim() === '') return false;
-  }
-  return true;
+  return await missingFile(record, config, fs) === null;
 }
 
 export async function place(selected, downloaded, details, deps) {
@@ -257,7 +281,8 @@ export async function place(selected, downloaded, details, deps) {
   // The record of this client is read leniently: a record that cannot be read is no usable record, and the
   // installation of this client is written again (a clean install of it).
   const { records, invalid } = await readRecordsLenient(destination, fs, config);
-  const previous = records[details.client] ?? null;
+  // The record names its folder, or the installer's own folder for it is meant (a legacy record names none).
+  const previous = records[details.client] ? resolvedRecord(records[details.client], destination) : null;
   // The file of the record of this client is there, but the record cannot be read: the folder of this
   // installation is ours (the installer wrote it), so the clean install of this client writes it again.
   const unreadable = invalid.some((one) => one.file === recordPath(destination, details.client, config));
