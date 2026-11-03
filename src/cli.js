@@ -43,7 +43,7 @@ import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
 import { OperationalError } from './install/exit.js';
 const { installerCommand } = collectorEntry ? {} : await import('./install/index.js');
-const { createPresenter, createInstallerView, commandTitle, localizeReason, redactingWriter, resolveLocale } = collectorEntry
+const { createPresenter, createInstallerView, commandTitle, programLine, localizeReason, redactingWriter, resolveLocale } = collectorEntry
   ? {} : await import('./cli-present.js');
 const { exitCodeFor, kindOf } = collectorEntry ? {} : await import('./install/exit.js');
 const { installConfig, installPaths } = collectorEntry ? {} : await import('./install/config.js');
@@ -230,8 +230,10 @@ async function presentInstaller(group, flags, ctx, io, stored) {
     write: ctx.out, verbose: flags.includes('--verbose'), hide: [io.tmpdir ?? tmpdir()] });
   const code = await invoke({ ui: view.ui });
   const after = await discoverRecords(destination, { fs: ctx.fs, config, lenient: true }).then((found) => found.records).catch(() => ({}));
+  const program = await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs }).catch(() => config.command);
   view.finish({ code, before, after, client: flags.includes('--client') ? valueOf('--client') : undefined,
-    dryRun: flags.includes('--dry-run'), purge: flags.includes('--purge'), checkOnly: flags.includes('--check') });
+    dryRun: flags.includes('--dry-run'), purge: flags.includes('--purge'), checkOnly: flags.includes('--check'),
+    flags, program, platform: ctx.platform });
   return code;
 }
 

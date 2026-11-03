@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { installPaths } from '../install/config.js';
 import { exitCodeFor } from '../install/exit.js';
 import { discoverRecords } from '../install/place.js';
-import { createPresenter, presentDiagnosis } from '../cli-present.js';
+import { createPresenter, presentDiagnosis, programLine } from '../cli-present.js';
 export { presentDiagnosis } from '../cli-present.js';
 
 import { diagnose } from './diagnose.js';
@@ -44,6 +44,7 @@ export async function doctorCommand(ctx, { locale, config, verbose = false, clie
     command: config.command, platform: ctx.platform, env: ctx.env, home,
     fs: ctx.fs, run: ctx.run, now: ctx.now, client, temporary: ctx.tmpdir, readers,
   });
-  presentDiagnosis(result, { ui, command: config.command, client, verbose, out: ctx.out });
+  const program = await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs }).catch(() => config.command);
+  presentDiagnosis(result, { ui, command: config.command, client, clients: Object.keys(records), verbose, out: ctx.out, program, platform: ctx.platform });
   return exitCodeFor(result.failed > 0 ? 'operational' : 'ok');
 }

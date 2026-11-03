@@ -684,6 +684,8 @@ export async function runSetup({
   const skipped = [];
   const omitted = [];
   const messages = [];
+  // The lines the human view cannot derive from the result: how to choose an omitted model and how to turn on the quota.
+  const guidance = [];
   const done = wasDone(stored);
 
   if (out) {
@@ -745,9 +747,11 @@ export async function runSetup({
       if (proposal.source !== 'omitted') continue;
       if (defaults || candidates.length === 0) {
         omitted.push({ client: clientProposal.client, class: className });
-        messages.push(format('omitted', locale, {
+        const advice = format('omitted', locale, {
           client: clientProposal.client, class: className, classe: className,
-        }));
+        });
+        messages.push(advice);
+        guidance.push(advice);
         continue;
       }
       const answer = await askModel({
@@ -781,7 +785,7 @@ export async function runSetup({
 
   if (done && !again && changes.length === 0) {
     messages.push(format('unchanged', locale));
-    return { code: 0, cancelled: false, changes, skipped, omitted, messages };
+    return { code: 0, cancelled: false, changes, skipped, omitted, messages, guidance };
   }
 
   if (!defaults) {
@@ -805,7 +809,9 @@ export async function runSetup({
   for (const client of new Set([...names, ...skipped.map((change) => change.client)])) {
     if (observation.clients.find((row) => row.client === client)?.quota.status !== 'off') continue;
     const locales = locale === 'both' ? ['en', 'pt-BR'] : [locale];
-    messages.push(locales.map((language) => labelsOf(language).noQuotaAsk(client)).join(' / '));
+    const advice = locales.map((language) => labelsOf(language).noQuotaAsk(client)).join(' / ');
+    messages.push(advice);
+    guidance.push(advice);
   }
   if (savedChanges.length > 0) {
     // The presenter's Models row says what was saved.
@@ -816,5 +822,5 @@ export async function runSetup({
   if (kept.length > 0) {
     messages.push(format('kept', locale, { classes: kept.map(classLabel).join(', ') }));
   }
-  return { code: 0, cancelled: false, changes: savedChanges, kept, skipped, omitted, messages };
+  return { code: 0, cancelled: false, changes: savedChanges, kept, skipped, omitted, messages, guidance };
 }
