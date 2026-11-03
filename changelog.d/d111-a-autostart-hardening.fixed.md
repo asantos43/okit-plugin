@@ -5,3 +5,5 @@ Resolve relative repair launchers and legacy setup records, require executable N
 Uninstall and update still remove the service when its daemon script is gone. / Desinstalar e atualizar ainda removem o serviço quando o script do daemon sumiu.
 
 Uninstalling one client hands the service to a surviving client that can run it, or removes it when none can. / Desinstalar um cliente passa o serviço a um cliente restante que consiga executá-lo, ou o remove quando nenhum consegue.
+
+Setup saves the records it enabled the autostart for with their resolved folders, so a legacy record can still be uninstalled with its service. / O setup grava os registros em que ativou o início automático com as pastas resolvidas, de modo que um registro legado ainda possa ser desinstalado junto com o serviço.

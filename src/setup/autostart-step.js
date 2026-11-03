@@ -91,7 +91,9 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
     const existed = await existedOnMachine(ctx, selected);
     await applyAutostart(selected, { run: ctx.run, write: ctx.write, action: 'install' });
     try {
-      await saveAutostartRecords(destination, records, { fs: ctx.fs, config });
+      // The records are saved with the folders the setup resolved: a legacy record without a path would otherwise keep
+      // the service on, with nothing for the uninstall to identify the daemon script by.
+      await saveAutostartRecords(destination, records.map((record) => resolvedRecord(record, destination)), { fs: ctx.fs, config });
     } catch (error) {
       let reason = localizeReason(error.message, locale);
       const unrestored = await restoreRecords(snapshot, ctx.fs);

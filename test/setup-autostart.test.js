@@ -901,3 +901,24 @@ test('setup resolves a legacy record without path to the retained version payloa
   assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
   assert.deepEqual(f.ran, f.plan.install);
 });
+
+test('a legacy record that setup enabled the autostart for can be uninstalled with its service', async (t) => {
+  const f = await world(t);
+  const record = { ...f.records.codex };
+  delete record.path;
+  delete record.destination;
+  await fs.unlink(join(f.destination, 'install.codex.json'));
+  await fs.writeFile(join(f.destination, 'install.json'), JSON.stringify(record));
+  f.io.ask = async () => 'yes';
+  assert.equal(await main(['setup'], f.io), exitCodeFor('ok'));
+  const saved = JSON.parse(await fs.readFile(join(f.destination, f.io.config.recordName.replace('{client}', 'codex')), 'utf8'));
+  assert.equal(saved.autostart, true);
+  assert.equal(saved.path, f.records.codex.path);
+  f.clear();
+  f.ran.length = 0;
+  delete f.io.autostart; // the real lifecycle plans the autostart of the record
+  delete f.io.stopDaemon;
+  const code = await main(['uninstall', '--client', 'codex'], f.io);
+  assert.equal(code, exitCodeFor('ok'), f.output.join('\n'));
+  assert.ok(f.ran.some((command) => JSON.stringify(command).includes('disable')), JSON.stringify(f.ran));
+});
