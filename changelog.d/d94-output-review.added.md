@@ -1,0 +1,1 @@
+Documented the D94 CLI and MCP output inventory and English/pt-BR target mock-ups for Producer approval, without implementation or machine-format changes. / Documentados o inventário de saídas da CLI e MCP do D94 e os mock-ups em inglês/pt-BR para aprovação do Producer, sem implementação nem mudanças de formato de máquina.
