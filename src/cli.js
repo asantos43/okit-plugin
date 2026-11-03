@@ -336,7 +336,7 @@ async function installationAutostartPlan(ctx, io, record, verify = true) {
 function installerLifecycle(ctx, io) {
   const autostart = io.autostart ?? (async (record, action) => {
     const plan = await installationAutostartPlan(ctx, io, record, action !== 'uninstall');
-    if (!plan) throw new OperationalError('the installed daemon script could not be identified');
+    if (!plan) throw Object.assign(new OperationalError('the installed daemon script could not be identified'), { noPlan: true });
     return applyAutostart(plan, { run: ctx.run, write: ctx.write, action });
   });
   return {

@@ -40,8 +40,16 @@ export async function uninstall(record, flags, deps) {
     const survivor = remaining.find((item) => item.link) ?? remaining[0];
     if (record.link || survivor.link) await applyLink(survivor, deps, record);
     if (record.link) next('unlink').ok(ui.text('unlinkShared', { command: deps.config.command }));
-    if (record.autostart || survivor.autostart) await deps.autostart(survivor, 'install');
-    else if (wasRunning) await deps.startDaemon(survivor);
+    if (record.autostart || survivor.autostart) {
+      // The service moves to a survivor whose payload can run it. When none can, it is removed rather than left pointing
+      // at the payload that is being deleted; the doctor reports the survivors' autostart as missing, with its Fix.
+      let handed = false;
+      for (const candidate of [survivor, ...remaining.filter((item) => item !== survivor)]) {
+        try { await deps.autostart(candidate, 'install'); handed = true; break; }
+        catch (error) { if (!error?.noPlan) throw error; }
+      }
+      if (!handed && record.autostart) await deps.autostart(record, 'uninstall');
+    } else if (wasRunning) await deps.startDaemon(survivor);
   } else {
     if (record.link) await applyLink(record, deps, null, true);
     if (record.link) next('unlink').ok(ui.text('unlinkDone', { command: deps.config.command }));

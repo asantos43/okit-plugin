@@ -720,6 +720,38 @@ for (const damage of ['deleted', 'empty']) {
   });
 }
 
+test('uninstall of one client removes the service when no surviving client has a runnable daemon script', async (t) => {
+  const f = await world(t, { clients: ['claude-code', 'codex'], installed: true });
+  for (const client of ['claude-code', 'codex']) {
+    const record = { ...f.records[client], autostart: true, link: false };
+    await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', client)), JSON.stringify(record));
+  }
+  await fs.rm(join(f.records.codex.path, f.records.codex.bin));
+  f.clear();
+  f.ran.length = 0;
+  delete f.io.autostart; // the real lifecycle plans the autostart of the record
+  const code = await main(['uninstall', '--client', 'claude-code'], f.io);
+  assert.equal(code, exitCodeFor('ok'), f.output.join('\n'));
+  // The departing client is gone, the survivor stays, and the service did not stay pointing at the deleted payload.
+  await assert.rejects(fs.access(f.records['claude-code'].path));
+  await fs.access(f.records.codex.path);
+  assert.ok(f.ran.some((command) => /systemctl|crontab|launchctl|schtasks/.test(command.command ?? command[0] ?? '')), JSON.stringify(f.ran));
+  assert.equal(f.ran.some((command) => JSON.stringify(command).includes(f.records.codex.path)), false, JSON.stringify(f.ran));
+});
+
+test('uninstall does not hide a failure of the service itself while handing it to a surviving client', async (t) => {
+  const f = await world(t, { clients: ['claude-code', 'codex'], installed: true });
+  for (const client of ['claude-code', 'codex']) {
+    const record = { ...f.records[client], autostart: true, link: false };
+    await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', client)), JSON.stringify(record));
+  }
+  f.clear();
+  f.io.autostart = async (record, action) => { if (action === 'install') throw new Error('the service manager refused'); };
+  const code = await main(['uninstall', '--client', 'claude-code'], f.io);
+  assert.notEqual(code, exitCodeFor('ok'), f.output.join('\n'));
+  await fs.access(f.records['claude-code'].path);
+});
+
 for (const metadata of ['malformed', 'missing']) {
   for (const locale of ['en', 'pt-BR']) {
     test(`unknown legacy bin with ${metadata} metadata preserves the service (${locale})`, async (t) => {

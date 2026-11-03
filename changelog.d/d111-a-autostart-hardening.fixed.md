@@ -3,3 +3,5 @@ Harden setup autostart across client records, verify login readiness and exact c
 Resolve relative repair launchers and legacy setup records, require executable Node files and nonempty daemon scripts. / Resolve launchers relativos e registros legados no setup, exige arquivos Node executáveis e scripts do daemon não vazios.
 
 Uninstall and update still remove the service when its daemon script is gone. / Desinstalar e atualizar ainda removem o serviço quando o script do daemon sumiu.
+
+Uninstalling one client hands the service to a surviving client that can run it, or removes it when none can. / Desinstalar um cliente passa o serviço a um cliente restante que consiga executá-lo, ou o remove quando nenhum consegue.
