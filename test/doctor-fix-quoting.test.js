@@ -243,7 +243,7 @@ for (const command of ['foreach', 'if']) {
 
 test('reserved vocabulary is exact and only applies to the program on its platform', () => {
   assert.equal(shown(['IF', 'if'], 'linux'), 'IF if');
-  assert.equal(shown(['foreach', 'if'], 'linux'), 'foreach if');
+  assert.equal(shown(['try', 'if'], 'linux'), 'try if');
   assert.equal(shown(['then', 'if'], 'win32'), 'then if');
 });
 
@@ -384,3 +384,25 @@ for (const platform of ['linux', 'win32']) {
     }
   });
 }
+
+for (const command of ['foreach', 'end']) {
+  test(`POSIX quotes the zsh reserved program ${command}`, () => {
+    assert.equal(shown([command, 'install'], 'linux'), `'${command}' install`);
+  });
+}
+
+test('a folder with the name of the command on the PATH is not the command, and a PATH that cannot be probed proves nothing', async (t) => {
+  const folder = await fs.mkdtemp(join(tmpdir(), 'folder-command-'));
+  t.after(() => fs.rm(folder, { recursive: true, force: true }));
+  await fs.mkdir(join(folder, 'okit-plugin'), { mode: 0o755 });
+  const { input } = await world({ onPath: false, readers: brokenNode });
+  Object.assign(input, { env: { PATH: folder }, fs });
+  assertProgram(rowOf(await diagnose(input), 'node'), [process.execPath, RUNNING_CLI]);
+  // A real file with the name does prove it.
+  await fs.rm(join(folder, 'okit-plugin'), { recursive: true });
+  await fs.writeFile(join(folder, 'okit-plugin'), '#!/bin/sh\n', { mode: 0o755 });
+  assertProgram(rowOf(await diagnose(input), 'node'), ['okit-plugin']);
+  // An error that is not "not found" while probing does not crash the doctor.
+  const broken = { ...fs, access: async () => { throw Object.assign(new Error('loop'), { code: 'ELOOP' }); } };
+  assertProgram(rowOf(await diagnose({ ...input, fs: broken }), 'node'), [process.execPath, RUNNING_CLI]);
+});

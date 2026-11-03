@@ -113,8 +113,8 @@ export async function missingFile(record, config, fs) {
 export async function programWords({ config, platform, env, fs = filesystem }) {
   const windows = platform === config.windowsPlatform;
   const path = windows ? Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] : env.PATH;
-  if (await commandInPath({ fs, config, windows, path: path ?? '', separator: windows ? ';' : delimiter })) {
-    return [config.command];
-  }
+  // A PATH that cannot be probed (an unreadable folder, a loop of links) proves nothing: the running CLI is the program.
+  const found = await commandInPath({ fs, config, windows, path: path ?? '', separator: windows ? ';' : delimiter }).catch(() => undefined);
+  if (found) return [config.command];
   return [process.execPath, fileURLToPath(new URL('../cli.js', import.meta.url))];
 }
