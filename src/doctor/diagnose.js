@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as filesystem from 'node:fs/promises';
 
-import { absoluteNode, installationScript, autostartPlan, autostartPresent, detectAutostart } from '../autostart.js';
+import { usableNode, installationScript, autostartPlan, autostartPresent, detectAutostart } from '../autostart.js';
 import { daemonStatus } from '../daemon.js';
 import { installConfig, installPaths } from '../install/config.js';
 import { mcpPlan, mcpStatus, quotedWord, shown } from '../install/mcp-register.js';
@@ -281,8 +281,8 @@ export async function diagnose(input) {
   // 6. The session: the server of the state folder, asked one question.
   rows.push(await sessionRow({ readers, root, ui, command: program, platform }));
 
-  // 7. The autostart: the plan of this machine, seen from the first record.
-  const autostart = await autostartRow({ readers, records: resolved, root, home, command, program, platform, ui });
+  // 7. The shared autostart: every retained payload can be its current command, even with a client filter.
+  const autostart = await autostartRow({ readers, fs, records: allResolved, root, home, command, program, platform, ui });
   if (autostart) rows.push(autostart);
 
   // 8. The daemon: it runs, or it should (the autostart is there) and does not.
@@ -467,13 +467,13 @@ async function sessionRow({ readers, root, ui, command, platform }) {
  * The row of the autostart: the plan of this machine, for every record of the installation (one service covers them
  * all, and the current command may be the one of any client's retained payload).
  */
-async function autostartRow({ readers, records, root, home, command, program, platform, ui }) {
+async function autostartRow({ readers, fs, records, root, home, command, program, platform, ui }) {
   const first = records[0];
   if (!first) return null;
   // The node of a plan of this machine: the one of the installation, or the node of this process (absolute: a bare
   // `node` would be resolved by the PATH of a shell nobody knows).
   const planOf = async (record) => {
-    const node = absoluteNode(record.settings?.node, platform);
+    const node = await usableNode(record.settings?.node, platform, (path) => fs.access(path));
     const script = await installationScript(record, { readText: readers.readText, command });
     if (!script) return null;
     return { node, script, plan: autostartPlan(detectAutostart(platform), { root, home, command, node, script }) };

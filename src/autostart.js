@@ -3,7 +3,7 @@
 // remove it — so the autostart preview can print the whole plan before a single
 // command runs, and a test can assert it without touching the machine.
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { access as fileAccess, mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, isAbsolute, win32 } from 'node:path';
 import process from 'node:process';
@@ -16,6 +16,12 @@ import { DEFAULT_CONFIG } from './profiles.js';
 export function absoluteNode(node, platform = process.platform) {
   return typeof node === 'string' && (platform === 'win32' ? win32.isAbsolute(node) : isAbsolute(node))
     ? node : process.execPath;
+}
+
+/** A saved Node must still exist when the service plan is built. */
+export async function usableNode(node, platform = process.platform, access = fileAccess) {
+  const absolute = absoluteNode(node, platform);
+  try { await access(absolute); return absolute; } catch { return process.execPath; }
 }
 
 /** Resolve legacy records using the same package bin key as the installer, through a read-only seam. */

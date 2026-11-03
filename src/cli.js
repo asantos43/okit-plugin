@@ -32,7 +32,7 @@ export function isCollectorLaunch(argv = []) {
 }
 
 const collectorEntry = isCollectorLaunch(process.argv.slice(2));
-const { absoluteNode, installationScript, applyAutostart, autostartPlan, detectAutostart } = collectorEntry
+const { usableNode, installationScript, applyAutostart, autostartPlan, detectAutostart } = collectorEntry
   ? {} : await import('./autostart.js');
 const { run } = collectorEntry ? {} : await import('./core/operations.js');
 const { daemonRun, daemonStatus } = collectorEntry
@@ -329,7 +329,7 @@ async function installationAutostartPlan(ctx, io, record) {
   if (!script) return null;
   return autostartPlan(detectAutostart(ctx.platform), {
     root: ctx.root, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE,
-    node: absoluteNode(record.settings?.node, ctx.platform), script, command: ctx.command,
+    node: await usableNode(record.settings?.node, ctx.platform, (path) => ctx.fs.access(path)), script, command: ctx.command,
   });
 }
 

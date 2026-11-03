@@ -621,3 +621,28 @@ test('the doctor finds the installation that is running, when the records are in
   assert.match(text, new RegExp(`Installation\\s+ok\\s+installed ${version.replace(/\./g, '\\.')}`), text);
   assert.doesNotMatch(text, /no installation record was found/, text);
 });
+
+test('doctor client filter checks the shared autostart against both installed clients', async (t) => {
+  const f = await world(t, { clients: ['claude-code', 'codex'] });
+  const { autostartPlan } = await import('../src/autostart.js');
+  for (const client of ['claude-code', 'codex']) {
+    const file = join(f.destination, `install.${client}.json`);
+    const record = JSON.parse(await fs.readFile(file, 'utf8'));
+    await fs.writeFile(file, JSON.stringify({ ...record, autostart: true }));
+    if (client === 'codex') {
+      const plan = autostartPlan('systemd', { root: f.root, home: f.home, node: process.execPath,
+        script: join(record.path, record.bin), command: f.io.config.command });
+      await fs.mkdir(dirname(plan.path), { recursive: true });
+      await fs.writeFile(plan.path, plan.content);
+    }
+  }
+  await fs.writeFile(join(f.root, 'daemon.pid.json'), JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
+  const originalRun = f.io.run;
+  f.io.run = async (command) => command.command === 'systemctl'
+    ? { stdout: 'enabled\n' } : originalRun(command);
+  for (const args of [['doctor'], ['doctor', '--client', 'claude-code']]) {
+    f.clear();
+    assert.equal(await main(args, f.io), exitCodeFor('ok'), f.output.join('\n'));
+    assert.match(f.output.join('\n'), /Autostart\s+ok\s/);
+  }
+});

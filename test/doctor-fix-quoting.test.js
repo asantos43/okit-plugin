@@ -128,7 +128,7 @@ test('the command of the Fix of a row is read back by the shell exactly as it wa
     // The Fix of the row names the command: the words after the colon are the command line.
     const line = row.fix.slice(row.fix.indexOf(': ') + 2);
     // An empty command cannot be found on the PATH: the running CLI is the program.
-    assert.deepEqual(argvOf(line), value === '' ? [process.execPath, RUNNING_CLI, 'install'] : [value, 'install'], line);
+    assert.deepEqual(argvOf(line), value === '' ? [process.execPath, RUNNING_CLI, 'install'] : [join('/proven-bin', value), 'install'], line);
   }
 });
 
@@ -169,10 +169,10 @@ test('all doctor Fix programs use the PowerShell call operator', async () => {
   }
   assert.ok(fixes.length > 10);
   for (const fix of fixes) {
-    for (const match of fix.matchAll(/'my plugin'/g)) {
+    for (const match of fix.matchAll(/'\/proven-bin\/my plugin.exe'/g)) {
       assert.equal(fix.slice(match.index - 2, match.index), '& ', fix);
       const line = fix.slice(match.index - 2);
-      assert.deepEqual(powershellWords(line).slice(0, 2), ['&', 'my plugin'], fix);
+      assert.deepEqual(powershellWords(line).slice(0, 2), ['&', '/proven-bin/my plugin.exe'], fix);
     }
   }
 });
@@ -204,9 +204,10 @@ for (const command of ['my=plugin', '%plugin']) {
       const result = await diagnose({ ...input, platform });
       const row = rowOf(result, 'install');
       const line = row.fix.slice(row.fix.indexOf(': ') + 2);
-      assert.equal(line, `${platform === 'win32' ? '& ' : ''}'${command}' install`);
+      const found = `/proven-bin/${command}${platform === 'win32' ? '.exe' : ''}`;
+      assert.equal(line, shown([found, 'install'], platform));
       assert.deepEqual(platform === 'win32' ? powershellWords(line) : argvOf(line),
-        platform === 'win32' ? ['&', command, 'install'] : [command, 'install']);
+        platform === 'win32' && line.startsWith('& ') ? ['&', found, 'install'] : [found, 'install']);
       assert.equal(shown([command, '--dest=/x', '%argument'], platform),
         `${platform === 'win32' ? '& ' : ''}'${command}' --dest=/x %argument`);
       assert.equal(quotedWord(command, platform), command);
@@ -214,22 +215,23 @@ for (const command of ['my=plugin', '%plugin']) {
   }
 }
 
-for (const command of ['my=plugin', 'if', 'then', 'elif', 'repeat', 'nocorrect']) {
+for (const command of ['my=plugin', 'if', 'then', 'elif', 'repeat', 'nocorrect', 'printf']) {
   test(`the Fix really executes the configured program ${command}`, async (t) => {
     const folder = await fs.mkdtemp(join(tmpdir(), 'reserved-'));
     t.after(() => fs.rm(folder, { recursive: true, force: true }));
-    await fs.writeFile(join(folder, command), '#!/bin/sh\nprintf "%s\\n" "$@"\n', { mode: 0o755 });
+    await fs.writeFile(join(folder, command), '#!/bin/sh\nprintf "external-marker:%s\\n" "$@"\n', { mode: 0o755 });
     await fs.chmod(join(folder, command), 0o755);
     const { input } = await world({ command, onPath: false });
+    await fs.symlink(process.execPath, join(folder, 'node'));
     input.env.PATH = folder;
     input.fs = fs;
     const row = rowOf(await diagnose(input), 'install');
     const line = row.fix.slice(row.fix.indexOf(': ') + 2);
-    assert.equal(line, `'${command}' install`);
+    assert.equal(line, shown([join(folder, command), 'install'], 'linux'));
     assert.equal(execFileSync('sh', ['-c', line], {
       encoding: 'utf8', env: { ...process.env, PATH: `${folder}:${process.env.PATH}` },
-    }), 'install\n');
-    assert.equal(line, `'${command}' install`);
+    }), 'external-marker:install\n');
+    assert.equal(line, shown([join(folder, command), 'install'], 'linux'));
   });
 }
 
@@ -237,7 +239,7 @@ for (const command of ['foreach', 'if']) {
   test(`PowerShell calls reserved program ${command}`, async () => {
     const { input } = await world({ command });
     const row = rowOf(await diagnose({ ...input, platform: 'win32' }), 'install');
-    assert.ok(row.fix.endsWith(`& '${command}' install`), row.fix);
+    assert.ok(row.fix.endsWith(shown([`/proven-bin/${command}.exe`, 'install'], 'win32')), row.fix);
   });
 }
 
@@ -351,11 +353,11 @@ for (const platform of ['linux', 'win32']) {
       const env = platform === 'win32' ? { pAtH: '/missing;/proven-bin' } : { PATH: '/missing:/proven-bin' };
       const fs = { ...input.fs, access: async (file, mode) => {
         probes.push([file, mode]);
-        if (file === `/proven-bin/okit-plugin${platform === 'win32' ? '.cmd' : ''}`) return;
+        if (['okit-plugin', 'node'].some((command) => file === `/proven-bin/${command}${platform === 'win32' ? '.cmd' : ''}`)) return;
         throw Object.assign(new Error('missing'), { code: 'ENOENT' });
       } };
       assertProgram(rowOf(await diagnose({ ...input, config, env, fs, platform }), 'node'), ['okit-plugin'], platform);
-      assert.equal(probes.length, 2);
+      assert.equal(probes.filter(([file]) => file.startsWith('/missing/') || file.startsWith('/proven-bin/')).length, 4);
     });
   }
 }
@@ -363,7 +365,7 @@ for (const platform of ['linux', 'win32']) {
 for (const command of ['elif', 'repeat', 'nocorrect']) {
   test(`POSIX quotes reserved program ${command} found on PATH`, async () => {
     const { input } = await world({ command });
-    assert.equal(rowOf(await diagnose(input), 'install').fix, `Install it: '${command}' install`);
+    assert.equal(rowOf(await diagnose(input), 'install').fix, `Install it: ${shown([`/proven-bin/${command}`, 'install'], 'linux')}`);
     assert.equal(shown([command, command], 'linux'), `'${command}' ${command}`);
   });
 }
@@ -373,6 +375,7 @@ for (const platform of ['linux', 'win32']) {
     const folder = await fs.mkdtemp(join(tmpdir(), 'deleted-shim-'));
     t.after(() => fs.rm(folder, { recursive: true, force: true }));
     const shim = join(folder, `okit-plugin${platform === 'win32' ? '.cmd' : ''}`);
+    await fs.symlink(process.execPath, join(folder, platform === 'win32' ? 'node.cmd' : 'node'));
     await fs.writeFile(shim, '#!/bin/sh\n');
     await fs.chmod(shim, 0o755);
     const { input } = await world({ onPath: false, readers: brokenNode });
@@ -398,6 +401,7 @@ test('a folder with the name of the command on the PATH is not the command, and 
   const { input } = await world({ onPath: false, readers: brokenNode });
   Object.assign(input, { env: { PATH: folder }, fs });
   assertProgram(rowOf(await diagnose(input), 'node'), [process.execPath, RUNNING_CLI]);
+  await fs.symlink(process.execPath, join(folder, 'node'));
   // A real file with the name does prove it.
   await fs.rm(join(folder, 'okit-plugin'), { recursive: true });
   await fs.writeFile(join(folder, 'okit-plugin'), '#!/bin/sh\n', { mode: 0o755 });
@@ -405,4 +409,32 @@ test('a folder with the name of the command on the PATH is not the command, and 
   // An error that is not "not found" while probing does not crash the doctor.
   const broken = { ...fs, access: async () => { throw Object.assign(new Error('loop'), { code: 'ELOOP' }); } };
   assertProgram(rowOf(await diagnose({ ...input, fs: broken }), 'node'), [process.execPath, RUNNING_CLI]);
+});
+
+for (const platform of ['linux', 'win32']) {
+  test(`a PATH launcher needs Node on PATH on ${platform}`, async (t) => {
+    const folder = await fs.mkdtemp(join(tmpdir(), 'launcher-node-'));
+    t.after(() => fs.rm(folder, { recursive: true, force: true }));
+    const extension = platform === 'win32' ? '.cmd' : '';
+    await fs.writeFile(join(folder, `okit-plugin${extension}`), '#!/usr/bin/env node\n', { mode: 0o755 });
+    const { input } = await world({ onPath: false, readers: brokenNode });
+    Object.assign(input, { platform, fs, env: { PATH: folder } });
+    assertProgram(rowOf(await diagnose(input), 'node'), [process.execPath, RUNNING_CLI], platform);
+    const node = join(folder, `node${extension}`);
+    await fs.symlink(process.execPath, node);
+    assertProgram(rowOf(await diagnose(input), 'node'), [input.config.command], platform);
+    const unreadable = { ...fs, access: async (file, mode) => {
+      if (file === node) throw Object.assign(new Error('loop'), { code: 'ELOOP' });
+      return fs.access(file, mode);
+    } };
+    assertProgram(rowOf(await diagnose({ ...input, fs: unreadable }), 'node'), [process.execPath, RUNNING_CLI], platform);
+  });
+}
+
+test('only the package default stays bare; a builtin name uses the found file', async () => {
+  const { input } = await world({ command: 'printf' });
+  const row = rowOf(await diagnose(input), 'install');
+  assert.equal(row.fix, `Install it: ${shown(['/proven-bin/printf', 'install'], 'linux')}`);
+  const standard = await world({ command: installConfig().command });
+  assert.equal(rowOf(await diagnose(standard.input), 'install').fix, `Install it: ${installConfig().command} install`);
 });

@@ -100,7 +100,9 @@ for (const answer of ['y', 'Y', ' y ', 'yes', 's']) {
 
 test('accepted plan uses the node executable from the installation record', async (t) => {
   const f = await world(t);
-  const record = { ...f.records.codex, settings: { ...f.records.codex.settings, node: '/opt/custom/node' } };
+  const savedNode = join(f.home, 'custom-node');
+  await fs.writeFile(savedNode, '// retained Node');
+  const record = { ...f.records.codex, settings: { ...f.records.codex.settings, node: savedNode } };
   await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', record.client)), JSON.stringify(record));
   const before = await snapshot(f);
   f.io.ask = async (question) => {
@@ -109,14 +111,14 @@ test('accepted plan uses the node executable from the installation record', asyn
     return 'yes';
   };
   const expected = autostartPlan(detectAutostart('linux'), {
-    root: f.root, home: f.home, node: '/opt/custom/node',
+    root: f.root, home: f.home, node: savedNode,
     script: join(record.path, record.bin), command: f.io.config.command,
   });
   assert.equal(await main(['setup'], f.io), 0);
   assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
   assert.deepEqual(f.ran, expected.install);
   assert.deepEqual(f.written, [{ path: expected.path, content: expected.content }]);
-  assert.ok(f.written[0].content.includes('/opt/custom/node'));
+  assert.ok(f.written[0].content.includes(savedNode));
   assert.equal(f.written[0].content.includes(process.execPath), false);
 });
 
@@ -743,4 +745,34 @@ for (const metadata of ['malformed', 'missing']) {
         fileURLToPath(new URL('../src/cli.js', import.meta.url))], 'linux') }));
     });
   }
+}
+
+for (const removed of [false, true]) {
+  test(`saved Node ${removed ? 'removed falls back to running Node' : 'existing stays in setup and doctor plans'}`, async (t) => {
+    const f = await world(t);
+    const savedNode = join(f.home, 'saved-node');
+    await fs.writeFile(savedNode, '// saved executable');
+    if (removed) await fs.unlink(savedNode);
+    const record = { ...f.records.codex, settings: { ...f.records.codex.settings, node: savedNode } };
+    await fs.writeFile(join(f.destination, 'install.codex.json'), JSON.stringify(record));
+    f.io.ask = async () => 'yes';
+    const node = removed ? process.execPath : savedNode;
+    const script = join(record.path, record.bin);
+    const expected = autostartPlan('systemd', { root: f.root, home: f.home, node, script, command: f.io.config.command });
+    assert.equal(await main(['setup'], f.io), exitCodeFor('ok'));
+    assert.deepEqual(f.written, [{ path: expected.path, content: expected.content }]);
+    const { diagnose } = await import('../src/doctor/diagnose.js');
+    const { createPresenter } = await import('../src/install/present.js');
+    const plans = [];
+    const result = await diagnose({ ...f.io, records: [{ ...record, autostart: true }],
+      ui: createPresenter({ locale: 'en', write: () => {} }), readers: {
+        selfCheck: async () => [], mcpEntry: async () => ({ state: 'registered' }), servers: async () => [],
+        daemon: async () => ({ running: true }),
+        autostartPresent: async (plan) => { plans.push(plan); return false; },
+      } });
+    assert.equal(plans[0].content, expected.content);
+    const row = result.rows.find((row) => row.id === 'autostart');
+    assert.equal(row.status, 'failed');
+    assert.ok(row.fix.includes(shown([node, script, 'daemon', 'start'], 'linux')), row.fix);
+  });
 }

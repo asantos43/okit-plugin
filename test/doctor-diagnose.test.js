@@ -74,7 +74,7 @@ async function world({ records = [RECORD], files = {}, readers = {}, locale = 'e
     platform: 'linux',
     env: { HOME: '/home', PATH: '/proven-bin' },
     home: '/home',
-    fs: { readFile: async (file, ...rest) => fs.readFile(file, ...rest), access: async (file, mode) => file === '/proven-bin/okit-plugin' ? undefined : fs.access(file, mode) },
+    fs: { readFile: async (file, ...rest) => fs.readFile(file, ...rest), access: async (file, mode) => ['/proven-bin/okit-plugin', '/proven-bin/node'].includes(file) ? undefined : fs.access(file, mode) },
     run: async () => ({ code: 0, stdout: '' }),
     now: () => Date.now(),
     readers: defaults ? { ...readers } : { ...fake, ...readers },

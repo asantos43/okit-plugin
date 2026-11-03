@@ -1,6 +1,7 @@
 import { delimiter, join } from 'node:path';
 import * as filesystem from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_CONFIG } from '../profiles.js';
 import { commandInPath } from '../env/path.js';
 
 // Where an installation is. One place, so the doctor and the self-check can never diagnose a folder that is not the
@@ -109,12 +110,13 @@ export async function missingFile(record, config, fs) {
   return null;
 }
 
-/** A repair uses the command only when this environment can find it; otherwise it uses this running CLI. */
+/** A repair needs both launcher and Node on PATH; only the package default may stay a bare name. */
 export async function programWords({ config, platform, env, fs = filesystem }) {
   const windows = platform === config.windowsPlatform;
   const path = windows ? Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] : env.PATH;
   // A PATH that cannot be probed (an unreadable folder, a loop of links) proves nothing: the running CLI is the program.
   const found = await commandInPath({ fs, config, windows, path: path ?? '', separator: windows ? ';' : delimiter }).catch(() => undefined);
-  if (found) return [config.command];
+  const node = await commandInPath({ fs, config: { ...config, command: 'node' }, windows, path: path ?? '', separator: windows ? ';' : delimiter }).catch(() => undefined);
+  if (found && node) return [config.command === DEFAULT_CONFIG.install.command ? config.command : found];
   return [process.execPath, fileURLToPath(new URL('../cli.js', import.meta.url))];
 }

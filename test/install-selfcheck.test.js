@@ -62,6 +62,12 @@ const isLogin = (spec) => isResolve(spec) && ['-lc', '-l'].includes(spec.args[0]
 const isBar = (spec) => isCheck(spec) && barText(spec).includes('statusline-collector');
 const isHook = (spec) => isCheck(spec) && barText(spec).includes('hook session-start');
 
+/** The fake launcher has the Node dependency that its shebang and Windows shim require. */
+async function nodeOnPath(f, platform) {
+  await fs.mkdir(f.bin, { recursive: true });
+  await fs.symlink(process.execPath, join(f.bin, platform === 'win32' ? 'node.cmd' : 'node'));
+}
+
 /**
  * The installer in a temporary world. `fail(spec)` decides the outcome of a process of the check: 'missing' (no such
  * executable), 'timeout', a number (an exit code) or nothing; `meddle(moment)` changes the world at 'register' (the files
@@ -71,6 +77,7 @@ const isHook = (spec) => isCheck(spec) && barText(spec).includes('hook session-s
 async function world(t, platform, { argv = ['install', '--client', CLIENT, '--statusline'], locale = 'en', fail, meddle, noReading,
   hook = platform !== 'win32', config, env, update, resolved } = {}) {
   const f = await fixture(t, platform);
+  await nodeOnPath(f, platform);
   if (platform === 'win32') {
     // The Git Bash of the Windows list is found by its candidate paths: put one in a made-up Program Files.
     f.io.env.ProgramFiles = join(f.home, 'Program Files');
@@ -242,6 +249,7 @@ test('S1: a timeout and a result with a non-zero code fail like a thrown exit co
 
 test('S1: a failure is told on the update too, and the fix is the installer again', async (t) => {
   const f = await fixture(t, 'linux');
+  await nodeOnPath(f, 'linux');
   assert.equal(await main(['install', '--client', CLIENT], f.io), 0, f.output.join('\n'));
   f.setVersion('2.0.0');
   f.clear();
@@ -1915,6 +1923,7 @@ for (const platform of ['linux', 'win32']) {
     const command = join(f.bin, f.io.config.command + (platform === 'win32' ? '.cmd' : ''));
     await fs.writeFile(command, '#!/bin/sh\n', { mode: 0o755 });
     await fs.chmod(command, 0o755);
+    await nodeOnPath(f, platform);
     const linked = await selfCheck(record, '1.0.0', { ...f.io, env: { pAtH: f.bin, PATH: f.bin },
       ui: createPresenter({ locale: 'en', write: () => {} }), platform, destination: f.destination, bin: f.bin, temporary: tmpdir(),
       statuslineConfig: DEFAULT_CONFIG.statuslineRegistration, collectorConfig: DEFAULT_CONFIG.statuslineCollector });
