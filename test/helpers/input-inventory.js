@@ -194,7 +194,7 @@ export const OUT_OF_SCOPE_FLAGS = Object.freeze({
   '--verify': 'git argument', '--format': 'argument of a program we start',
 });
 /** The files whose `'--flag'` literals are command-line inputs of the product. */
-export const FLAG_FILES = Object.freeze(['src/cli.js', 'src/install/index.js', 'src/autostart.js', 'src/install/bootstrap.js']);
+export const FLAG_FILES = Object.freeze(['src/cli.js', 'src/install/index.js', 'src/install/flags.js', 'src/autostart.js', 'src/install/bootstrap.js']);
 
 export function flagLiterals() {
   const found = new Map();
@@ -211,8 +211,8 @@ export function flagLiterals() {
 
 /** `--flag` names the installer parses, from its own table. */
 export function installFlags() {
-  const text = read('src/install/index.js');
-  const block = text.match(/const allowed = \{([\s\S]*?)\n\};/)[1];
+  const text = read('src/install/flags.js');
+  const block = text.match(/const ALLOWED_FLAGS = \{([\s\S]*?)\n\};/)[1];
   return new Set([...block.matchAll(/'([a-z][a-z-]*)'/g)].map((match) => `--${match[1]}`).filter((flag) => !['--install', '--update', '--uninstall'].includes(flag)));
 }
 
