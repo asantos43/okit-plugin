@@ -698,3 +698,20 @@ test('D112 round 11, 1: the bare command is not told when its link is gone, even
   assert.doesNotMatch(text, /(^|[\s'"])okit-plugin (update|doctor|setup)/m, text);
   assert.ok(text.includes(RUNNING), text);
 });
+
+// Round 12.
+test('D112 round 12, 1: a PATH state whose profile no longer holds the managed block is no proof that the command runs', async (t) => {
+  const f = await fixture(t, 'linux');
+  // Node is on the PATH of the terminal, the link folder is not: the installer writes the managed block into a profile.
+  f.io.env.PATH = join(f.home, 'node-bin');
+  f.io.env.SHELL = '/bin/bash';
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.output.join('\n'));
+  const state = JSON.parse(await filesystem.readFile(join(f.destination, f.io.config.path.stateFile), 'utf8'));
+  assert.ok(state.profiles.length > 0, 'the install wrote the managed block into a profile');
+  const tell = async () => { f.clear(); await main(['update', '--check', '--client', 'codex'], f.io); return f.output.join('\n'); };
+  assert.match(await tell(), /(^|[\s'"])okit-plugin (update|doctor|setup)/m, 'with the block in the profile the short name is told');
+  for (const item of state.profiles) await filesystem.writeFile(item.path, '# the person removed it\n');
+  const text = await tell();
+  assert.doesNotMatch(text, /(^|[\s'"])okit-plugin (update|doctor|setup)/m, text);
+  assert.ok(text.includes(RUNNING), text);
+});
