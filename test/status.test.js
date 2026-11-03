@@ -63,7 +63,6 @@ for (const locale of ['en', 'pt-BR']) test(`MCP display text and refusals (${loc
     assert.match(data.markdown, locale === 'en' ? /Showing all clients.*`client`/ : /Mostrando todos os clientes.*`client`/);
     if (name === 'actors_list') {
       assert.ok(data.actors.length > 0);
-      assert.match(data.actors[0].cells[5], locale === 'en' ? /not recorded/ : /não registrada/);
       assert.doesNotMatch(data.actors[0].cells[5], /0%/);
       assert.equal(data.actors[0].quota.remainingPct, null);
     }

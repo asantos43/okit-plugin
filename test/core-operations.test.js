@@ -200,7 +200,7 @@ test('daemon refuses a table it cannot build and shows the one the caller brings
   assert.equal(status.running, false);
   assert.deepEqual(Object.keys(status.table), ['markdown', 'capacityLine']);
   assert.match(status.table.markdown, /\| Subscription \|/);
-  assert.match(status.table.capacityLine, /quota floor/);
+  assert.match(status.table.capacityLine, /Minimum quota to launch/);
 });
 
 test('kit_detect probes the kit of a root and refuses arguments it does not take', async (t) => {
