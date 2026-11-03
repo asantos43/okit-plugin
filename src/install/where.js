@@ -36,7 +36,9 @@ export function installationOf(record, destination) {
   const named = record?.path;
   if (typeof named === 'string' && named !== '') return named;
   const { version, client } = record ?? {};
-  if (typeof version === 'string' && version !== '' && typeof client === 'string' && client !== '' && destination) {
+  // The name of the folder is one segment: a version or a client with a separator names no folder of the installer.
+  const segment = (value) => typeof value === 'string' && value !== '' && !/[\\/]/.test(value);
+  if (segment(version) && segment(client) && destination) {
     return join(destination, `${version}-${client}`);
   }
   return undefined;

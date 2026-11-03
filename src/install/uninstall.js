@@ -1,4 +1,5 @@
 import { UsageError } from './exit.js';
+import { resolvedRecord } from './where.js';
 import { readRecords, removeRecord } from './place.js';
 import { register, registrationPlan } from './register.js';
 import { mcpPlan, shown } from './mcp-register.js';
@@ -10,7 +11,8 @@ export async function uninstall(record, flags, deps) {
   if (flags.purge && !flags.yes) throw new UsageError('--purge requires --yes');
   if (!record) throw new UsageError('No installation record found');
   const records = await readRecords(deps.destination, deps.fs, deps.config);
-  const remaining = Object.values(records).filter((item) => item.client !== record.client);
+  const remaining = Object.values(records).filter((item) => item.client !== record.client)
+    .map((item) => resolvedRecord(item, deps.destination));
   if (flags.purge && remaining.length && !deps.dryRun) throw new UsageError('--purge requires no remaining clients');
   const ui = presenterOf(deps);
   const next = ui.sequence([...(record.statusline ? ['quotaUndo'] : []), 'unregister', ...(record.link ? ['unlink'] : []), 'remove'],

@@ -715,9 +715,11 @@ for (const damage of ['deleted', 'empty']) {
     f.clear();
     f.ran.length = 0;
     delete f.io.autostart; // the real lifecycle plans the autostart of the record
+    delete f.io.stopDaemon; // and the real stop, which removes the service once
     const code = await main(['uninstall', '--client', 'codex'], f.io);
     assert.equal(code, exitCodeFor('ok'), f.output.join('\n'));
     assert.ok(f.ran.some((command) => /systemctl|crontab|launchctl|schtasks/.test(command.command ?? command[0] ?? '')), JSON.stringify(f.ran));
+    assert.equal(f.ran.filter((command) => JSON.stringify(command).includes('disable')).length, 1, JSON.stringify(f.ran));
   });
 }
 
@@ -985,4 +987,31 @@ test('setup saves the resolved folders of a legacy record whose service is alrea
   const code = await main(['uninstall', '--client', 'codex'], f.io);
   assert.equal(code, exitCodeFor('ok'), f.output.join('\n'));
   assert.ok(f.ran.some((command) => JSON.stringify(command).includes('disable')), JSON.stringify(f.ran));
+});
+
+test('uninstall works with the folders of a legacy record that names none, and hands the service to a legacy survivor', async (t) => {
+  const f = await world(t, { clients: ['claude-code', 'codex'], installed: true });
+  for (const client of ['claude-code', 'codex']) {
+    const record = { ...f.records[client], autostart: true, link: false };
+    delete record.path;
+    delete record.destination;
+    await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', client)), JSON.stringify(record));
+  }
+  f.clear();
+  f.ran.length = 0;
+  delete f.io.autostart; // the real lifecycle plans the autostart of the record
+  delete f.io.stopDaemon;
+  const code = await main(['uninstall', '--client', 'claude-code'], f.io);
+  assert.equal(code, exitCodeFor('ok'), f.output.join('\n'));
+  assert.equal(f.ran.filter((command) => JSON.stringify(command).includes('disable')).length, 1, JSON.stringify(f.ran));
+  // The service now belongs to the survivor: its unit names the survivor's script.
+  assert.ok(f.written.some((item) => item.content.includes(join(f.records.codex.path, f.records.codex.bin))), JSON.stringify(f.written));
+  await assert.rejects(fs.access(f.records['claude-code'].path));
+});
+
+test('a version or a client with a separator names no folder of the installer', async () => {
+  const { installationOf } = await import('../src/install/where.js');
+  assert.equal(installationOf({ version: '1.0.0', client: 'codex' }, '/data'), join('/data', '1.0.0-codex'));
+  assert.equal(installationOf({ version: '../x', client: 'codex' }, '/data'), undefined);
+  assert.equal(installationOf({ version: '1.0.0', client: 'a/b' }, '/data'), undefined);
 });

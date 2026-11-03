@@ -15,6 +15,7 @@ import { registrationPlan, mcpNotes } from './register.js';
 import { mcpPlan, ensureMcp, shown } from './mcp-register.js';
 import { activate, backup, rollback } from './update.js';
 import { uninstall } from './uninstall.js';
+import { resolvedRecord } from './where.js';
 import { localSource } from './source.js';
 import { detectKit } from './kit.js';
 import { applyLink, chooseLinkDirectory } from './link.js';
@@ -138,7 +139,8 @@ export async function installerCommand(command, args, ctx, io = {}) {
     const lenient = command === 'install';
     const found = await discoverRecords(deps.destination, { fs, config, explicitDestination: Boolean(flags.dest), lenient });
     deps.destination = found.destination;
-    const records = found.records;
+    // A legacy record names no folder: every command works with the folders the installer places an installation in.
+    const records = Object.fromEntries(Object.entries(found.records).map(([client, record]) => [client, record !== null && typeof record === 'object' ? resolvedRecord(record, found.destination) : record]));
     /** The records of the destination, read the way this command reads them. */
     const recordsOf = async () => (lenient
       ? (await readRecordsLenient(deps.destination, fs, config)).records

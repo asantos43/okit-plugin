@@ -334,7 +334,12 @@ async function installationAutostartPlan(ctx, io, record, verify = true) {
 }
 
 function installerLifecycle(ctx, io) {
+  // The records whose service the stop already took away: the uninstall that follows must not remove it a second time
+  // (a manager that errors on a missing service would abort it).
+  const stopped = new WeakSet();
   const autostart = io.autostart ?? (async (record, action) => {
+    if (action === 'uninstall' && stopped.has(record)) return null;
+    stopped.delete(record);
     const plan = await installationAutostartPlan(ctx, io, record, action !== 'uninstall');
     if (!plan) throw Object.assign(new OperationalError('the installed daemon script could not be identified'), { noPlan: true });
     return applyAutostart(plan, { run: ctx.run, write: ctx.write, action });
@@ -343,7 +348,7 @@ function installerLifecycle(ctx, io) {
     autostart,
     stopDaemon: io.stopDaemon ?? (async (record) => {
       const status = await daemonStatus(ctx.root);
-      if (record.autostart) await autostart(record, 'uninstall');
+      if (record.autostart) { await autostart(record, 'uninstall'); stopped.add(record); }
       if (!status.running) return false;
       await daemonCommand(ctx, 'stop', []);
       const until = ctx.now() + record.settings.timeoutMs;
