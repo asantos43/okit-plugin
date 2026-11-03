@@ -19,7 +19,8 @@ import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { pick } from '../src/install/present.js';
 import { register } from '../src/install/register.js';
 import { installerCommand } from '../src/install/index.js';
-import { answerCheck, mcpWorld } from './helpers/install-fixture.js';
+import { exitCodeFor } from '../src/install/exit.js';
+import { fixture as sharedFixture, answerCheck, mcpWorld } from './helpers/install-fixture.js';
 import { rollback } from '../src/install/update.js';
 import * as moduleAdapter from '../adapters/opencode/index.js';
 import { execFile } from 'node:child_process';
@@ -490,6 +491,7 @@ async function fixture(t) {
     // The payload of the MCP server and the probe of the check: the installer writes them, and the check reads them.
     { path: 'src/mcp/server.js', mode: 0o644, data: '// fake MCP server\n' },
     { path: 'src/mcp/selfcheck-probe.js', mode: 0o644, data: '// fake probe of the check\n' },
+    { path: 'src/install/client-plugin.js', mode: 0o644, data: '// native client plugin\n' },
     { path: 'skills/example/SKILL.md', mode: 0o644, data: 'fake skill' },
   ]);
   const clients = Object.keys(config.clients);
@@ -835,6 +837,22 @@ test('install idempotent, fixed destination, missing client skipped, update same
   assert.deepEqual(f.events, []);
   assert.deepEqual(await tree(f.home), before);
   assert.ok(f.output.some((line) => /^\s*Up to date\s+ok\s+1\.0\.0$/.test(line)), f.output.join('\n'));
+});
+
+test('install repairs a deleted bin in the current version', async (t) => {
+  const f = await sharedFixture(t);
+  const args = ['install', '--client', 'claude-code'];
+  assert.equal(await main(args, f.io), exitCodeFor('ok'), f.output.join('\n'));
+  const record = await readRecord(f.destination, fs);
+  const file = join(record.path, 'src/cli.js');
+  const original = await fs.readFile(file, 'utf8');
+  await fs.rm(file);
+  f.clear();
+  assert.equal(await main(args, f.io), exitCodeFor('ok'), f.output.join('\n'));
+  assert.equal(await fs.readFile(file, 'utf8'), original);
+  assert.equal((await readRecord(f.destination, fs)).version, record.version);
+  assert.ok(f.output.some((line) => /Install files/.test(line)), f.output.join('\n'));
+  assert.ok(!f.output.some((line) => /^\s*Up to date/.test(line)), f.output.join('\n'));
 });
 
 test('an installation whose payload was deleted is written again: the fix of the doctor really repairs', async (t) => {

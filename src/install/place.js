@@ -1,5 +1,6 @@
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { missingFile } from './where.js';
 import { extract } from './extract.js';
 import { installConfig, renderName } from './config.js';
 import { OperationalError, UsageError } from './exit.js';
@@ -237,8 +238,7 @@ export async function removeRecord(destination, client, deps) {
 }
 
 /**
- * Whether the payload of an installation is whole: the MCP server of the installation and the probe of the check are
- * there, and they are not empty.
+ * Whether every required file of the installed package and client is readable and nonempty.
  *
  * An installation whose payload was deleted (or truncated) is not the installation of that version: the installer
  * writes it again, so the fix the doctor advertises really repairs.
@@ -250,11 +250,7 @@ export async function removeRecord(destination, client, deps) {
  */
 export async function payloadComplete(record, config, fs) {
   if (!record?.path) return false;
-  for (const file of [join(record.path, config.mcp.server), join(record.path, 'src/mcp/selfcheck-probe.js')]) {
-    const content = await fs.readFile(file, 'utf8').catch(() => null);
-    if (content === null || content.trim() === '') return false;
-  }
-  return true;
+  return await missingFile(record, config, fs) === null;
 }
 
 export async function place(selected, downloaded, details, deps) {

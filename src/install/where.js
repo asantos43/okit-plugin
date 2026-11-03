@@ -51,3 +51,57 @@ export function resolvedRecord(record, fallback) {
   const path = installationOf(record, destination);
   return { ...record, destination, ...(path === undefined ? {} : { path }) };
 }
+
+/**
+ * The file of the probe of the check, inside an installation: the installer writes it and the check runs it.
+ */
+export const PROBE_FILE = 'src/mcp/selfcheck-probe.js';
+
+/**
+ * The files the payload of an installation must have: the ones the installed package lists (the commands of its
+ * `bin`) and the ones the product reads by name (the configured MCP server, the probe and the client module).
+ * `missingFile` reads the metadata first, so the metadata is required too.
+ *
+ * The list is read from the installed package, never written here: a package that names another command has another
+ * list; the files the product reads by name are always required.
+ *
+ * @param {object} pkg the metadata of the installed package (its `package.json`)
+ * @param {object} config the settings of the installer
+ * @param {string} client the installed client
+ * @returns {string[]} the paths, relative to the installation
+ */
+export function requiredFiles(pkg, config, client) {
+  const files = [];
+  const bin = pkg?.bin;
+  if (typeof bin === 'string') files.push(bin);
+  else if (bin && typeof bin === 'object') {
+    for (const path of Object.values(bin)) if (typeof path === 'string' && path !== '') files.push(path);
+  }
+  files.push(config.mcp.server, PROBE_FILE);
+  const module = config.clients?.[client]?.module;
+  if (module) files.push(module);
+  return files;
+}
+
+/**
+ * The first file of the payload of an installation that is not there (or that is empty), or null when the payload is
+ * whole. The file is named whole: the row says which one is missing.
+ *
+ * @param {object} record the installation record (`path` is the retained folder)
+ * @param {object} config the settings of the installer
+ * @param {object} fs the file system
+ * @returns {Promise<string|null>} the file that is missing, or null
+ */
+export async function missingFile(record, config, fs) {
+  if (!record?.path) return null;
+  // The metadata of the installed package is the list of the files it requires: without it, the payload is not whole.
+  const metadata = join(record.path, 'package.json');
+  const pkg = await fs.readFile(metadata, 'utf8')
+    .then((text) => { try { return JSON.parse(text); } catch { return null; } }, () => null);
+  if (pkg === null || typeof pkg !== 'object' || Array.isArray(pkg)) return metadata;
+  for (const file of requiredFiles(pkg, config, record.client)) {
+    const content = await fs.readFile(join(record.path, file), 'utf8').catch(() => null);
+    if (content === null || content.trim() === '') return join(record.path, file);
+  }
+  return null;
+}

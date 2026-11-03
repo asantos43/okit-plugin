@@ -120,6 +120,7 @@ export const TEXTS = Object.freeze({
   autostartAlready: { en: 'Autostart is already installed.', 'pt-BR': 'A inicialização automática já está instalada.' },
   autostartLater: { en: 'Autostart not installed; to do it later ask the user to run: {command} setup', 'pt-BR': 'Inicialização automática não instalada; para instalar depois peça ao usuário para rodar: {command} setup' },
   autostartInstalled: { en: 'Autostart installed; {command} uninstall removes it.', 'pt-BR': 'Inicialização automática instalada; {command} uninstall a remove.' },
+  autostartNoPlan: { en: 'no installation can supply an autostart plan', 'pt-BR': 'nenhuma instalação fornece um plano de início automático' },
   autostartFailed: { en: 'Could not install autostart: {reason}', 'pt-BR': 'Não foi possível instalar a inicialização automática: {reason}' },
   autostartRolledBack: { en: 'the autostart was taken back: {reason}', 'pt-BR': 'a inicialização automática foi desfeita: {reason}' },
   autostartKept: { en: 'the service that was already installed was kept: {reason}', 'pt-BR': 'o serviço que já estava instalado foi mantido: {reason}' },
@@ -269,6 +270,7 @@ export const TEXTS = Object.freeze({
   doctorFixSession: { en: 'Open the client again to start its session, then run: {command} doctor', 'pt-BR': 'Abra o cliente de novo para iniciar a sessão dele, e rode: {command} doctor' },
   doctorAutostart: { en: 'Autostart', 'pt-BR': 'Início automático' },
   doctorAutostartOk: { en: 'the daemon starts with the machine', 'pt-BR': 'o daemon começa com a máquina' },
+  doctorAutostartUnknown: { en: 'the installed daemon script could not be identified', 'pt-BR': 'não foi possível identificar o script do daemon instalado' },
   doctorAutostartMissing: { en: 'the daemon was set to start with the machine, but it is not set up', 'pt-BR': 'o daemon deveria começar com a máquina, mas não está configurado' },
   doctorFixAutostart: { en: 'Set it up: the setup offers the autostart step and installs it when the answer is yes: {command} setup', 'pt-BR': 'Configure: o setup oferece o passo de inicialização automática e o instala quando a resposta for sim: {command} setup' },
   doctorAutostartOptional: { en: 'optional: {command} setup offers it', 'pt-BR': 'opcional: {command} setup oferece isso' },
@@ -288,6 +290,7 @@ export const TEXTS = Object.freeze({
 // matches none is shown as raised. The tests walk this table and the raise sites.
 export const REASONS = [
   [/^permission denied$/i, 'permissão negada', 'permission denied'],
+  [/^the installed daemon script could not be identified$/, 'não foi possível identificar o script do daemon instalado', 'the installed daemon script could not be identified'],
   [/^(.+?): (permission denied)$/i, '$1: $2', '/record.json: permission denied'],
   [/^No installation record found$/, 'Nenhuma instalação encontrada', 'No installation record found'],
   [/^No previous version retained$/, 'Nenhuma versão anterior foi guardada', 'No previous version retained'],

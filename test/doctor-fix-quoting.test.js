@@ -143,3 +143,53 @@ test('the path of the Fix of a row is read back by the shell exactly as it was w
     assert.deepEqual(argvOf(found[1]), [file], row.fix);
   }
 });
+
+// Exercise every program position emitted by the doctor, including unreadable rows.
+test('all doctor Fix programs use the PowerShell call operator', async () => {
+  const record = { client: 'codex', path: '/payload', bin: 'src/cli.js', autostart: true };
+  const scenarios = [
+    {}, { client: 'a client' },
+    { records: [record], invalid: [{ file: '/bad', client: 'a client' }, { file: '/bad' }] },
+  ];
+  const fixes = [];
+  for (const scenario of scenarios) {
+    for (const unreadable of [false, true]) {
+      const { input } = await world({ command: 'my plugin', files: { '/state/config.json': '{', '/state/inbox.json': '{' },
+        readers: {
+          nodeVersion: () => 'v1.0.0', mcpEntry: async () => ({ state: 'missing' }),
+          autostartPresent: async () => false, daemon: async () => ({ running: false }),
+          servers: async () => { if (unreadable) throw new Error('unreadable'); return []; },
+        } });
+      const result = await diagnose({ ...input, ...scenario, platform: 'win32' });
+      fixes.push(...result.rows.flatMap((row) => row.fix ? [row.fix] : []));
+    }
+  }
+  assert.ok(fixes.length > 10);
+  for (const fix of fixes) {
+    for (const match of fix.matchAll(/'my plugin'/g)) {
+      assert.equal(fix.slice(match.index - 2, match.index), '& ', fix);
+      const line = fix.slice(match.index - 2);
+      assert.deepEqual(powershellWords(line).slice(0, 2), ['&', 'my plugin'], fix);
+    }
+  }
+});
+
+test('a bare registered node becomes the absolute executable in the doctor plan and Fix', async () => {
+  const record = { client: 'codex', path: '/payload', bin: 'src/cli.js', settings: { node: 'node' }, autostart: true };
+  const plans = [];
+  const { input } = await world({ records: [record], readers: { autostartPresent: async (plan) => { plans.push(plan); return false; } } });
+  const row = rowOf(await diagnose(input), 'autostart');
+  assert.ok(plans[0].content.includes('"' + process.execPath + '"'));
+  assert.ok(row.fix.includes(shown([process.execPath, '/payload/src/cli.js', 'daemon', 'start'], 'linux')), row.fix);
+});
+
+test('an unidentified legacy script supplies neither a plan nor a false missing diagnosis', async () => {
+  const plans = [];
+  const { input } = await world({ records: [{ client: 'codex', path: '/payload', autostart: true }],
+    readers: { autostartPresent: async (plan) => { plans.push(plan); return true; } } });
+  const row = rowOf(await diagnose(input), 'autostart');
+  assert.deepEqual(plans, []);
+  assert.equal(row.status, 'skipped');
+  assert.equal(row.fix.includes('daemon start'), false);
+  assert.equal(row.detail.includes('not set up'), false);
+});

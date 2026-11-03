@@ -5,12 +5,35 @@
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, isAbsolute, win32 } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { stateRoot } from './store.js';
 import { DEFAULT_CONFIG } from './profiles.js';
+
+/** Login services must not depend on the interactive shell's PATH. */
+export function absoluteNode(node, platform = process.platform) {
+  return typeof node === 'string' && (platform === 'win32' ? win32.isAbsolute(node) : isAbsolute(node))
+    ? node : process.execPath;
+}
+
+/** Resolve legacy records using the same package bin key as the installer, through a read-only seam. */
+export async function installationScript(record, { readText, command }) {
+  let bin = record.bin;
+  if (!bin && record.path) {
+    try {
+      const pkg = JSON.parse(await readText(join(record.path, 'package.json')));
+      bin = pkg.bin?.[command];
+    } catch {
+      try {
+        const pkg = JSON.parse(await readText(fileURLToPath(new URL('../package.json', import.meta.url))));
+        bin = pkg.bin?.[command];
+      } catch { /* No package metadata means there is no safe script candidate. */ }
+    }
+  }
+  return record.path && typeof bin === 'string' && bin ? join(record.path, bin) : null;
+}
 
 export const AUTOSTART_KINDS = ['systemd', 'cron', 'launchd', 'schtasks'];
 

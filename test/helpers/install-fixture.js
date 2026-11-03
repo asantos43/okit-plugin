@@ -127,6 +127,7 @@ export async function fixture(t, platform = 'linux', { tty = false, ask, read } 
     // The payload of the MCP server and the probe of the check: the installer writes them, and the check reads them.
     { path: 'src/mcp/server.js', mode: 0o644, data: '// fake MCP server\n' },
     { path: 'src/mcp/selfcheck-probe.js', mode: 0o644, data: '// fake probe of the check\n' },
+    { path: 'src/install/client-plugin.js', mode: 0o644, data: '// native client plugin\n' },
     { path: 'skills/example/SKILL.md', mode: 0o644, data: 'fake skill' },
   ]);
   const clients = Object.keys(config.clients);

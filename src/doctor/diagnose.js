@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as filesystem from 'node:fs/promises';
 
-import { autostartPlan, autostartPresent, detectAutostart } from '../autostart.js';
+import { absoluteNode, installationScript, autostartPlan, autostartPresent, detectAutostart } from '../autostart.js';
 import { daemonStatus } from '../daemon.js';
 import { installConfig, installPaths } from '../install/config.js';
 import { mcpPlan, mcpStatus, quotedWord, shown } from '../install/mcp-register.js';
@@ -185,7 +185,7 @@ export async function diagnose(input) {
   const platform = input.platform ?? process.platform;
   // Every command the doctor advertises is written for the shell of the platform: a command with a space or a quote
   // in it is runnable as it is shown.
-  const program = quotedWord(command, platform);
+  const program = shown([command], platform);
   const env = input.env ?? {};
   const home = input.home ?? env.HOME ?? env.USERPROFILE ?? homedir();
   const root = input.root;
@@ -469,14 +469,17 @@ async function autostartRow({ readers, records, root, home, command, program, pl
   if (!first) return null;
   // The node of a plan of this machine: the one of the installation, or the node of this process (absolute: a bare
   // `node` would be resolved by the PATH of a shell nobody knows).
-  const planOf = (record) => {
-    const node = record.settings?.node ?? process.execPath;
-    const script = join(record.path ?? '', record.bin ?? '');
+  const planOf = async (record) => {
+    const node = absoluteNode(record.settings?.node, platform);
+    const script = await installationScript(record, { readText: readers.readText, command });
+    if (!script) return null;
     return { node, script, plan: autostartPlan(detectAutostart(platform), { root, home, command, node, script }) };
   };
-  const plans = records.map(planOf);
-  const { node, script } = plans[0];
+  const plans = (await Promise.all(records.map(planOf))).filter(Boolean);
+  const { node, script } = plans[0] ?? {};
   const label = ui.text('doctorAutostart');
+  if (!plans.length) return { id: 'autostart', status: 'skipped', label,
+    detail: ui.text('doctorAutostartUnknown'), fix: ui.text('doctorFixAutostart', { command: program }) };
   const asked = await attempt(async () => {
     for (const { plan } of plans) if (await readers.autostartPresent(plan)) return true;
     return false;

@@ -281,3 +281,23 @@ test('cron readiness matches the whole current line without relying on a spool f
   assert.equal(await cronPresent(plan, async () => { throw new Error('missing tool'); }), false);
   assert.equal(await cronPresent(plan), false);
 });
+
+test('absoluteNode accepts platform paths and replaces PATH-dependent node names', async () => {
+  const { absoluteNode } = await import('../src/autostart.js');
+  for (const node of [undefined, 'node', './node', 'bin/node']) assert.equal(absoluteNode(node, 'linux'), process.execPath);
+  assert.equal(absoluteNode('/opt/node', 'linux'), '/opt/node');
+  assert.equal(absoluteNode('C:\\Program Files\\node.exe', 'win32'), 'C:\\Program Files\\node.exe');
+  assert.equal(absoluteNode('C:node.exe', 'win32'), process.execPath);
+});
+
+test('legacy script recovery falls back to the installer package only when its metadata cannot be read', async () => {
+  const { installationScript } = await import('../src/autostart.js');
+  const reads = [];
+  const script = await installationScript({ path: '/payload' }, { command: 'okit-plugin', readText: async (path) => {
+    reads.push(path);
+    if (path === '/payload/package.json') throw new Error('unreadable');
+    return JSON.stringify({ bin: { 'okit-plugin': 'src/cli.js' } });
+  } });
+  assert.equal(script, '/payload/src/cli.js');
+  assert.equal(reads.length, 2);
+});

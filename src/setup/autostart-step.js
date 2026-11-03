@@ -45,7 +45,17 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
     const records = Object.values(discovered.records);
     if (!records.length) return exitCodeFor('ok');
     // One service covers this destination, but any client's retained payload may be its current command.
-    const candidates = records.map((record) => plan(record));
+    const candidates = [];
+    for (const record of records) {
+      try {
+        const candidate = await plan(record);
+        if (candidate) candidates.push(candidate);
+      } catch { /* An old record still counts below, but cannot supply a plan. */ }
+    }
+    if (!candidates.length) {
+      ctx.err(text('autostartFailed', { reason: text('autostartNoPlan') }));
+      return exitCodeFor('operational');
+    }
     let selected = candidates.at(0);
     let ready = false;
     for (const candidate of candidates) {

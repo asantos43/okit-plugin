@@ -32,7 +32,7 @@ export function isCollectorLaunch(argv = []) {
 }
 
 const collectorEntry = isCollectorLaunch(process.argv.slice(2));
-const { applyAutostart, autostartPlan, detectAutostart } = collectorEntry
+const { absoluteNode, installationScript, applyAutostart, autostartPlan, detectAutostart } = collectorEntry
   ? {} : await import('./autostart.js');
 const { run } = collectorEntry ? {} : await import('./core/operations.js');
 const { daemonRun, daemonStatus } = collectorEntry
@@ -41,6 +41,7 @@ import { DEFAULT_CONFIG } from './profiles.js';
 const { CLIENTS, makeSpawner, runCommand } = collectorEntry ? {} : await import('./spawn-process.js');
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
+import { OperationalError } from './install/exit.js';
 const { installerCommand } = collectorEntry ? {} : await import('./install/index.js');
 const { createPresenter, localizeReason, redactingWriter, resolveLocale } = collectorEntry
   ? {} : await import('./install/present.js');
@@ -323,15 +324,21 @@ async function daemonCommand(ctx, action, args) {
   return exitCodeFor('ok');
 }
 
-function installationAutostartPlan(ctx, io, record) {
+async function installationAutostartPlan(ctx, io, record) {
+  const script = await installationScript(record, { readText: (path) => ctx.fs.readFile(path, 'utf8'), command: ctx.command });
+  if (!script) return null;
   return autostartPlan(detectAutostart(ctx.platform), {
     root: ctx.root, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE,
-    node: record.settings.node, script: join(record.path, record.bin), command: ctx.command,
+    node: absoluteNode(record.settings?.node, ctx.platform), script, command: ctx.command,
   });
 }
 
 function installerLifecycle(ctx, io) {
-  const autostart = io.autostart ?? ((record, action) => applyAutostart(installationAutostartPlan(ctx, io, record), { run: ctx.run, write: ctx.write, action }));
+  const autostart = io.autostart ?? (async (record, action) => {
+    const plan = await installationAutostartPlan(ctx, io, record);
+    if (!plan) throw new OperationalError('the installed daemon script could not be identified');
+    return applyAutostart(plan, { run: ctx.run, write: ctx.write, action });
+  });
   return {
     autostart,
     stopDaemon: io.stopDaemon ?? (async (record) => {

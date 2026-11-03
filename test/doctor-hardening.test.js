@@ -11,6 +11,7 @@ import { diagnose } from '../src/doctor/diagnose.js';
 import { exitCodeFor } from '../src/install/exit.js';
 import { installConfig } from '../src/install/config.js';
 import { createPresenter } from '../src/install/present.js';
+import { payloadComplete } from '../src/install/place.js';
 import { fixture } from './helpers/install-fixture.js';
 
 // D111: the doctor and the self-check diagnose the installation that is really there.
@@ -42,17 +43,22 @@ const argvOf = (line) => {
  * @param {object} [options] the version of the installation
  * @returns {Promise<object>} the folder of the installation and its record
  */
-async function installation(f, { version = '1.0.0' } = {}) {
-  const path = join(f.destination, `${version}-${CLIENT}`);
+async function installation(f, { version = '1.0.0', client = CLIENT, bin = { 'okit-plugin': CLI } } = {}) {
+  const path = join(f.destination, `${version}-${client}`);
   await fs.mkdir(join(path, 'src', 'mcp'), { recursive: true });
-  await fs.writeFile(join(path, 'package.json'), JSON.stringify({ name: 'sample', version, bin: { 'okit-plugin': CLI } }));
+  await fs.writeFile(join(path, 'package.json'), JSON.stringify({ name: 'sample', version, bin }));
   await fs.writeFile(join(path, CLI), '// the command of the plugin\n');
   await fs.writeFile(join(path, SERVER), '// fake MCP server\n');
   await fs.writeFile(join(path, PROBE), '// fake probe of the check\n');
-  const record = { client: CLIENT, version, path, bin: CLI, autostart: false, link: false, linkDirectory: null,
+  const module = f.io.config.clients[client].module;
+  if (module) {
+    await fs.mkdir(join(path, 'src/install'), { recursive: true });
+    await fs.writeFile(join(path, module), '// native client plugin\n');
+  }
+  const record = { client, version, path, bin: CLI, autostart: false, link: false, linkDirectory: null,
     settings: { node: process.execPath } };
-  await fs.writeFile(join(f.destination, `install.${CLIENT}.json`), JSON.stringify(record));
-  await f.io.run({ command: f.io.config.clients[CLIENT].executable,
+  await fs.writeFile(join(f.destination, `install.${client}.json`), JSON.stringify(record));
+  await f.io.run({ command: f.io.config.clients[client].executable,
     args: ['mcp', 'add', 'okit', '--', f.io.config.node, join(path, SERVER)] });
   return { path, record };
 }
@@ -176,33 +182,42 @@ test('the payload of an installation is whole when every file it lists is there'
   assert.match(text, /Claude Code: Payload\s+ok\s+every file of the installation is there/, text);
 });
 
-test('a file of the payload that is missing is named in the row that fails', async (t) => {
-  for (const file of ['package.json', CLI, SERVER, PROBE]) {
-    const f = await fixture(t);
-    const { path } = await installation(f);
-    await fs.rm(join(path, file));
-    f.clear();
-    const code = await main(['doctor'], f.io);
-    const text = f.output.join('\n');
-    assert.equal(code, exitCodeFor('operational'), `${file}: ${text}`);
-    // The row fails and names the file that is missing.
-    assert.match(text, /Claude Code: Payload\s+failed/, `${file}: ${text}`);
-    assert.ok(text.includes(join(path, file)), `${file}: ${text}`);
-    // And the Fix is the one that repairs it.
-    assert.match(text, /^ {6}Fix: Install again: okit-plugin install --client claude-code$/m, `${file}: ${text}`);
-  }
-});
+for (const damage of ['remove', 'empty']) {
+  test(`every required payload file damaged by ${damage} fails completeness and the doctor names it`, async (t) => {
+    // Keep the expected list explicit: omitting a bin or client module from production must fail this test.
+    for (const bin of [CLI, { 'okit-plugin': CLI, other: 'src/other.js' }]) {
+      for (const file of ['package.json', CLI, ...(typeof bin === 'object' ? ['src/other.js'] : []), SERVER, PROBE, 'src/install/client-plugin.js']) {
+        const f = await fixture(t);
+        const { path, record } = await installation(f, { client: 'opencode', bin });
+        if (typeof bin === 'object') await fs.writeFile(join(path, 'src/other.js'), '// another bin\n');
+        assert.equal(await payloadComplete(record, f.io.config, fs), true);
+        if (damage === 'remove') await fs.rm(join(path, file));
+        else await fs.writeFile(join(path, file), '  \n');
+        assert.equal(await payloadComplete(record, f.io.config, fs), false, `${damage}: ${file}`);
+        f.clear();
+        const code = await main(['doctor'], f.io);
+        const text = f.output.join('\n');
+        assert.equal(code, exitCodeFor('operational'), `${file}: ${text}`);
+        const row = text.split('\n').find((line) => /Opencode: Payload\s+failed/.test(line));
+        assert.ok(row?.includes(join(path, file)), `${file}: ${text}`);
+        assert.match(text, /Fix: Install again: okit-plugin install --client opencode/);
+      }
+    }
+  });
+}
 
-test('an empty file of the payload is a missing file', async (t) => {
-  for (const file of [CLI, SERVER, PROBE]) {
-    const f = await fixture(t);
-    const { path } = await installation(f);
-    await fs.writeFile(join(path, file), '  \n');
-    f.clear();
-    const code = await main(['doctor'], f.io);
-    const text = f.output.join('\n');
-    assert.equal(code, exitCodeFor('operational'), `${file}: ${text}`);
-    assert.match(text, /Claude Code: Payload\s+failed/, `${file}: ${text}`);
+test('unreadable or malformed installed metadata makes the payload incomplete', async (t) => {
+  const f = await fixture(t);
+  const { path, record } = await installation(f);
+  assert.equal(await payloadComplete({}, f.io.config, fs), false);
+  const injected = { ...fs, readFile: async (file, ...args) => {
+    if (file === join(path, 'package.json')) throw Object.assign(new Error('unreadable'), { code: 'EACCES' });
+    return fs.readFile(file, ...args);
+  } };
+  assert.equal(await payloadComplete(record, f.io.config, injected), false);
+  for (const text of ['{', 'null', '[]', '42']) {
+    await fs.writeFile(join(path, 'package.json'), text);
+    assert.equal(await payloadComplete(record, f.io.config, fs), false, text);
   }
 });
 

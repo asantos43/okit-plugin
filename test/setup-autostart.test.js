@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { setupAutostart } from '../src/setup/autostart-step.js';
 import { main } from '../src/cli.js';
 import { autostartPlan, detectAutostart } from '../src/autostart.js';
+import { exitCodeFor } from '../src/install/exit.js';
 import { installConfig } from '../src/install/config.js';
 import { readRecords } from '../src/install/place.js';
 import { fixture } from './helpers/install-fixture.js';
@@ -629,3 +630,72 @@ for (const locale of ['en', 'pt-BR']) {
     });
   }
 }
+
+test('setup and doctor use the installed package bin and absolute node for a legacy record', async (t) => {
+  const f = await world(t);
+  const record = { ...f.records.codex, settings: { node: 'node' } };
+  delete record.bin;
+  await fs.writeFile(join(record.path, 'package.json'), JSON.stringify({ bin: { [f.io.config.command]: 'legacy-cli.js' } }));
+  await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', record.client)), JSON.stringify(record));
+  f.io.ask = async () => 'yes';
+  assert.equal(await main(['setup'], f.io), exitCodeFor('ok'), JSON.stringify(f.output));
+  const expected = autostartPlan('systemd', { root: f.root, home: f.home, node: process.execPath,
+    script: join(record.path, 'legacy-cli.js'), command: f.io.config.command });
+  assert.deepEqual(f.written, [{ path: expected.path, content: expected.content }]);
+  const { diagnose } = await import('../src/doctor/diagnose.js');
+  const { createPresenter } = await import('../src/install/present.js');
+  const plans = [];
+  const result = await diagnose({ root: f.root, home: f.home, config: f.io.config, records: [{ ...record, autostart: true }],
+    command: f.io.config.command, platform: 'linux', fs, ui: createPresenter({ locale: 'en', write: () => {} }),
+    readers: { readText: (path) => fs.readFile(path, 'utf8'), selfCheck: async () => [],
+      mcpEntry: async () => ({ state: 'registered' }), servers: async () => [], daemon: async () => ({ running: true }),
+      autostartPresent: async (plan) => { plans.push(plan); return plan.content === expected.content; } } });
+  assert.deepEqual(plans, [expected]);
+  assert.equal(result.rows.find((row) => row.id === 'autostart').status, 'ok');
+});
+
+test('an unusable old record does not hide the working first service', async (t) => {
+  const f = await world(t, { clients: ['codex', 'claude-code'], installed: true });
+  const second = f.records['claude-code'];
+  delete second.settings;
+  await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', second.client)), JSON.stringify(second));
+  await fs.mkdir(dirname(f.plan.path), { recursive: true });
+  await fs.writeFile(f.plan.path, f.plan.content);
+  const config = f.io.config;
+  const lines = [], errors = [];
+  const code = await setupAutostart({ ...f.io, root: f.root, home: f.home, env: f.io.env, platform: 'linux',
+    command: config.command, out: (line) => lines.push(line), err: (line) => errors.push(line) },
+  { config, locale: 'en', ask: async () => { throw new Error('must not ask'); },
+    plan: (record) => { if (!record.settings) throw new TypeError('old record'); return f.plan; } });
+  assert.equal(code, exitCodeFor('ok'), errors.join('\n'));
+  assert.deepEqual(lines, ['Autostart is already installed.']);
+  f.clear();
+  assert.equal(await main(['setup'], f.io), exitCodeFor('ok'));
+  assert.ok(f.output.includes('Autostart is already installed.'));
+});
+
+test('when no installation can supply an autostart plan, the setup says so and fails', async (t) => {
+  const f = await world(t, { clients: ['codex'], installed: true });
+  const lines = [], errors = [];
+  const code = await setupAutostart({ ...f.io, root: f.root, home: f.home, env: f.io.env, platform: 'linux',
+    command: f.io.config.command, out: (line) => lines.push(line), err: (line) => errors.push(line) },
+  { config: f.io.config, locale: 'en', ask: async () => { throw new Error('must not ask'); }, plan: () => null });
+  assert.equal(code, exitCodeFor('operational'));
+  assert.deepEqual(errors, ['Could not install autostart: no installation can supply an autostart plan']);
+  assert.deepEqual(lines, []);
+});
+
+test('an installation whose daemon script cannot be identified does not run an autostart plan for it', async (t) => {
+  const f = await world(t, { clients: ['codex'], installed: true });
+  const record = { ...f.records.codex, autostart: true, link: false };
+  delete record.bin;
+  await fs.writeFile(join(record.path, 'package.json'), '{}');
+  await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', record.client)), JSON.stringify(record));
+  f.clear();
+  f.ran.length = 0;
+  delete f.io.autostart; // the real lifecycle plans the autostart of the record
+  const code = await main(['uninstall', '--client', 'codex'], f.io);
+  assert.notEqual(code, exitCodeFor('ok'), f.output.join('\n'));
+  assert.deepEqual(f.ran.filter((command) => /systemctl|crontab|launchctl|schtasks/.test(command.command ?? command[0] ?? '')), []);
+  assert.match(f.output.join('\n'), /could not be identified/);
+});
