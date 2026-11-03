@@ -378,7 +378,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/telemetry/index.js', arg: /^await readFile\(join\(config\.dir, name\)|^join\(config\.dir, name\)$/, excluded: 'the measurement files okit wrote in telemetry.dir; a damaged one is reported by `telemetry check` as damaged, never as the person\'s usage' },
   { file: 'src/telemetry/index.js', arg: /^(join\(root, 'telemetry-export\.json'\)|file)$/, excluded: 'telemetry-export.json is written by okit (atomic write) and read back for the last-export line (a non-text `at`, from a hand edit, counts as no export time: input inventory test); `file` is the configuration file of `telemetry on|off` (CONFIG_JSON above)' },
   // The installer.
-  { file: 'src/install/place.js', arg: /^(text|file|legacy|legacyText|join\(destination, 'install\.json'\)|recordPath\(destination, client, config\))$/, rule: RECORD },
+  { file: 'src/install/place.js', arg: /^(text|file|legacy|legacyText|join\(destination, 'install\.json'\)|recordPath\(destination, client, config\)|recordPath\(destination, record\.client, config\))$/, rule: RECORD },
   { file: 'src/install/bootstrap.js', arg: /^(path|recordFile)$/, rule: RECORD },
   { file: 'src/install/place.js', arg: /^join\(staging, 'package\.json'\)$/, rule: 'package.json of the downloaded package' },
   { file: 'src/install/source.js', arg: /^join\(source, 'package\.json'\)$/, rule: 'package.json of --from' },
