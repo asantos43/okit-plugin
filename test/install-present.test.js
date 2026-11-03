@@ -4,7 +4,7 @@ import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../src/cli.js';
-import { createPresenter, createInstallerView, finishLink, headerValues, pick, redact, redactingWriter, REASONS, TEXTS, localizeReason } from '../src/install/present.js';
+import { createPresenter, createInstallerView, finishLink, headerValues, pick, redact, redactingWriter, REASONS, TEXTS, localizeReason } from '../src/cli-present.js';
 import { EXCLUSIVE_FLAGS, ALLOWED_FLAGS } from '../src/install/index.js';
 import { presentDiagnosis } from '../src/doctor/command.js';
 import { formatNotSaved, formatUnreadable, runSetup, setupResultLines } from '../src/setup/setup.js';
@@ -76,8 +76,8 @@ for (const locale of LOCALES) test(`D112 installer absent-client, download, curr
     ? ['okit-plugin — Instalação', 'Não foi possível baixar a versão. Nada foi instalado.', 'permissão negada', 'Confira sua conexão e tente: okit-plugin install --client codex']
     : ['okit-plugin — Install', 'The release could not be downloaded. Nothing was installed.', 'permission denied', 'Check your connection, then retry: okit-plugin install --client codex']);
   assert.deepEqual(render('update', (ui) => { header(ui); ui.row(ui.text('upToDate'), 'ok', '0.3.0'); }, { code: 0, client: 'codex' }), pt
-    ? ['okit-plugin — Atualização', 'Codex está em dia. Nada mudou.', 'Verifique a instalação: okit-plugin doctor --client codex']
-    : ['okit-plugin — Update', 'Codex is up to date. Nothing changed.', 'Check the installation: okit-plugin doctor --client codex']);
+    ? ['okit-plugin — Atualização', 'Codex está em dia. Nada mudou.', 'Verifique a instalação: okit-plugin doctor --client codex', '      Em dia                      ok       0.3.0']
+    : ['okit-plugin — Update', 'Codex is up to date. Nothing changed.', 'Check the installation: okit-plugin doctor --client codex', '      Up to date                  ok       0.3.0']);
   assert.deepEqual(render('uninstall', header, { code: 0, client: 'codex', after: { 'claude-code': { link: true } } }), pt
     ? ['okit-plugin — Desinstalação', 'Integração do Codex removida. O comando foi mantido para Claude Code.', 'Verifique a instalação restante: okit-plugin doctor --client claude-code']
     : ['okit-plugin — Uninstall', 'Removed Codex integration. The command is kept for Claude Code.', 'Check the remaining installation: okit-plugin doctor --client claude-code']);
@@ -313,23 +313,37 @@ function legacyUninstallLines(locale, platform) {
   ];
 }
 
-function installLines(locale) {
+function installLines(locale, platform) {
+  const path = platform === 'win32' ? (locale === 'en' ? 'added to your user PATH' : 'adicionado ao PATH do seu usuário')
+    : (locale === 'en' ? 'already on your PATH' : 'já está no seu PATH');
   return locale === 'en' ? ['okit-plugin — Install',
     'Installed for Claude Code. Model choices still need confirmation.',
     '1. Download and verify: complete', '2. Install files: complete', '3. Connect Claude Code: complete',
+    `4. Command and PATH: complete — okit-plugin  (${path})`,
+    '5. Quota recording: off. To turn it on: okit-plugin install --client claude-code --statusline',
     'Next: okit-plugin setup', 'Check the installation: okit-plugin doctor --client claude-code']
     : ['okit-plugin — Instalação', 'Instalado para Claude Code. Falta confirmar os modelos.',
       '1. Baixar e verificar: concluído', '2. Instalar arquivos: concluído', '3. Conectar Claude Code: concluído',
+      `4. Comando e PATH: concluído — okit-plugin  (${path})`,
+      '5. Registro de cota: desligado. Para ligar: okit-plugin install --client claude-code --statusline',
       'Próximo: okit-plugin setup', 'Verifique a instalação: okit-plugin doctor --client claude-code'];
 }
 
-function updateLines(locale) {
+function updateLines(locale, platform) {
+  const path = platform === 'win32' ? (locale === 'en' ? 'added to your user PATH' : 'adicionado ao PATH do seu usuário')
+    : (locale === 'en' ? 'already on your PATH' : 'já está no seu PATH');
   return locale === 'en' ? ['okit-plugin — Update', 'Updated Claude Code from 1.0.0 to 2.0.0.',
-    '1. Download and verify: complete', '2. Install files: complete', '3. Connect Claude Code: complete',
+    '1. Download and verify: complete', '2. Back up your files: complete — <data>/backups/1700000000000',
+    '3. Install files: complete', '4. Connect Claude Code: complete',
+    `5. Command and PATH: complete — okit-plugin  (${path})`,
+    '6. Quota recording: off. To turn it on: okit-plugin install --client claude-code --statusline', '7. Check the install: complete',
     'Next: restart Claude Code, then run: okit-plugin doctor --client claude-code',
     'Return to the retained version: okit-plugin update --rollback']
     : ['okit-plugin — Atualização', 'Claude Code atualizado de 1.0.0 para 2.0.0.',
-      '1. Baixar e verificar: concluído', '2. Instalar arquivos: concluído', '3. Conectar Claude Code: concluído',
+      '1. Baixar e verificar: concluído', '2. Copiar seus arquivos: concluído — <data>/backups/1700000000000',
+      '3. Instalar arquivos: concluído', '4. Conectar Claude Code: concluído',
+      `5. Comando e PATH: concluído — okit-plugin  (${path})`,
+      '6. Registro de cota: desligado. Para ligar: okit-plugin install --client claude-code --statusline', '7. Verificar a instalação: concluído',
       'Próximo: reinicie Claude Code e rode: okit-plugin doctor --client claude-code',
       'Volte à versão guardada: okit-plugin update --rollback'];
 }
@@ -339,6 +353,24 @@ function uninstallLines(locale) {
     'Install again when needed: okit-plugin install --client claude-code']
     : ['okit-plugin — Desinstalação', 'Plugin removido do Claude Code. Seus ajustes foram mantidos.',
       'Instale novamente quando precisar: okit-plugin install --client claude-code'];
+}
+
+function retainedEvidence(locale, platform, update = false) {
+  const pt = locale === 'pt-BR', windows = platform === 'win32', checks = windows ? 7 : 9;
+  return pt ? ['  O SHA-256 detecta bytes alterados; não autentica a origem.',
+    update ? '  Servidor MCP de Claude Code substituído por esta instalação' : '  Servidor MCP registrado no Claude Code',
+    `  Autoverificação (Claude Code)  ok  ${checks} verificações passaram`,
+    ...(windows ? ['  Comando (git-bash)  pulado  git-bash não está instalado'] : []),
+    '  Modelos  -  ainda não definidos. Rode: okit-plugin setup',
+    '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração',
+    '  abra um terminal novo']
+    : ['  SHA-256 detects altered bytes; it does not authenticate the source.',
+      update ? '  MCP server of Claude Code replaced by this installation' : '  MCP server registered in Claude Code',
+      `  Self-check (Claude Code)  ok  ${checks} checks passed`,
+      ...(windows ? ['  Command (git-bash)  skipped  git-bash is not installed'] : []),
+      '  Models  -  not set yet. Run: okit-plugin setup',
+      '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit',
+      '  open a new terminal'];
 }
 
 function assertLines(actual, expected, context) {
@@ -380,12 +412,17 @@ for (const locale of LOCALES) {
       assert.equal(await main(['install', '--client', 'claude-code', '--locale', locale], f.io), 0, f.output.join('\n'));
       assertStatusColumns(f.output);
       const path = platform === 'win32' ? [locale === 'en' ? 'PATH is the list of folders your terminal searches for commands.' : 'PATH é a lista de pastas onde o terminal procura comandos.', HINT('<bin>')] : [];
-      assertLines(f.lines(), [...installLines(locale), ...path], `install ${locale} ${platform}`);
+      assertLines(f.lines(), [...installLines(locale, platform), ...path, ...retainedEvidence(locale, platform)], `install ${locale} ${platform}`);
 
       f.clear();
       assert.equal(await main(['uninstall', '--locale', locale], f.io), 0, f.output.join('\n'));
       assertStatusColumns(f.output);
-      assertLines(f.lines(), uninstallLines(locale, platform), `uninstall ${locale} ${platform}`);
+      const removed = locale === 'en'
+        ? ['1. Unregister from Claude Code: complete — marketplace and plugin removed', '2. Remove command and PATH: complete — okit-plugin removed',
+          '3. Remove files: complete — <data>/1.0.0-claude-code (your settings are kept)', '  MCP server removed from Claude Code']
+        : ['1. Remover registro do Claude Code: concluído — marketplace e plugin removidos', '2. Remover comando e PATH: concluído — okit-plugin removido',
+          '3. Remover arquivos: concluído — <data>/1.0.0-claude-code (seus ajustes foram mantidos)', '  Servidor MCP removido do Claude Code'];
+      assertLines(f.lines(), [...uninstallLines(locale), ...removed], `uninstall ${locale} ${platform}`);
     });
 
     test(`golden: update in ${locale} on ${platform}`, async (t) => {
@@ -396,8 +433,8 @@ for (const locale of LOCALES) {
       assert.equal(await main(['update', '--locale', locale], f.io), 0, f.output.join('\n'));
       assertStatusColumns(f.output);
       const path = platform === 'win32' ? [locale === 'en' ? 'PATH is the list of folders your terminal searches for commands.' : 'PATH é a lista de pastas onde o terminal procura comandos.', HINT('<bin>')] : [];
-      const expected = updateLines(locale);
-      assertLines(f.lines(), [...expected.slice(0, 6), ...path, ...expected.slice(6)], `update ${locale} ${platform}`);
+      const expected = updateLines(locale, platform);
+      assertLines(f.lines(), [...expected.slice(0, -1), ...path, expected.at(-1), ...retainedEvidence(locale, platform, true)], `update ${locale} ${platform}`);
     });
   }
 }

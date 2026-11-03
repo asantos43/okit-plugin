@@ -4,7 +4,7 @@ import { resolvedRecord } from '../install/where.js';
 import { installPaths } from '../install/config.js';
 import { exitCodeFor } from '../install/exit.js';
 import { discoverRecords, readRecords, recordsStoredIncomplete, saveAutostartRecords, snapshotRecords, restoreRecords } from '../install/place.js';
-import { fill, pick, TEXTS, localizeReason } from '../install/present.js';
+import { fill, pick, TEXTS, localizeReason } from '../cli-present.js';
 
 /**
  * Whether the autostart of this machine is working.

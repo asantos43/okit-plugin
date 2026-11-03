@@ -42,7 +42,7 @@ const SECRET_COMMAND = 'okit-plugin https://matrix-user:matrix-pass@example.inva
 const SECRETS = /matrix-user|matrix-pass|matrix-query|matrix-fragment/;
 
 // Words only one language has; the table lines and the usage text have their own (the heading, the default, the notes).
-const ENGLISH = /\b(Refused|Failed at|Done\.|Next:|Dry run|Unknown flag|Choose a language|Choose the language once|Could not|Invalid|Unknown|Missing|usage:|default:|names the state root|No client with)/;
+const ENGLISH = /\b(Refused|Failed at|Done\.|Next:|Dry run|Unknown flag|Choose a language|Choose the language once|Could not|Invalid|Unknown|Missing|usage:|default:|names the state root|No client with|The release could not be downloaded)/;
 const PORTUGUESE = /(Recusado|Falhou em|Pronto\.|Próximo|Simulação|Opção desconhecida|Escolha (um|o) idioma|Não foi possível|Inválid|desconhecid|Falta o|\buso:|padrão:|indica a pasta de estado|Nenhum cliente)/;
 const speaks = (text) => [...(ENGLISH.test(text) ? ['en'] : []), ...(PORTUGUESE.test(text) ? ['pt-BR'] : [])];
 

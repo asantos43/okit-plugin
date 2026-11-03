@@ -394,7 +394,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
   } catch (error) {
     const step = stage ? ui.text(stage, { client: label }) : '';
     const rollbackNext = command === 'update' && started && !flags.rollback ? ui.text('nextRollback', { command: deps.config.command }) : null;
-    ui.failure({ step, reason: error.message, next: rollbackNext ?? ui.text(started ? 'nextRetry' : 'nextCheck') })
+    ui.failure({ step, client: flags.client, reason: error.message, next: rollbackNext ?? ui.text(started ? 'nextRetry' : 'nextCheck') })
       .forEach((item) => (ctx.err ?? ctx.out)(item));
     return exitCodeFor(started ? 'operational' : kindOf(error));
   }

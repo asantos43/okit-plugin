@@ -3,7 +3,8 @@ import { homedir } from 'node:os';
 import { installPaths } from '../install/config.js';
 import { exitCodeFor } from '../install/exit.js';
 import { discoverRecords } from '../install/place.js';
-import { clientLabel, createPresenter } from '../install/present.js';
+import { createPresenter, presentDiagnosis } from '../cli-present.js';
+export { presentDiagnosis } from '../cli-present.js';
 
 import { diagnose } from './diagnose.js';
 
@@ -45,44 +46,4 @@ export async function doctorCommand(ctx, { locale, config, verbose = false, clie
   });
   presentDiagnosis(result, { ui, command: config.command, client, verbose, out: ctx.out });
   return exitCodeFor(result.failed > 0 ? 'operational' : 'ok');
-}
-
-export function presentDiagnosis(result, { ui, command, client, verbose = false, out }) {
-  const pt = ui.locale === 'pt-BR';
-  out(`${command} — ${pt ? 'Verificação da instalação' : 'Installation check'}`);
-  const { failed, warnings } = result;
-  if (!failed && !warnings) out(pt
-    ? `Pronto. ${result.rows.length === 1 ? 'A verificação passou' : `As ${result.rows.length} verificações passaram`}.`
-    : `Ready. ${result.rows.length === 1 ? 'The check passed' : `All ${result.rows.length} checks passed`}.`);
-  else {
-    const failures = pt ? `${failed} ${failed === 1 ? 'verificação falhou' : 'verificações falharam'}` : `${failed} failed ${failed === 1 ? 'check' : 'checks'}`;
-    const alerts = pt ? `${warnings} ${warnings === 1 ? 'aviso' : 'avisos'}` : `${warnings} ${warnings === 1 ? 'warning' : 'warnings'}`;
-    out(`${pt ? 'Precisa de atenção' : 'Needs attention'}: ${failed ? failures : alerts}${failed && warnings ? `; ${alerts}` : ''}; ${pt ? 'as demais passaram' : 'other checks passed'}.`);
-  }
-  const shown = result.rows.filter((row) => !row.quiet || verbose);
-  // The rows of a client name it, so two clients are told apart. The labels share one width, so every mark of the run
-  // is in the same column.
-  const labels = shown.map((row) => row.id === 'registration'
-    ? (pt ? `Conexão com ${clientLabel(row.client)}` : `${clientLabel(row.client)} connection`)
-    : (row.client ? `${clientLabel(row.client)}: ${row.label}` : row.label));
-  out(pt ? '| Verificação | Resultado |' : '| Check | Result |');
-  out('| --- | --- |');
-  const cell = (value) => String(value).replaceAll('|', '\\|').replaceAll('\n', ' ');
-  for (const [index, row] of shown.entries()) {
-    out(`| ${cell(labels[index])} | ${cell(row.detail)} |`);
-  }
-  const check = `${command} doctor${client ? ` --client ${client}` : ''}`;
-  const fixes = [...new Set(shown.filter((row) => ['failed', 'warn'].includes(row.status) && row.fix).map((row) => row.fix))];
-  for (const fix of fixes) {
-    out(`${pt ? 'Correção' : 'Fix'}: ${fix}`);
-    // One verification command is enough when several checks need repair.
-  }
-  if (fixes.length) out(`${pt ? 'Depois confira' : 'Then check'}: ${check}`);
-  if (shown.some((row) => row.id === 'session' && row.status === 'warn' && !row.fix)) out(pt
-    ? `Nenhuma sessão de cliente aberta. Abra ${clientLabel(client ?? 'codex')} e rode: ${check}`
-    : `No client session is open. Open ${clientLabel(client ?? 'codex')}, then run: ${check}`);
-  if (labels.some((label) => /MCP/.test(label)) || shown.some((row) => /MCP/.test(`${row.detail} ${row.fix ?? ''}`))) out(pt
-    ? 'MCP é a conexão usada pelo assistente para chamar ferramentas do plugin.'
-    : 'MCP is the connection your assistant uses to call plugin tools.');
-  if (!fixes.length) out(`${pt ? 'Verifique novamente quando precisar' : 'Check again when needed'}: ${check}`);
 }

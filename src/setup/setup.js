@@ -9,8 +9,10 @@ import { configOf, DEFAULT_CONFIG, PROFILE_EFFORTS } from '../profiles.js';
 import { readJson, withLock, writeJsonAtomic } from '../state.js';
 import { paths } from '../store.js';
 import { environmentSnapshot } from '../env/snapshot.js';
-import { clientLabel, redactingStream } from '../install/present.js';
+import { redactingStream } from '../install/present.js';
 import { labelsOf } from '../env/quota.js';
+import { askNumberedModel, catalogFallback, clientLabel, presentModelChoices, setupIntroduction } from '../cli-present.js';
+export { setupResultLines } from '../cli-present.js';
 
 /**
  * Whether the input already ended: a reader opened on it would wait for an
@@ -477,19 +479,7 @@ function negative(value) {
 async function askModel({ ask, locale, client, className, proposal, candidates, attempts, out }) {
   const recommended = candidates[0];
   if (out) {
-    const pt = locale === 'pt-BR';
-    out(`\n${workLabel(className, locale)} — ${clientLabel(client)}`);
-    candidates.forEach((model, index) => out(`${index + 1}. ${model}${index === 0 ? (pt ? ' (recomendado)' : ' (recommended)') : ''}`));
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const answer = await askValue(ask, pt ? 'Escolha um modelo [1]:' : 'Choose a model [1]:');
-      if (answer == null) return { cancelled: true };
-      const clean = String(answer).trim();
-      const index = clean === '' ? 0 : /^[1-9]\d*$/.test(clean) ? Number(clean) - 1 : -1;
-      if (candidates[index]) return { value: candidates[index] };
-      const options = candidates.map((_, i) => i + 1).join(pt ? ' ou ' : ' or ');
-      out(pt ? `Escolha ${options}.` : `Choose ${options}.`);
-    }
-    return { invalid: true };
+    return askNumberedModel({ ask: (question) => askValue(ask, question), locale, client, className, candidates, attempts, out });
   }
   const values = {
     client,
@@ -514,45 +504,11 @@ async function askModel({ ask, locale, client, className, proposal, candidates, 
   return { invalid: true };
 }
 
-function workLabel(name, locale) {
-  const labels = locale === 'pt-BR'
-    ? { simple: 'Tarefas pequenas', normal: 'Tarefas do dia a dia', hard: 'Tarefas complexas' }
-    : { simple: 'Small tasks', normal: 'Everyday tasks', hard: 'Complex tasks' };
-  return labels[name] ?? name;
-}
-
-export function setupResultLines(result, locale, command) {
-  const pt = locale === 'pt-BR';
-  if (result.cancelled) return [pt ? 'Cancelado. Nada foi salvo.' : 'Cancelled. Nothing was saved.',
-    pt ? `Tente novamente quando quiser: ${command} setup` : `Try again when ready: ${command} setup`];
-  const clients = [...new Set([...result.changes, ...result.skipped].map((entry) => entry.client))];
-  const check = `${command} doctor${clients.length === 1 ? ` --client ${clients[0]}` : ''}`;
-  if (result.kept?.length) return [pt ? 'As escolhas mais novas foram mantidas. Confira: MCP config_get {}' : 'Newer choices were kept. Check them: MCP config_get {}'];
-  if (result.changes.length) return [pt
-    ? `${result.changes.length} escolhas de modelos salvas para ${clients.map(clientLabel).join(', ')}.`
-    : `Saved ${result.changes.length} model choices for ${clients.map(clientLabel).join(', ')}.`,
-  `${pt ? 'Próximo' : 'Next'}: ${check}`];
-  if (result.skipped.length) return [pt ? 'Todas as escolhas de modelos já estão salvas. Nada mudou.' : 'All model choices are already saved. Nothing changed.',
-    `${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`,
-    `${pt ? 'Altere os modelos' : 'Change models'}: ${command} setup --again`];
-  return [pt ? 'Nenhum cliente com modelo ativo foi encontrado. Nada foi salvo.' : 'No client with an active model was found. Nothing was saved.',
-    pt ? `Instale ou ative um modelo no seu cliente de programação e rode: ${command} setup` : `Install or enable a model in your coding client, then run: ${command} setup`,
-    `${pt ? 'Confira os clientes disponíveis' : 'Check which clients are available'}: MCP env_report {"locale":"${locale}"}`];
-}
-
 async function confirmSetup({ ask, locale, attempts, changes, ui, out, command }) {
   // With a presenter the reason is said once, the choices are listed, and the question comes last.
   let question = ui ? ui.question(ui.text('modelsSave')) : formatConfirmation(locale, changes);
   if (out) {
-    const pt = locale === 'pt-BR';
-    out(pt ? '\nEscolhas de modelos' : '\nModel choices');
-    out(pt ? '| Trabalho | Modelo |' : '| Work | Model |');
-    out('| --- | --- |');
-    for (const change of changes) out(`| ${workLabel(change.class, locale)} | ${change.model} |`);
-    out(pt
-      ? `\nAs escolhas valem para trabalhos futuros. Para alterá-las: ${command} setup --again`
-      : `\nThese choices apply to future work. You can change them with: ${command} setup --again`);
-    question = pt ? 'Salvar estas escolhas? [s/N]:' : 'Save these choices? [y/N]:';
+    question = presentModelChoices({ locale, changes, command, out });
   }
   if (ui && !out) {
     const reasons = [...new Set(changes.map((change) => reasonParts(change.reason)[ui.locale] || reasonParts(change.reason).en).filter(Boolean))];
@@ -733,15 +689,11 @@ export async function runSetup({
   if (out) {
     const names = configurableClients(detected).map((client) => clientLabel(client.client)).join(', ');
     const pending = again || !done;
-    if (pending && !defaults) out(locale === 'pt-BR'
-      ? `Escolha modelos para ${names}; nada é salvo até sua confirmação.`
-      : `Choose models for ${names}; nothing is saved until you confirm.`);
+    if (pending && !defaults) out(setupIntroduction(locale, names));
     const fallbackClients = configurableClients(detected).filter((client) => client.source === 'catalog');
     for (const client of fallbackClients) {
       if (!pending || client.source !== 'catalog') continue;
-      const reason = locale === 'pt-BR'
-        ? 'Não foi possível ler a lista de modelos; estas opções vêm da lista incluída no plugin.'
-        : 'The model list could not be read; these choices come from the built-in list.';
+      const reason = catalogFallback(locale);
       out(`${fallbackClients.length > 1 ? `${clientLabel(client.client)}: ` : ''}${reason}`);
     }
   }

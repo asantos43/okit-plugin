@@ -43,8 +43,8 @@ import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
 import { OperationalError } from './install/exit.js';
 const { installerCommand } = collectorEntry ? {} : await import('./install/index.js');
-const { createPresenter, createInstallerView, localizeReason, redactingWriter, resolveLocale } = collectorEntry
-  ? {} : await import('./install/present.js');
+const { createPresenter, createInstallerView, commandTitle, localizeReason, redactingWriter, resolveLocale } = collectorEntry
+  ? {} : await import('./cli-present.js');
 const { exitCodeFor, kindOf } = collectorEntry ? {} : await import('./install/exit.js');
 const { installConfig, installPaths } = collectorEntry ? {} : await import('./install/config.js');
 const { discoverRecords } = collectorEntry ? {} : await import('./install/place.js');
@@ -180,7 +180,7 @@ async function enter(ctx, flags, parse, then) {
   try {
     stored = await readJson(paths(ctx.root).config, {});
   } catch {
-    if (!flags.includes('--json')) ctx.out(`${ctx.command} — ${early === 'pt-BR' ? 'Configuração' : 'Setup'}`);
+    if (!flags.includes('--json')) ctx.out(commandTitle(ctx.command, early, 'setup'));
     ctx.err(formatUnreadable(early, ctx.command));
     return exitCodeFor('operational');
   }
@@ -238,7 +238,7 @@ async function presentInstaller(group, flags, ctx, io, stored) {
 async function runSetupCommand(ctx, { stored, locale, found, install }, io) {
   const defaults = Boolean(found['--defaults']);
   const again = Boolean(found['--again']);
-  ctx.out(`${ctx.command} — ${locale === 'pt-BR' ? 'Configuração' : 'Setup'}`);
+  ctx.out(commandTitle(ctx.command, locale, 'setup'));
   // A configuration that cannot be read stops the command here: the same
   // simple sentence everywhere, the file untouched and nothing written.
   if (!isReadableConfig(stored)) {

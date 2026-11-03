@@ -775,7 +775,7 @@ for (const metadata of ['malformed', 'missing']) {
       f.io.stderr = (line) => errors.push(line);
       f.io.ask = async () => 'yes';
       assert.equal(await main(['setup', '--locale', locale], f.io), exitCodeFor('operational'));
-      const { createPresenter } = await import('../src/install/present.js');
+      const { createPresenter } = await import('../src/cli-present.js');
       const ui = createPresenter({ locale, write: () => {} });
       assert.deepEqual(errors, [ui.text('autostartFailed', { command: f.io.config.command, reason: ui.text('autostartNoPlan') })]);
       assert.deepEqual(f.written, []);
