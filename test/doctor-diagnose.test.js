@@ -31,7 +31,7 @@ const skip = POSIX ? false : 'posix only';
 
 const RECORD = {
   client: 'claude-code', version: '1.0.0', path: '/opt/okit-plugin/1.0.0-claude-code',
-  bin: 'okit-plugin', autostart: true, settings: { node: '/usr/bin/node' },
+  bin: 'okit-plugin', link: true, autostart: true, settings: { node: '/usr/bin/node' },
 };
 const CODEX = { ...RECORD, client: 'codex', path: '/opt/okit-plugin/1.0.0-codex' };
 

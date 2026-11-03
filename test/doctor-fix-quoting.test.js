@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 import { diagnose } from '../src/doctor/diagnose.js';
@@ -178,7 +179,7 @@ test('all doctor Fix programs use the PowerShell call operator', async () => {
 test('a bare registered node becomes the absolute executable in the doctor plan and Fix', async () => {
   const record = { client: 'codex', path: '/payload', bin: 'src/cli.js', settings: { node: 'node' }, autostart: true };
   const plans = [];
-  const { input } = await world({ records: [record], readers: { autostartPresent: async (plan) => { plans.push(plan); return false; } } });
+  const { input } = await world({ records: [record], files: { '/payload/src/cli.js': '// installed CLI' }, readers: { autostartPresent: async (plan) => { plans.push(plan); return false; } } });
   const row = rowOf(await diagnose(input), 'autostart');
   assert.ok(plans[0].content.includes('"' + process.execPath + '"'));
   assert.ok(row.fix.includes(shown([process.execPath, '/payload/src/cli.js', 'daemon', 'start'], 'linux')), row.fix);
@@ -248,7 +249,7 @@ for (const platform of ['linux', 'win32']) {
     const prefix = shown([node, '/payload/src/cli.js'], platform);
     const seen = new Set();
     for (const unreadable of [false, true]) {
-      const { input } = await world({ records: [record], files: { '/state/config.json': '{', '/state/inbox.json': '{' }, readers: {
+      const { input } = await world({ records: [record], files: { '/payload/src/cli.js': '// installed CLI', '/state/config.json': '{', '/state/inbox.json': '{' }, readers: {
         nodeVersion: () => { if (unreadable) throw new Error('node unavailable'); return 'v1.0.0'; },
         mcpEntry: async () => ({ state: 'absent' }), autostartPresent: async () => false,
         daemon: async () => { if (unreadable) throw new Error('unreadable'); return { running: false }; },
@@ -263,18 +264,90 @@ for (const platform of ['linux', 'win32']) {
       }
     }
     for (const id of ['node', 'record', 'registration', 'config', 'inbox', 'session', 'daemon', 'autostart']) assert.ok(seen.has(id), id);
-    const { input } = await world({ records: [record] });
+    const { input } = await world({ records: [record], files: { '/payload/src/cli.js': '// installed CLI' } });
     const install = rowOf(await diagnose({ ...input, platform, client: 'missing' }), 'install');
-    // A client with no record retains the pre-install command.
-    assert.ok(install.fix.includes('okit-plugin install'), install.fix);
+    // Filtering rows does not hide the runnable program of another client.
+    assert.ok(install.fix.includes(`${prefix} install`), install.fix);
   });
 
-  test(`linked, absent and unresolved records retain the configured command on ${platform}`, async () => {
+  test(`linked and absent records retain the configured command on ${platform}`, async () => {
     for (const records of [[], [{ client: 'codex', link: true, path: '/payload', bin: 'cli.js' }],
-      [{ client: 'codex', link: false, path: '/payload' }],
       [{ client: 'codex', link: false, path: '/payload', bin: 'cli.js' }, { client: 'claude-code', link: true }]]) {
       const { input } = await world({ records, readers: { nodeVersion: () => { throw new Error('bad node'); } } });
       assert.ok(rowOf(await diagnose({ ...input, platform }), 'node').fix.includes('okit-plugin '));
     }
   });
 }
+
+for (const command of ['IF', 'Foreach', '123', '1e3', '-x', '.hidden', '+x', '@x', ':x']) {
+  test(`positive program rule quotes ${command} in PowerShell`, () => {
+    assert.equal(shown([command, command], 'win32'), `& '${command}' ${command}`);
+  });
+}
+
+test('positive program rule preserves POSIX case and quotes numeric initials', () => {
+  assert.equal(shown(['IF', '123'], 'linux'), 'IF 123');
+  assert.equal(shown(['123', 'install'], 'linux'), "'123' install");
+  assert.equal(shown(['/usr/bin/node', '-x'], 'linux'), '/usr/bin/node -x');
+  assert.equal(shown(['C:\\Program Files\\node.exe', 'install'], 'win32'), "& 'C:\\Program Files\\node.exe' install");
+});
+
+const RUNNING_CLI = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+const unlinked = (path, client = 'codex') => ({ client, path, bin: 'src/cli.js', link: false, settings: { node: 'node' } });
+const brokenNode = { nodeVersion: () => { throw new Error('bad node'); } };
+
+function assertProgram(row, words, platform = 'linux') {
+  const line = row.fix.slice(row.fix.indexOf(': ') + 2);
+  assert.ok(line.startsWith(`${shown(words, platform)} `), row.fix);
+}
+
+test('client filter uses the unlinked program of all resolved destination records', async () => {
+  const record = { client: 'codex', version: '1.0', destination: '/custom', bin: 'src/cli.js', link: false };
+  const script = '/custom/1.0-codex/src/cli.js';
+  const { input } = await world({ records: [record], files: { [script]: '// CLI' }, readers: brokenNode });
+  const result = await diagnose({ ...input, client: 'claude-code' });
+  for (const row of result.rows.filter((row) => row.fix)) assertProgram(row, [process.execPath, script]);
+  assert.ok(rowOf(result, 'install').fix.includes('--client claude-code'));
+  assert.equal(result.rows.some((row) => row.client === 'codex'), false);
+});
+
+test('missing empty or unreadable installed scripts use the running package CLI', async () => {
+  const folder = await fs.mkdtemp(join(tmpdir(), 'missing-fix-'));
+  try {
+    const script = join(folder, 'src/cli.js');
+    await fs.mkdir(join(folder, 'src'));
+    await fs.writeFile(script, '// CLI');
+    await fs.unlink(script);
+    for (const files of [{}, { [script]: '' }, { [script]: '   \n' }]) {
+      const { input } = await world({ records: [unlinked(folder)], files, readers: brokenNode });
+      const row = rowOf(await diagnose(input), 'node');
+      assertProgram(row, [process.execPath, RUNNING_CLI]);
+      assert.ok(!row.fix.includes(script), row.fix);
+    }
+    // The fallback is an existing CLI that actually runs.
+    assert.ok((await fs.readFile(RUNNING_CLI, 'utf8')).trim());
+    const { main } = await import(RUNNING_CLI);
+    const output = [];
+    await main(['--help'], { root: folder, stdout: (line) => output.push(line) });
+    assert.match(output.join('\n'), /doctor/);
+  } finally { await fs.rm(folder, { recursive: true, force: true }); }
+});
+
+test('first usable installed script wins after missing and empty candidates', async () => {
+  for (const first of [undefined, '', '  ']) {
+    const files = { '/second/src/cli.js': '// CLI', ...(first === undefined ? {} : { '/first/src/cli.js': first }) };
+    const { input } = await world({ records: [unlinked('/first'), unlinked('/second', 'claude-code')], files, readers: brokenNode });
+    assertProgram(rowOf(await diagnose(input), 'node'), [process.execPath, '/second/src/cli.js']);
+  }
+});
+
+test('a link in any destination record keeps the command despite a client filter', async () => {
+  for (const records of [
+    [unlinked('/payload'), { client: 'claude-code', link: true }],
+    [{ client: 'claude-code', link: true }, unlinked('/payload')],
+  ]) {
+    const { input } = await world({ records, files: { '/payload/src/cli.js': '// CLI' }, readers: brokenNode });
+    const result = await diagnose({ ...input, client: 'codex' });
+    for (const row of result.rows.filter((row) => row.fix)) assertProgram(row, ['okit-plugin']);
+  }
+});

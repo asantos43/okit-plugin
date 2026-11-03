@@ -47,6 +47,7 @@ async function world(t, { clients = ['claude-code'], inbox, orders } = {}) {
     await fs.writeFile(join(path, 'package.json'), JSON.stringify({ name: 'sample', version: '1.0.0' }));
     // The server the entry names has to be on this machine: an entry that names a file that is gone is broken.
     await fs.writeFile(join(path, SERVER), '// fake MCP server\n');
+    await fs.writeFile(join(path, 'okit-plugin'), '// fake installed CLI\n');
     // The payload of an installation is whole: the probe of the check is one of the files of it.
     await fs.writeFile(join(path, 'src/mcp/selfcheck-probe.js'), '// fake probe of the check\n');
     const record = { client, version: '1.0.0', path, bin: 'okit-plugin', autostart: false, link: false,
@@ -377,8 +378,7 @@ test('a client that was named and is not installed is a failed row, with the com
     const text = f.output.join('\n');
     assert.match(text, locale === 'en' ? /Installation\s+failed\s+Codex is not installed/
       : /Instalação\s+falhou\s+Codex não está instalado/, text);
-    assert.match(text, locale === 'en' ? /Fix: Install it: okit-plugin install --client codex/
-      : /Correção: Instale: okit-plugin install --client codex/, text);
+    assert.ok(text.includes(`${locale === 'en' ? 'Fix: Install it:' : 'Correção: Instale:'} ${unlinkedProgram(f)} install --client codex`), text);
   }
 });
 

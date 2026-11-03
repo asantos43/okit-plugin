@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { main } from '../src/cli.js';
 import { doctorCommand } from '../src/doctor/command.js';
@@ -201,7 +202,8 @@ for (const damage of ['remove', 'empty']) {
         assert.equal(code, exitCodeFor('operational'), `${file}: ${text}`);
         const row = text.split('\n').find((line) => /Opencode: Payload\s+failed/.test(line));
         assert.ok(row?.includes(join(path, file)), `${file}: ${text}`);
-        assert.ok(text.includes(`Fix: Install again: ${shown([process.execPath, join(path, CLI), 'install', '--client', 'opencode'])}`), text);
+        const script = file === CLI ? fileURLToPath(new URL('../src/cli.js', import.meta.url)) : join(path, CLI);
+        assert.ok(text.includes(`Fix: Install again: ${shown([process.execPath, script, 'install', '--client', 'opencode'])}`), text);
       }
     }
   });

@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { absoluteNode, installationScript } from '../autostart.js';
 
 // Where an installation is. One place, so the doctor and the self-check can never diagnose a folder that is not the
@@ -107,13 +108,18 @@ export async function missingFile(record, config, fs) {
   return null;
 }
 
-/** The runnable program of a repair: unlinked installations use their installed script, when known. */
+/** A repair uses a link, a readable installed script, or the CLI of this running package. */
 export async function programWords(records, config, platform, readText) {
   if (records.length && !records.some((record) => record.link)) {
     for (const record of records) {
       const script = await installationScript(record, { readText, command: config.command });
-      if (script) return [absoluteNode(record.settings?.node, platform), script];
+      if (script) {
+        try {
+          if ((await readText(script)).trim() !== '') return [absoluteNode(record.settings?.node, platform), script];
+        } catch { /* An unreadable installed script cannot run a repair; try the next record. */ }
+      }
     }
+    return [process.execPath, fileURLToPath(new URL('../cli.js', import.meta.url))];
   }
   return [config.command];
 }

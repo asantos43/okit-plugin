@@ -1900,6 +1900,7 @@ for (const platform of ['linux', 'win32']) {
     const path = join(f.destination, 'unlinked');
     await fs.mkdir(path, { recursive: true });
     await fs.writeFile(join(path, 'package.json'), JSON.stringify({ bin: { [f.io.config.command]: 'cli.js' } }));
+    await fs.writeFile(join(path, 'cli.js'), '// the installed command\n');
     const record = { client: CLIENT, path, link: false, settings: { node } };
     const checks = await selfCheck(record, '1.0.0', { ...f.io, ui: createPresenter({ locale: 'en', write: () => {} }),
       platform, destination: f.destination, bin: f.bin, temporary: tmpdir(),
