@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 
 import { diagnose } from '../src/doctor/diagnose.js';
@@ -156,7 +157,7 @@ test('all doctor Fix programs use the PowerShell call operator', async () => {
     for (const unreadable of [false, true]) {
       const { input } = await world({ command: 'my plugin', files: { '/state/config.json': '{', '/state/inbox.json': '{' },
         readers: {
-          nodeVersion: () => 'v1.0.0', mcpEntry: async () => ({ state: 'missing' }),
+          nodeVersion: () => 'v1.0.0', mcpEntry: async () => ({ state: 'absent' }),
           autostartPresent: async () => false, daemon: async () => ({ running: false }),
           servers: async () => { if (unreadable) throw new Error('unreadable'); return []; },
         } });
@@ -209,4 +210,71 @@ for (const command of ['my=plugin', '%plugin']) {
       assert.equal(quotedWord(command, platform), command);
     });
   }
+}
+
+for (const command of ['my=plugin', 'if', 'then']) {
+  test(`the Fix really executes the configured program ${command}`, async (t) => {
+    const folder = await fs.mkdtemp(join(tmpdir(), 'reserved-'));
+    t.after(() => fs.rm(folder, { recursive: true, force: true }));
+    await fs.writeFile(join(folder, command), '#!/bin/sh\nprintf "%s\\n" "$@"\n', { mode: 0o755 });
+    const { input } = await world({ command });
+    const row = rowOf(await diagnose(input), 'install');
+    const line = row.fix.slice(row.fix.indexOf(': ') + 2);
+    assert.equal(execFileSync('sh', ['-c', line], {
+      encoding: 'utf8', env: { ...process.env, PATH: `${folder}:${process.env.PATH}` },
+    }), 'install\n');
+    assert.equal(line, `'${command}' install`);
+  });
+}
+
+for (const command of ['foreach', 'if']) {
+  test(`PowerShell calls reserved program ${command}`, async () => {
+    const { input } = await world({ command });
+    const row = rowOf(await diagnose({ ...input, platform: 'win32' }), 'install');
+    assert.ok(row.fix.endsWith(`& '${command}' install`), row.fix);
+  });
+}
+
+test('reserved vocabulary is exact and only applies to the program on its platform', () => {
+  assert.equal(shown(['IF', 'if'], 'linux'), 'IF if');
+  assert.equal(shown(['foreach', 'if'], 'linux'), 'foreach if');
+  assert.equal(shown(['then', 'if'], 'win32'), 'then if');
+});
+
+for (const platform of ['linux', 'win32']) {
+  test(`all doctor repair programs use the unlinked payload on ${platform}`, async () => {
+    const node = platform === 'win32' ? 'C:/Program Files/Node/node.exe' : '/opt/Node Dir/node';
+    const record = { client: 'codex', path: '/payload', bin: 'src/cli.js', link: false, settings: { node }, autostart: true };
+    const prefix = shown([node, '/payload/src/cli.js'], platform);
+    const seen = new Set();
+    for (const unreadable of [false, true]) {
+      const { input } = await world({ records: [record], files: { '/state/config.json': '{', '/state/inbox.json': '{' }, readers: {
+        nodeVersion: () => { if (unreadable) throw new Error('node unavailable'); return 'v1.0.0'; },
+        mcpEntry: async () => ({ state: 'absent' }), autostartPresent: async () => false,
+        daemon: async () => { if (unreadable) throw new Error('unreadable'); return { running: false }; },
+        servers: async () => { if (unreadable) throw new Error('unreadable'); return []; },
+      } });
+      const result = await diagnose({ ...input, platform, client: unreadable ? 'codex' : undefined,
+        invalid: [{ file: '/bad', client: 'codex' }] });
+      for (const row of result.rows.filter((row) => row.fix)) {
+        seen.add(row.id);
+        assert.ok(row.fix.includes(`${prefix} `), `${row.id}: ${row.fix}`);
+        assert.ok(!row.fix.includes('okit-plugin '), row.fix);
+      }
+    }
+    for (const id of ['node', 'record', 'registration', 'config', 'inbox', 'session', 'daemon', 'autostart']) assert.ok(seen.has(id), id);
+    const { input } = await world({ records: [record] });
+    const install = rowOf(await diagnose({ ...input, platform, client: 'missing' }), 'install');
+    // A client with no record retains the pre-install command.
+    assert.ok(install.fix.includes('okit-plugin install'), install.fix);
+  });
+
+  test(`linked, absent and unresolved records retain the configured command on ${platform}`, async () => {
+    for (const records of [[], [{ client: 'codex', link: true, path: '/payload', bin: 'cli.js' }],
+      [{ client: 'codex', link: false, path: '/payload' }],
+      [{ client: 'codex', link: false, path: '/payload', bin: 'cli.js' }, { client: 'claude-code', link: true }]]) {
+      const { input } = await world({ records, readers: { nodeVersion: () => { throw new Error('bad node'); } } });
+      assert.ok(rowOf(await diagnose({ ...input, platform }), 'node').fix.includes('okit-plugin '));
+    }
+  });
 }

@@ -10,6 +10,7 @@ import { main } from '../src/cli.js';
 import { doctorCommand } from '../src/doctor/command.js';
 import { diagnose } from '../src/doctor/diagnose.js';
 import { exitCodeFor } from '../src/install/exit.js';
+import { shown } from '../src/install/mcp-register.js';
 import { createPresenter } from '../src/install/present.js';
 import { writeRecord } from '../src/mcp/control-endpoint.js';
 import { paths } from '../src/store.js';
@@ -31,6 +32,8 @@ const MARKS = { en: 'warn', 'pt-BR': 'aviso' };
 // The line of the summary, in the language of the run: the failures and the warnings it counts.
 const SUMMARIES = { en: /(\d+) failed, (\d+) to look at/, 'pt-BR': /(\d+) falharam, (\d+) para olhar/ };
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const unlinkedProgram = (f) => shown([process.execPath, join(f.destination, '1.0.0-claude-code', 'okit-plugin')]);
 
 /**
  * A made-up installation: the record of each client, the entry of the client registered as the installer registers it,
@@ -240,8 +243,8 @@ test('a record that cannot be read is a failed row, in both languages, and the o
       : `registro de instalação ilegível: ${file}`;
     assert.ok(text.includes(expected), text);
     const fix = locale === 'en'
-      ? 'Fix: Install it again: okit-plugin install --client codex'
-      : 'Correção: Instale de novo: okit-plugin install --client codex';
+      ? `Fix: Install it again: ${unlinkedProgram(f)} install --client codex`
+      : `Correção: Instale de novo: ${unlinkedProgram(f)} install --client codex`;
     assert.ok(text.includes(fix), text);
     // The client whose record is whole is still diagnosed.
     assert.match(text, /Claude Code: /, text);
@@ -361,8 +364,7 @@ test('an entry that is broken is a failed row, with the fix that registers it ag
     assert.match(text, /MCP registration|Registro do MCP/, text);
     assert.match(text, locale === 'en' ? /the MCP entry of Claude Code is disabled in the client/
       : /a entrada MCP do Claude Code está desligada no cliente/, text);
-    assert.match(text, locale === 'en' ? /Fix: Register it: okit-plugin install --client claude-code/
-      : /Correção: Registre: okit-plugin install --client claude-code/, text);
+    assert.ok(text.includes(`${locale === 'en' ? 'Fix: Register it:' : 'Correção: Registre:'} ${unlinkedProgram(f)} install --client claude-code`), text);
   }
 });
 
@@ -547,7 +549,7 @@ test('a saved language that is not a language is a row of the doctor, not a refu
   // The row of the configuration says what is wrong, and how to correct it.
   assert.match(text, /Configuration\s+failed\s+the saved language is not valid: xx/, text);
   // The Fix is a manual edit of the file (`config set` itself refuses while the saved language is not one): it names the file.
-  assert.ok(text.includes(`Fix: Edit ${file}: set "language" to one of en, pt-BR (or remove the key), then run: okit-plugin doctor`), text);
+  assert.ok(text.includes(`Fix: Edit ${file}: set "language" to one of en, pt-BR (or remove the key), then run: ${unlinkedProgram(f)} doctor`), text);
   // The other rows are still told, in the language the run decided (English: the saved one is not a language).
   assert.match(text, /Node version\s+ok/, text);
   assert.match(text, /Installation\s+ok/, text);

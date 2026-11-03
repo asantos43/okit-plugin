@@ -1892,3 +1892,20 @@ for (const verbose of [false, true]) {
     });
   }
 }
+
+for (const platform of ['linux', 'win32']) {
+  test(`unlinked self-check repairs run the installed script on ${platform}`, async (t) => {
+    const f = await fixture(t, platform);
+    const node = platform === 'win32' ? 'C:/Program Files/Node/node.exe' : '/opt/Node Dir/node';
+    const path = join(f.destination, 'unlinked');
+    await fs.mkdir(path, { recursive: true });
+    await fs.writeFile(join(path, 'package.json'), JSON.stringify({ bin: { [f.io.config.command]: 'cli.js' } }));
+    const record = { client: CLIENT, path, link: false, settings: { node } };
+    const checks = await selfCheck(record, '1.0.0', { ...f.io, ui: createPresenter({ locale: 'en', write: () => {} }),
+      platform, destination: f.destination, bin: f.bin, temporary: tmpdir(),
+      statuslineConfig: DEFAULT_CONFIG.statuslineRegistration, collectorConfig: DEFAULT_CONFIG.statuslineCollector });
+    const payload = checks.find((check) => check.id === 'payload');
+    const prefix = platform === 'win32' ? `& '${node}'` : `'${node}'`;
+    assert.equal(payload.fix, `Install again: ${prefix} ${join(path, 'cli.js')} install --client ${CLIENT}`);
+  });
+}

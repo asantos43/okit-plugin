@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 import { autostartPlan, detectAutostart } from '../src/autostart.js';
+import { shown } from '../src/install/mcp-register.js';
 import { main } from '../src/cli.js';
 import { exitCodeFor } from '../src/install/exit.js';
 import { paths } from '../src/store.js';
@@ -40,6 +41,9 @@ const failedRow = (lines, label) => {
 
 /** The command of a Fix line: the words after the name of the command, as the argv of the command line. */
 const commandOf = (fix, name) => {
+  const escapedNode = shown([process.execPath]).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const installed = new RegExp(`${escapedNode} [^ \n]+/src/cli\\.js ((?:install|update|uninstall|autostart|daemon|doctor|setup)(?: [A-Za-z0-9_./=-]+)*)$`).exec(fix);
+  if (installed) return installed[1].split(' ');
   const found = new RegExp(`(${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} `
     + '(?:install|update|uninstall|autostart|daemon|doctor|setup)(?: [^\\n]*)?)$').exec(fix);
   return found ? found[1].split(' ').slice(1) : null;
@@ -337,7 +341,7 @@ test('the row of a state file that is not valid says that a person fixes it', as
   const index = f.output.findIndex((line) => line.includes('Inbox'));
   assert.ok(index >= 0, f.output.join('\n'));
   assert.match(f.output[index], /\bfailed\b/, f.output[index]);
-  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*inbox\.json.*\), then run: okit-plugin doctor$/,
+  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*inbox\.json.*\), then run: .*\/src\/cli\.js doctor$/,
     f.output[index + 1]);
   assert.ok(MANUAL[1][1].length > 0);
 });
@@ -369,7 +373,7 @@ test('the row of a state file of the daemon that is not valid says that a person
   assert.ok(index >= 0, f.output.join('\n'));
   assert.match(f.output[index], /\bfailed\b/, f.output[index]);
   assert.match(f.output[index], /the state file could not be read/, f.output[index]);
-  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*\), then run: okit-plugin doctor$/,
+  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*\), then run: .*\/src\/cli\.js doctor$/,
     f.output[index + 1]);
   assert.ok(MANUAL[3][1].length > 0);
 });

@@ -33,6 +33,12 @@ const PLAIN = /^[A-Za-z0-9_@%+=:,./-]+$/;
 /** The same on Windows, where the separator of the paths is a backslash. */
 const PLAIN_WIN = /^[A-Za-z0-9_@%+=:,./\\-]+$/;
 
+// Reserved command words must be quoted in program position; each shell has its own fixed vocabulary.
+const SHELL_RESERVED = {
+  posix: new Set('if then else fi do done case esac while until for in function select time coproc ! { } [[ ]]'.split(' ')),
+  win32: new Set('if foreach function switch while do until for trap try catch finally return break continue throw param begin process end class data else elseif exit filter from in inlinescript parallel sequence workflow using var define dynamicparam enum hidden static'.split(' ')),
+};
+
 /**
  * The word as the shell of the platform reads it: as it is when the shell reads it that way, quoted when it does not
  * (a space, a quote, a `$`, a `;`, a `~` at its front, an empty word: anything a shell would not give back as it is).
@@ -57,7 +63,7 @@ export const quotedWord = (word, platform) => {
 export function shown(words, platform = process.platform) {
   const quoted = words.map((word, index) => {
     const text = String(word);
-    if (index === 0 && (text.includes('=') || text.startsWith('%'))) {
+    if (index === 0 && (text.includes('=') || text.startsWith('%') || SHELL_RESERVED[platform === 'win32' ? 'win32' : 'posix'].has(text))) {
       return platform === 'win32' ? `'${text.replaceAll("'", "''")}'` : `'${text.replaceAll("'", "'\\''")}'`;
     }
     return quotedWord(word, platform);

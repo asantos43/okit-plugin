@@ -11,6 +11,7 @@ import { diagnose } from '../src/doctor/diagnose.js';
 import { exitCodeFor } from '../src/install/exit.js';
 import { installConfig } from '../src/install/config.js';
 import { createPresenter } from '../src/install/present.js';
+import { shown } from '../src/install/mcp-register.js';
 import { payloadComplete } from '../src/install/place.js';
 import { fixture } from './helpers/install-fixture.js';
 
@@ -200,7 +201,7 @@ for (const damage of ['remove', 'empty']) {
         assert.equal(code, exitCodeFor('operational'), `${file}: ${text}`);
         const row = text.split('\n').find((line) => /Opencode: Payload\s+failed/.test(line));
         assert.ok(row?.includes(join(path, file)), `${file}: ${text}`);
-        assert.match(text, /Fix: Install again: okit-plugin install --client opencode/);
+        assert.ok(text.includes(`Fix: Install again: ${shown([process.execPath, join(path, CLI), 'install', '--client', 'opencode'])}`), text);
       }
     }
   });
@@ -241,7 +242,7 @@ test('the Fix and the detail of a self-check row quote the path and the command 
   // The Fix is the command as the shell reads it: the program in one word.
   const fix = /^ +Fix: Install again: (.*)$/m.exec(text);
   assert.ok(fix, text);
-  assert.deepEqual(argvOf(fix[1]), ['my plugin', 'install', '--client', CLIENT], fix[1]);
+  assert.deepEqual(argvOf(fix[1]), [process.execPath, join(path, CLI), 'install', '--client', CLIENT], fix[1]);
 });
 
 test('the Fix of a row that names the state folder quotes a path with a space', async () => {
@@ -261,4 +262,16 @@ test('the Fix of a row that names the state folder quotes a path with a space', 
   const row = result.rows.find((each) => each.id === 'daemon');
   assert.equal(row.status, 'failed', JSON.stringify(result.rows));
   assert.ok(row.fix.includes(`'${file}'`), row.fix);
+});
+
+test('the Fix of an installation without a link names the absolute node, never a bare `node` of the record', async (t) => {
+  const f = await fixture(t);
+  const { path, record } = await installation(f);
+  await fs.writeFile(join(f.destination, `install.${CLIENT}.json`), JSON.stringify({ ...record, settings: { node: 'node' } }));
+  await fs.rm(join(path, PROBE));
+  f.clear();
+  await main(['doctor'], f.io);
+  const fix = /^ +Fix: Install again: (.*)$/m.exec(f.output.join('\n'));
+  assert.ok(fix, f.output.join('\n'));
+  assert.deepEqual(argvOf(fix[1]).slice(0, 2), [process.execPath, join(path, CLI)], fix[1]);
 });

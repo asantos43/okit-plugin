@@ -10,7 +10,7 @@ import { mcpPlan, mcpStatus, quotedWord, shown } from '../install/mcp-register.j
 import { clientLabel, localizeReason, controlReason, redact } from '../install/present.js';
 import { checkLabel, selfCheck } from '../install/selfcheck.js';
 import { extraText } from '../install/texts.js';
-import { resolvedRecord } from '../install/where.js';
+import { programWords, resolvedRecord } from '../install/where.js';
 import { callControl, findServers } from '../mcp/control-client.js';
 import { configOf, DEFAULT_CONFIG, LOCALES } from '../profiles.js';
 import { isReadableConfig } from '../setup/setup.js';
@@ -185,7 +185,6 @@ export async function diagnose(input) {
   const platform = input.platform ?? process.platform;
   // Every command the doctor advertises is written for the shell of the platform: a command with a space or a quote
   // in it is runnable as it is shown.
-  const program = shown([command], platform);
   const env = input.env ?? {};
   const home = input.home ?? env.HOME ?? env.USERPROFILE ?? homedir();
   const root = input.root;
@@ -195,6 +194,11 @@ export async function diagnose(input) {
   // A caller that has no runner of its own gets one that refuses: a reader that cannot run is a row, never a crash.
   const run = input.run ?? (async () => { throw Object.assign(new Error('no runner of processes was given'), { code: 'ENOENT' }); });
   const readers = { ...defaultReaders({ fs, run, timeoutMs: settings.timeoutMs }), ...(input.readers ?? {}) };
+  const chosen = input.client ? records.filter((record) => record.client === input.client) : records;
+  let destination;
+  try { destination = installPaths(settings, { home, env, platform }).destination; } catch { /* unsupported platforms have no default folder */ }
+  const resolved = chosen.map((record) => resolvedRecord(record, destination));
+  const program = shown(await programWords(resolved, { ...settings, command }, platform, readers.readText), platform);
   const rows = [];
 
   // The dependencies of the readers that need them: the settings, the runner of a process and the presenter.
@@ -236,7 +240,6 @@ export async function diagnose(input) {
 
   // 2. The installation itself: no record at all is one failed row, and no row of a client follows. A client that was
   // named and has no record is a failed row too: the installation of that client is not there.
-  const chosen = input.client ? records.filter((record) => record.client === input.client) : records;
   if (input.client && !chosen.length) {
     rows.push({ id: 'install', status: 'failed', label: ui.text('doctorInstall'),
       detail: ui.text('doctorClientNone', { client: clientLabel(input.client) }),
@@ -265,7 +268,6 @@ export async function diagnose(input) {
   // The record is resolved first: where the installation is, is read from the record (a custom `--dest` or a moved
   // installation is the record's own folder), never rebuilt out of the settings.
   const selfCheckDeps = selfCheckDependencies({ input, settings, env, home, platform, fs, run, now, ui, records, statuslineConfig, collectorConfig });
-  const resolved = chosen.map((record) => resolvedRecord(record, selfCheckDeps.destination));
   for (const record of resolved) {
     rows.push(await registrationRow(record, { deps, readers, settings, platform, command: program, ui, root }));
     rows.push(...await selfCheckRows(record, { readers,

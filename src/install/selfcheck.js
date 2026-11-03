@@ -10,7 +10,7 @@ import { mcpPlan, quotedWord, shown } from './mcp-register.js';
 import { clientRoot } from './config.js';
 import { presenterOf, clientLabel, redact, controlReason } from './present.js';
 import { extraText } from './texts.js';
-import { installationOf, missingFile } from './where.js';
+import { installationOf, missingFile, programWords } from './where.js';
 
 // The check after an install or an update: the installation is only done when it WORKS on this machine. It reads back what
 // the installer wrote (the record, the client's settings) and runs it the way the client will, in a temporary state root,
@@ -135,7 +135,10 @@ const shellsOf = (deps) => deps.config.selfcheck.shells[deps.platform] ?? [];
 const shellNamed = (deps, name) => shellsOf(deps).find((shell) => shell.name === name);
 // The command the person runs again, written for the shell of the platform: every word a shell would read
 // differently is quoted, so a command or a client with a space in it is runnable as it is shown.
-const again = (record, deps) => shown([deps.config.command, 'install', '--client', record.client], deps.platform);
+const again = async (record, deps) => shown([
+  ...await programWords([record], deps.config, deps.platform, (metadata) => deps.fs.readFile(metadata, 'utf8')),
+  'install', '--client', record.client,
+], deps.platform);
 // A path, written for the shell of the platform (the same quoting of the commands).
 const asPath = (value, deps) => (value === undefined || value === null || value === '' ? '' : quotedWord(String(value), deps.platform));
 
@@ -165,13 +168,13 @@ async function payloadCheck(record, deps) {
   const missing = await missingFile(record, deps.config, deps.fs);
   if (missing === null) return okCheck('payload', extraText('selfcheckPayloadWhole', ui.locale));
   return badCheck('payload', extraText('selfcheckPayloadMissing', ui.locale, { file: asPath(missing, deps) }),
-    ui.text('selfcheckFixVersion', { again: again(record, deps) }));
+    ui.text('selfcheckFixVersion', { again: await again(record, deps) }));
 }
 
 /** 2. The version the record and the installed package say is the one that was asked for. */
 async function versionCheck(record, expected, deps) {
   const { ui } = deps;
-  const fix = ui.text('selfcheckFixVersion', { again: again(record, deps) });
+  const fix = ui.text('selfcheckFixVersion', { again: await again(record, deps) });
   // The records are read leniently: a record of another client that cannot be read is not this client's failure.
   const read = await readRecordsLenient(deps.destination, deps.fs, deps.config).catch(() => ({ records: {} }));
   const saved = read.records[record.client] ?? null;
@@ -280,8 +283,8 @@ async function loginCheck(record, shell, executable, deps) {
   // error of a command that fails (for example under `set -e`) is to be fixed and any `exit` of that file is to go (an `exit`
   // ends the login shell itself). A file without the block needs the line itself: the one the installer writes, or the
   // installer's own.
-  const fix = await loginHasBlock(file, deps) ? ui.text('selfcheckFixLogin', { file: asPath(file, deps), line, again: again(record, deps) })
-    : ui.text('selfcheckFixLoginMissing', { file: asPath(file, deps), shell: shell.name, line, again: again(record, deps) });
+  const fix = await loginHasBlock(file, deps) ? ui.text('selfcheckFixLogin', { file: asPath(file, deps), line, again: await again(record, deps) })
+    : ui.text('selfcheckFixLoginMissing', { file: asPath(file, deps), shell: shell.name, line, again: await again(record, deps) });
   return badCheck('command', ui.text('selfcheckLoginFail', { shell: shell.name, command: config.command, why }),
     fix, { shell: shell.name, output: tail });
 }
@@ -305,7 +308,7 @@ async function commandChecks(record, deps) {
     if (outcome.state === 'ok' && !inBin(found, deps)) {
       // Found, but not our shim: another program of the same name comes first, so the plugin's command is not what runs.
       results.push(badCheck('command', ui.text('selfcheckElsewhere', { shell: shell.name, command: config.command, found: found || ui.text('selfcheckNothing'), bin: asPath(deps.bin, deps) }),
-        ui.text('selfcheckFixElsewhere', { found: found || ui.text('selfcheckNothing'), bin: asPath(deps.bin, deps), shell: shell.name, again: again(record, deps) }), { shell: shell.name }));
+        ui.text('selfcheckFixElsewhere', { found: found || ui.text('selfcheckNothing'), bin: asPath(deps.bin, deps), shell: shell.name, again: await again(record, deps) }), { shell: shell.name }));
       continue;
     }
     if (outcome.state === 'ok') {
@@ -316,12 +319,12 @@ async function commandChecks(record, deps) {
       continue;
     }
     results.push(badCheck('command', ui.text('selfcheckNotFound', { shell: shell.name, command: config.command, why: outcome.why }),
-        ui.text('selfcheckFixCommand', { bin: asPath(deps.bin, deps), shell: shell.name, again: again(record, deps) }),
+        ui.text('selfcheckFixCommand', { bin: asPath(deps.bin, deps), shell: shell.name, again: await again(record, deps) }),
         { shell: shell.name, output: outcome.output }));
   }
   if (!ran) {
     results.push(badCheck('command', ui.text('selfcheckNoShell', { shells: shellsOf(deps).map(({ name }) => name).join(', ') }),
-      ui.text('selfcheckFixNoShell', { again: again(record, deps) })));
+      ui.text('selfcheckFixNoShell', { again: await again(record, deps) })));
   }
   return results;
 }
@@ -390,9 +393,10 @@ async function runWritten(record, deps) {
   const ours = verdict === true;
   const out = [];
   const reading = { status: 'skip', reason: ui.text('selfcheckOff'), quiet: true };
+  const repair = await again(record, deps);
   const jobs = [
-    ...(ours ? [{ id: 'statusline', text: written.statusline, fix: ui.text('selfcheckFixStatusline', { again: again(record, deps), path: asPath(written.bar, deps) }), failed: 'selfcheckStatuslineFailed' }] : []),
-    ...written.hooks.map((text) => ({ id: 'hook', text, fix: ui.text('selfcheckFixHook', { again: again(record, deps), path: asPath(written.hookFile, deps) }), failed: 'selfcheckHookFailed' })),
+    ...(ours ? [{ id: 'statusline', text: written.statusline, fix: ui.text('selfcheckFixStatusline', { again: repair, path: asPath(written.bar, deps) }), failed: 'selfcheckStatuslineFailed' }] : []),
+    ...written.hooks.map((text) => ({ id: 'hook', text, fix: ui.text('selfcheckFixHook', { again: repair, path: asPath(written.hookFile, deps) }), failed: 'selfcheckHookFailed' })),
   ];
   if (verdict === 'unlinked') out.push(skipCheck('statusline', ui.text('selfcheckUnlinked'), { quiet: false }));
   else if (!ours) {
@@ -532,7 +536,7 @@ function probeReason(ui, error, { stderr = '', folder, hide = [] } = {}) {
  */
 async function mcpChecks(record, deps) {
   const { ui, config } = deps;
-  const fix = ui.text('selfcheckFixMcp', { command: again(record, deps) });
+  const fix = ui.text('selfcheckFixMcp', { command: await again(record, deps) });
   // A client with no MCP server of ours has nothing of ours to ask.
   if (!mcpPlan(record, deps)) {
     return [skipCheck('mcp', ui.text('selfcheckNotUsed'), { quiet: true }),
@@ -548,8 +552,8 @@ async function mcpChecks(record, deps) {
     // without the node the installation is configured to run.
     if (outcome.state === 'missing') {
       const why = ui.text('selfcheckNodeMissing', { node: asPath(config.node, deps) });
-      return [badCheck('mcp', why, ui.text('selfcheckFixNodeMissing', { node: asPath(config.node, deps), command: again(record, deps) })),
-        badCheck('api', why, ui.text('selfcheckFixNodeMissing', { node: asPath(config.node, deps), command: again(record, deps) }))];
+      return [badCheck('mcp', why, ui.text('selfcheckFixNodeMissing', { node: asPath(config.node, deps), command: await again(record, deps) })),
+        badCheck('api', why, ui.text('selfcheckFixNodeMissing', { node: asPath(config.node, deps), command: await again(record, deps) }))];
     }
     if (outcome.state !== 'ok') {
       const why = outcome.why;
@@ -599,7 +603,7 @@ async function pathCheck(record, deps) {
 async function guarded(id, deps, record, step) {
   try { return [await step()].flat(); }
   catch (error) {
-    return [badCheck(id, deps.ui.text('selfcheckError'), deps.ui.text('selfcheckFixError', { again: again(record, deps) }), { output: error?.message })];
+    return [badCheck(id, deps.ui.text('selfcheckError'), deps.ui.text('selfcheckFixError', { again: await again(record, deps) }), { output: error?.message })];
   }
 }
 
