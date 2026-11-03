@@ -153,6 +153,43 @@ export async function managedProfile(deps, shell) {
 export { binInPath } from '../env/path.js';
 
 /**
+ * Whether a new terminal runs the command: Node is on the PATH, and its folder is on the PATH now, this run writes it there (`manages`: an
+ * install that was not told `--no-path`), or an earlier install did (the PATH state the installer keeps).
+ */
+export async function commandReachable({ config, env, platform, bin, fs, destination, home, manages = false, present = false }) {
+  // The command is a script that starts `node` from the PATH: with no Node there, the bare name does not run either.
+  const windows = platform === config.windowsPlatform;
+  const path = windows ? Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] : env.PATH;
+  const node = await commandInPath({ fs, config: { ...config, command: 'node' }, windows, path: path ?? '', separator: windows ? ';' : delimiter }).catch(() => undefined);
+  if (!node) return false;
+  // `present`: the link must be there now (a run that has finished); before an install runs it is the installer who creates it.
+  if (present && !await commandInPath({ fs, config, windows, path: bin, separator: delimiter }).catch(() => undefined)) return false;
+  if (binInPath({ env, config, platform, bin })) return true;
+  if (manages && config.path.enabled !== false) return true;
+  const stateFile = join(destination, config.path.stateFile);
+  const saved = await fs.readFile(stateFile, 'utf8').catch(() => null);
+  // Only a hint for the text of a message: a state that cannot be read is no proof (the commands that manage it refuse it).
+  try {
+    const state = saved ? pathState(saved, basename(stateFile), config.command) : null;
+    // A profile that no longer holds the block the installer wrote, whole (as the installer itself checks), puts nothing on the
+    // PATH, whatever the state says: the person may have removed it or commented it out.
+    // Only the profiles the shell of this terminal reads count: a block in another shell's file is not read by this one.
+    // (The installer writes for the fallback shell when the terminal names none.)
+    const shell = windows ? null : currentShell(env, config) ?? config.path.fallbackShell;
+    // A shell the installer does not know reads none of its files; zsh and fish read theirs from another folder when the
+    // terminal redirects them (`ZDOTDIR`, `XDG_CONFIG_HOME`), which this check cannot follow.
+    const moved = (shell === 'zsh' && env.ZDOTDIR && resolve(env.ZDOTDIR) !== resolve(home))
+      || (shell === 'fish' && env.XDG_CONFIG_HOME && resolve(env.XDG_CONFIG_HOME) !== resolve(home, '.config'));
+    const read = shell && config.path.shells[shell] && !moved && state?.profiles?.length ? await shellProfiles({ fs, config, home }, shell) : [];
+    for (const item of (state?.profiles ?? []).filter((entry) => read.includes(entry.path))) {
+      const text = await fs.readFile(item.path, 'utf8').catch(() => null);
+      if (item.block && text?.includes(item.block) && item.block.includes(bin)) return true;
+    }
+    return Boolean(state?.windows);
+  } catch { return false; }
+}
+
+/**
  * The warning that tells the user the exact command that makes the command
  * resolve in the current terminal, or null when bin is already in PATH.
  *

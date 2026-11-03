@@ -34,9 +34,14 @@ const CLIENT = 'claude-code';
 
 /** The row of the doctor that failed: its label, and the line of its Fix. */
 const failedRow = (lines, label) => {
-  const index = lines.findIndex((line, at) => at > 0 && at < lines.length - 1
-    && line.includes(label) && /\bfailed\s{2,}/.test(line));
-  return index < 0 ? null : { line: lines[index], fix: lines[index + 1] };
+  if (!/^Needs attention: [1-9]\d* failed check/.test(lines[1] ?? '')) return null;
+  const displayed = label.replace(': MCP registration', ' connection').replace('MCP registration', 'connection').replace('Daemon', 'Background service');
+  const line = lines.find((line) => line.startsWith('| ') && line.includes(displayed));
+  const fixes = lines.filter((line) => line.startsWith('Fix: '));
+  const fix = label === 'Autostart' ? fixes.find((line) => / setup$/.test(line))
+    : /record/i.test(label) ? fixes.find((line) => line.startsWith('Fix: Install it again:'))
+      : fixes.find((line) => !/Remove the entry by hand|Automatic start is optional/.test(line));
+  return line ? { line, fix } : null;
 };
 
 /** The command of a Fix line: the words after the name of the command, as the argv of the command line. */
@@ -103,7 +108,7 @@ async function repaired(t, breakIt, label, options = {}) {
   assert.equal(await main(['doctor'], io), exitCodeFor('operational'), `the doctor did not fail:\n${f.output.join('\n')}`);
   const row = failedRow(f.output, label);
   assert.ok(row, `the row ${label} did not fail:\n${f.output.join('\n')}`);
-  assert.match(row.fix, /^\s+Fix: /, `the row ${label} has no Fix:\n${f.output.join('\n')}`);
+  assert.match(row.fix, /^Fix: /, `the row ${label} has no Fix:\n${f.output.join('\n')}`);
   const command = commandOf(row.fix, f.io.config.command);
   assert.ok(command, `the Fix of ${label} names no command: ${row.fix}`);
   // The command of the Fix, exactly as the doctor named it.
@@ -113,7 +118,7 @@ async function repaired(t, breakIt, label, options = {}) {
   f.clear();
   assert.equal(await main(['doctor'], io), exitCodeFor('ok'), `the doctor still fails:\n${f.output.join('\n')}`);
   assert.ok(!failedRow(f.output, label), `the row ${label} is still there:\n${f.output.join('\n')}`);
-  assert.match(f.output.at(-1), /everything looks right|0 failed/, f.output.at(-1));
+  assert.match(f.output[1], /^Ready\.|^Needs attention: \d+ warnings?;/, f.output[1]);
 }
 
 /** The entry the client prints: ours, and broken in the way the scenario says. */
@@ -246,12 +251,13 @@ test('the row of a daemon that is down says that the daemon starts with the mach
   await fs.rm(join(f.root, 'daemon.pid.json'));
   f.clear();
   assert.equal(await main(['doctor'], f.io), exitCodeFor('operational'), f.output.join('\n'));
-  const index = f.output.findIndex((line) => line.includes('Daemon'));
+  const index = f.output.findIndex((line) => line.includes('Background service'));
   assert.ok(index >= 0, f.output.join('\n'));
-  assert.match(f.output[index], /\bfailed\b/, f.output[index]);
+  assert.match(f.output[1], /failed check/, f.output[1]);
   // The Fix is honest: no command of the kit starts the daemon, so it says the machine does.
-  assert.match(f.output[index + 1], /^\s+Fix: Start it: the daemon starts with the machine/, f.output[index + 1]);
-  assert.doesNotMatch(f.output[index + 1], /okit-plugin (?!doctor\b)[a-z]/, f.output[index + 1]);
+  const fix = f.output.find((line) => line.startsWith('Fix: Start it:'));
+  assert.match(fix, /^Fix: Start it: the daemon starts with the machine/, fix);
+  assert.doesNotMatch(fix, /okit-plugin (?!doctor\b)[a-z]/, fix);
   assert.ok(MANUAL[3][1].length > 0);
 });
 
@@ -338,10 +344,10 @@ test('the row of a foreign MCP entry says that a person takes it out by hand', a
     args: ['mcp', 'add', 'okit', '--', 'node', join(f.home, 'foreign-server.js')] });
   f.clear();
   assert.equal(await main(['doctor'], f.io), exitCodeFor('ok'), f.output.join('\n'));
-  const index = f.output.findIndex((line) => line.includes('MCP registration'));
+  const index = f.output.findIndex((line) => line.includes('Claude Code connection'));
   assert.ok(index >= 0, f.output.join('\n'));
-  assert.match(f.output[index], /\bwarn\b/, f.output[index]);
-  assert.equal(f.output[index + 1], '      Fix: Remove the entry by hand: claude mcp remove okit --scope user');
+  assert.match(f.output[1], /warnings;/, f.output[1]);
+  assert.equal(f.output.find((line) => line.startsWith('Fix: ')), 'Fix: Remove the entry by hand: claude mcp remove okit --scope user');
   assert.ok(MANUAL[0][1].length > 0);
 });
 
@@ -352,9 +358,9 @@ test('the row of a state file that is not valid says that a person fixes it', as
   assert.equal(await main(['doctor'], f.io), exitCodeFor('operational'), f.output.join('\n'));
   const index = f.output.findIndex((line) => line.includes('Inbox'));
   assert.ok(index >= 0, f.output.join('\n'));
-  assert.match(f.output[index], /\bfailed\b/, f.output[index]);
-  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*inbox\.json.*\), then run: .*\/src\/cli\.js doctor$/,
-    f.output[index + 1]);
+  assert.match(f.output[1], /failed check/, f.output[1]);
+  assert.match(f.output.find((line) => line.startsWith('Fix: Fix it or move it aside')), /^Fix: Fix it or move it aside \(.*inbox\.json.*\), then run: .*\/src\/cli\.js doctor$/,
+    f.output.find((line) => line.startsWith('Fix: Fix it or move it aside')));
   assert.ok(MANUAL[1][1].length > 0);
 });
 
@@ -367,9 +373,9 @@ test('the row of a configuration the runtime refuses says that a person fixes it
   assert.equal(await main(['doctor'], f.io), exitCodeFor('operational'), f.output.join('\n'));
   const index = f.output.findIndex((line) => line.includes('Configuration'));
   assert.ok(index >= 0, f.output.join('\n'));
-  assert.match(f.output[index], /\bfailed\b/, f.output[index]);
-  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*config\.json.*\), then run: .*src\/cli\.js doctor$/,
-    f.output[index + 1]);
+  assert.match(f.output[1], /failed check/, f.output[1]);
+  assert.match(f.output.find((line) => line.startsWith('Fix: Fix it or move it aside')), /^Fix: Fix it or move it aside \(.*config\.json.*\), then run: .*src\/cli\.js doctor$/,
+    f.output.find((line) => line.startsWith('Fix: Fix it or move it aside')));
   assert.ok(MANUAL[2][1].length > 0);
 });
 
@@ -381,11 +387,11 @@ test('the row of a state file of the daemon that is not valid says that a person
   await fs.writeFile(join(f.root, 'daemon.pid.json'), 'not json');
   f.clear();
   assert.equal(await main(['doctor'], f.io), exitCodeFor('operational'), f.output.join('\n'));
-  const index = f.output.findIndex((line) => line.includes('Daemon'));
+  const index = f.output.findIndex((line) => line.includes('Background service'));
   assert.ok(index >= 0, f.output.join('\n'));
-  assert.match(f.output[index], /\bfailed\b/, f.output[index]);
+  assert.match(f.output[1], /failed check/, f.output[1]);
   assert.match(f.output[index], /the state file could not be read/, f.output[index]);
-  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*\), then run: .*\/src\/cli\.js doctor$/,
-    f.output[index + 1]);
+  assert.match(f.output.find((line) => line.startsWith('Fix: Fix it or move it aside')), /^Fix: Fix it or move it aside \(.*\), then run: .*\/src\/cli\.js doctor$/,
+    f.output.find((line) => line.startsWith('Fix: Fix it or move it aside')));
   assert.ok(MANUAL[3][1].length > 0);
 });

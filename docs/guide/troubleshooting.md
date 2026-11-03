@@ -17,6 +17,6 @@ Use the environment report to find the missing item and its repair instruction.
 <a id="doctor"></a>
 ## Run the doctor first
 
-1. Run `okit-plugin doctor --locale en`. Expect one row per thing it looked at: the Node version, the installation, the MCP registration and the self-check of each client, the state files, the session, the autostart and the daemon. A row that failed or warned is followed by a `Fix:` line, which names the exact command that repairs it; read it before anything else. The doctor only reads: it writes no file and removes no record. It answers 0 when no row failed, 1 when a row failed, and a warning never fails the run. See [the CLI reference](../components/cli.md#commands).
+1. Run `okit-plugin doctor --locale en`. Read the “Ready” or “Needs attention” summary first, then the table of checks. Below the table, `Fix:` lines give repairs and an exact command checks the installation again. The doctor only reads: it writes no file and removes no record. It answers 0 when no row failed, 1 when a row failed, and a warning never fails the run. See [the CLI reference](../components/cli.md#commands).
 
 [Guide](README.md) · [Português](troubleshooting.pt-BR.md)

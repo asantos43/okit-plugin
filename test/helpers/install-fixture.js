@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { tarGz, zip } from '../../src/release/archive.js';
 import { installConfig } from '../../src/install/config.js';
@@ -115,6 +115,10 @@ export async function fixture(t, platform = 'linux', { tty = false, ask, read } 
   const root = join(home, 'state'), destination = join(home, 'data'), bin = join(home, 'bin'), scratch = join(home, 'scratch');
   await fs.mkdir(root);
   await fs.mkdir(scratch);
+  // A person who runs the plugin has Node on the PATH (the command is a script that starts it): a stub stands for it.
+  const nodes = join(home, 'node-bin');
+  await fs.mkdir(nodes);
+  await fs.writeFile(join(nodes, platform === 'win32' ? 'node.cmd' : 'node'), '#!/bin/sh\n', { mode: 0o755 });
   const config = installConfig({ repository: 'example/project', api: 'https://fake.invalid', destination, linkDirectory: bin });
   await fs.writeFile(join(root, 'config.json'), JSON.stringify({ install: config }));
   const output = [], commands = [];
@@ -146,7 +150,7 @@ export async function fixture(t, platform = 'linux', { tty = false, ask, read } 
   const out = (line) => output.push(line);
   const mcp = mcpWorld();
   const io = { home, root, destination, bin, config, fs, fetch, platform, now: () => 1700000000000,
-    env: { HOME: home, PATH: platform === 'win32' ? '' : bin },
+    env: { HOME: home, PATH: platform === 'win32' ? nodes : [bin, nodes].join(delimiter) },
     pkg, arch: 'x64', tmpdir: scratch, tty, ask, read, outTty: false, clientRoot: join(home, 'client'),
     stdout: out, stderr: out, out, adapters: [], readQuota: async () => ({ source: 'off' }),
     detect: async () => true,
@@ -159,4 +163,18 @@ export async function fixture(t, platform = 'linux', { tty = false, ask, read } 
     .replaceAll(home, '<home>').replace(/ {2,}/g, '  ').trimEnd());
   return { home, root, destination, bin, scratch, io, output, commands, lines, name, mcp,
     setVersion: (value) => { version = value; }, clear: () => { output.length = 0; } };
+}
+
+/**
+ * Puts the command and Node on the PATH of the fixture, the way a person who installed the plugin has them: the follow-up
+ * commands of `setup` and `doctor` name the program this terminal can start, so they are the short name only then.
+ * Call it after the installs of a test (an existing command is not the plugin's own link).
+ */
+export async function commandsOnPath(f, platform = 'linux', names = ['okit-plugin', 'node']) {
+  const windows = platform === 'win32';
+  const folder = join(f.home, 'commands');
+  await fs.mkdir(folder, { recursive: true });
+  for (const name of names) await fs.writeFile(join(folder, name + (windows ? '.cmd' : '')), '#!/bin/sh\n', { mode: 0o755 });
+  const key = Object.keys(f.io.env).find((name) => name.toLowerCase() === 'path') ?? 'PATH';
+  f.io.env[key] = [folder, f.io.env[key]].filter(Boolean).join(windows ? ';' : delimiter);
 }

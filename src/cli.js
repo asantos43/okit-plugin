@@ -43,12 +43,15 @@ import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
 import { OperationalError } from './install/exit.js';
 const { installerCommand } = collectorEntry ? {} : await import('./install/index.js');
-const { createPresenter, localizeReason, redactingWriter, resolveLocale } = collectorEntry
-  ? {} : await import('./install/present.js');
+const { flagsOf } = collectorEntry ? {} : await import('./install/flags.js');
+const { createPresenter, createInstallerView, commandTitle, programLine, localizeReason, redactingWriter, resolveLocale } = collectorEntry
+  ? {} : await import('./cli-present.js');
 const { exitCodeFor, kindOf } = collectorEntry ? {} : await import('./install/exit.js');
-const { installConfig } = collectorEntry ? {} : await import('./install/config.js');
+const { installConfig, installPaths } = collectorEntry ? {} : await import('./install/config.js');
+const { commandReachable } = collectorEntry ? {} : await import('./install/link.js');
+const { discoverRecords } = collectorEntry ? {} : await import('./install/place.js');
 const { setupAutostart } = collectorEntry ? {} : await import('./setup/autostart-step.js');
-const { runSetup, setupReader, formatUnreadable, isReadableConfig } = collectorEntry
+const { runSetup, setupReader, setupResultLines, formatUnreadable, isReadableConfig } = collectorEntry
   ? {} : await import('./setup/setup.js');
 
 const STOP_FILE = 'daemon.stop';
@@ -179,6 +182,7 @@ async function enter(ctx, flags, parse, then) {
   try {
     stored = await readJson(paths(ctx.root).config, {});
   } catch {
+    if (!flags.includes('--json')) ctx.out(commandTitle(ctx.command, early, 'setup'));
     ctx.err(formatUnreadable(early, ctx.command));
     return exitCodeFor('operational');
   }
@@ -211,13 +215,55 @@ async function setupCommand(ctx, flags, io) {
   return enter(ctx, flags, flagsParser(['--defaults', '--again']), (entry) => runSetupCommand(ctx, entry, io));
 }
 
+async function presentInstaller(group, flags, ctx, io, stored) {
+  const invoke = (extra = {}) => installerCommand(group, flags, ctx, { ...io, ...installerLifecycle(ctx, io), ...extra });
+  // Machine/usage refusals are handled by the existing parser, byte for byte.
+  if (io.ui || flags.includes('--json')) return invoke();
+  // The same reading of the arguments as the installer's: the last value of a repeated flag wins.
+  const options = flagsOf(group, flags, { lenient: true });
+  let config, before, destination, bin;
+  try {
+    config = installConfig(stored?.install, options.dest ? { destination: options.dest } : {});
+    ({ destination, bin } = installPaths(config, { ...ctx, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE }));
+    const found = await discoverRecords(destination, { fs: ctx.fs, config, lenient: group === 'install', explicitDestination: Boolean(options.dest) });
+    destination = found.destination;
+    before = found.records;
+  } catch { return invoke(); }
+  // The program as this terminal starts it is known before the run: the lines the installer prints while it works name it too.
+  const program = await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs }).catch(() => config.command);
+  // A new terminal finds the command only when its folder is on the PATH or the installer put it there.
+  // The folder of the link is the one an installation recorded (as the installer and the doctor read it), else the configured one.
+  const reachable = (manages, records, present) => commandReachable({ config, env: ctx.env, platform: ctx.platform, fs: ctx.fs, destination, manages, present, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE,
+    bin: Object.values(records).find((record) => record?.linkDirectory)?.linkDirectory ?? bin }).catch(() => false);
+  const manages = group === 'install' && !flags.includes('--no-path');
+  const linked = (group === 'install' ? !options['no-link'] : Object.values(before).some((record) => record?.link)) && await reachable(manages, before, group !== 'install');
+  const view = createInstallerView({ operation: group, command: config.command, locale: ctx.locale,
+    write: ctx.out, verbose: flags.includes('--verbose'), hide: [io.tmpdir ?? tmpdir()],
+    launch: { program, platform: ctx.platform, linked, dest: options.dest } });
+  const code = await invoke({ ui: view.ui });
+  const after = await discoverRecords(destination, { fs: ctx.fs, config, lenient: true }).then((found) => found.records).catch(() => ({}));
+  // What the output tells to type afterwards is worked out again from what is left: the CLI that ran may be gone (the
+  // payload of an uninstall, or the copy the release installer unpacks and removes). A new terminal finds the command
+  // only when its folder is on the PATH, or the installer wrote it there.
+  const remaining = await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs,
+    remaining: Object.values(after).map((record) => record?.path).filter(Boolean) }).catch(() => program);
+  const pathReady = await reachable(manages, after, true);
+  view.finish({ code, before, after, client: options.client,
+    dryRun: flags.includes('--dry-run'), purge: flags.includes('--purge'), checkOnly: flags.includes('--check'),
+    flags, program: remaining, platform: ctx.platform, destination, pathReady });
+  return code;
+}
+
 async function runSetupCommand(ctx, { stored, locale, found, install }, io) {
   const defaults = Boolean(found['--defaults']);
   const again = Boolean(found['--again']);
+  ctx.out(commandTitle(ctx.command, locale, 'setup'));
+  // What the setup tells to type afterwards is the program this terminal can start (the command may not be on the PATH).
+  const program = await programLine({ config: { ...install, command: ctx.command }, platform: ctx.platform, env: ctx.env, fs: ctx.fs }).catch(() => ctx.command);
   // A configuration that cannot be read stops the command here: the same
   // simple sentence everywhere, the file untouched and nothing written.
   if (!isReadableConfig(stored)) {
-    ctx.err(formatUnreadable(locale, ctx.command));
+    ctx.err(formatUnreadable(locale, program));
     return exitCodeFor('operational');
   }
   const reader = io.ask
@@ -235,11 +281,12 @@ async function runSetupCommand(ctx, { stored, locale, found, install }, io) {
       write: ctx.writeConfig ?? ctx.write,
       locale,
       again,
-      command: ctx.command,
+      command: program,
+      out: ctx.out,
     });
-    for (const message of result.messages) ctx.out(message);
+    for (const message of setupResultLines(result, locale, program)) ctx.out(message);
     if (!defaults && result.code === 0 && !result.cancelled) {
-      return await setupAutostart(ctx, { config: install, locale, ask: reader.ask, plan: (record) => installationAutostartPlan(ctx, io, record) });
+      return await setupAutostart({ ...ctx, command: program }, { config: install, locale, ask: reader.ask, plan: (record) => installationAutostartPlan(ctx, io, record) });
     }
     return result.code;
   } finally {
@@ -463,9 +510,7 @@ export async function main(argv = [], io = {}) {
     }
     if (['install', 'update', 'uninstall'].includes(group)) {
       const flags = action === undefined ? args : [action, ...args];
-      return await installerCommand(group, flags, ctx, {
-        ...io, ...installerLifecycle(ctx, io),
-      });
+      return await presentInstaller(group, flags, ctx, io, stored);
     }
     // The two hooks the client launches: the context of the session and the summary after a compaction.
     if (group === 'hook' && action === 'post-compact') {

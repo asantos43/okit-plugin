@@ -10,7 +10,7 @@ import { mcpPlan, quotedWord, shown } from './mcp-register.js';
 import { clientRoot } from './config.js';
 import { presenterOf, clientLabel, redact, controlReason } from './present.js';
 import { extraText } from './texts.js';
-import { installationOf, missingFile, programWords } from './where.js';
+import { installationOf, isEphemeral, missingFile, programWords } from './where.js';
 
 // The check after an install or an update: the installation is only done when it WORKS on this machine. It reads back what
 // the installer wrote (the record, the client's settings) and runs it the way the client will, in a temporary state root,
@@ -134,11 +134,16 @@ async function attempt(deps, spec) {
 const shellsOf = (deps) => deps.config.selfcheck.shells[deps.platform] ?? [];
 const shellNamed = (deps, name) => shellsOf(deps).find((shell) => shell.name === name);
 // The command the person runs again, written for the shell of the platform: every word a shell would read
-// differently is quoted, so a command or a client with a space in it is runnable as it is shown.
-const again = async (record, deps) => shown([
-  ...await programWords({ config: deps.config, platform: deps.platform, env: deps.env, fs: deps.fs }),
-  'install', '--client', record.client,
-], deps.platform);
+// differently is quoted, so a command or a client with a space in it is runnable as it is shown. In the installer's
+// output it is a token the view resolves (the program proven on the PATH of the check, else the running CLI, with the `--dest` of the run); without a
+// view (the doctor) it is written here from the program as this machine starts it.
+const again = async (record, deps) => {
+  const program = await programWords({ config: deps.config, platform: deps.platform, env: deps.env, fs: deps.fs });
+  // The copy the release installer unpacked is gone when it ends: the view names the program that is left, as for any other text.
+  return typeof deps.ui?.command === 'function'
+    ? deps.ui.command(['install', '--client', record.client], isEphemeral(program) ? {} : { program: shown(program, deps.platform) })
+    : shown([...program, 'install', '--client', record.client], deps.platform);
+};
 // A path, written for the shell of the platform (the same quoting of the commands).
 const asPath = (value, deps) => (value === undefined || value === null || value === '' ? '' : quotedWord(String(value), deps.platform));
 

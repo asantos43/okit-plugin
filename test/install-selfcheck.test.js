@@ -746,7 +746,7 @@ for (const locale of LOCALES) {
     const fresh = await run(['install', '--client', CLIENT, '--statusline']);
     assert.equal(fresh.code, 0, fresh.text);
     assert.equal(countOf(fresh.text, locale), 1, fresh.text);
-    assert.match(fresh.text, locale === 'en' ? /Done\. Next: 1\. open a new terminal/ : /Pronto\. Próximo: 1\. abra um terminal novo/, fresh.text);
+    assert.match(fresh.text, locale === 'en' ? /Next: okit-plugin setup/ : /Próximo: okit-plugin setup/, fresh.text);
     const same = await run(['install', '--client', CLIENT, '--statusline']);
     assert.equal(same.code, 0, same.text);
     assert.equal(countOf(same.text, locale), 1, same.text);
@@ -756,7 +756,7 @@ for (const locale of LOCALES) {
     const update = await run(['update']);
     assert.equal(update.code, 0, update.text);
     assert.equal(countOf(update.text, locale), 1, update.text);
-    assert.match(update.text, locale === 'en' ? /Done\. Next: 1\. open a new terminal/ : /Pronto\. Próximo: 1\. abra um terminal novo/, update.text);
+    assert.match(update.text, locale === 'en' ? /Next: restart Claude Code, then run: okit-plugin doctor --client claude-code/ : /Próximo: reinicie Claude Code e rode: okit-plugin doctor --client claude-code/, update.text);
     const current = await run(['update']);
     assert.equal(current.code, 0, current.text);
     assert.equal(countOf(current.text, locale), 1, current.text);

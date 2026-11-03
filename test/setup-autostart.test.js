@@ -12,11 +12,12 @@ import { exitCodeFor } from '../src/install/exit.js';
 import { shown } from '../src/install/mcp-register.js';
 import { installConfig } from '../src/install/config.js';
 import { readRecords, readRecordsLenient } from '../src/install/place.js';
-import { fixture } from './helpers/install-fixture.js';
+import { commandsOnPath, fixture } from './helpers/install-fixture.js';
 
 async function world(t, { clients = ['codex'], platform = 'linux', installed = false } = {}) {
   const f = await fixture(t, platform);
   for (const client of clients) assert.equal(await main(['install', '--client', client], f.io), 0, f.output.join('\n'));
+  await commandsOnPath(f, platform);
   const records = await readRecords(f.destination, fs, f.io.config);
   if (installed) {
     for (const record of Object.values(records)) {
@@ -52,10 +53,9 @@ async function snapshot(f) {
   return Object.fromEntries(await Promise.all(files.map(async (file) => [file, await fs.readFile(join(f.destination, file), 'utf8')])));
 }
 const explain = (f) => [
-  `Start the daemon with this machine using ${f.plan.kind}.`,
   ...(f.plan.path === null ? [] : [`Autostart writes: ${f.plan.path}`]),
 ];
-const stepLines = (f) => f.output.slice(1); // No detected models: the existing setup emits exactly one line.
+const stepLines = (f) => f.output.slice(f.output.findIndex((line) => /MCP env_report/.test(line)) + 1);
 
 test('cancelled wizard never offers autostart or changes the installation', async (t) => {
   const f = await world(t);
@@ -67,15 +67,15 @@ test('cancelled wizard never offers autostart or changes the installation', asyn
   }];
   f.io.ask = async (question) => {
     f.questions.push(question);
-    assert.notEqual(question, 'Install autostart? [y/N]', 'cancelled setup asked about autostart');
-    assert.match(question, /^(Choose a model|Save these model settings\?)/);
+    assert.notEqual(question, 'Background service — runs waiting work while your client is closed. Start it with this machine? [y/N]:', 'cancelled setup asked about autostart');
+    assert.match(question, /^(Choose a model|Save these choices\?)/);
     return ''; // Accept the recommended models, then cancel the save confirmation.
   };
   assert.equal(await main(['setup'], f.io), 0);
   assert.equal(f.questions.length, 4);
   assert.ok(f.questions.slice(0, 3).every((question) => question.startsWith('Choose a model')));
-  assert.match(f.questions[3], /^Save these model settings\?/);
-  assert.deepEqual(f.output, ['Setup was cancelled and nothing was saved.']);
+  assert.match(f.questions[3], /^Save these choices\?/);
+  assert.deepEqual(f.output.slice(-2), ['Cancelled. Nothing was saved.', 'Try again when ready: okit-plugin setup']);
   assert.deepEqual(f.ran, []);
   assert.deepEqual(f.written, []);
   assert.deepEqual(f.order, []);
@@ -89,13 +89,13 @@ for (const answer of ['y', 'Y', ' y ', 'yes', 's']) {
     const ask = f.io.ask;
     f.io.ask = async (question) => { await ask(question); return answer; };
     assert.equal(await main(['setup'], f.io), 0);
-    assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+    assert.deepEqual(f.questions, ['Background service — runs waiting work while your client is closed. Start it with this machine? [y/N]:']);
     assert.deepEqual(f.ran, f.plan.install);
     assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
     assert.deepEqual(await readRecords(f.destination, fs, f.io.config), {
       codex: { ...f.records.codex, autostart: true },
     });
-    assert.deepEqual(stepLines(f), [...explain(f), 'Autostart installed; okit-plugin uninstall removes it.']);
+    assert.deepEqual(stepLines(f), [...explain(f), 'Automatic start is on. Check it: okit-plugin doctor']);
   });
 }
 
@@ -116,7 +116,7 @@ test('accepted plan uses the node executable from the installation record', asyn
     script: join(record.path, record.bin), command: f.io.config.command,
   });
   assert.equal(await main(['setup'], f.io), 0);
-  assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+  assert.deepEqual(f.questions, ['Background service — runs waiting work while your client is closed. Start it with this machine? [y/N]:']);
   assert.deepEqual(f.ran, expected.install);
   assert.deepEqual(f.written, [{ path: expected.path, content: expected.content }]);
   assert.ok(f.written[0].content.includes(savedNode));
@@ -138,7 +138,7 @@ test('accept preserves each record and changes only autostart for both clients',
     return 'yes';
   };
   assert.equal(await main(['setup'], f.io), 0);
-  assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+  assert.deepEqual(f.questions, ['Background service — runs waiting work while your client is closed. Start it with this machine? [y/N]:']);
   assert.deepEqual(f.ran, f.plan.install);
   assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
   assert.deepEqual(await readRecords(f.destination, fs, f.io.config), {
@@ -151,7 +151,7 @@ for (const platform of ['linux', 'darwin', 'win32']) {
   test(`accept applies the exact ${platform} plan before saving both clients`, async (t) => {
     const f = await world(t, { clients: ['codex', 'claude-code'], platform });
     assert.equal(await main(['setup'], f.io), 0);
-    assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+    assert.deepEqual(f.questions, ['Background service — runs waiting work while your client is closed. Start it with this machine? [y/N]:']);
     // The scheduled task of Windows has no file: the step asks the platform whether the task is there (read-only) first.
     const asked = f.plan.kind === 'schtasks' ? [{ command: 'schtasks', args: ['/Query', '/TN', 'okit-daemon'], timeoutMs: undefined }] : [];
     assert.deepEqual(f.ran, [...asked, ...f.plan.install]);
@@ -159,7 +159,7 @@ for (const platform of ['linux', 'darwin', 'win32']) {
     assert.deepEqual(f.order, [...asked.map(() => 'run'), ...(f.plan.path === null ? [] : ['file']), ...f.plan.install.map(() => 'run'), 'record', 'record']);
     const records = await readRecords(f.destination, fs, f.io.config);
     assert.deepEqual(records, Object.fromEntries(Object.entries(f.records).map(([client, record]) => [client, { ...record, autostart: true }])));
-    assert.deepEqual(stepLines(f), [...explain(f), 'Autostart installed; okit-plugin uninstall removes it.']);
+    assert.deepEqual(stepLines(f), [...explain(f), 'Automatic start is on. Check it: okit-plugin doctor']);
   });
 }
 for (const answer of ['', 'n', undefined, 'throw']) {
@@ -167,12 +167,12 @@ for (const answer of ['', 'n', undefined, 'throw']) {
     const f = await world(t);
     f.io.ask = async (question) => { f.questions.push(question); if (answer === 'throw') throw new Error('closed'); return answer; };
     assert.equal(await main(['setup'], f.io), 0);
-    assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+    assert.deepEqual(f.questions, ['Background service — runs waiting work while your client is closed. Start it with this machine? [y/N]:']);
     assert.deepEqual(f.ran, []);
     assert.deepEqual(f.written, []);
     assert.deepEqual(f.order, []);
     assert.deepEqual(await snapshot(f), f.before);
-    assert.deepEqual(stepLines(f), [...explain(f), 'Autostart not installed; to do it later ask the user to run: okit-plugin setup']);
+    assert.deepEqual(stepLines(f), [...explain(f), 'Automatic start is off. To enable it later: okit-plugin setup']);
   });
 }
 test('--defaults never offers or installs autostart', async (t) => {
@@ -180,7 +180,7 @@ test('--defaults never offers or installs autostart', async (t) => {
   f.io.ask = async () => { assert.fail('asked'); };
   f.io.run = async () => { assert.fail('ran'); };
   assert.equal(await main(['setup', '--defaults'], f.io), 0);
-  assert.equal(f.output.length, 1);
+  assert.equal(f.output.length, 4);
   assert.doesNotMatch(f.output.join('\n'), /autostart/i);
   assert.deepEqual(f.written, []);
   assert.deepEqual(f.order, []);
@@ -192,7 +192,7 @@ test('a machine that has the autostart prints only the information and never ask
   await fs.mkdir(dirname(f.plan.path), { recursive: true });
   await fs.writeFile(f.plan.path, f.plan.content);
   assert.equal(await main(['setup'], f.io), 0);
-  assert.deepEqual(stepLines(f), ['Autostart is already installed.']);
+  assert.deepEqual(stepLines(f), ['Automatic start is on. Check it: okit-plugin doctor']);
   assert.deepEqual(f.questions, []);
   // The step asks the machine whether the service is enabled: it reads, it does not change anything.
   assert.ok(f.ran.every((command) => command.args?.includes('is-enabled')), JSON.stringify(f.ran));
@@ -205,10 +205,10 @@ test('a record that says the autostart is on while the machine does not have it 
   // setup repairs what the doctor found.
   const f = await world(t, { clients: ['codex', 'claude-code'], installed: true });
   assert.equal(await main(['setup'], f.io), 0);
-  assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+  assert.deepEqual(f.questions, ['Background service — runs waiting work while your client is closed. Start it with this machine? [y/N]:']);
   assert.deepEqual(f.ran, f.plan.install);
   assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
-  assert.deepEqual(stepLines(f), [...explain(f), 'Autostart installed; okit-plugin uninstall removes it.']);
+  assert.deepEqual(stepLines(f), [...explain(f), 'Automatic start is on. Check it: okit-plugin doctor']);
 });
 test('without records the step is silent', async (t) => {
   const f = await world(t, { clients: [] });
@@ -228,7 +228,7 @@ for (const failure of ['apply', 'write', 'save']) {
     else if (failure === 'write') f.io.write = async () => { throw new Error('permission denied'); };
     else f.io.fs = { ...fs, writeFile: async () => { throw new Error('permission denied'); } };
     assert.equal(await main(['setup'], f.io), 1);
-    assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+    assert.deepEqual(f.questions, ['Background service — runs waiting work while your client is closed. Start it with this machine? [y/N]:']);
     // A save that fails after the service is installed takes the service back.
     assert.deepEqual(f.ran, failure === 'write' ? [] : failure === 'apply' ? f.plan.install.slice(0, 1)
       : [...f.plan.install, ...f.plan.uninstall]);
@@ -236,8 +236,8 @@ for (const failure of ['apply', 'write', 'save']) {
     assert.deepEqual(await snapshot(f), f.before);
     assert.deepEqual(stepLines(f), explain(f));
     assert.deepEqual(errors, [failure === 'save'
-      ? 'Could not install autostart: the autostart was taken back: permission denied'
-      : 'Could not install autostart: permission denied']);
+      ? 'Automatic start could not be configured.\nthe autostart was taken back: permission denied\nTry again after fixing the cause: okit-plugin setup'
+      : 'Automatic start could not be configured.\npermission denied\nTry again after fixing the cause: okit-plugin setup']);
     assert.doesNotMatch(f.output.join('\n'), /Could not install autostart|permission denied/);
     assert.doesNotMatch(f.output.join('\n'), /\n\s+at |Error:/);
   });
@@ -246,11 +246,10 @@ test('Portuguese explains, asks and confirms entirely in Portuguese', async (t) 
   const f = await world(t);
   f.io.ask = async (question) => { f.questions.push(question); return 'sim'; };
   assert.equal(await main(['setup', '--locale', 'pt-BR'], f.io), 0);
-  assert.deepEqual(f.questions, ['Instalar a inicialização automática? [s/N]']);
+  assert.deepEqual(f.questions, ['Serviço em segundo plano — executa trabalhos em espera enquanto o cliente está fechado. Iniciar com esta máquina? [s/N]:']);
   assert.deepEqual(stepLines(f), [
-    'Iniciar o daemon com esta máquina usando systemd.',
     `A inicialização automática grava: ${f.plan.path}`,
-    'Inicialização automática instalada; okit-plugin uninstall a remove.',
+    'Início automático ligado. Verifique: okit-plugin doctor',
   ]);
   assert.deepEqual(f.ran, f.plan.install);
   assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
@@ -282,7 +281,7 @@ test('the terminal reader stays open through the final step', async (t) => {
   assert.equal(await main(['setup'], f.io), 0);
   assert.deepEqual(f.ran, f.plan.install);
   assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
-  assert.deepEqual(stepLines(f), [...explain(f), 'Autostart installed; okit-plugin uninstall removes it.']);
+  assert.deepEqual(stepLines(f), [...explain(f), 'Automatic start is on. Check it: okit-plugin doctor']);
   assert.equal((await readRecords(f.destination, fs, f.io.config)).codex.autostart, true);
 });
 
@@ -292,7 +291,7 @@ test('mixed autostart flags still offer once and update all records', async (t) 
   await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', first.client)), JSON.stringify({ ...first, autostart: true }));
   f.io.ask = async (question) => { f.questions.push(question); return 's'; };
   assert.equal(await main(['setup'], f.io), 0);
-  assert.deepEqual(f.questions, ['Install autostart? [y/N]']);
+  assert.deepEqual(f.questions, ['Background service — runs waiting work while your client is closed. Start it with this machine? [y/N]:']);
   assert.deepEqual(f.ran, f.plan.install);
   assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
   assert.deepEqual(await readRecords(f.destination, fs, f.io.config),
@@ -313,7 +312,7 @@ test('a record that the save cannot read stops the step before the service is in
   assert.deepEqual(f.written, []);
   assert.deepEqual(await snapshot(f), before);
   assert.equal(errors.length, 1, errors.join('\n'));
-  assert.match(errors[0], /^Could not install autostart: /, errors[0]);
+  assert.match(errors[0], /^Automatic start could not be configured\.\n/, errors[0]);
 });
 
 test('a save that fails after the service is installed takes the service back', async (t) => {
@@ -327,7 +326,7 @@ test('a save that fails after the service is installed takes the service back', 
   assert.deepEqual(f.ran, [...f.plan.install, ...f.plan.uninstall]);
   assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
   assert.equal(errors.length, 1, errors.join('\n'));
-  assert.match(errors[0], /^Could not install autostart: the autostart was taken back: permission denied$/, errors[0]);
+  assert.match(errors[0], /^Automatic start could not be configured\.\nthe autostart was taken back: permission denied\nTry again after fixing the cause: okit-plugin setup$/, errors[0]);
 });
 
 
@@ -370,8 +369,8 @@ for (const [failAt, restoreFails] of [[1, false], [2, false], [2, true]]) {
     assert.deepEqual(actions, ['install', 'uninstall']);
     assert.equal(atUninstall.length, 1);
     assert.deepEqual(atUninstall[0], files);
-    assert.deepEqual(errors, ['Could not install autostart: the autostart was taken back: save denied'
-      + (restoreFails ? `; ${join(destination, 'install.claude-code.json')}: restore denied` : '')]);
+    assert.deepEqual(errors, ['Automatic start could not be configured.\nthe autostart was taken back: save denied'
+      + (restoreFails ? `; ${join(destination, 'install.claude-code.json')}: restore denied` : '') + '\nTry again after fixing the cause: okit-plugin setup']);
   });
 }
 
@@ -475,7 +474,7 @@ test('a stale unit that is there is kept when the save fails', async () => {
   }, kind: 'systemd', service: '[Service]\nExecStart=/other/node daemon start\n' });
   assert.equal(await runRollback(w), 1);
   assert.deepEqual(w.actions, ['install'], w.actions.join(', '));
-  assert.deepEqual(w.errors, ['Could not install autostart: the service that was already installed was kept: save denied']);
+  assert.deepEqual(w.errors, ['Automatic start could not be configured.\nthe service that was already installed was kept: save denied\nTry again after fixing the cause: okit-plugin setup']);
 });
 
 test('the line of ours in the crontab is kept when the save fails', async () => {
@@ -485,7 +484,7 @@ test('the line of ours in the crontab is kept when the save fails', async () => 
   }, kind: 'cron', crontab: '@reboot /usr/bin/node /repo/src/cli.js daemon start # okit-daemon\n' });
   assert.equal(await runRollback(w), 1);
   assert.deepEqual(w.actions, ['query', 'install'], w.actions.join(', '));
-  assert.deepEqual(w.errors, ['Could not install autostart: the service that was already installed was kept: save denied']);
+  assert.deepEqual(w.errors, ['Automatic start could not be configured.\nthe service that was already installed was kept: save denied\nTry again after fixing the cause: okit-plugin setup']);
 });
 
 test('a stale record does not keep a service that was never there', async () => {
@@ -497,7 +496,7 @@ test('a stale record does not keep a service that was never there', async () => 
   } });
   assert.equal(await runRollback(w), 1);
   assert.deepEqual(w.actions, ['install', 'uninstall'], w.actions.join(', '));
-  assert.deepEqual(w.errors, ['Could not install autostart: the autostart was taken back: save denied']);
+  assert.deepEqual(w.errors, ['Automatic start could not be configured.\nthe autostart was taken back: save denied\nTry again after fixing the cause: okit-plugin setup']);
 });
 
 test('a save that fails does not take away a service that was already on the disk', async () => {
@@ -507,7 +506,7 @@ test('a save that fails does not take away a service that was already on the dis
   const before = recordFiles(w.files);
   assert.equal(await runRollback(w), 1);
   assert.deepEqual(w.actions, ['install'], w.actions.join(', '));
-  assert.deepEqual(w.errors, ['Could not install autostart: the service that was already installed was kept: save denied']);
+  assert.deepEqual(w.errors, ['Automatic start could not be configured.\nthe service that was already installed was kept: save denied\nTry again after fixing the cause: okit-plugin setup']);
   assert.deepEqual(recordFiles(w.files), before);
 });
 
@@ -519,7 +518,7 @@ test('a save that fails does not take away a scheduled task that was already the
   assert.equal(await runRollback(w), 1);
   // The platform was asked first, the task was kept: no uninstall ran.
   assert.deepEqual(w.actions, ['query', 'install'], w.actions.join(', '));
-  assert.deepEqual(w.errors, ['Could not install autostart: the service that was already installed was kept: save denied']);
+  assert.deepEqual(w.errors, ['Automatic start could not be configured.\nthe service that was already installed was kept: save denied\nTry again after fixing the cause: okit-plugin setup']);
   assert.deepEqual(recordFiles(w.files), before);
 });
 
@@ -529,7 +528,7 @@ test('a save that fails on a Windows machine without the task takes the task bac
   }, task: 'absent' });
   assert.equal(await runRollback(w), 1);
   assert.deepEqual(w.actions, ['query', 'install', 'uninstall'], w.actions.join(', '));
-  assert.deepEqual(w.errors, ['Could not install autostart: the autostart was taken back: save denied']);
+  assert.deepEqual(w.errors, ['Automatic start could not be configured.\nthe autostart was taken back: save denied\nTry again after fixing the cause: okit-plugin setup']);
 });
 
 test('a crontab without our line is a clean machine: the line is taken back when the save fails', async () => {
@@ -538,7 +537,7 @@ test('a crontab without our line is a clean machine: the line is taken back when
   }, kind: 'cron', crontab: '0 * * * * /usr/bin/other-job\n' });
   assert.equal(await runRollback(w), 1);
   assert.deepEqual(w.actions, ['query', 'install', 'uninstall'], w.actions.join(', '));
-  assert.deepEqual(w.errors, ['Could not install autostart: the autostart was taken back: save denied']);
+  assert.deepEqual(w.errors, ['Automatic start could not be configured.\nthe autostart was taken back: save denied\nTry again after fixing the cause: okit-plugin setup']);
 });
 
 test('a save that fails on a clean machine takes the service back', async () => {
@@ -549,7 +548,7 @@ test('a save that fails on a clean machine takes the service back', async () => 
   assert.equal(await runRollback(w), 1);
   // Nothing was there before: the service that this run installed is taken back.
   assert.deepEqual(w.actions, ['install', 'uninstall'], w.actions.join(', '));
-  assert.deepEqual(w.errors, ['Could not install autostart: the autostart was taken back: save denied']);
+  assert.deepEqual(w.errors, ['Automatic start could not be configured.\nthe autostart was taken back: save denied\nTry again after fixing the cause: okit-plugin setup']);
   assert.deepEqual(recordFiles(w.files), before);
 });
 
@@ -575,7 +574,7 @@ test('all client plans are considered and the matching later client is retained'
   await fs.writeFile(current.path, current.content);
   assert.equal(await main(['setup'], f.io), 0);
   assert.deepEqual(f.questions, []);
-  assert.deepEqual(stepLines(f), ['Autostart is already installed.']);
+  assert.deepEqual(stepLines(f), ['Automatic start is on. Check it: okit-plugin doctor']);
   assert.deepEqual(await snapshot(f), f.before);
   // A missing flag offers the same working plan and updates every covered client without copying link settings.
   const first = f.records['claude-code'];
@@ -628,7 +627,7 @@ for (const locale of ['en', 'pt-BR']) {
         : (locale === 'en' ? 'permission denied' : 'permissão negada');
       assert.ok(errors[0].includes(reason), errors[0]);
       if (locale === 'pt-BR') {
-        assert.match(errors[0], /^Não foi possível instalar a inicialização automática: /);
+        assert.match(errors[0], /^Não foi possível configurar o início automático\.\n/);
         assert.doesNotMatch(errors[0], /permission denied|No installation record found|was kept|taken back/);
       }
     });
@@ -673,10 +672,10 @@ test('an unusable old record does not hide the working first service', async (t)
   { config, locale: 'en', ask: async () => { throw new Error('must not ask'); },
     plan: (record) => { if (!record.settings) throw new TypeError('old record'); return f.plan; } });
   assert.equal(code, exitCodeFor('ok'), errors.join('\n'));
-  assert.deepEqual(lines, ['Autostart is already installed.']);
+  assert.deepEqual(lines, ['Automatic start is on. Check it: okit-plugin doctor']);
   f.clear();
   assert.equal(await main(['setup'], f.io), exitCodeFor('ok'));
-  assert.ok(f.output.includes('Autostart is already installed.'));
+  assert.ok(f.output.includes('Automatic start is on. Check it: okit-plugin doctor'));
 });
 
 test('when no installation can supply an autostart plan, the setup says so and fails', async (t) => {
@@ -686,7 +685,7 @@ test('when no installation can supply an autostart plan, the setup says so and f
     command: f.io.config.command, out: (line) => lines.push(line), err: (line) => errors.push(line) },
   { config: f.io.config, locale: 'en', ask: async () => { throw new Error('must not ask'); }, plan: () => null });
   assert.equal(code, exitCodeFor('operational'));
-  assert.deepEqual(errors, ['Could not install autostart: no installation can supply an autostart plan']);
+  assert.deepEqual(errors, ['Automatic start could not be configured.\nno installation can supply an autostart plan\nTry again after fixing the cause: okit-plugin setup']);
   assert.deepEqual(lines, []);
 });
 
@@ -777,9 +776,9 @@ for (const metadata of ['malformed', 'missing']) {
       f.io.stderr = (line) => errors.push(line);
       f.io.ask = async () => 'yes';
       assert.equal(await main(['setup', '--locale', locale], f.io), exitCodeFor('operational'));
-      const { createPresenter } = await import('../src/install/present.js');
+      const { createPresenter } = await import('../src/cli-present.js');
       const ui = createPresenter({ locale, write: () => {} });
-      assert.deepEqual(errors, [ui.text('autostartFailed', { reason: ui.text('autostartNoPlan') })]);
+      assert.deepEqual(errors, [ui.text('autostartFailed', { command: f.io.config.command, reason: ui.text('autostartNoPlan') })]);
       assert.deepEqual(f.written, []);
       assert.deepEqual(f.ran, []);
       assert.deepEqual(f.order, []);
@@ -849,7 +848,7 @@ for (const binSource of ['record', 'package']) {
       const errors = [];
       f.io.stderr = (line) => errors.push(line);
       assert.equal(await main(['setup'], f.io), exitCodeFor('operational'));
-      assert.deepEqual(errors, ['Could not install autostart: no installation can supply an autostart plan']);
+      assert.deepEqual(errors, ['Automatic start could not be configured.\nno installation can supply an autostart plan\nTry again after fixing the cause: okit-plugin setup']);
       assert.deepEqual(f.written, []);
       assert.deepEqual(f.ran, []);
       const { diagnose } = await import('../src/doctor/diagnose.js');
@@ -977,7 +976,7 @@ test('setup saves the resolved folders of a legacy record whose service is alrea
   await fs.mkdir(dirname(f.plan.path), { recursive: true });
   await fs.writeFile(f.plan.path, f.plan.content);
   assert.equal(await main(['setup'], f.io), exitCodeFor('ok'));
-  assert.deepEqual(stepLines(f), ['Autostart is already installed.']);
+  assert.deepEqual(stepLines(f), ['Automatic start is on. Check it: okit-plugin doctor']);
   const saved = JSON.parse(await fs.readFile(join(f.destination, f.io.config.recordName.replace('{client}', 'codex')), 'utf8'));
   assert.equal(saved.path, f.records.codex.path);
   f.clear();

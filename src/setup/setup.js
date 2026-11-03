@@ -11,6 +11,8 @@ import { paths } from '../store.js';
 import { environmentSnapshot } from '../env/snapshot.js';
 import { redactingStream } from '../install/present.js';
 import { labelsOf } from '../env/quota.js';
+import { askNumberedModel, catalogFallback, clientLabel, presentModelChoices, setupIntroduction } from '../cli-present.js';
+export { setupResultLines } from '../cli-present.js';
 
 /**
  * Whether the input already ended: a reader opened on it would wait for an
@@ -42,6 +44,7 @@ export function setupReader({ stdin = process.stdin, output = process.stdout } =
         reader.prompt();
       }
       const answer = await lines.next();
+      if (!stdin?.isTTY) output.write('\n');
       return answer.done ? undefined : answer.value;
     },
     close: () => reader.close(),
@@ -52,16 +55,16 @@ export function setupReader({ stdin = process.stdin, output = process.stdout } =
 // offer at the end of an installation and the command line all say the same
 // thing, in the two languages, without ids and without jargon.
 export const CONFIG_UNREADABLE = Object.freeze({
-  en: 'Could not check the configuration: the file is not readable. Ask your assistant to call `config_get` to see the settings.',
-  'pt-BR': 'Não foi possível verificar a configuração: o arquivo não está legível. Peça ao seu assistente para chamar `config_get` e ver os ajustes.',
+  en: 'Settings could not be read. Inspect them: MCP config_get {}',
+  'pt-BR': 'Não foi possível ler os ajustes. Confira: MCP config_get {}',
 });
 
 // The one sentence for a configuration that could not be saved: the folder
 // that holds it refused the write. It names that folder and the command to
 // run again, and never the technical text of the system.
 export const CONFIG_NOT_SAVED = Object.freeze({
-  en: 'Could not save the configuration: check the permissions of the folder `{path}` and run `{command} setup` again.',
-  'pt-BR': 'Não foi possível salvar a configuração: verifique as permissões da pasta `{path}` e rode `{command} setup` de novo.',
+  en: 'Choices could not be saved. Check write permission for the settings folder, then run: {command} setup\n{path}',
+  'pt-BR': 'Não foi possível salvar as escolhas. Confira a permissão de gravação da pasta de ajustes e rode: {command} setup\n{path}',
 });
 
 /**
@@ -473,8 +476,11 @@ function negative(value) {
   return /^(n|no|nao|não)$/i.test(value);
 }
 
-async function askModel({ ask, locale, client, className, proposal, candidates, attempts }) {
+async function askModel({ ask, locale, client, className, proposal, candidates, attempts, out }) {
   const recommended = candidates[0];
+  if (out) {
+    return askNumberedModel({ ask: (question) => askValue(ask, question), locale, client, className, candidates, attempts, out });
+  }
   const values = {
     client,
     class: className,
@@ -492,15 +498,19 @@ async function askModel({ ask, locale, client, className, proposal, candidates, 
     const clean = String(answer).trim();
     const selected = clean === '' ? recommended : clean;
     if (candidates.includes(selected)) return { value: selected };
-    question = `${format('invalid', locale)} ${question}`;
+    question = `${format('invalid', locale)} ${languages.map((language) => format('question', language,
+      { ...values, purpose: format(className, language) })).join(' / ')}`;
   }
   return { invalid: true };
 }
 
-async function confirmSetup({ ask, locale, attempts, changes, ui }) {
+async function confirmSetup({ ask, locale, attempts, changes, ui, out, command }) {
   // With a presenter the reason is said once, the choices are listed, and the question comes last.
   let question = ui ? ui.question(ui.text('modelsSave')) : formatConfirmation(locale, changes);
-  if (ui) {
+  if (out) {
+    question = presentModelChoices({ locale, changes, command, out });
+  }
+  if (ui && !out) {
     const reasons = [...new Set(changes.map((change) => reasonParts(change.reason)[ui.locale] || reasonParts(change.reason).en).filter(Boolean))];
     ui.explain([...reasons, ui.text('modelsPlan'), ...changes.map((change) => `  ${change.client} (${change.class}): ${change.model}`)]);
   }
@@ -510,8 +520,9 @@ async function confirmSetup({ ask, locale, attempts, changes, ui }) {
     const clean = String(answer).trim();
     if (clean === '' || negative(clean)) return { cancelled: true };
     if (affirmative(clean)) return { confirmed: true };
-    if (ui) ui.explain([format('invalidConfirmation', locale)]);
-    else question = `${format('invalidConfirmation', locale)} ${question}`;
+    if (out) out(format('invalidConfirmation', locale));
+    else if (ui) ui.explain([format('invalidConfirmation', locale)]);
+    else question = `${format('invalidConfirmation', locale)} ${formatConfirmation(locale, changes)}`;
   }
   return { invalid: true };
 }
@@ -615,10 +626,12 @@ export async function runSetup({
   again = false,
   command = DEFAULT_CONFIG.install.command,
   ui,
+  out,
 } = {}) {
   if (!root) throw new TypeError('root is required');
   // With a presenter (the installer) the language is the presenter's and the plan is shown once, at the question.
   if (ui) locale = ui.locale;
+  if (ui?.humanOutput && !out) out = (line) => ui.explain([line]);
   if (!defaults && typeof ask !== 'function') {
     // Asked for something impossible in this mode (an interactive setup with no reader): usage (2), not a failure of
     // the environment; the command always hands a reader, so only a caller of runSetup can reach it.
@@ -671,7 +684,21 @@ export async function runSetup({
   const skipped = [];
   const omitted = [];
   const messages = [];
+  // The lines the human view cannot derive from the result: how to choose an omitted model and how to turn on the quota.
+  const guidance = [];
   const done = wasDone(stored);
+
+  if (out) {
+    const names = configurableClients(detected).map((client) => clientLabel(client.client)).join(', ');
+    const pending = again || !done;
+    if (pending && !defaults) out(setupIntroduction(locale, names));
+    const fallbackClients = configurableClients(detected).filter((client) => client.source === 'catalog');
+    for (const client of fallbackClients) {
+      if (!pending || client.source !== 'catalog') continue;
+      const reason = catalogFallback(locale);
+      out(`${fallbackClients.length > 1 ? `${clientLabel(client.client)}: ` : ''}${reason}`);
+    }
+  }
 
   for (const clientProposal of proposals.clients) {
     const detectedClient = clients.get(clientProposal.client);
@@ -701,7 +728,7 @@ export async function runSetup({
         previous: profileValue(resolved.profiles, clientProposal.client, className),
         reason: proposal.reason,
       });
-      if (!ui) {
+      if (!ui && !out) {
         messages.push(formatWithReason('plan', locale, {
           client: clientProposal.client,
           class: className,
@@ -720,14 +747,16 @@ export async function runSetup({
       if (proposal.source !== 'omitted') continue;
       if (defaults || candidates.length === 0) {
         omitted.push({ client: clientProposal.client, class: className });
-        messages.push(format('omitted', locale, {
+        const advice = format('omitted', locale, {
           client: clientProposal.client, class: className, classe: className,
-        }));
+        });
+        messages.push(advice);
+        guidance.push(advice);
         continue;
       }
       const answer = await askModel({
         ask, locale, client: clientProposal.client, className,
-        proposal, candidates, attempts,
+        proposal, candidates, attempts, out,
       });
       if (answer.cancelled) {
         return { code: 0, cancelled: true, changes: [], skipped, omitted, messages: [format('cancelled', locale)] };
@@ -756,11 +785,11 @@ export async function runSetup({
 
   if (done && !again && changes.length === 0) {
     messages.push(format('unchanged', locale));
-    return { code: 0, cancelled: false, changes, skipped, omitted, messages };
+    return { code: 0, cancelled: false, changes, skipped, omitted, messages, guidance };
   }
 
   if (!defaults) {
-    const confirmation = await confirmSetup({ ask, locale, attempts, changes, ui });
+    const confirmation = await confirmSetup({ ask, locale, attempts, changes, ui, out, command });
     if (confirmation.cancelled) {
       return { code: 0, cancelled: true, changes: [], skipped, omitted, messages: [format('cancelled', locale)] };
     }
@@ -775,12 +804,16 @@ export async function runSetup({
     }), 'usage');
   }
   const savedChanges = saved.applied;
+  // `--defaults` skips the confirmation, so the table that names every saved model and work class is shown once it is saved.
+  if (defaults && out && !ui && savedChanges.length) presentModelChoices({ locale, changes: savedChanges, command, out });
   const kept = saved.kept;
   const names = [...new Set(savedChanges.map((change) => change.client))];
   for (const client of new Set([...names, ...skipped.map((change) => change.client)])) {
     if (observation.clients.find((row) => row.client === client)?.quota.status !== 'off') continue;
     const locales = locale === 'both' ? ['en', 'pt-BR'] : [locale];
-    messages.push(locales.map((language) => labelsOf(language).noQuotaAsk(client)).join(' / '));
+    const advice = locales.map((language) => labelsOf(language).noQuotaAsk(client)).join(' / ');
+    messages.push(advice);
+    guidance.push(advice);
   }
   if (savedChanges.length > 0) {
     // The presenter's Models row says what was saved.
@@ -791,5 +824,5 @@ export async function runSetup({
   if (kept.length > 0) {
     messages.push(format('kept', locale, { classes: kept.map(classLabel).join(', ') }));
   }
-  return { code: 0, cancelled: false, changes: savedChanges, kept, skipped, omitted, messages };
+  return { code: 0, cancelled: false, changes: savedChanges, kept, skipped, omitted, messages, guidance };
 }

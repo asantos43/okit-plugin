@@ -161,7 +161,17 @@ for (const locale of LOCALES) {
 // A dry run shows the plan of the real run: the same numbered steps with the same labels.
 
 /** `1/5 Download and verify`, for every step line, whatever its status or detail. */
-const stepsOf = (lines) => lines.map((line) => /^\[(\d+\/\d+)\] (.*?)\s{2,}\S/.exec(line)).filter(Boolean).map((match) => `${match[1]} ${match[2]}`);
+const stepsOf = (lines) => {
+  const found = lines.map((line) => {
+    const legacy = /^\[(\d+)\/(\d+)\] (.*?)\s{2,}\S/.exec(line);
+    if (legacy) return [Number(legacy[1]), legacy[3], Number(legacy[2])];
+    const numbered = /^(\d+)\. (.*?): /.exec(line);
+    if (!numbered) return null;
+    const label = numbered[2].replace(/^Connect /, 'Register in ').replace(/^Conectar /, 'Registrar no ');
+    return [Number(numbered[1]), label];
+  }).filter(Boolean);
+  return found.map(([index, label, total]) => `${index}/${total ?? found.length} ${label}`);
+};
 
 for (const locale of LOCALES) {
   for (const platform of ['linux', 'win32']) {

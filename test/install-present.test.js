@@ -2,10 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { main } from '../src/cli.js';
-import { createPresenter, finishLink, headerValues, pick, redact, redactingWriter, REASONS, TEXTS, localizeReason } from '../src/install/present.js';
+import { shown } from '../src/install/mcp-register.js';
+import { createPresenter, createInstallerView, finishLink, headerValues, pick, redact, redactingWriter, REASONS, TEXTS, localizeReason } from '../src/cli-present.js';
 import { EXCLUSIVE_FLAGS, ALLOWED_FLAGS } from '../src/install/index.js';
+import { presentDiagnosis } from '../src/doctor/command.js';
+import { formatNotSaved, formatUnreadable, runSetup, setupResultLines } from '../src/setup/setup.js';
 
 // Must pass / must refuse:
 // | case | must pass | must refuse |
@@ -23,13 +27,213 @@ import { EXCLUSIVE_FLAGS, ALLOWED_FLAGS } from '../src/install/index.js';
 // | a reason raised by src/cli.js and shown by the installer | pt-BR text | English inside a pt-BR run |
 // | a --locale that is not a language | one language: valid --locale, else OKIT_LANGUAGE, else English | both languages in one line |
 
-import { fixture, SYSTEM, FORMAT } from './helpers/install-fixture.js';
+import { commandsOnPath, fixture, SYSTEM, FORMAT } from './helpers/install-fixture.js';
 
 const LABEL = { linux: 'Linux', darwin: 'macOS', win32: 'Windows' };
 const PLATFORMS = ['linux', 'darwin', 'win32'];
 const LOCALES = ['en', 'pt-BR'];
 
 const HINT = (bin) => `$env:Path = '${bin}' + ';' + $env:Path`;
+
+for (const locale of LOCALES) test(`client matrix has no owner after a partial install: ${locale}`, async (t) => {
+  const f = await fixture(t);
+  const fetch = f.io.fetch;
+  f.io.detect = async () => true;
+  f.io.fetch = async (url, options) => {
+    if (url.endsWith('/package/codex')) throw new Error('fake package failure');
+    return fetch(url, options);
+  };
+  assert.equal(await main(['install', '--client', 'all', '--locale', locale], f.io), 1);
+  const text = f.output.join('\n');
+  const matrix = f.output.filter((line) => /^\s*(Claude Code|Codex|OpenCode)\s+(ok|failed|falhou)$/.test(line));
+  assert.equal(matrix.length, 3, text);
+  assert.ok(matrix.some((line) => new RegExp(`^\\s*Codex\\s+${locale === 'en' ? 'failed' : 'falhou'}$`).test(line)), text);
+  assert.doesNotMatch(text, /^(Claude Code|Codex|OpenCode) — (Claude Code|Codex|OpenCode)\s+(ok|failed|falhou)$/m);
+  assert.doesNotMatch(text, /^(Claude Code|Codex|OpenCode) — .*Kit \((optional|opcional)\)/m);
+  assert.ok(matrix.some((line) => /^\s*OpenCode\s/.test(line)), text);
+});
+
+for (const locale of LOCALES) test(`client scope ends before shared PATH notes: ${locale}`, () => {
+  const output = [];
+  const { ui, finish } = createInstallerView({ operation: 'install', command: 'okit-plugin', locale, write: (line) => output.push(line) });
+  ui.header({ client: 'Claude Code', version: '1' });
+  ui.sequence(['register'], { client: 'Claude Code' })('register').plan();
+  ui.row(ui.text('selfcheckPath'), 'info', 'client-path');
+  ui.header({ client: 'Opencode', version: '1' });
+  ui.sequence(['register'], { client: 'OpenCode' })('register').plan();
+  ui.row(ui.text('selfcheckPath'), 'info', 'other-client-path');
+  ui.endClients();
+  ui.row(ui.text('selfcheckPath'), 'info', 'shared-path');
+  finish({ code: 0, client: 'all', dryRun: true });
+  const text = output.join('\n'), connect = locale === 'en' ? 'Connect' : 'Conectar';
+  const planned = locale === 'en' ? 'planned' : 'planejado';
+  assert.match(text, new RegExp(`^1\\. Claude Code — ${connect} Claude Code: ${planned}$`, 'm'));
+  assert.match(text, new RegExp(`^2\\. OpenCode — ${connect} OpenCode: ${planned}$`, 'm'));
+  assert.doesNotMatch(text, /Opencode|:\s*$/m);
+  assert.ok(output.some((line) => line.startsWith('Claude Code — ') && line.endsWith(' client-path')), text);
+  assert.ok(output.some((line) => line.startsWith('OpenCode — ') && line.endsWith(' other-client-path')), text);
+  assert.ok(output.some((line) => /^\s/.test(line) && line.endsWith(' shared-path')), text);
+  assert.doesNotMatch(text, /^(Claude Code|OpenCode) — .* shared-path$/m);
+});
+
+// D112 machine baseline captured from unchanged code before presentation edits.
+// | case | must pass | must refuse |
+// | --json, all five commands, both locales | byte-identical refusal and exit 2 | a new flag or JSON schema |
+test('D112 --json bytes and exits match the pre-change capture', async (t) => {
+  for (const locale of LOCALES) for (const command of ['setup', 'doctor', 'install', 'update', 'uninstall']) {
+    const f = await fixture(t);
+    assert.equal(await main([command, '--json', '--locale', locale], f.io), 2);
+    assert.equal(f.output.join('\n') + '\n', locale === 'en'
+      ? 'Refused: Unknown flag: --json\n      Next: check the options and try again\n'
+      : 'Recusado: Opção desconhecida: --json\n      O que fazer: confira as opções e tente de novo\n');
+  }
+});
+
+for (const locale of LOCALES) test(`D112 service and settings error goldens: ${locale}`, () => {
+  const pt = locale === 'pt-BR', text = (key, values = {}) => Object.entries(values).reduce((value, [key, replacement]) => value.replaceAll(`{${key}}`, replacement), TEXTS[key][locale]);
+  assert.equal(text('autostartAsk'), pt
+    ? 'Serviço em segundo plano — executa trabalhos em espera enquanto o cliente está fechado. Iniciar com esta máquina? [s/N]:'
+    : 'Background service — runs waiting work while your client is closed. Start it with this machine? [y/N]:');
+  assert.equal(text('autostartLater', { command: 'okit-plugin' }), pt ? 'Início automático desligado. Para ativar depois: okit-plugin setup' : 'Automatic start is off. To enable it later: okit-plugin setup');
+  assert.equal(text('autostartInstalled', { command: 'okit-plugin' }), pt ? 'Início automático ligado. Verifique: okit-plugin doctor' : 'Automatic start is on. Check it: okit-plugin doctor');
+  assert.equal(text('autostartFailed', { command: 'okit-plugin', reason: 'EACCES' }), pt
+    ? 'Não foi possível configurar o início automático.\nEACCES\nTente de novo após corrigir a causa: okit-plugin setup'
+    : 'Automatic start could not be configured.\nEACCES\nTry again after fixing the cause: okit-plugin setup');
+  assert.equal(formatUnreadable(locale), pt ? 'Não foi possível ler os ajustes. Confira: MCP config_get {}' : 'Settings could not be read. Inspect them: MCP config_get {}');
+  assert.equal(formatNotSaved(locale, '<settings>', 'okit-plugin'), pt
+    ? 'Não foi possível salvar as escolhas. Confira a permissão de gravação da pasta de ajustes e rode: okit-plugin setup\n<settings>'
+    : 'Choices could not be saved. Check write permission for the settings folder, then run: okit-plugin setup\n<settings>');
+  assert.deepEqual(setupResultLines({ changes: [], skipped: [], kept: [{}] }, locale, 'okit-plugin'),
+    [pt ? 'As escolhas mais novas foram mantidas. Confira: MCP config_get {}' : 'Newer choices were kept. Check them: MCP config_get {}']);
+});
+
+for (const locale of LOCALES) test(`D112 installer absent-client, download, current and shared goldens: ${locale}`, () => {
+  const pt = locale === 'pt-BR';
+  const render = (operation, observe, result) => {
+    const output = [], view = createInstallerView({ operation, command: 'okit-plugin', locale, write: (line) => output.push(line) });
+    observe(view.ui); view.finish(result);
+    return output;
+  };
+  const header = (ui) => ui.header({ client: 'Codex', version: '0.3.0' });
+  assert.deepEqual(render('install', (ui) => ui.failure({ step: ui.text('get'), reason: 'permission denied' }), { code: 1, client: 'codex' }), pt
+    ? ['okit-plugin — Instalação', 'Não foi possível baixar a versão. Nada foi instalado.', 'permissão negada', 'Confira sua conexão e tente: okit-plugin install --client codex']
+    : ['okit-plugin — Install', 'The release could not be downloaded. Nothing was installed.', 'permission denied', 'Check your connection, then retry: okit-plugin install --client codex']);
+  assert.deepEqual(render('update', (ui) => { header(ui); ui.row(ui.text('upToDate'), 'ok', '0.3.0'); }, { code: 0, client: 'codex' }), pt
+    ? ['okit-plugin — Atualização', 'Codex está em dia. Nada mudou.', 'Verifique a instalação: okit-plugin doctor --client codex', '      Em dia                      ok       0.3.0']
+    : ['okit-plugin — Update', 'Codex is up to date. Nothing changed.', 'Check the installation: okit-plugin doctor --client codex', '      Up to date                  ok       0.3.0']);
+  assert.deepEqual(render('uninstall', header, { code: 0, client: 'codex', after: { 'claude-code': { link: true } } }), pt
+    ? ['okit-plugin — Desinstalação', 'Integração do Codex removida. O comando foi mantido para Claude Code.', 'Verifique a instalação restante: okit-plugin doctor --client claude-code']
+    : ['okit-plugin — Uninstall', 'Removed Codex integration. The command is kept for Claude Code.', 'Check the remaining installation: okit-plugin doctor --client claude-code']);
+  assert.deepEqual(render('install', header, { code: 0, client: 'codex', dryRun: true }), pt
+    ? ['okit-plugin — Instalação', 'Somente prévia. Nada mudou.', 'Para aplicar: okit-plugin install --client codex']
+    : ['okit-plugin — Install', 'Preview only. Nothing changed.', 'Apply: okit-plugin install --client codex']);
+  const menu = render('install', (ui) => {
+    ui.explain([ui.text('clientChoose'), ...['claude-code', 'codex', 'opencode'].map((id, index) => `  ${index + 1}. ${id} (${ui.text('clientDetected')})`)]);
+    ui.failure({ reason: ui.text('clientNoTty') });
+  }, { code: 2 });
+  assert.deepEqual(menu, pt ? ['okit-plugin — Instalação', 'Escolha um cliente de programação antes de instalar.',
+    '1. Claude Code (encontrado)', '2. Codex (encontrado)', '3. OpenCode (encontrado)',
+    'Instale para Claude Code: okit-plugin install --client claude-code', 'Instale para Codex: okit-plugin install --client codex', 'Instale para OpenCode: okit-plugin install --client opencode']
+    : ['okit-plugin — Install', 'Choose a coding client before installing.', '1. Claude Code (found)', '2. Codex (found)', '3. OpenCode (found)',
+      'Install for Claude Code: okit-plugin install --client claude-code', 'Install for Codex: okit-plugin install --client codex', 'Install for OpenCode: okit-plugin install --client opencode']);
+});
+
+for (const locale of LOCALES) test(`D112 invalid answers never accumulate prefixes and fallback appears once: ${locale}`, async (t) => {
+  const f = await fixture(t), output = [], questions = [], pt = locale === 'pt-BR';
+  let answers = ['bad answer', 'bad answer', '1', '1', '1', 'yes'];
+  const result = await runSetup({ root: f.root, env: f.io.env, locale, out: (line) => output.push(line),
+    config: { setup: { maxAttempts: 3 } }, adapters: [{ CLIENT: 'codex', listModels: async () => ({ client: 'codex', installed: true, models: ['sol', 'astra'], source: 'listing' }) }],
+    ask: async (question) => { questions.push(question); return answers.shift(); } });
+  assert.equal(result.code, 0);
+  assert.deepEqual(questions.slice(0, 3), Array(3).fill(pt ? 'Escolha um modelo [1]:' : 'Choose a model [1]:'));
+  assert.deepEqual(output.filter((line) => /^Choose 1|^Escolha 1/.test(line)), Array(2).fill(pt ? 'Escolha 1 ou 2.' : 'Choose 1 or 2.'));
+  assert.ok(!output.join('\n').includes('bad answer'));
+  output.length = 0;
+  await runSetup({ root: f.root, env: f.io.env, locale, defaults: true, again: true, out: (line) => output.push(line),
+    adapters: [{ CLIENT: 'codex', listModels: async () => ({ client: 'codex', installed: true, models: ['sol', 'astra'], source: 'catalog' }) }] });
+  assert.equal(output.filter((line) => line === (pt ? 'Não foi possível ler a lista de modelos; estas opções vêm da lista incluída no plugin.' : 'The model list could not be read; these choices come from the built-in list.')).length, 1);
+});
+
+for (const locale of LOCALES) test(`D112 absent update/uninstall preserve exit 2: ${locale}`, async (t) => {
+  for (const command of ['update', 'uninstall']) {
+    const f = await fixture(t), pt = locale === 'pt-BR';
+    // The command and Node are on the PATH, so the commands are named by their short name; no client is guessed.
+    const commands = join(f.home, 'commands');
+    await fs.mkdir(commands);
+    for (const name of ['okit-plugin', 'node']) await fs.writeFile(join(commands, name), '#!/bin/sh\n', { mode: 0o755 });
+    f.io.env = { ...f.io.env, PATH: [commands, f.io.env.PATH].join(delimiter) };
+    assert.equal(await main([command, '--locale', locale], f.io), 2);
+    assert.deepEqual(f.output, pt ? [`okit-plugin — ${command === 'update' ? 'Atualização' : 'Desinstalação'}`,
+      `Nenhuma instalação do plugin encontrada. Nada foi ${command === 'update' ? 'atualizado' : 'removido'}.`,
+      command === 'update' ? 'Instale primeiro: okit-plugin install' : 'Confira o estado local: okit-plugin doctor']
+      : [`okit-plugin — ${command === 'update' ? 'Update' : 'Uninstall'}`, `No plugin installation was found. Nothing was ${command === 'update' ? 'updated' : 'removed'}.`,
+        command === 'update' ? 'Install first: okit-plugin install' : 'Check the local state: okit-plugin doctor']);
+  }
+});
+
+for (const locale of LOCALES) test(`D112 setup first run, ready and cancelled: ${locale}`, async (t) => {
+  const f = await fixture(t), pt = locale === 'pt-BR';
+  await commandsOnPath(f);
+  f.io.setupAdapters = [{ CLIENT: 'codex', listModels: async () => ({ client: 'codex', installed: true, models: ['sol', 'astra'], source: 'listing' }) }];
+  let answers = ['1', '1', '2', 'yes'];
+  f.io.ask = async (question) => { f.output.push(question); return answers.shift(); };
+  assert.equal(await main(['setup', '--locale', locale], f.io), 0);
+  const work = pt ? ['Tarefas pequenas', 'Tarefas do dia a dia', 'Tarefas complexas'] : ['Small tasks', 'Everyday tasks', 'Complex tasks'];
+  const expected = [pt ? 'okit-plugin — Configuração' : 'okit-plugin — Setup',
+    pt ? 'Escolha modelos para Codex; nada é salvo até sua confirmação.' : 'Choose models for Codex; nothing is saved until you confirm.'];
+  for (const name of work) expected.push(`\n${name} — Codex`, pt ? '1. sol (recomendado)' : '1. sol (recommended)', '2. astra', pt ? 'Escolha um modelo [1]:' : 'Choose a model [1]:');
+  expected.push(pt ? '\nEscolhas de modelos' : '\nModel choices', pt ? '| Trabalho | Modelo |' : '| Work | Model |', '| --- | --- |',
+    ...work.map((name, index) => `| ${name} | ${index === 2 ? 'astra' : 'sol'} |`),
+    pt ? '\nAs escolhas valem para trabalhos futuros. Para alterá-las: okit-plugin setup --again' : '\nThese choices apply to future work. You can change them with: okit-plugin setup --again',
+    pt ? 'Salvar estas escolhas? [s/N]:' : 'Save these choices? [y/N]:',
+    pt ? '3 escolhas de modelos salvas para Codex.' : 'Saved 3 model choices for Codex.',
+    pt ? 'Nenhum valor de cota registrado. Peça ao seu assistente para chamar `quota_set` com o cliente "codex" e a porcentagem que resta.'
+      : 'No quota value recorded. Ask your assistant to call `quota_set` with the client "codex" and the percentage that is left.',
+    pt ? 'Próximo: okit-plugin doctor --client codex' : 'Next: okit-plugin doctor --client codex');
+  assert.deepEqual(f.output, expected);
+  f.clear();
+  assert.equal(await main(['setup', '--locale', locale], f.io), 0);
+  assert.deepEqual(f.output, [expected[0],
+    pt ? 'Todas as escolhas de modelos já estão salvas. Nada mudou.' : 'All model choices are already saved. Nothing changed.',
+    pt ? 'Verifique a instalação: okit-plugin doctor --client codex' : 'Check the installation: okit-plugin doctor --client codex',
+    pt ? 'Altere os modelos: okit-plugin setup --again' : 'Change models: okit-plugin setup --again']);
+  f.clear(); answers = [undefined];
+  assert.equal(await main(['setup', '--again', '--locale', locale], f.io), 0);
+  assert.deepEqual(f.output.slice(-2), pt ? ['Cancelado. Nada foi salvo.', 'Tente novamente quando quiser: okit-plugin setup']
+    : ['Cancelled. Nothing was saved.', 'Try again when ready: okit-plugin setup']);
+});
+
+for (const locale of LOCALES) test(`D112 setup nothing detected: ${locale}`, async (t) => {
+  const f = await fixture(t), pt = locale === 'pt-BR';
+  await commandsOnPath(f);
+  f.io.setupAdapters = [{ CLIENT: 'codex', listModels: async () => ({ client: 'codex', installed: false, models: [], source: 'listing' }) }];
+  assert.equal(await main(['setup', '--defaults', '--locale', locale], f.io), 0);
+  assert.deepEqual(f.output, pt ? ['okit-plugin — Configuração', 'Nenhum cliente com modelo ativo foi encontrado. Nada foi salvo.',
+    'Instale ou ative um modelo no seu cliente de programação e rode: okit-plugin setup', 'Confira os clientes disponíveis: MCP env_report {"locale":"pt-BR"}']
+    : ['okit-plugin — Setup', 'No client with an active model was found. Nothing was saved.',
+      'Install or enable a model in your coding client, then run: okit-plugin setup', 'Check which clients are available: MCP env_report {"locale":"en"}']);
+});
+
+for (const locale of LOCALES) test(`D112 doctor ready and failed goldens: ${locale}`, () => {
+  const pt = locale === 'pt-BR', output = [];
+  const ui = createPresenter({ locale, write: (line) => output.push(line) });
+  const rows = pt ? [['Instalação', 'Pronta para Codex'], ['Modelos', '3 escolhas salvas'], ['Serviço em segundo plano', 'Ativo']]
+    : [['Installation', 'Ready for Codex'], ['Models', '3 choices saved'], ['Background service', 'Running']];
+  presentDiagnosis({ rows: rows.map(([label, detail]) => ({ label, detail, status: 'ok' })), failed: 0, warnings: 0 },
+    { ui, command: 'okit-plugin', client: 'codex', out: (line) => output.push(line) });
+  assert.deepEqual(output, [pt ? 'okit-plugin — Verificação da instalação' : 'okit-plugin — Installation check',
+    pt ? 'Pronto. As 3 verificações passaram.' : 'Ready. All 3 checks passed.',
+    pt ? '| Verificação | Resultado |' : '| Check | Result |', '| --- | --- |', ...rows.map(([label, detail]) => `| ${label} | ${detail} |`),
+    pt ? 'Verifique novamente quando precisar: okit-plugin doctor --client codex' : 'Check again when needed: okit-plugin doctor --client codex']);
+  output.length = 0;
+  const fix = pt ? 'registre o plugin no Codex: okit-plugin install --client codex' : 'register the plugin in Codex: okit-plugin install --client codex';
+  presentDiagnosis({ rows: [{ label: pt ? 'Conexão com Codex' : 'Codex connection', detail: pt ? 'Sem registro' : 'Not registered', status: 'failed', fix }], failed: 1, warnings: 0 },
+    { ui, command: 'okit-plugin', client: 'codex', out: (line) => output.push(line) });
+  assert.deepEqual(output, [pt ? 'okit-plugin — Verificação da instalação' : 'okit-plugin — Installation check',
+    pt ? 'Precisa de atenção: 1 verificação falhou; as demais passaram.' : 'Needs attention: 1 failed check; other checks passed.',
+    pt ? '| Verificação | Resultado |' : '| Check | Result |', '| --- | --- |', pt ? '| Conexão com Codex | Sem registro |' : '| Codex connection | Not registered |',
+    `${pt ? 'Correção' : 'Fix'}: ${fix}`, pt ? 'Depois confira: okit-plugin doctor --client codex' : 'Then check: okit-plugin doctor --client codex']);
+});
 
 test('a foreign .cmd fails install with an actionable link error in either language', async (t) => {
   for (const locale of LOCALES) {
@@ -44,8 +248,8 @@ test('a foreign .cmd fails install with an actionable link error in either langu
       const text = f.output.join('\n');
       assert.doesNotMatch(text, /(?:Command and PATH|Comando e PATH)\s+ok\b/);
       assert.match(text, locale === 'en'
-        ? /Command and PATH\s+failed\s+The existing command .* is not the plugin command\. Rename or remove it/
-        : /Comando e PATH\s+falhou\s+O comando existente .* não é o comando do plugin\. Renomeie ou remova/);
+        ? /Failed at Command and PATH: The existing command .* is not the plugin command\. Rename or remove it/
+        : /Falhou em Comando e PATH: O comando existente .* não é o comando do plugin\. Renomeie ou remova/);
       assert.match(text, /install\.linkDirectory/);
       assert.doesNotMatch(text, /Done\. Next:|Pronto\. Próximo:/);
     }
@@ -53,7 +257,7 @@ test('a foreign .cmd fails install with an actionable link error in either langu
 });
 
 /** The install of Claude Code as the installer prints it. */
-function installLines(locale, platform) {
+function legacyInstallLines(locale, platform) {
   const windows = platform === 'win32';
   // the checks that ran: version, the command in each shell found, the written status bar and its reading, the hook (not on Windows), the MCP server and its control API
   const checks = windows ? 7 : 9;
@@ -96,7 +300,7 @@ function installLines(locale, platform) {
 }
 
 /** The update to 2.0.0; the backup line carries a folder, so it is matched, not spelled. */
-function updateLines(locale, platform) {
+function legacyUpdateLines(locale, platform) {
   const windows = platform === 'win32';
   // the checks that ran: version, the command in each shell found, the written status bar and its reading, the hook (not on Windows), the MCP server and its control API
   const checks = windows ? 7 : 9;
@@ -141,7 +345,7 @@ function updateLines(locale, platform) {
   ];
 }
 
-function uninstallLines(locale, platform) {
+function legacyUninstallLines(locale, platform) {
   const system = LABEL[platform];
   if (locale === 'en') {
     return [
@@ -161,6 +365,68 @@ function uninstallLines(locale, platform) {
   ];
 }
 
+function installLines(locale, platform) {
+  const path = platform === 'win32' ? (locale === 'en' ? 'added to your user PATH' : 'adicionado ao PATH do seu usuário')
+    : (locale === 'en' ? 'already on your PATH' : 'já está no seu PATH');
+  return locale === 'en' ? ['okit-plugin — Install',
+    'Installed for Claude Code. Model choices still need confirmation.',
+    '1. Download and verify: complete', '2. Install files: complete', '3. Connect Claude Code: complete',
+    `4. Command and PATH: complete — okit-plugin  (${path})`,
+    '5. Quota recording: off. To turn it on: okit-plugin install --client claude-code --statusline',
+    'Next: okit-plugin setup', 'Check the installation: okit-plugin doctor --client claude-code']
+    : ['okit-plugin — Instalação', 'Instalado para Claude Code. Falta confirmar os modelos.',
+      '1. Baixar e verificar: concluído', '2. Instalar arquivos: concluído', '3. Conectar Claude Code: concluído',
+      `4. Comando e PATH: concluído — okit-plugin  (${path})`,
+      '5. Registro de cota: desligado. Para ligar: okit-plugin install --client claude-code --statusline',
+      'Próximo: okit-plugin setup', 'Verifique a instalação: okit-plugin doctor --client claude-code'];
+}
+
+function updateLines(locale, platform) {
+  const path = platform === 'win32' ? (locale === 'en' ? 'added to your user PATH' : 'adicionado ao PATH do seu usuário')
+    : (locale === 'en' ? 'already on your PATH' : 'já está no seu PATH');
+  return locale === 'en' ? ['okit-plugin — Update', 'Updated Claude Code from 1.0.0 to 2.0.0.',
+    '1. Download and verify: complete', '2. Back up your files: complete — <data>/backups/1700000000000',
+    '3. Install files: complete', '4. Connect Claude Code: complete',
+    `5. Command and PATH: complete — okit-plugin  (${path})`,
+    '6. Quota recording: off. To turn it on: okit-plugin install --client claude-code --statusline', '7. Check the install: complete',
+    'Next: restart Claude Code, then run: okit-plugin doctor --client claude-code',
+    'Return to the retained version: okit-plugin update --rollback']
+    : ['okit-plugin — Atualização', 'Claude Code atualizado de 1.0.0 para 2.0.0.',
+      '1. Baixar e verificar: concluído', '2. Copiar seus arquivos: concluído — <data>/backups/1700000000000',
+      '3. Instalar arquivos: concluído', '4. Conectar Claude Code: concluído',
+      `5. Comando e PATH: concluído — okit-plugin  (${path})`,
+      '6. Registro de cota: desligado. Para ligar: okit-plugin install --client claude-code --statusline', '7. Verificar a instalação: concluído',
+      'Próximo: reinicie Claude Code e rode: okit-plugin doctor --client claude-code',
+      'Volte à versão guardada: okit-plugin update --rollback'];
+}
+
+// The uninstall removed the last command link: a new terminal finds no command, so the way to install again names the
+// program that is running (the plain command is deleted by then).
+function uninstallLines(locale, program) {
+  return locale === 'en' ? ['okit-plugin — Uninstall', 'Removed the plugin from Claude Code. Your settings were kept.',
+    `Install again when needed: ${program} install --client claude-code`]
+    : ['okit-plugin — Desinstalação', 'Plugin removido do Claude Code. Seus ajustes foram mantidos.',
+      `Instale novamente quando precisar: ${program} install --client claude-code`];
+}
+
+function retainedEvidence(locale, platform, update = false) {
+  const pt = locale === 'pt-BR', windows = platform === 'win32', checks = windows ? 7 : 9;
+  return pt ? ['  O SHA-256 detecta bytes alterados; não autentica a origem.',
+    update ? '  Servidor MCP de Claude Code substituído por esta instalação' : '  Servidor MCP registrado no Claude Code',
+    `  Autoverificação (Claude Code)  ok  ${checks} verificações passaram`,
+    ...(windows ? ['  Comando (git-bash)  pulado  git-bash não está instalado'] : []),
+    '  Modelos  -  ainda não definidos. Rode: okit-plugin setup',
+    '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração',
+    '  abra um terminal novo']
+    : ['  SHA-256 detects altered bytes; it does not authenticate the source.',
+      update ? '  MCP server of Claude Code replaced by this installation' : '  MCP server registered in Claude Code',
+      `  Self-check (Claude Code)  ok  ${checks} checks passed`,
+      ...(windows ? ['  Command (git-bash)  skipped  git-bash is not installed'] : []),
+      '  Models  -  not set yet. Run: okit-plugin setup',
+      '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit',
+      '  open a new terminal'];
+}
+
 function assertLines(actual, expected, context) {
   assert.equal(actual.length, expected.length, `${context}\n${actual.join('\n')}`);
   expected.forEach((want, index) => {
@@ -176,8 +442,22 @@ function assertStatusColumns(output) {
     assert.ok(match, `missing status separator: ${line}`);
     return match.index + match[0].length - match[1].length;
   });
-  assert.equal(new Set(columns).size, 1, steps.join('\n'));
+  if (steps.length) assert.equal(new Set(columns).size, 1, steps.join('\n'));
 }
+
+test('the embedded installer presenter retains its existing rendering contract', async (t) => {
+  for (const locale of LOCALES) {
+    const f = await fixture(t);
+    for (const [command, expected] of [['install', legacyInstallLines], ['update', legacyUpdateLines], ['uninstall', legacyUninstallLines]]) {
+      const ui = createPresenter({ locale, write: (line) => f.output.push(line) });
+      if (command === 'update') f.setVersion('2.0.0');
+      f.clear();
+      assert.equal(await main([command, ...(command === 'install' ? ['--client', 'claude-code'] : []), '--locale', locale], { ...f.io, ui }), 0);
+      if (command !== 'uninstall') assertLines(f.lines(), expected(locale, 'linux'), command);
+      else assertLines(f.lines(), expected(locale, 'linux').map((line) => line.replaceAll('1.0.0', '2.0.0')), command);
+    }
+  }
+});
 
 for (const locale of LOCALES) {
   for (const platform of PLATFORMS) {
@@ -185,12 +465,19 @@ for (const locale of LOCALES) {
       const f = await fixture(t, platform);
       assert.equal(await main(['install', '--client', 'claude-code', '--locale', locale], f.io), 0, f.output.join('\n'));
       assertStatusColumns(f.output);
-      assertLines(f.lines(), installLines(locale, platform), `install ${locale} ${platform}`);
+      const path = platform === 'win32' ? [locale === 'en' ? 'PATH is the list of folders your terminal searches for commands.' : 'PATH é a lista de pastas onde o terminal procura comandos.', HINT('<bin>')] : [];
+      assertLines(f.lines(), [...installLines(locale, platform), ...path, ...retainedEvidence(locale, platform)], `install ${locale} ${platform}`);
 
       f.clear();
       assert.equal(await main(['uninstall', '--locale', locale], f.io), 0, f.output.join('\n'));
       assertStatusColumns(f.output);
-      assertLines(f.lines(), uninstallLines(locale, platform), `uninstall ${locale} ${platform}`);
+      const removed = locale === 'en'
+        ? ['1. Unregister from Claude Code: complete — marketplace and plugin removed', '2. Remove command and PATH: complete — okit-plugin removed',
+          '3. Remove files: complete — <data>/1.0.0-claude-code (your settings are kept)', '  MCP server removed from Claude Code']
+        : ['1. Remover registro do Claude Code: concluído — marketplace e plugin removidos', '2. Remover comando e PATH: concluído — okit-plugin removido',
+          '3. Remover arquivos: concluído — <data>/1.0.0-claude-code (seus ajustes foram mantidos)', '  Servidor MCP removido do Claude Code'];
+      const program = shown([process.execPath, fileURLToPath(new URL('../src/cli.js', import.meta.url))], platform);
+      assertLines(f.lines(), [...uninstallLines(locale, program), ...removed], `uninstall ${locale} ${platform}`);
     });
 
     test(`golden: update in ${locale} on ${platform}`, async (t) => {
@@ -200,7 +487,9 @@ for (const locale of LOCALES) {
       f.setVersion('2.0.0');
       assert.equal(await main(['update', '--locale', locale], f.io), 0, f.output.join('\n'));
       assertStatusColumns(f.output);
-      assertLines(f.lines(), updateLines(locale, platform), `update ${locale} ${platform}`);
+      const path = platform === 'win32' ? [locale === 'en' ? 'PATH is the list of folders your terminal searches for commands.' : 'PATH é a lista de pastas onde o terminal procura comandos.', HINT('<bin>')] : [];
+      const expected = updateLines(locale, platform);
+      assertLines(f.lines(), [...expected.slice(0, -1), ...path, expected.at(-1), ...retainedEvidence(locale, platform, true)], `update ${locale} ${platform}`);
     });
   }
 }
@@ -247,7 +536,7 @@ test('the line structure is the same on every system', async (t) => {
     assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
     // Steps and rows: the label and the status; notes and the closing line: their kind.
     // A shell that is not on the machine is a skipped row of its own; which shells exist is the machine's, not the layout's.
-    shapes.push(f.lines().filter((line) => !/^  Command \(/.test(line)).map((line) => (/^(\[\d\/\d\] |  )[^ ]/.test(line) ? line.split('  ').slice(0, 2).join('|') : line.slice(0, 5))).map((line, index) => (index === 0 ? 'header' : line)));
+    shapes.push(f.lines().filter((line) => !/^  Command \(|^PATH |^\$env:Path/.test(line)).map((line) => (/^(\[\d\/\d\] |  )[^ ]/.test(line) ? line.split('  ').slice(0, 2).join('|') : line.slice(0, 5))).map((line, index) => (index === 0 ? 'header' : line)));
   }
   // Windows adds the PATH hint to the closing line only; the lines before it are the same.
   assert.deepEqual(shapes[1].slice(0, -1).slice(1), shapes[0].slice(0, -1).slice(1));
@@ -268,7 +557,7 @@ test('nothing is printed twice: the SHA-256 note, Release, Asset and Destination
         const context = `${argv[0]} ${locale} ${platform}\n${lines.join('\n')}`;
         assert.equal(new Set(lines).size, lines.length, `a line repeats in ${context}`);
         const text = lines.join('\n');
-        assert.equal(text.match(/does not authenticate|não autentica/g)?.length, 1, `the SHA-256 note appears once in ${context}`);
+        assert.ok((text.match(/does not authenticate|não autentica/g)?.length ?? 0) <= 1, `the SHA-256 note never repeats in ${context}`);
         assert.doesNotMatch(text, /Release:|Asset:|Destination:|Versão:|Arquivo:|Destino:/, context);
         assert.equal(text.match(/\$env:Path =/g)?.length ?? 0, platform === 'win32' ? 1 : 0, `the hint is in the next-steps list only in ${context}`);
       }
@@ -354,17 +643,22 @@ test('one language per run: --locale beats the saved language, which beats Engli
   const f = await fixture(t, 'linux');
   await fs.writeFile(join(f.root, 'config.json'), JSON.stringify({ install: f.io.config, language: 'pt-BR' }));
   assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0);
-  assert.match(f.output[0], / para Claude Code /);
+  assert.equal(f.output[0], 'okit-plugin — Instalação');
   assert.ok(!f.output.some((line) => /Download and verify|Next:/.test(line)));
   f.clear();
   assert.equal(await main(['update', '--locale', 'en'], f.io), 0);
-  assert.ok(f.output.some((line) => /Up to date/.test(line)), f.output.join('\n'));
+  assert.ok(f.output.some((line) => /is up to date/.test(line)), f.output.join('\n'));
   assert.ok(!f.output.some((line) => /Em dia|Pronto/.test(line)));
 });
 
 test('errors name the step, the reason and what to do next, in the chosen language', async (t) => {
-  for (const [locale, head, next] of [['en', /^Failed at Download and verify: /, /Next: fix the cause/], ['pt-BR', /^Falhou em Baixar e verificar: /, /O que fazer: corrija a causa/]]) {
+  for (const [locale, head, next] of [['en', /^The release could not be downloaded\. Nothing was installed\.$/, /^Check your connection, then retry: okit-plugin install --client claude-code$/], ['pt-BR', /^Não foi possível baixar a versão\. Nada foi instalado\.$/, /^Confira sua conexão e tente: okit-plugin install --client claude-code$/]]) {
     const f = await fixture(t, 'linux');
+    // The command and Node are on the PATH, so the retry names the command by its short name.
+    const commands = join(f.home, 'commands');
+    await fs.mkdir(commands);
+    for (const name of ['okit-plugin', 'node']) await fs.writeFile(join(commands, name), '#!/bin/sh\n', { mode: 0o755 });
+    f.io.env = { ...f.io.env, PATH: [commands, f.io.env.PATH].join(delimiter) };
     // A package that cannot be downloaded; every other request is the fixture's.
     const good = f.io.fetch;
     f.io.fetch = async (url, options) => { if (url.includes('/package/')) throw new Error('boom'); return good(url, options); };
@@ -903,8 +1197,8 @@ test('the language of a run, a refusal included, is the first valid of --locale,
         const context = `flag ${flag} environment ${environment} saved ${saved}\n${f.output.join('\n')}`;
         assert.equal(code, 2, context);
         assert.equal(f.output[0], expected === 'en'
-          ? `Refused: ${refused ? 'Choose a language: en, pt-BR.' : 'No installation record found'}`
-          : `Recusado: ${refused ? 'Escolha um idioma: en, pt-BR.' : 'Nenhuma instalação encontrada'}`, context);
+          ? (refused ? 'Refused: Choose a language: en, pt-BR.' : 'okit-plugin — Uninstall')
+          : (refused ? 'Recusado: Escolha um idioma: en, pt-BR.' : 'okit-plugin — Desinstalação'), context);
         assert.doesNotMatch(f.output.join('\n'), / \/ /, context);
         runs += 1;
       }

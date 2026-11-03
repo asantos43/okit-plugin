@@ -318,7 +318,7 @@ test('managed PATH resolves and executes skill command, repeats and rolls back w
   await fs.writeFile(join(record.path, record.bin), `#!${process.execPath}\nrequire('node:fs').writeSync(1, process.argv.slice(2).join(' ')+'\\n');\n`, { mode: 0o755 });
   const result = await execute('/bin/sh', ['-ec', '. "$1"; . "$1"; command -v okit-plugin; okit-plugin doctor; printf "%s" "$PATH"', 'sh', profile], { env: { HOME: f.home, PATH: '' } });
   assert.equal(result.stdout, `${join(f.bin, 'okit-plugin')}\ndoctor\n${f.bin}`);
-  assert.ok(f.output.some((line) => /Command and PATH\s+ok\s+okit-plugin {2}\(PATH set in /.test(line)), f.output.join('\n'));
+  assert.ok(f.output.some((line) => /Command and PATH: complete — okit-plugin {2}\(PATH set in /.test(line)), f.output.join('\n'));
   assert.ok(!f.output.some((line) => line.includes('PATH check')), 'the raw PATH check is for --verbose');
 });
 

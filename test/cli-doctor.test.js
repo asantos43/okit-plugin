@@ -28,9 +28,7 @@ import { fixture } from './helpers/install-fixture.js';
 
 const SERVER = 'src/mcp/server.js';
 const LOCALES = ['en', 'pt-BR'];
-const MARKS = { en: 'warn', 'pt-BR': 'aviso' };
 // The line of the summary, in the language of the run: the failures and the warnings it counts.
-const SUMMARIES = { en: /(\d+) failed, (\d+) to look at/, 'pt-BR': /(\d+) falharam, (\d+) para olhar/ };
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const unlinkedProgram = (f) => shown([process.execPath, fileURLToPath(new URL('../src/cli.js', import.meta.url))]);
@@ -88,19 +86,19 @@ async function deadPid() {
 }
 
 /** The line of the summary: the last line of the run. */
-const summaryOf = (text) => text.split('\n').at(-1);
+const summaryOf = (text) => text.split('\n')[1];
 
 test('an installation that works: exit 0, the summary, and no Fix line', async (t) => {
   const f = await world(t);
   const code = await main(['doctor'], f.io);
   const text = f.output.join('\n');
   assert.equal(code, exitCodeFor('ok'), text);
-  assert.match(text, /^okit-plugin doctor/m, text);
+  assert.match(text, /^okit-plugin — Installation check/m, text);
   // One row per thing it looked at, and the summary of the run at the end.
   assert.match(text, /Node version/, text);
   assert.match(text, /Installation/, text);
-  assert.match(text, /MCP registration/, text);
-  assert.match(text, /0 failed, [1-9]\d* to look at/, summaryOf(text));
+  assert.match(text, /Claude Code connection/, text);
+  assert.match(summaryOf(text), /^Needs attention: [1-9]\d* warnings;/);
   assert.doesNotMatch(text, /^ {6}Fix:/m, text);
 });
 
@@ -111,7 +109,7 @@ test('no installation: exit 1 and a Fix line with the command that installs it',
   const text = f.output.join('\n');
   assert.equal(code, exitCodeFor('operational'), text);
   assert.ok(text.includes(`Fix: Install it: ${unlinkedProgram(f)} install`), text);
-  assert.match(text, /1 failed, [0-9]+ to look at/, summaryOf(text));
+  assert.match(summaryOf(text), /1 failed check;/);
 });
 
 test('a state file that is not JSON: exit 1, a Fix line that names the file, and the file untouched', async (t) => {
@@ -121,7 +119,7 @@ test('a state file that is not JSON: exit 1, a Fix line that names the file, and
   const code = await main(['doctor'], f.io);
   const text = f.output.join('\n');
   assert.equal(code, exitCodeFor('operational'), text);
-  assert.match(text, new RegExp(`^ {6}Fix: .*${escape(file)}`, 'm'), text);
+  assert.match(text, new RegExp(`^Fix: .*${escape(file)}`, 'm'), text);
   assert.deepEqual(await fs.readFile(file), before, 'the doctor changed the file it read');
 });
 
@@ -131,14 +129,9 @@ test('warnings only: exit 0, the mark of a warning, and the summary counting the
     const code = await main(['doctor', '--locale', locale], f.io);
     const text = f.output.join('\n');
     assert.equal(code, exitCodeFor('ok'), text);
-    const mark = MARKS[locale];
-    const lines = text.split('\n');
-    const warned = lines.slice(0, -1).filter((line) => line.includes(mark));
-    assert.ok(warned.length > 0, `no row of a warning in\n${text}`);
-    const summary = SUMMARIES[locale].exec(summaryOf(text));
-    assert.ok(summary, summaryOf(text));
-    assert.equal(Number(summary[1]), 0, text);
-    assert.equal(Number(summary[2]), warned.length, text);
+    assert.match(summaryOf(text), locale === 'en' ? /^Needs attention: 3 warnings; other checks passed\.$/
+      : /^Precisa de atenção: 3 avisos; as demais passaram\.$/);
+    assert.ok(f.output.some((line) => line.startsWith('| ')));
   }
 });
 
@@ -147,12 +140,12 @@ test('--client shows the rows of that client alone', async (t) => {
   const code = await main(['doctor', '--client', 'codex'], f.io);
   const text = f.output.join('\n');
   assert.equal(code, exitCodeFor('ok'), text);
-  assert.match(text, /Codex: MCP registration/, text);
-  assert.doesNotMatch(text, /Claude Code: MCP registration/, text);
+  assert.match(text, /Codex connection/, text);
+  assert.doesNotMatch(text, /Claude Code connection/, text);
   // The same client, in the other form of the flag.
   f.clear();
   assert.equal(await main(['doctor', '--client=codex'], f.io), exitCodeFor('ok'), f.output.join('\n'));
-  assert.match(f.output.join('\n'), /Codex: MCP registration/, f.output.join('\n'));
+  assert.match(f.output.join('\n'), /Codex connection/, f.output.join('\n'));
 });
 
 test('an unknown client and an unknown flag are refused with exit 2, in the language of the run', async (t) => {
@@ -173,9 +166,9 @@ test('--locale pt-BR prints the whole run in Portuguese', async (t) => {
   const code = await main(['doctor', '--locale', 'pt-BR'], f.io);
   const text = f.output.join('\n');
   assert.equal(code, exitCodeFor('ok'), text);
-  assert.match(text, /doctor: o estado da instalação/, text);
+  assert.match(text, /— Verificação da instalação/, text);
   assert.match(text, /aviso/, text);
-  assert.match(text, /falharam,/, text);
+  assert.match(text, /Precisa de atenção: 3 avisos;/, text);
   assert.doesNotMatch(text, /to look at|Fix:/, text);
 });
 
@@ -223,11 +216,11 @@ test('a foreign MCP registration warns and prints its exact Fix on the next line
     args: ['mcp', 'add', 'okit', '--', 'node', join(f.home, 'foreign-server.js')] });
   f.clear();
   assert.equal(await main(['doctor'], f.io), 0, f.output.join('\n'));
-  const index = f.output.findIndex((line) => /Claude Code: MCP registration\s+warn\s/.test(line));
+  const index = f.output.findIndex((line) => /\| Claude Code connection \|/.test(line));
   assert.ok(index >= 0, f.output.join('\n'));
-  assert.equal(f.output[index].trimEnd().split(/ {2,}/).at(-1),
+  assert.equal(f.output[index].slice(2, -2).split(' | ')[1],
     'the MCP server named okit in Claude Code is not ours, and the installer will not replace it');
-  assert.equal(f.output[index + 1], '      Fix: Remove the entry by hand: claude mcp remove okit --scope user');
+  assert.ok(f.output.includes('Fix: Remove the entry by hand: claude mcp remove okit --scope user'));
 });
 
 test('a record that cannot be read is a failed row, in both languages, and the other clients are still diagnosed', async (t) => {
@@ -249,7 +242,7 @@ test('a record that cannot be read is a failed row, in both languages, and the o
     assert.ok(text.includes(fix), text);
     // The client whose record is whole is still diagnosed.
     assert.match(text, /Claude Code: /, text);
-    assert.match(summaryOf(text), locale === 'en' ? /1 failed,/ : /1 falharam,/);
+    assert.match(summaryOf(text), locale === 'en' ? /1 failed check;/ : /1 verificação falhou;/);
   }
 });
 
@@ -259,11 +252,10 @@ test('the summary uses the failed mark for failures and the warn mark for warnin
       const f = await world(t, failed ? { inbox: 'not json' } : {});
       assert.equal(await main(['doctor', '--locale', locale], f.io), failed ? 1 : 0, f.output.join('\n'));
       const summary = summaryOf(f.output.join('\n'));
-      const mark = locale === 'en' ? (failed ? 'failed' : 'warn') : (failed ? 'falhou' : 'aviso');
       const detail = locale === 'en'
-        ? `${failed ? 1 : 0} failed, 3 to look at`
-        : `${failed ? 1 : 0} falharam, 3 para olhar`;
-      assert.match(summary, new RegExp(`^ +${mark} {${9 - mark.length}}${escape(detail)}$`), summary);
+        ? `Needs attention: ${failed ? '1 failed check; ' : ''}3 warnings; other checks passed.`
+        : `Precisa de atenção: ${failed ? '1 verificação falhou; ' : ''}3 avisos; as demais passaram.`;
+      assert.equal(summary, detail);
     }
   }
 });
@@ -300,10 +292,10 @@ test('an all-ok summary counts every row including quiet rows, and ok/skipped fi
       f.clear();
       assert.equal(await doctorCommand(f.io, { locale, config: f.io.config, readers, verbose }), 0);
       const summary = summaryOf(f.output.join('\n'));
-      const detail = locale === 'en' ? `everything looks right (${result.rows.length} checks)`
-        : `tudo está certo (${result.rows.length} verificações)`;
-      assert.match(summary, new RegExp(`^ +ok {7}${escape(detail)}$`), summary);
-      const rows = f.output.slice(1, -1);
+      const detail = locale === 'en' ? `Ready. All ${result.rows.length} checks passed.`
+        : `Pronto. As ${result.rows.length} verificações passaram.`;
+      assert.equal(summary, detail);
+      const rows = f.output.filter((line) => line.startsWith('| ')).slice(2);
       assert.equal(rows.length, result.rows.length - (verbose ? 0 : 1));
       assert.equal(rows.some((line) => line.includes('quiet hook')), verbose);
       assert.doesNotMatch(f.output.join('\n'), /DO NOT PRINT|Fix:|Correção:/);
@@ -315,17 +307,11 @@ test('every verbose row and the summary align their marks across two clients', a
   for (const locale of LOCALES) {
     const f = await world(t, { clients: ['claude-code', 'codex'] });
     assert.equal(await main(['doctor', '--verbose', '--locale', locale], f.io), 0);
-    const rows = f.output.slice(1).filter((line) => !line.startsWith('      > '));
+    const rows = f.output.filter((line) => line.startsWith('| ')).slice(2);
     assert.ok(rows.some((line) => line.includes('Claude Code:')), f.output.join('\n'));
     assert.ok(rows.some((line) => line.includes('Codex:')), f.output.join('\n'));
-    const marks = locale === 'en' ? /\b(ok|skipped|warn|failed)\b/ : /\b(ok|pulado|aviso|falhou)\b/;
-    const columns = rows.map((line) => {
-      const match = marks.exec(line);
-      assert.ok(match, `row has no mark: ${line}`);
-      return match.index;
-    });
-    assert.ok(columns.length > 15, f.output.join('\n'));
-    assert.ok(columns.every((column) => column === columns[0]), JSON.stringify(columns));
+    assert.ok(rows.length > 15, f.output.join('\n'));
+    for (const row of rows) assert.equal(row.split(' | ').length, 2, row);
   }
 });
 
@@ -362,10 +348,10 @@ test('an entry that is broken is a failed row, with the fix that registers it ag
     const code = await doctorCommand(f.io, { locale, config: f.io.config, readers });
     assert.equal(code, 1, f.output.join('\n'));
     const text = f.output.join('\n');
-    assert.match(text, /MCP registration|Registro do MCP/, text);
+    assert.match(text, /Claude Code connection|Conexão com Claude Code/, text);
     assert.match(text, locale === 'en' ? /the MCP entry of Claude Code is disabled in the client/
       : /a entrada MCP do Claude Code está desligada no cliente/, text);
-    assert.ok(text.includes(`${locale === 'en' ? 'Fix: Register it:' : 'Correção: Registre:'} ${unlinkedProgram(f)} install --client claude-code`), text);
+    assert.ok(text.includes(`${locale === 'en' ? 'Fix: register the plugin in Claude Code:' : 'Correção: registre o plugin no Claude Code:'} ${unlinkedProgram(f)} install --client claude-code`), text);
   }
 });
 
@@ -376,8 +362,8 @@ test('a client that was named and is not installed is a failed row, with the com
     const code = await main(['doctor', '--client', 'codex', '--locale', locale], f.io);
     assert.equal(code, 1, f.output.join('\n'));
     const text = f.output.join('\n');
-    assert.match(text, locale === 'en' ? /Installation\s+failed\s+Codex is not installed/
-      : /Instalação\s+falhou\s+Codex não está instalado/, text);
+    assert.match(text, locale === 'en' ? /Installation \| Codex is not installed/
+      : /Instalação \| Codex não está instalado/, text);
     assert.ok(text.includes(`${locale === 'en' ? 'Fix: Install it:' : 'Correção: Instale:'} ${unlinkedProgram(f)} install --client codex`), text);
   }
 });
@@ -389,8 +375,8 @@ test('a configuration that is not JSON does not stop the doctor: the row says wh
   const code = await main(['doctor'], f.io);
   const text = f.output.join('\n');
   assert.equal(code, 1, text);
-  assert.match(text, /Configuration\s+failed/, text);
-  assert.match(text, /^ {6}Fix: /m, text);
+  assert.match(text, /\| Configuration \|/, text);
+  assert.match(text, /^Fix: /m, text);
 });
 
 test('a setting of the installer that the runtime refuses does not stop the doctor: the row names the key', async (t) => {
@@ -403,8 +389,8 @@ test('a setting of the installer that the runtime refuses does not stop the doct
   const code = await main(['doctor'], f.io);
   const text = f.output.join('\n');
   assert.equal(code, 1, text);
-  assert.match(text, /Configuration\s+failed\s+the configuration is not valid: Invalid install\.kit: /, text);
-  assert.match(text, /^ {6}Fix: /m, text);
+  assert.match(text, /Configuration \| the configuration is not valid: Invalid install\.kit: /, text);
+  assert.match(text, /^Fix: /m, text);
 });
 
 test('a setting of the whole configuration that the runtime refuses is a failed row too', async (t) => {
@@ -417,8 +403,8 @@ test('a setting of the whole configuration that the runtime refuses is a failed 
   const code = await main(['doctor'], f.io);
   const text = f.output.join('\n');
   assert.equal(code, 1, text);
-  assert.match(text, /Configuration\s+failed\s+the configuration is not valid: inbox\.gitTimeoutMs must be an integer >= 1$/m, text);
-  assert.match(text, /^ {6}Fix: /m, text);
+  assert.match(text, /Configuration \| the configuration is not valid: inbox\.gitTimeoutMs must be an integer >= 1 \|$/m, text);
+  assert.match(text, /^Fix: /m, text);
 });
 
 test('the installation row tells about the clients of the run alone: the version of another client is not in it', async (t) => {
@@ -493,13 +479,13 @@ test('a daemon state file that is not JSON is a failed row, and the other rows a
     assert.equal(code, exitCodeFor('operational'), text);
     // The row of the daemon failed, with the reason and the Fix that names the file.
     assert.match(text, locale === 'en'
-      ? /Daemon\s+failed\s+the state file could not be read: /
-      : /Daemon de fundo\s+falhou\s+o arquivo de estado não pôde ser lido: /, text);
-    assert.match(text, locale === 'en' ? /^ {6}Fix: /m : /^ {6}Correção: /m, text);
+      ? /Background service \| the state file could not be read: /
+      : /Serviço em segundo plano \| o arquivo de estado não pôde ser lido: /, text);
+    assert.match(text, locale === 'en' ? /^Fix: /m : /^Correção: /m, text);
     // The other rows are still there.
-    assert.match(text, locale === 'en' ? /Node version\s+ok/ : /Versão do Node\s+ok/, text);
-    assert.match(text, locale === 'en' ? /Installation\s+ok/ : /Instalação\s+ok/, text);
-    assert.match(summaryOf(text), locale === 'en' ? /1 failed,/ : /1 falharam,/);
+    assert.match(text, locale === 'en' ? /Node version \|/ : /Versão do Node \|/, text);
+    assert.match(text, locale === 'en' ? /Installation \|/ : /Instalação \|/, text);
+    assert.match(summaryOf(text), locale === 'en' ? /1 failed check;/ : /1 verificação falhou;/);
     // The state of the person is the same as it was: the doctor only reads.
     assert.deepEqual(await listing(f.root), before, 'the doctor wrote a file or removed one');
   }
@@ -512,11 +498,11 @@ test('a session reader that fails is a failed row, never a crash', async (t) => 
     readers: { servers: async () => { throw Object.assign(new Error('the control folder cannot be read'), { path: join(f.root, 'control') }); } } });
   const text = f.output.join('\n');
   assert.equal(code, exitCodeFor('operational'), text);
-  assert.match(text, /Session\s+failed\s+the state file could not be read: the control folder cannot be read/, text);
+  assert.match(text, /Session \| the state file could not be read: the control folder cannot be read/, text);
   // The Fix names the file the failure names.
-  assert.match(text, new RegExp(`^ {6}Fix: .*${escape(join(f.root, 'control'))}`, 'm'), text);
+  assert.match(text, new RegExp(`^Fix: .*${escape(join(f.root, 'control'))}`, 'm'), text);
   // The other rows are still there.
-  assert.match(text, /Installation\s+ok/, text);
+  assert.match(text, /Installation \|/, text);
 });
 
 test('the doctor of the command line works in Portuguese too, when a state file cannot be read', async (t) => {
@@ -527,7 +513,7 @@ test('the doctor of the command line works in Portuguese too, when a state file 
     readers: { servers: async () => { throw new Error('the control folder cannot be read'); } } });
   const text = f.output.join('\n');
   assert.equal(code, exitCodeFor('operational'), text);
-  assert.match(text, /Sessão\s+falhou\s+o arquivo de estado não pôde ser lido/, text);
+  assert.match(text, /Sessão \| o arquivo de estado não pôde ser lido/, text);
   assert.doesNotMatch(text, /the state file could not be read/, text);
 });
 
@@ -547,12 +533,12 @@ test('a saved language that is not a language is a row of the doctor, not a refu
   assert.equal(code, exitCodeFor('operational'), text);
   assert.doesNotMatch(text, /Choose a language/, text);
   // The row of the configuration says what is wrong, and how to correct it.
-  assert.match(text, /Configuration\s+failed\s+the saved language is not valid: xx/, text);
+  assert.match(text, /Configuration \| the saved language is not valid: xx/, text);
   // The Fix is a manual edit of the file (`config set` itself refuses while the saved language is not one): it names the file.
   assert.ok(text.includes(`Fix: Edit ${file}: set "language" to one of en, pt-BR (or remove the key), then run: ${unlinkedProgram(f)} doctor`), text);
   // The other rows are still told, in the language the run decided (English: the saved one is not a language).
-  assert.match(text, /Node version\s+ok/, text);
-  assert.match(text, /Installation\s+ok/, text);
+  assert.match(text, /Node version \|/, text);
+  assert.match(text, /Installation \|/, text);
   // Doing what the Fix says repairs the row.
   delete stored.language;
   await fs.writeFile(file, JSON.stringify(stored));
@@ -573,8 +559,8 @@ test('a saved language that is not a language does not stop the doctor in the la
   const text = f.output.join('\n');
   assert.equal(code, exitCodeFor('operational'), text);
   // The whole run is in Portuguese, and the row of the configuration says so in Portuguese too.
-  assert.match(text, /doctor: o estado da instalação/, text);
-  assert.match(text, /Configuração\s+falhou\s+o idioma salvo não é válido: xx/, text);
+  assert.match(text, /— Verificação da instalação/, text);
+  assert.match(text, /Configuração \| o idioma salvo não é válido: xx/, text);
   assert.doesNotMatch(text, /the saved language is not valid/, text);
 });
 
@@ -618,7 +604,7 @@ test('the doctor finds the installation that is running, when the records are in
     readFile: async (file, ...rest) => (extra.has(file) ? extra.get(file) : read(file, ...rest)) } });
   const text = f.output.join('\n');
   // The installation is found: the row of the installation is not the row of a machine with no installation.
-  assert.match(text, new RegExp(`Installation\\s+ok\\s+installed ${version.replace(/\./g, '\\.')}`), text);
+  assert.match(text, new RegExp(`Installation \\| installed ${version.replace(/\./g, '\\.')}`), text);
   assert.doesNotMatch(text, /no installation record was found/, text);
 });
 
@@ -643,6 +629,6 @@ test('doctor client filter checks the shared autostart against both installed cl
   for (const args of [['doctor'], ['doctor', '--client', 'claude-code']]) {
     f.clear();
     assert.equal(await main(args, f.io), exitCodeFor('ok'), f.output.join('\n'));
-    assert.match(f.output.join('\n'), /Autostart\s+ok\s/);
+    assert.match(f.output.join('\n'), /Autostart \| the daemon starts with the machine/);
   }
 });
