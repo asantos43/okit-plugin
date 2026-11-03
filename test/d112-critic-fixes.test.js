@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main } from '../src/cli.js';
 import { createInstallerView, createPresenter, presentDiagnosis, presentModelChoices, setupResultLines } from '../src/cli-present.js';
@@ -260,4 +261,111 @@ for (const locale of LOCALES) test(`D112 round 2, 7: all choices are already sav
     : 'No model choices were saved for Claude Code (Complex tasks): the active models did not match the recommended choices.'), mixed.join('\n'));
   const withKept = setupResultLines({ changes: [], skipped: [skipped], kept: [other], omitted: [], guidance: [] }, locale, 'okit-plugin');
   assert.ok(!withKept.includes(title), withKept.join('\n'));
+});
+
+// Round 3: every command of the output comes from one builder, from the state after the run, and a failure keeps what was done.
+const label = (locale, key) => createPresenter({ locale, write: () => {} }).text(key);
+
+for (const locale of LOCALES) test(`D112 round 3, 1: once the last link is gone, installing again names the running program: ${locale}`, async (t) => {
+  const pt = locale === 'pt-BR';
+  const again = pt ? 'Instale novamente quando precisar' : 'Install again when needed';
+  const gone = render('uninstall', locale, (ui) => ui.header({ client: 'Codex', version: '1' }),
+    { code: 0, client: 'codex', flags: ['--client', 'codex'], program: 'node /x/cli.js', before: { codex: { client: 'codex', link: true } }, after: {} });
+  assert.ok(gone.includes(`${again}: node /x/cli.js install --client codex`), gone.join('\n'));
+  const kept = render('uninstall', locale, (ui) => ui.header({ client: 'Codex', version: '1' }),
+    { code: 0, client: 'codex', flags: ['--client', 'codex'], program: 'node /x/cli.js', before: { codex: { client: 'codex', link: true } }, after: { opencode: { client: 'opencode', link: true } } });
+  assert.ok(kept.includes(`${pt ? 'Verifique a instalação restante' : 'Check the remaining installation'}: okit-plugin doctor --client opencode`), kept.join('\n'));
+
+  const f = await fixture(t, 'linux');
+  f.io.env.OKIT_LANGUAGE = locale;
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.output.join('\n'));
+  f.clear();
+  assert.equal(await main(['uninstall', '--client', 'codex', '--yes'], f.io), 0, f.output.join('\n'));
+  const line = lineOf(f.output, `${again}: `);
+  assert.equal(line, `${again}: ${RUNNING} install --client codex`, f.output.join('\n'));
+  f.clear();
+  assert.equal(await main(argsOf(line), f.io), 0, f.output.join('\n'));
+  assert.ok(f.output.some((out) => out.startsWith(pt ? 'Instalado para Codex.' : 'Installed for Codex.')), f.output.join('\n'));
+});
+
+for (const locale of LOCALES) for (const platform of ['linux', 'win32']) test(`D112 round 3, 2: a command with a space is quoted for the shell of ${platform}: ${locale}`, () => {
+  const pt = locale === 'pt-BR';
+  const output = [], view = createInstallerView({ operation: 'update', command: 'my plugin', locale, write: (line) => output.push(line) });
+  view.ui.header({ client: 'Codex', version: '2' });
+  view.ui.note('Models: not set yet. Run: my plugin setup');
+  const records = (version) => ({ codex: { client: 'codex', version, link: true } });
+  view.finish({ code: 0, client: 'codex', flags: ['--client', 'codex'], program: 'node /x/cli.js', platform, before: records('1'), after: records('2') });
+  const program = platform === 'win32' ? "& 'my plugin'" : "'my plugin'";
+  assert.ok(output.includes(`${pt ? 'Próximo: reinicie Codex e rode: ' : 'Next: restart Codex, then run: '}${program} doctor --client codex`), output.join('\n'));
+  assert.ok(output.some((line) => line.includes(`Run: ${program} setup`)), output.join('\n'));
+  assert.ok(!output.some((line) => /(^|[^'\w])my plugin (doctor|setup)/.test(line)), output.join('\n'));
+});
+
+for (const locale of LOCALES) test(`D112 round 3, 3: a failure keeps the steps already done and the backup folder: ${locale}`, () => {
+  const pt = locale === 'pt-BR';
+  const done = pt ? 'concluído' : 'complete';
+  const update = render('update', locale, (ui) => {
+    ui.header({ client: 'Codex', version: '2' });
+    const step = ui.sequence(['get', 'backup', 'files']);
+    step('get').ok();
+    step('backup').ok('/data/backups/17');
+    step('files').fail('registry down');
+  }, { code: 1, client: 'codex', flags: ['--client', 'codex'] });
+  const text = update.join('\n');
+  const cause = update.indexOf(failedAt(locale, 'files', 'registry down'));
+  const backup = update.indexOf(`2. ${label(locale, 'backup')}: ${done} — /data/backups/17`);
+  assert.ok(cause >= 0 && backup > cause, text);
+  assert.ok(update.includes(`1. ${label(locale, 'get')}: ${done}`), text);
+  assert.ok(!update.some((line) => line.startsWith('3. ')), text);
+
+  // After a client was chosen from the menu the same steps are told.
+  const install = render('install', locale, (ui) => {
+    ui.explain([ui.text('clientChoose'), ...['claude-code', 'codex'].map((id, index) => `  ${index + 1}. ${id} (${ui.text('clientDetected')})`)]);
+    ui.header({ client: 'Codex', version: '2' });
+    const step = ui.sequence(['get', 'files']);
+    step('get').ok();
+    step('files').fail('disk is full');
+  }, { code: 1 });
+  assert.ok(install.includes(`1. ${label(locale, 'get')}: ${done}`), install.join('\n'));
+  assert.ok(install.includes(failedAt(locale, 'files', 'disk is full')), install.join('\n'));
+});
+
+for (const locale of LOCALES) test(`D112 round 3, 4: the guides of the notes name the program that runs and are executed: ${locale}`, async (t) => {
+  const pt = locale === 'pt-BR';
+  // A line raised while the installer works is resolved at once; with the command link it is the plain command.
+  for (const [linked, program] of [[false, 'node /x/cli.js'], [true, 'okit-plugin']]) {
+    const output = [], view = createInstallerView({ operation: 'install', command: 'okit-plugin', locale, write: (line) => output.push(line),
+      launch: { program: 'node /x/cli.js', platform: 'linux', linked } });
+    view.ui.explain(['You can redo it later with okit-plugin setup.']);
+    assert.ok(output.includes(`You can redo it later with ${program} setup.`), output.join('\n'));
+  }
+  const f = await fixture(t, 'linux');
+  f.io.env.OKIT_LANGUAGE = locale;
+  assert.equal(await main(['install', '--client', 'claude-code', '--no-link'], f.io), 0, f.output.join('\n'));
+  const text = f.output.join('\n');
+  assert.deepEqual(f.output.filter((line) => /(^|[^\w./-])okit-plugin (setup|install|doctor|update|uninstall)\b/.test(line)), [], text);
+  const models = f.output.find((line) => line.includes(`${RUNNING} setup`) && !line.startsWith(pt ? 'Próximo' : 'Next'));
+  assert.ok(models, text);
+  const quota = f.output.find((line) => line.includes(`${RUNNING} install --client claude-code --statusline`));
+  assert.ok(quota, text);
+  f.clear();
+  assert.equal(await main(argsOf(quota), f.io), 0, f.output.join('\n'));
+});
+
+for (const locale of LOCALES) test(`D112 round 3, 5: an install into a custom folder says where it is instead of a doctor that looks elsewhere: ${locale}`, async (t) => {
+  const pt = locale === 'pt-BR';
+  const f = await fixture(t, 'linux');
+  f.io.env.OKIT_LANGUAGE = locale;
+  const dest = join(f.home, 'custom-dest');
+  assert.equal(await main(['install', '--client', 'claude-code', '--no-link', '--dest', dest], f.io), 0, f.output.join('\n'));
+  const text = f.output.join('\n');
+  assert.ok(!f.output.some((line) => line.startsWith(pt ? 'Verifique a instalação' : 'Check the installation')), text);
+  assert.ok(!f.output.some((line) => line.includes(`${RUNNING} doctor`)), text);
+  const where = lineOf(f.output, `${pt ? 'Pasta da instalação' : 'Installation folder'}: `);
+  assert.ok(where?.includes('custom-dest'), text);
+  // The commands that install again carry the folder, so they reach the installation that was made.
+  const quota = f.output.find((line) => line.includes('--statusline') && line.includes(RUNNING));
+  assert.ok(quota?.includes(`${RUNNING} install --dest ${dest} --client claude-code --statusline`), text);
+  f.clear();
+  assert.equal(await main(argsOf(quota), f.io), 0, f.output.join('\n'));
 });

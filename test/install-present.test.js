@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { main } from '../src/cli.js';
+import { shown } from '../src/install/mcp-register.js';
 import { createPresenter, createInstallerView, finishLink, headerValues, pick, redact, redactingWriter, REASONS, TEXTS, localizeReason } from '../src/cli-present.js';
 import { EXCLUSIVE_FLAGS, ALLOWED_FLAGS } from '../src/install/index.js';
 import { presentDiagnosis } from '../src/doctor/command.js';
@@ -396,11 +398,13 @@ function updateLines(locale, platform) {
       'Volte à versão guardada: okit-plugin update --rollback'];
 }
 
-function uninstallLines(locale) {
+// The uninstall removed the last command link: a new terminal finds no command, so the way to install again names the
+// program that is running (the plain command is deleted by then).
+function uninstallLines(locale, program) {
   return locale === 'en' ? ['okit-plugin — Uninstall', 'Removed the plugin from Claude Code. Your settings were kept.',
-    'Install again when needed: okit-plugin install --client claude-code']
+    `Install again when needed: ${program} install --client claude-code`]
     : ['okit-plugin — Desinstalação', 'Plugin removido do Claude Code. Seus ajustes foram mantidos.',
-      'Instale novamente quando precisar: okit-plugin install --client claude-code'];
+      `Instale novamente quando precisar: ${program} install --client claude-code`];
 }
 
 function retainedEvidence(locale, platform, update = false) {
@@ -470,7 +474,8 @@ for (const locale of LOCALES) {
           '3. Remove files: complete — <data>/1.0.0-claude-code (your settings are kept)', '  MCP server removed from Claude Code']
         : ['1. Remover registro do Claude Code: concluído — marketplace e plugin removidos', '2. Remover comando e PATH: concluído — okit-plugin removido',
           '3. Remover arquivos: concluído — <data>/1.0.0-claude-code (seus ajustes foram mantidos)', '  Servidor MCP removido do Claude Code'];
-      assertLines(f.lines(), [...uninstallLines(locale), ...removed], `uninstall ${locale} ${platform}`);
+      const program = shown([process.execPath, fileURLToPath(new URL('../src/cli.js', import.meta.url))], platform);
+      assertLines(f.lines(), [...uninstallLines(locale, program), ...removed], `uninstall ${locale} ${platform}`);
     });
 
     test(`golden: update in ${locale} on ${platform}`, async (t) => {

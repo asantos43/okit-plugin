@@ -228,14 +228,17 @@ async function presentInstaller(group, flags, ctx, io, stored) {
     destination = found.destination;
     before = found.records;
   } catch { return invoke(); }
+  // The program as this terminal starts it is known before the run: the lines the installer prints while it works name it too.
+  const program = await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs }).catch(() => config.command);
+  const linked = group === 'install' ? !options['no-link'] : Object.values(before).some((record) => record?.link);
   const view = createInstallerView({ operation: group, command: config.command, locale: ctx.locale,
-    write: ctx.out, verbose: flags.includes('--verbose'), hide: [io.tmpdir ?? tmpdir()] });
+    write: ctx.out, verbose: flags.includes('--verbose'), hide: [io.tmpdir ?? tmpdir()],
+    launch: { program, platform: ctx.platform, linked, dest: options.dest } });
   const code = await invoke({ ui: view.ui });
   const after = await discoverRecords(destination, { fs: ctx.fs, config, lenient: true }).then((found) => found.records).catch(() => ({}));
-  const program = await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs }).catch(() => config.command);
   view.finish({ code, before, after, client: options.client,
     dryRun: flags.includes('--dry-run'), purge: flags.includes('--purge'), checkOnly: flags.includes('--check'),
-    flags, program, platform: ctx.platform });
+    flags, program, platform: ctx.platform, destination });
   return code;
 }
 

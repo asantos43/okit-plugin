@@ -42,7 +42,7 @@ export function createPresenter(options = {}) {
 /** The program as a person types it on this platform: the words the repairs of the doctor start with. */
 export const programLine = async ({ config, platform, env, fs }) => shownCommand(await programWords({ config, platform, env, fs }), platform);
 /** Collect installer observations so the outcome can precede completed steps. */
-export function createInstallerView({ operation, command, locale, write, verbose = false, hide = [] }) {
+export function createInstallerView({ operation, command, locale, write, verbose = false, hide = [], launch: start = {} }) {
   const notes = [];
   const headers = [], steps = [], failures = [], offered = [];
   let globalLine = false, activeClient;
@@ -51,6 +51,19 @@ export function createInstallerView({ operation, command, locale, write, verbose
   const emit = redactingWriter(write, hide);
   const states = new Map();
   const stateOf = (label) => states.get(label) ?? states.set(label, {}).get(label);
+  // The one place where a command of the output is written. `program` is the program as this terminal can start it now,
+  // `linked` whether the installation holds the command link (a new terminal finds the command only then) and `dest`
+  // the folder an install was told to use. Lines raised by other modules name the plain command: `resolve` rewrites them.
+  const launch = { program: command, platform: process.platform, linked: false, dest: undefined, ...start };
+  const launcher = (later) => (later && launch.linked ? shownCommand([command], launch.platform) : launch.program);
+  const type = (words, { later = false } = {}) => {
+    const list = operation === 'install' && launch.dest && words[0] === 'install' && !words.includes('--dest')
+      ? [words[0], '--dest', launch.dest, ...words.slice(1)] : words;
+    return `${launcher(later)} ${list.map((word) => quotedWord(word, launch.platform)).join(' ')}`;
+  };
+  const escaped = command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const embedded = new RegExp(`(?<![\\w./\\\\-])${escaped} (setup|install|doctor|update|uninstall)(?![\\w-])`, 'g');
+  const resolve = (line) => String(line).replace(embedded, (_, verb) => type([verb], { later: true }));
   let menu = false, titled = false, pathHint, modelsConfirmed = false;
   const title = () => { if (titled) return; titled = true; emit(`${command} — ${pt
     ? { install: 'Instalação', update: 'Atualização', uninstall: 'Desinstalação' }[operation]
@@ -101,14 +114,14 @@ export function createInstallerView({ operation, command, locale, write, verbose
         offered.push(client);
         return `${number}${clientLabel(client)}${state}`;
       }));
-    } else if (!lines.includes(ui.text('dryRunDone'))) { title(); lines.forEach(emit); }
+    } else if (!lines.includes(ui.text('dryRunDone'))) { title(); lines.forEach((line) => emit(resolve(line))); }
   };
   return { ui, finish };
   /**
    * The outcome, told from the result of each client. `flags` and `program` are the arguments of the run and the way
    * to start the program: the commands that replay the operation are built from them.
    */
-  function finish({ code, before = {}, after = {}, client, dryRun = false, purge = false, checkOnly = false, flags, program = command, platform = process.platform }) {
+  function finish({ code, before = {}, after = {}, client, dryRun = false, purge = false, checkOnly = false, flags, program = launch.program, platform = launch.platform, destination }) {
     if (!menu && !headers.length && !failures.length) return;
     if (!menu) title();
     const known = Object.keys({ ...before, ...after });
@@ -128,11 +141,12 @@ export function createInstallerView({ operation, command, locale, write, verbose
     const selected = headers.length > 0 || failures.some((failure) => failure.client);
     // With one client in scope, a failure that names none is that client's.
     const ownFailures = (id) => failures.filter((failure) => failure.client === clientLabel(id) || (!failure.client && sole));
-    // Every command the output asks for is built here. `type` is the program as this terminal can start it now (an
-    // operation to replay); `later` is the program a new terminal will find, when the installation holds the command link
-    // (`--no-link` leaves none, and then the running program is the only one that works).
-    const linked = Object.values({ ...before, ...after }).some((record) => record?.link);
-    const type = (words, { later = false } = {}) => `${later && linked ? command : program} ${words.map((word) => quotedWord(word, platform)).join(' ')}`;
+    // Every command the output asks for is built by `type`: the program as this terminal can start it now (an operation to
+    // replay), or with `later` the one a new terminal will find, when the installation that remains holds the command link
+    // (`--no-link`, or an uninstall that removed the last link, leave none, and then the running program is the only one
+    // that works). A custom folder of an install belongs to the commands that install again.
+    Object.assign(launch, { program, platform, linked: Object.values(after).some((record) => record?.link), dest: options.dest });
+    const custom = operation === 'install' && Boolean(options.dest);
     const withClient = (id) => (id ? ['--client', id] : []);
     const replay = ({ omit = [], client: scope } = {}) => type([operation, ...withClient(scope),
       ...Object.entries(options).filter(([flag]) => !['client', 'locale', 'verbose', ...omit].includes(flag))
@@ -145,7 +159,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
     const once = new Set();
     const say = (line) => { if (!once.has(line)) { once.add(line); emit(line); } };
     if (menu && !selected) {
-      for (const failure of failures.filter(({ reason }) => reason !== ui.text('clientNoTty'))) say(localizeReason(failure.reason, ui.locale));
+      for (const failure of failures.filter(({ reason }) => reason !== ui.text('clientNoTty'))) say(resolve(localizeReason(failure.reason, ui.locale)));
       for (const id of offered) say(`${pt ? 'Instale para' : 'Install for'} ${clientLabel(id)}: ${replay({ client: id })}`);
       return;
     }
@@ -153,7 +167,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
     if (absent && operation !== 'install') {
       say(pt ? `Nenhuma instalação do plugin encontrada. Nada foi ${operation === 'update' ? 'atualizado' : 'removido'}.`
         : `No plugin installation was found. Nothing was ${operation === 'update' ? 'updated' : 'removed'}.`);
-      for (const failure of failures.filter(({ reason }) => reason.startsWith('Client not registered:'))) say(localizeReason(failure.reason, ui.locale));
+      for (const failure of failures.filter(({ reason }) => reason.startsWith('Client not registered:'))) say(resolve(localizeReason(failure.reason, ui.locale)));
       // Without a client the run was told about, the first install is the one the program asks about; none is guessed.
       say(operation === 'update' ? `${pt ? 'Instale primeiro' : 'Install first'}: ${type(['install', ...withClient(asked)])}`
         : `${pt ? 'Confira o estado local' : 'Check the local state'}: ${type(['doctor'])}`);
@@ -178,10 +192,12 @@ export function createInstallerView({ operation, command, locale, write, verbose
       // A cause names its clients only when more than one client failed; the line starts with the cause itself.
       const told = new Set([...causes.values()].flatMap(({ owners }) => owners)).size > 1;
       for (const { failure, owners } of causes.values()) {
-        const reason = localizeReason(failure.reason, ui.locale);
+        const reason = resolve(localizeReason(failure.reason, ui.locale));
         const body = failure.step && !(alone && failure.step === download) ? ui.text('failedAt', { step: failure.step, reason }) : reason;
         say(`${body}${told && owners.length ? ` (${[...new Set(owners)].join(', ')})` : ''}`);
       }
+      // What the run already did stays told: a backup folder or a retained version is how a failed update is recovered.
+      renderSteps(say, { completed: true });
       // A purge needs every remaining client in one command, so its retry is that one command, never one per client.
       const purging = operation === 'uninstall' && Boolean(options.purge || purge);
       for (const scope of purging ? [asked] : failed.length ? failed : scopes) {
@@ -246,7 +262,12 @@ export function createInstallerView({ operation, command, locale, write, verbose
     const changed = ids.filter((id) => !stateOf(id)?.current);
     say(operation === 'install' ? `${pt ? 'Próximo' : 'Next'}: ${type(['setup'], { later: true })}`
       : (pt ? `Próximo: reinicie ${names(changed)} e rode: ${check}` : `Next: restart ${names(changed)}, then run: ${check}`));
-    if (operation === 'install') say(`${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`);
+    // The doctor reads the folder of the settings and takes no folder of its own: for an install into a custom folder
+    // the output says where the installation is instead of a check that would look somewhere else.
+    if (operation === 'install') {
+      say(custom ? `${pt ? 'Pasta da instalação' : 'Installation folder'}: ${destination ?? options.dest} ${pt ? '(o doctor só lê a pasta dos ajustes)' : '(the doctor reads only the folder of the settings)'}`
+        : `${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`);
+    }
     if (pathHint) {
       say(pt ? 'PATH é a lista de pastas onde o terminal procura comandos.' : 'PATH is the list of folders your terminal searches for commands.');
       say(pathHint);
@@ -255,19 +276,21 @@ export function createInstallerView({ operation, command, locale, write, verbose
     flushNotes(say);
     if (verbose && notes.some(({ line }) => line.trimStart().startsWith(ui.text('kit')))) say(`${pt ? 'Confira novamente' : 'Check again'}: MCP kit_detect {}`);
   }
-  function renderSteps(say) {
+  function renderSteps(say, { completed = false } = {}) {
     const multiple = new Set(steps.map((step) => step.client)).size > 1;
     for (const [index, step] of steps.entries()) {
+      // After a failure only the steps that were done are told: the one that failed is the cause the output already gives.
+      if (completed && step.status !== 'ok') continue;
       const name = step.key === 'register' ? `${pt ? 'Conectar' : 'Connect'} ${step.client}` : step.label;
       const complete = step.status === 'ok' && step.detail !== ui.text('registerMarketplaceManual');
-      const result = complete ? (pt ? 'concluído' : 'complete') : step.detail || (step.status === 'plan' ? ui.text('stepPlanned') : '');
-      const detail = complete && step.detail && !['get', 'local', 'files', 'register'].includes(step.key) ? ` — ${step.detail}` : '';
+      const result = complete ? (pt ? 'concluído' : 'complete') : resolve(step.detail || (step.status === 'plan' ? ui.text('stepPlanned') : ''));
+      const detail = complete && step.detail && !['get', 'local', 'files', 'register'].includes(step.key) ? ` — ${resolve(step.detail)}` : '';
       say(`${index + 1}. ${multiple ? `${step.client} — ` : ''}${name}${result || detail ? `: ${result}${detail}` : ''}`);
     }
   }
   function flushNotes(say) {
     const multiple = new Set(headers.map((header) => header.client)).size > 1;
-    for (const { line, client } of notes) say(multiple && client ? `${client} — ${line.trimStart()}` : line);
+    for (const { line, client } of notes) say(resolve(multiple && client ? `${client} — ${line.trimStart()}` : line));
   }
 }
 
