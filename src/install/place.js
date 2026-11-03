@@ -1,6 +1,6 @@
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { missingFile } from './where.js';
+import { installationOf, missingFile } from './where.js';
 import { extract } from './extract.js';
 import { installConfig, renderName } from './config.js';
 import { OperationalError, UsageError } from './exit.js';
@@ -136,23 +136,24 @@ export async function readRecordsLenient(destination, fs, config = installConfig
  * record it cannot read means (the doctor: a row of the diagnosis; the install: no usable record for that client).
  *
  * @param {string} destination the folder the records are looked for in
- * @param {{fs: object, config?: object, explicitDestination?: boolean, lenient?: boolean}} options
+ * @param {{fs: object, config?: object, explicitDestination?: boolean, lenient?: boolean, running?: string}} options (`running`: the folder of the running package, for tests)
  * @returns {Promise<{records: object, invalid: object[], destination: string}>}
  */
-export async function discoverRecords(destination, { fs, config = installConfig(), explicitDestination = false, lenient = false } = {}) {
+export async function discoverRecords(destination, { fs, config = installConfig(), explicitDestination = false, lenient = false, running = packageDirectory } = {}) {
   const read = async (folder) => (lenient
     ? await readRecordsLenient(folder, fs, config)
     : { records: await readRecords(folder, fs, config), invalid: [] });
   const found = await read(destination);
   if (Object.keys(found.records).length || explicitDestination) return { ...found, destination };
-  // The installation that is running: its records are in the folder above the package directory.
-  const runtime = await read(dirname(packageDirectory.replace(/[\\/]$/, '')));
-  const installed = Object.values(runtime.records).find((record) => record.path === packageDirectory.replace(/[\\/]$/, ''));
+  // The installation that is running: its records are in the folder above the package directory, and the record of it
+  // names its folder or is the one that places it there (`<destination>/<version>-<client>`).
+  const packageFolder = running.replace(/[\\/]$/, '');
+  const runtimeFolder = dirname(packageFolder);
+  const runtime = await read(runtimeFolder);
+  const installed = Object.values(runtime.records).find((record) => installationOf(record, runtimeFolder) === packageFolder);
   if (!installed) return { ...found, destination };
   // Every record that could not be read is named: the one of the destination and the one of the installation
-  // that is running.
-  // A legacy record names no destination: the folder its records were read from is the one.
-  const runtimeFolder = dirname(packageDirectory.replace(/[\\/]$/, ''));
+  // that is running. A legacy record names no destination: the folder its records were read from is the one.
   return { records: runtime.records, invalid: [...found.invalid, ...runtime.invalid],
     destination: installed.destination ?? runtimeFolder };
 }

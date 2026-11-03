@@ -6,3 +6,5 @@ Repairs keep only the default command bare and use the found file for other name
 The doctor reports the autostart as failed, with a reinstall Fix, when the recorded daemon script is gone. / O doctor relata o início automático como falho, com a correção de reinstalar, quando o script do daemon registrado não existe mais.
 
 The doctor resolves legacy records against the folder they were found in, including the installation that is running. / O doctor resolve registros legados na pasta em que foram encontrados, inclusive a instalação em execução.
+
+The running installation is found from a legacy record that names no folder (the folder it is placed in is `<destination>/<version>-<client>`). / A instalação em execução é encontrada a partir de um registro legado que não nomeia pasta (a pasta em que ela fica é `<destination>/<version>-<client>`).

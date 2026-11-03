@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { PassThrough, Writable } from 'node:stream';
@@ -939,4 +940,21 @@ test('doctor resolves a legacy record against the folder its records were found 
   const guessed = await diagnose({ ...elsewhere, destination: undefined, records: [record], ui, readers });
   assert.deepEqual(failed(found), failed(await diagnose({ ...f.io, records: [f.records.codex], ui, readers })));
   assert.notDeepEqual(failed(guessed), failed(found));
+});
+
+test('discovery finds the running installation from a legacy record that names no path or destination', async () => {
+  const { discoverRecords } = await import('../src/install/place.js');
+  const config = installConfig();
+  const runtimeFolder = join(tmpdir(), 'okit-discovery');
+  const running = join(runtimeFolder, '1.0.0-codex');
+  const legacy = JSON.stringify({ client: 'codex', version: '1.0.0', autostart: true });
+  const runtimeFs = { readFile: async (file) => {
+    if (file === join(runtimeFolder, 'install.json')) return legacy;
+    throw Object.assign(new Error('not there'), { code: 'ENOENT' });
+  } };
+  const found = await discoverRecords('/nowhere/else', { fs: runtimeFs, config, lenient: true, running });
+  assert.equal(found.destination, runtimeFolder);
+  assert.deepEqual(Object.keys(found.records), ['codex']);
+  const other = await discoverRecords('/nowhere/else', { fs: runtimeFs, config, lenient: true, running: join(runtimeFolder, '2.0.0-codex') });
+  assert.deepEqual(Object.keys(other.records), []);
 });
