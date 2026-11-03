@@ -31,7 +31,7 @@ async function world(t, { clients = ['codex'], platform = 'linux', installed = f
   f.clear();
   Object.assign(f.io, {
     fs: { ...fs, writeFile: async (...args) => { order.push('record'); return fs.writeFile(...args); } },
-    run: async (command) => { ran.push(command); order.push('run'); return {}; },
+    run: async (command) => { ran.push(command); order.push('run'); return { stdout: 'enabled\n' }; },
     write: async (path, content) => { written.push({ path, content }); order.push('file'); },
     ask: async (question) => {
       questions.push(question);
@@ -118,7 +118,7 @@ test('accepted plan uses the node executable from the installation record', asyn
   assert.equal(f.written[0].content.includes(process.execPath), false);
 });
 
-test('accept saves the whole first record and propagates its link settings to both clients', async (t) => {
+test('accept preserves each record and changes only autostart for both clients', async (t) => {
   const f = await world(t, { clients: ['codex', 'claude-code'] });
   const [first, second] = Object.values(f.records).map((record, index) => ({
     ...record, link: index === 0, linkDirectory: index === 0 ? '/a' : null,
@@ -138,7 +138,7 @@ test('accept saves the whole first record and propagates its link settings to bo
   assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
   assert.deepEqual(await readRecords(f.destination, fs, f.io.config), {
     [first.client]: { ...first, autostart: true },
-    [second.client]: { ...second, autostart: true, link: true, linkDirectory: '/a' },
+    [second.client]: { ...second, autostart: true },
   });
 });
 
@@ -281,7 +281,7 @@ test('the terminal reader stays open through the final step', async (t) => {
   assert.equal((await readRecords(f.destination, fs, f.io.config)).codex.autostart, true);
 });
 
-test('mixed autostart flags still offer once and use the first record', async (t) => {
+test('mixed autostart flags still offer once and update all records', async (t) => {
   const f = await world(t, { clients: ['claude-code', 'codex'] });
   const first = Object.values(f.records)[0];
   await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', first.client)), JSON.stringify({ ...first, autostart: true }));
@@ -394,7 +394,7 @@ test('autostart saves only in the discovered running installation destination', 
     },
     plan: () => ({ kind: 'test', path: null, install: [], uninstall: [] }) }), 0, errors.join('\n'));
   assert.equal(JSON.parse(files.get(file)).autostart, true);
-  assert.equal(reads.filter((name) => name === join(destination, 'install.json')).length, 5);
+  assert.equal(reads.filter((name) => name === join(destination, 'install.json')).length, 4);
   assert.deepEqual(writes, [file + '.tmp']);
   assert.equal([...files.keys()].some((name) => name.startsWith('configured')), false);
 });
@@ -558,3 +558,74 @@ test('a save that works keeps the service and records the autostart', async () =
   assert.equal(JSON.parse(w.files.get(join(w.destination, 'install.claude-code.json'))).autostart, true);
   assert.deepEqual(w.written, [w.servicePath]);
 });
+
+
+test('all client plans are considered and the matching later client is retained', async (t) => {
+  const f = await world(t, { clients: ['claude-code', 'codex'], installed: true });
+  const record = f.records.codex;
+  const current = autostartPlan('systemd', { root: f.root, home: f.home,
+    node: record.settings.node, script: join(record.path, record.bin), command: f.io.config.command });
+  assert.notEqual(current.content, f.plan.content);
+  await fs.mkdir(dirname(current.path), { recursive: true });
+  await fs.writeFile(current.path, current.content);
+  assert.equal(await main(['setup'], f.io), 0);
+  assert.deepEqual(f.questions, []);
+  assert.deepEqual(stepLines(f), ['Autostart is already installed.']);
+  assert.deepEqual(await snapshot(f), f.before);
+  // A missing flag offers the same working plan and updates every covered client without copying link settings.
+  const first = f.records['claude-code'];
+  await fs.writeFile(join(f.destination, 'install.claude-code.json'), JSON.stringify({ ...first, autostart: false, link: false }));
+  f.io.ask = async () => 'yes';
+  f.ran.length = 0;
+  assert.equal(await main(['setup'], f.io), 0);
+  assert.deepEqual(f.written, [{ path: current.path, content: current.content }]);
+  const saved = await readRecords(f.destination, fs, f.io.config);
+  assert.equal(saved['claude-code'].autostart, true);
+  assert.equal(saved.codex.autostart, true);
+  assert.equal(saved['claude-code'].link, false);
+  assert.equal(saved.codex.link, record.link);
+});
+
+for (const locale of ['en', 'pt-BR']) {
+  for (const failure of ['preflight', 'apply', 'write', 'save', 'kept', 'restore']) {
+    test(`failure ${failure} is localized in ${locale}`, async (t) => {
+      const f = await world(t);
+      const errors = [];
+      f.io.stderr = (line) => errors.push(line);
+      if (failure === 'preflight') {
+        f.io.fs = { ...fs, readFile: async () => { throw new Error('No installation record found'); } };
+      } else if (failure === 'apply') f.io.run = async () => { throw new Error('permission denied'); };
+      else if (failure === 'write') f.io.write = async () => { throw new Error('permission denied'); };
+      else {
+        if (failure === 'kept') {
+          await fs.mkdir(dirname(f.plan.path), { recursive: true });
+          await fs.writeFile(f.plan.path, f.plan.content);
+        }
+        if (failure === 'restore') {
+          const original = fs.writeFile;
+          let failed = false;
+          f.io.fs = { ...fs, writeFile: async (...args) => {
+            if (args[0].endsWith('.tmp')) {
+              // Simulate a partially completed save that rollback must restore.
+              await original(args[0].slice(0, -4), '{}');
+              failed = true;
+            }
+            if (failed) throw new Error('permission denied');
+            return original(...args);
+          } };
+        } else f.io.fs = { ...fs, writeFile: async () => { throw new Error('permission denied'); } };
+      }
+      f.io.ask = async () => 'yes';
+      assert.equal(await main(['setup', '--locale', locale], f.io), 1);
+      assert.equal(errors.length, 1);
+      const reason = failure === 'preflight'
+        ? (locale === 'en' ? 'No installation record found' : 'Nenhuma instalação encontrada')
+        : (locale === 'en' ? 'permission denied' : 'permissão negada');
+      assert.ok(errors[0].includes(reason), errors[0]);
+      if (locale === 'pt-BR') {
+        assert.match(errors[0], /^Não foi possível instalar a inicialização automática: /);
+        assert.doesNotMatch(errors[0], /permission denied|No installation record found|was kept|taken back/);
+      }
+    });
+  }
+}

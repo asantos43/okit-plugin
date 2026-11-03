@@ -36,4 +36,6 @@ The default time zone is UTC. window bounds time of day; minQuotaPct, onlyWhenId
 `okit-plugin setup` offers the startup plan before applying it; `okit-plugin install --autostart` also registers it. The installer registers/removes systemd or cron on Linux, launchd on macOS or schtasks on Windows. Inspect the actual platform plan; a daemon can spend allowance when work arrives. Logs and markers live in [state](state.md).
 The cron plan installs its file as the user's entire crontab; uninstall runs crontab -r. Review and back up existing entries before applying that plan.
 
+Setup considers every client record in the discovered destination, preserves a matching installed plan and records acceptance for all covered clients without changing their link settings. Readiness requires persistent systemd enablement, a loaded launchd agent without a disabled override, a ready/running Windows task, or the exact current cron command (node and CLI paths included). A failed record save restores all touched records and keeps pre-existing services, including disabled ones.
+
 [Overview](README.md) · [Configuration](configuration.md) · [Português](daemon.pt-BR.md)

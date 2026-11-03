@@ -6,9 +6,11 @@ import { quote, binInPath, activationWarning, managedProfile, currentShell } fro
 import { collectorCommandIndex, collectorExecutable, commandWords, settingsPath } from './statusline.js';
 import { collectorArgsValid } from '../quota/statusline-collector.js';
 import { cliScript, hookScript, hookNode, isAnotherNode, isOurHook } from './register.js';
-import { mcpPlan } from './mcp-register.js';
+import { mcpPlan, quotedWord, shown } from './mcp-register.js';
 import { clientRoot } from './config.js';
 import { presenterOf, clientLabel, redact, controlReason } from './present.js';
+import { extraText } from './texts.js';
+import { installationOf } from './where.js';
 
 // The check after an install or an update: the installation is only done when it WORKS on this machine. It reads back what
 // the installer wrote (the record, the client's settings) and runs it the way the client will, in a temporary state root,
@@ -17,6 +19,23 @@ import { presenterOf, clientLabel, redact, controlReason } from './present.js';
 
 export const LABELS = { version: 'selfcheckVersion', command: 'selfcheckCommand', statusline: 'selfcheckStatusline',
   hook: 'selfcheckHook', collector: 'selfcheckCollector', mcp: 'selfcheckMcp', api: 'selfcheckApi', path: 'selfcheckPath' };
+
+// The labels of the checks the presenter does not have yet (src/install/texts.js): the payload of the installation.
+const EXTRA_LABELS = { payload: 'selfcheckPayload' };
+
+/**
+ * The label of a check, in the language of the run.
+ *
+ * @param {object} check the result of a check
+ * @param {object} ui the presenter of the run
+ * @returns {string} the label
+ */
+export function checkLabel(check, ui) {
+  const extra = EXTRA_LABELS[check.id];
+  if (extra) return extraText(extra, ui.locale);
+  const key = LABELS[check.id];
+  return key ? ui.text(key) : String(check.id);
+}
 
 const QUOTE = {
   posix: quote,
@@ -114,7 +133,11 @@ async function attempt(deps, spec) {
 
 const shellsOf = (deps) => deps.config.selfcheck.shells[deps.platform] ?? [];
 const shellNamed = (deps, name) => shellsOf(deps).find((shell) => shell.name === name);
-const again = (record, deps) => `${deps.config.command} install --client ${record.client}`;
+// The command the person runs again, written for the shell of the platform: every word a shell would read
+// differently is quoted, so a command or a client with a space in it is runnable as it is shown.
+const again = (record, deps) => shown([deps.config.command, 'install', '--client', record.client], deps.platform);
+// A path, written for the shell of the platform (the same quoting of the commands).
+const asPath = (value, deps) => (value === undefined || value === null || value === '' ? '' : quotedWord(String(value), deps.platform));
 
 /**
  * The budget of the probe of the MCP server: the time the configuration asks for, never more than the time of the
@@ -133,18 +156,81 @@ export function probeBudget(config) {
   return Math.max(1, Math.min(Number.isFinite(asked) ? asked : 1, limit));
 }
 
-/** 1. The version the record and the installed package say is the one that was asked for. */
+/**
+ * The file of the probe of the check, inside an installation: the installer writes it and the check runs it.
+ */
+export const PROBE_FILE = 'src/mcp/selfcheck-probe.js';
+
+/**
+ * The files the payload of an installation must have: the ones the installed package lists (the commands of its
+ * `bin`) and the ones the product reads by name (the MCP server of the configuration and the probe of the check).
+ *
+ * The list is read from the installed package, never written here: a package that names another command has another
+ * list, and a package that names none has only the two files of the product.
+ *
+ * @param {object} pkg the metadata of the installed package (its `package.json`)
+ * @param {object} config the settings of the installer
+ * @returns {string[]} the paths, relative to the installation
+ */
+export function requiredFiles(pkg, config) {
+  const files = [];
+  const bin = pkg?.bin;
+  if (typeof bin === 'string') files.push(bin);
+  else if (bin && typeof bin === 'object') {
+    for (const path of Object.values(bin)) if (typeof path === 'string' && path !== '') files.push(path);
+  }
+  files.push(config.mcp.server, PROBE_FILE);
+  return files;
+}
+
+/**
+ * The first file of the payload of an installation that is not there (or that is empty), or null when the payload is
+ * whole. The file is named whole: the row says which one is missing.
+ *
+ * @param {object} record the installation record (`path` is the retained folder)
+ * @param {object} config the settings of the installer
+ * @param {object} fs the file system
+ * @returns {Promise<string|null>} the file that is missing, or null
+ */
+export async function missingFile(record, config, fs) {
+  if (!record?.path) return null;
+  // The metadata of the installed package is the list of the files it requires: without it, the payload is not whole.
+  const metadata = join(record.path, 'package.json');
+  const pkg = await fs.readFile(metadata, 'utf8')
+    .then((text) => { try { return JSON.parse(text); } catch { return null; } }, () => null);
+  if (pkg === null) return metadata;
+  for (const file of requiredFiles(pkg, config)) {
+    const content = await fs.readFile(join(record.path, file), 'utf8').catch(() => null);
+    if (content === null || content.trim() === '') return join(record.path, file);
+  }
+  return null;
+}
+
+/** 1. The payload of the installation is whole: every file it lists is there. */
+async function payloadCheck(record, deps) {
+  const { ui } = deps;
+  const missing = await missingFile(record, deps.config, deps.fs);
+  if (missing === null) return okCheck('payload', extraText('selfcheckPayloadWhole', ui.locale));
+  return badCheck('payload', extraText('selfcheckPayloadMissing', ui.locale, { file: asPath(missing, deps) }),
+    ui.text('selfcheckFixVersion', { again: again(record, deps) }));
+}
+
+/** 2. The version the record and the installed package say is the one that was asked for. */
 async function versionCheck(record, expected, deps) {
   const { ui } = deps;
   const fix = ui.text('selfcheckFixVersion', { again: again(record, deps) });
   // The records are read leniently: a record of another client that cannot be read is not this client's failure.
   const read = await readRecordsLenient(deps.destination, deps.fs, deps.config).catch(() => ({ records: {} }));
   const saved = read.records[record.client] ?? null;
-  if (!saved) return badCheck('version', ui.text('selfcheckUnreadable', { path: deps.destination }), fix);
+  if (!saved) return badCheck('version', ui.text('selfcheckUnreadable', { path: asPath(deps.destination, deps) }), fix);
   if (saved.version !== expected) return badCheck('version', ui.text('selfcheckVersionRecord', { found: saved.version, expected }), fix);
-  const file = join(saved.path, 'package.json');
+  // The folder of the installation: the one the record names, or the one the installer places it in. A record of an
+  // old shape names none, and the installation is still there.
+  const where = installationOf(saved, deps.destination);
+  if (!where) return badCheck('version', ui.text('selfcheckUnreadable', { path: asPath(deps.destination, deps) }), fix);
+  const file = join(where, 'package.json');
   const installed = await deps.fs.readFile(file, 'utf8').then((text) => JSON.parse(text).version, () => undefined);
-  if (installed === undefined) return badCheck('version', ui.text('selfcheckUnreadable', { path: file }), fix);
+  if (installed === undefined) return badCheck('version', ui.text('selfcheckUnreadable', { path: asPath(file, deps) }), fix);
   if (installed !== expected) return badCheck('version', ui.text('selfcheckVersionPackage', { found: installed, expected }), fix);
   return okCheck('version', expected);
 }
@@ -241,8 +327,8 @@ async function loginCheck(record, shell, executable, deps) {
   // error of a command that fails (for example under `set -e`) is to be fixed and any `exit` of that file is to go (an `exit`
   // ends the login shell itself). A file without the block needs the line itself: the one the installer writes, or the
   // installer's own.
-  const fix = await loginHasBlock(file, deps) ? ui.text('selfcheckFixLogin', { file, line, again: again(record, deps) })
-    : ui.text('selfcheckFixLoginMissing', { file, shell: shell.name, line, again: again(record, deps) });
+  const fix = await loginHasBlock(file, deps) ? ui.text('selfcheckFixLogin', { file: asPath(file, deps), line, again: again(record, deps) })
+    : ui.text('selfcheckFixLoginMissing', { file: asPath(file, deps), shell: shell.name, line, again: again(record, deps) });
   return badCheck('command', ui.text('selfcheckLoginFail', { shell: shell.name, command: config.command, why }),
     fix, { shell: shell.name, output: tail });
 }
@@ -265,8 +351,8 @@ async function commandChecks(record, deps) {
     const found = firstLine(outcome.stdout);
     if (outcome.state === 'ok' && !inBin(found, deps)) {
       // Found, but not our shim: another program of the same name comes first, so the plugin's command is not what runs.
-      results.push(badCheck('command', ui.text('selfcheckElsewhere', { shell: shell.name, command: config.command, found: found || ui.text('selfcheckNothing'), bin: deps.bin }),
-        ui.text('selfcheckFixElsewhere', { found: found || ui.text('selfcheckNothing'), bin: deps.bin, shell: shell.name, again: again(record, deps) }), { shell: shell.name }));
+      results.push(badCheck('command', ui.text('selfcheckElsewhere', { shell: shell.name, command: config.command, found: found || ui.text('selfcheckNothing'), bin: asPath(deps.bin, deps) }),
+        ui.text('selfcheckFixElsewhere', { found: found || ui.text('selfcheckNothing'), bin: asPath(deps.bin, deps), shell: shell.name, again: again(record, deps) }), { shell: shell.name }));
       continue;
     }
     if (outcome.state === 'ok') {
@@ -277,7 +363,7 @@ async function commandChecks(record, deps) {
       continue;
     }
     results.push(badCheck('command', ui.text('selfcheckNotFound', { shell: shell.name, command: config.command, why: outcome.why }),
-        ui.text('selfcheckFixCommand', { bin: deps.bin, shell: shell.name, again: again(record, deps) }),
+        ui.text('selfcheckFixCommand', { bin: asPath(deps.bin, deps), shell: shell.name, again: again(record, deps) }),
         { shell: shell.name, output: outcome.output }));
   }
   if (!ran) {
@@ -352,8 +438,8 @@ async function runWritten(record, deps) {
   const out = [];
   const reading = { status: 'skip', reason: ui.text('selfcheckOff'), quiet: true };
   const jobs = [
-    ...(ours ? [{ id: 'statusline', text: written.statusline, fix: ui.text('selfcheckFixStatusline', { again: again(record, deps), path: written.bar }), failed: 'selfcheckStatuslineFailed' }] : []),
-    ...written.hooks.map((text) => ({ id: 'hook', text, fix: ui.text('selfcheckFixHook', { again: again(record, deps), path: written.hookFile }), failed: 'selfcheckHookFailed' })),
+    ...(ours ? [{ id: 'statusline', text: written.statusline, fix: ui.text('selfcheckFixStatusline', { again: again(record, deps), path: asPath(written.bar, deps) }), failed: 'selfcheckStatuslineFailed' }] : []),
+    ...written.hooks.map((text) => ({ id: 'hook', text, fix: ui.text('selfcheckFixHook', { again: again(record, deps), path: asPath(written.hookFile, deps) }), failed: 'selfcheckHookFailed' })),
   ];
   if (verdict === 'unlinked') out.push(skipCheck('statusline', ui.text('selfcheckUnlinked'), { quiet: false }));
   else if (!ours) {
@@ -508,9 +594,9 @@ async function mcpChecks(record, deps) {
     // A node that is not on the machine is a failure, not a skip: the client uses our MCP server, and it cannot work
     // without the node the installation is configured to run.
     if (outcome.state === 'missing') {
-      const why = ui.text('selfcheckNodeMissing', { node: config.node });
-      return [badCheck('mcp', why, ui.text('selfcheckFixNodeMissing', { node: config.node, command: again(record, deps) })),
-        badCheck('api', why, ui.text('selfcheckFixNodeMissing', { node: config.node, command: again(record, deps) }))];
+      const why = ui.text('selfcheckNodeMissing', { node: asPath(config.node, deps) });
+      return [badCheck('mcp', why, ui.text('selfcheckFixNodeMissing', { node: asPath(config.node, deps), command: again(record, deps) })),
+        badCheck('api', why, ui.text('selfcheckFixNodeMissing', { node: asPath(config.node, deps), command: again(record, deps) }))];
     }
     if (outcome.state !== 'ok') {
       const why = outcome.why;
@@ -552,7 +638,7 @@ async function pathCheck(record, deps) {
   for (const shell of Object.keys(config.path.shells)) {
     if (await managedProfile(deps, shell)) return okCheck('path', warning);
   }
-  return badCheck('path', ui.text('selfcheckPathFail', { bin: deps.bin, command: config.command }),
+  return badCheck('path', ui.text('selfcheckPathFail', { bin: asPath(deps.bin, deps), command: config.command }),
     ui.text('selfcheckFixPath', { line: `export PATH=${quote(deps.bin)}:"$PATH"` }));
 }
 
@@ -577,6 +663,7 @@ export async function selfCheck(record, expected, deps) {
   const ui = presenterOf(deps);
   deps = { ...deps, ui };
   const results = [
+    ...await guarded('payload', deps, record, () => payloadCheck(record, deps)),
     ...await guarded('version', deps, record, () => versionCheck(record, expected, deps)),
     ...await guarded('command', deps, record, () => commandChecks(record, deps)),
     ...(applies ? await guarded('statusline', deps, record, () => runWritten(record, deps))
@@ -591,7 +678,7 @@ export async function selfCheck(record, expected, deps) {
 export function reportSelfCheck(ui, results, client, { several = false } = {}) {
   const failed = results.filter(({ status }) => status === 'fail');
   const passed = results.filter(({ status }) => status === 'pass');
-  const label = (check) => `${ui.text(LABELS[check.id])}${check.shell ? ` (${check.shell})` : ''}`;
+  const label = (check) => `${checkLabel(check, ui)}${check.shell ? ` (${check.shell})` : ''}`;
   // A run of several clients tells each row's client, so no line of the run is the same as another.
   const said = (check) => (several && check.reason ? `${client}: ${check.reason}` : check.reason);
   if (failed.length) ui.row(ui.text('selfcheck', { client }), 'failed', ui.text('selfcheckBroken', { failed: failed.length, total: failed.length + passed.length }));

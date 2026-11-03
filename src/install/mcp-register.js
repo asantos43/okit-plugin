@@ -37,7 +37,7 @@ const PLAIN_WIN = /^[A-Za-z0-9_@%+=:,./\\-]+$/;
  * The word as the shell of the platform reads it: as it is when the shell reads it that way, quoted when it does not
  * (a space, a quote, a `$`, a `;`, a `~` at its front, an empty word: anything a shell would not give back as it is).
  */
-const quotedWord = (word, platform) => {
+export const quotedWord = (word, platform) => {
   const text = String(word);
   if ((platform === 'win32' ? PLAIN_WIN : PLAIN).test(text)) return text;
   return platform === 'win32' ? `'${text.replaceAll("'", "''")}'` : `'${text.replaceAll("'", "'\\''")}'`;

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import {
-  AUTOSTART_KINDS, applyAutostart, autostartPlan, autostartQuery, cronPlan, detectAutostart,
+  AUTOSTART_KINDS, autostartPresent, autostartExists, taskPresent, cronPresent, applyAutostart, autostartPlan, autostartQuery, cronPlan, detectAutostart,
   launchdPlan, schtasksPlan, systemdPlan,
 } from '../src/autostart.js';
 
@@ -187,4 +187,97 @@ test('the query of the kind never names a shell and never holds a path of the pl
     for (const word of query.args) assert.equal(typeof word, 'string', `${kind}: every word is text`);
     assert.doesNotMatch(query.args.join(' '), /[;&|`]/, `${kind}: no shell syntax`);
   }
+});
+// Query output fixtures: successful process execution alone does not establish login readiness.
+const TASK_READY = '<?xml version="1.0" encoding="UTF-16"?>\n<Task><Settings><Enabled>true</Enabled></Settings></Task>\n';
+const TASK_DISABLED = TASK_READY.replace('<Enabled>true</Enabled>', '<Enabled>false</Enabled>');
+const TASK_PORTUGUESE = TASK_READY.replace('<Settings>', '<RegistrationInfo><Description>Inicialização automática: Pronto / Em execução</Description></RegistrationInfo><Settings>');
+const LAUNCHD_LOADED = '{\n "Label" = "com.okit.daemon";\n "PID" = 123;\n};\n';
+const LAUNCHD_DISABLED = '{\n "com.okit.daemon" => true\n}\n';
+const LAUNCHD_ENABLED = '{\n "com.okit.daemon" => false\n}\n';
+
+for (const [name, stdout, present] of [
+  ['enabled XML', TASK_READY, true],
+  ['disabled XML', TASK_DISABLED, false],
+  ['disabled XML with mixed case and whitespace', TASK_READY.replace('<Enabled>true</Enabled>', '<eNaBlEd > \n FaLsE \n </EnAbLeD >'), false],
+  ['Portuguese output', TASK_PORTUGUESE, true],
+  ['implicit enablement', '<Task><Settings/></Task>', true],
+]) {
+  test(`Windows readiness parses ${name} independently of language`, async () => {
+    for (const code of [0, undefined]) {
+      const calls = [];
+      const run = async (query) => { calls.push(query); return { code, stdout }; };
+      assert.equal(await taskPresent(run, 123), present);
+      assert.deepEqual(calls, [{ command: 'schtasks', args: ['/Query', '/TN', 'okit-daemon', '/XML'], timeoutMs: 123 }]);
+      assert.equal(await autostartPresent(schtasksPlan(WINDOWS), { run }), present);
+      assert.equal(await autostartExists(schtasksPlan(WINDOWS), { run }), true);
+      assert.deepEqual(calls.slice(1), [
+        { command: 'schtasks', args: ['/Query', '/TN', 'okit-daemon', '/XML'], timeoutMs: undefined },
+        { command: 'schtasks', args: ['/Query', '/TN', 'okit-daemon'], timeoutMs: undefined },
+      ]);
+    }
+  });
+}
+
+test('Windows readiness and existence require a successful XML query', async () => {
+  for (const run of [undefined, async () => ({ code: 1, stdout: TASK_READY }), async () => { throw new Error('query failed'); }]) {
+    assert.equal(await taskPresent(run), false);
+    assert.equal(await autostartExists(schtasksPlan(WINDOWS), { run }), false);
+  }
+});
+
+for (const stdout of ['disabled\n', 'static\n', 'enabled-runtime\n', 'masked\n', '']) {
+  test(`systemd ${JSON.stringify(stdout)} is not login readiness even with exit zero`, async () => {
+    const plan = systemdPlan(OPTIONS);
+    assert.equal(await autostartPresent(plan, { fs: { readFile: async () => plan.content }, run: async () => ({ code: 0, stdout }) }), false);
+  });
+}
+
+test('systemd requires persistent enablement; a machine without the tool of the query lets the file decide', async () => {
+  const plan = systemdPlan(OPTIONS), fs = { readFile: async () => plan.content };
+  assert.equal(await autostartPresent(plan, { fs, run: async () => ({ stdout: 'enabled\n' }) }), true);
+  assert.equal(await autostartPresent(plan, { fs }), true);
+  assert.equal(await autostartPresent(plan, { fs, run: async () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); } }), true);
+  assert.equal(await autostartPresent(plan, { fs, run: async () => { throw Object.assign(new Error('no'), { code: 1 }); } }), false);
+  assert.equal(await autostartExists(plan, { fs }), true);
+});
+
+test('launchd requires a loaded current agent without a disabled login override', { skip: typeof process.getuid !== 'function' }, async () => {
+  const plan = launchdPlan(OPTIONS), fs = { readFile: async () => plan.content };
+  for (const [override, expected] of [
+    [LAUNCHD_DISABLED, false], [LAUNCHD_DISABLED.replace('true', 'disabled'), false],
+    [LAUNCHD_ENABLED, true], [LAUNCHD_ENABLED.replace('false', 'enabled'), true],
+    ['{\n "another.agent" => disabled\n}\n', true],
+  ]) {
+    const calls = [];
+    assert.equal(await autostartPresent(plan, { fs, run: async (query) => {
+      calls.push(query);
+      return { code: 0, stdout: query.args[0] === 'list' ? LAUNCHD_LOADED : override };
+    } }), expected, override);
+    assert.deepEqual(calls.map(({ command, args }) => ({ command, args })), [
+      { command: 'launchctl', args: ['list', 'com.okit.daemon'] },
+      { command: 'launchctl', args: ['print-disabled', `gui/${process.getuid()}`] },
+    ]);
+  }
+  assert.equal(await autostartPresent(plan, { fs, run: async () => ({ code: 1, stdout: 'Could not find service' }) }), false);
+  assert.equal(await autostartPresent(plan, { fs }), true);
+  assert.equal(await autostartExists(plan, { fs }), true);
+});
+
+test('cron readiness matches the whole current line without relying on a spool file', async () => {
+  const plan = cronPlan(OPTIONS);
+  const missingFile = { readFile: async () => { throw new Error('no spool file'); } };
+  for (const stdout of ['# okit-daemon\n', plan.content.replace('/usr/bin/node', '/old/node'),
+    plan.content.replace('/repo/src/cli.js', '/old/cli.js'), `# ${plan.content}`, '']) {
+    assert.equal(await autostartPresent(plan, { fs: missingFile, run: async () => ({ stdout }) }), false, stdout);
+  }
+  const calls = [];
+  const run = async (query) => { calls.push(query); return { code: 0, stdout: `0 * * * * /other/job\n${plan.content}` }; };
+  assert.equal(await cronPresent(plan, run, 456), true);
+  assert.deepEqual(calls, [{ command: 'crontab', args: ['-l'], timeoutMs: 456 }]);
+  assert.equal(await autostartPresent(plan, { fs: missingFile, run }), true);
+  assert.equal(await autostartPresent({ ...plan, path: null }, { run }), true);
+  assert.equal(await cronPresent(plan, async () => ({ code: 1, stdout: plan.content })), false);
+  assert.equal(await cronPresent(plan, async () => { throw new Error('missing tool'); }), false);
+  assert.equal(await cronPresent(plan), false);
 });

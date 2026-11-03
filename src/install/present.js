@@ -287,6 +287,8 @@ export const TEXTS = Object.freeze({
 // A pattern matches the whole reason and its captures fill $1..; a reason that
 // matches none is shown as raised. The tests walk this table and the raise sites.
 export const REASONS = [
+  [/^permission denied$/i, 'permissão negada', 'permission denied'],
+  [/^(.+?): (permission denied)$/i, '$1: $2', '/record.json: permission denied'],
   [/^No installation record found$/, 'Nenhuma instalação encontrada', 'No installation record found'],
   [/^No previous version retained$/, 'Nenhuma versão anterior foi guardada', 'No previous version retained'],
   [/^Previous version belongs to another client$/, 'A versão anterior é de outro cliente', 'Previous version belongs to another client'],

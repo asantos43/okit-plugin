@@ -204,6 +204,11 @@ export async function saveRecord(destination, record, deps) {
   }
 }
 
+/** Updates only autostart for all clients covered by the destination's single service. */
+export async function saveAutostartRecords(destination, records, deps) {
+  for (const record of records) await writeRecord(destination, { ...record, autostart: true }, deps);
+}
+
 async function writeRecord(destination, record, deps) {
   const path = recordPath(destination, record.client, deps.config ?? installConfig());
   if (deps.writeJsonAtomic) {

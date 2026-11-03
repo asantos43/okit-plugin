@@ -2,8 +2,8 @@ import { homedir } from 'node:os';
 import { applyAutostart, autostartExists, autostartPresent } from '../autostart.js';
 import { installPaths } from '../install/config.js';
 import { exitCodeFor } from '../install/exit.js';
-import { discoverRecords, readRecords, saveRecord, snapshotRecords, restoreRecords } from '../install/place.js';
-import { fill, pick, TEXTS } from '../install/present.js';
+import { discoverRecords, readRecords, saveAutostartRecords, snapshotRecords, restoreRecords } from '../install/place.js';
+import { fill, pick, TEXTS, localizeReason } from '../install/present.js';
 
 /**
  * Whether the autostart of this machine is working.
@@ -44,13 +44,27 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
     const { destination } = discovered;
     const records = Object.values(discovered.records);
     if (!records.length) return exitCodeFor('ok');
-    const selected = plan(records[0]);
-    if (records.every((record) => record.autostart === true) && await alreadyThere(ctx, selected)) {
+    // One service covers this destination, but any client's retained payload may be its current command.
+    const candidates = records.map((record) => plan(record));
+    let selected = candidates.at(0);
+    let ready = false;
+    for (const candidate of candidates) {
+      if (candidate.kind === 'cron' && await alreadyThere(ctx, candidate)) {
+        selected = candidate;
+        ready = true;
+        break;
+      }
+      if (candidate.kind !== 'cron' && candidate.path && typeof ctx.fs?.readFile === 'function'
+        && await ctx.fs.readFile(candidate.path, 'utf8').catch(() => null) === candidate.content) {
+        selected = candidate;
+        break;
+      }
+    }
+    if (records.every((record) => record.autostart === true) && (ready || await alreadyThere(ctx, selected))) {
       ctx.out(text('autostartAlready'));
       return exitCodeFor('ok');
     }
-    // The record has to be writable: the save reads the records with the strict reader, so a record that cannot be
-    // read is told now, before the service of the machine is installed (never after it).
+    // Validate every record before changing the service; an unreadable record must fail before installation.
     await readRecords(destination, ctx.fs, config);
     ctx.out(text('autostartExplain', { kind: selected.kind }));
     if (selected.path !== null) ctx.out(text('autostartFile', { path: selected.path }));
@@ -66,11 +80,11 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
     const existed = await existedOnMachine(ctx, selected);
     await applyAutostart(selected, { run: ctx.run, write: ctx.write, action: 'install' });
     try {
-      await saveRecord(destination, { ...records[0], autostart: true }, { fs: ctx.fs, config });
+      await saveAutostartRecords(destination, records, { fs: ctx.fs, config });
     } catch (error) {
-      let reason = error.message;
+      let reason = localizeReason(error.message, locale);
       const unrestored = await restoreRecords(snapshot, ctx.fs);
-      if (unrestored.length) reason += `; ${unrestored.join('; ')}`;
+      if (unrestored.length) reason += `; ${unrestored.map((failure) => localizeReason(failure, locale)).join('; ')}`;
       if (existed) {
         // The service was already installed: it is kept, because the records that survive the rollback still say the
         // autostart is on.
@@ -85,7 +99,7 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
     ctx.out(text('autostartInstalled', { command: ctx.command }));
     return exitCodeFor('ok');
   } catch (error) {
-    ctx.err(text('autostartFailed', { reason: error.message }));
+    ctx.err(text('autostartFailed', { reason: localizeReason(error.message, locale) }));
     return exitCodeFor('operational');
   }
 }

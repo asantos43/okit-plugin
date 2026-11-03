@@ -1,0 +1,1 @@
+Harden setup autostart across client records, verify login readiness and exact cron commands, and localize failures while preserving rollback. / Reforça a inicialização automática no setup para todos os registros de clientes, verifica o início no login e comandos cron exatos, e traduz falhas preservando a restauração.

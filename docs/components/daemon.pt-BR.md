@@ -36,4 +36,6 @@ O fuso padrão é UTC. window limita horários; minQuotaPct, onlyWhenIdle e skip
 `okit-plugin setup` oferece o plano de inicialização antes da aplicação; `okit-plugin install --autostart` também o registra. O instalador registra/remove systemd ou cron no Linux, launchd no macOS ou schtasks no Windows. Confira o plano do sistema real; um daemon pode consumir cota ao receber trabalho. Logs e marcadores ficam na [pasta de estado](state.pt-BR.md).
 O plano cron instala seu arquivo como o crontab inteiro do usuário; uninstall executa crontab -r. Confira e copie as entradas existentes antes de aplicar esse plano.
 
+O setup considera todos os registros de clientes no destino descoberto, preserva um plano instalado correspondente e registra a aceitação para todos os clientes cobertos sem alterar seus links. A verificação exige habilitação persistente no systemd, agente launchd carregado sem desabilitação, tarefa Windows pronta/em execução ou o comando cron atual exato (incluindo os caminhos do node e da CLI). Uma falha ao salvar restaura todos os registros alterados e mantém serviços preexistentes, inclusive desabilitados.
+
 [Visão geral](README.pt-BR.md) · [Configuração](configuration.pt-BR.md) · [English](daemon.md)

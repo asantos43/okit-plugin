@@ -224,6 +224,8 @@ test('the row of a daemon that is down says that the daemon starts with the mach
     command: f.io.config.command });
   await fs.mkdir(dirname(plan.path), { recursive: true });
   await fs.writeFile(plan.path, plan.content);
+  const base = f.io.run;
+  f.io.run = async (call) => ((call.args ?? []).includes('is-enabled') ? { code: 0, stdout: 'enabled\n' } : base(call));
   // The daemon is not running: the file of its state is gone.
   await fs.rm(join(f.root, 'daemon.pid.json'));
   f.clear();
@@ -263,6 +265,8 @@ async function autostartWorld(t) {
     write: async (file, content) => { files.set(file, content); },
     // The setup asks whether the autostart is installed: the answer is yes.
     ask: async () => 'yes',
+    // The machine says what systemctl says of an enabled unit.
+    run: async (call) => ((call.args ?? []).includes('is-enabled') ? { code: 0, stdout: 'enabled\n' } : f.io.run(call)),
   };
   return { f, io, files, plan: planOf(f, record) };
 }
@@ -294,7 +298,7 @@ test('the Fix of a disabled autostart enables it again', async (t) => {
   let enabled = false;
   io.run = async (call) => {
     const args = call.args ?? [];
-    if (args.includes('is-enabled')) return { code: enabled ? 0 : 1, stdout: '' };
+    if (args.includes('is-enabled')) return { code: enabled ? 0 : 1, stdout: enabled ? 'enabled\n' : 'disabled\n' };
     if (args.includes('enable')) enabled = true;
     return f.io.run(call);
   };

@@ -532,6 +532,10 @@ test('--from installs offline, validates identity and preserves source', async (
   await fs.mkdir(join(source, 'src'), { recursive: true });
   await fs.writeFile(join(source, 'package.json'), JSON.stringify(f.pkg));
   await fs.writeFile(join(source, 'src/cli.js'), '// local CLI');
+  // The payload of an installation is whole: the MCP server and the probe of the check are files of it.
+  await fs.mkdir(join(source, 'src', 'mcp'), { recursive: true });
+  await fs.writeFile(join(source, 'src/mcp/server.js'), '// fake MCP server');
+  await fs.writeFile(join(source, 'src/mcp/selfcheck-probe.js'), '// fake probe of the check');
   const io = { ...f.io, fetch: async () => { throw new Error('must not fetch'); } };
   assert.equal(await main(['install', '--client', 'claude-code', '--from', source, '--dry-run'], io), 0);
   assert.equal(await readRecord(f.destination, fs), null);

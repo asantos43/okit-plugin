@@ -117,8 +117,8 @@ test('the scheduled task of Windows is there when the query answers with no code
     assert.equal(rowOf(result, 'autostart').status, 'ok', JSON.stringify(answer));
   }
   assert.deepEqual(calls, [
-    { command: 'schtasks', args: ['/Query', '/TN', 'okit-daemon'], timeoutMs: 15000 },
-    { command: 'schtasks', args: ['/Query', '/TN', 'okit-daemon'], timeoutMs: 15000 },
+    { command: 'schtasks', args: ['/Query', '/TN', 'okit-daemon', '/XML'], timeoutMs: 15000 },
+    { command: 'schtasks', args: ['/Query', '/TN', 'okit-daemon', '/XML'], timeoutMs: 15000 },
   ]);
 });
 
@@ -222,7 +222,8 @@ test('the label of launchd is the autostart when the machine holds it', async ()
   const result = await diagnose({ ...input, platform: 'darwin', fs: fsOf(files),
     run: async (call) => { calls.push(call); return { stdout: '{\n}\n' }; } });
   assert.equal(rowOf(result, 'autostart').status, 'ok', JSON.stringify(result.rows));
-  assert.deepEqual(calls, [{ command: 'launchctl', args: ['list', 'com.okit.daemon'], timeoutMs: 15000 }]);
+  assert.deepEqual(calls, [{ command: 'launchctl', args: ['list', 'com.okit.daemon'], timeoutMs: 15000 },
+    { command: 'launchctl', args: ['print-disabled', `gui/${process.getuid()}`], timeoutMs: 15000 }]);
 });
 
 // ---------------------------------------------------------------------------------------------------------------
