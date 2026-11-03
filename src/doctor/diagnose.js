@@ -481,8 +481,15 @@ async function autostartRow({ readers, fs, records, root, home, command, program
   const plans = (await Promise.all(records.map(planOf))).filter(Boolean);
   const { node, script } = plans[0] ?? {};
   const label = ui.text('doctorAutostart');
-  if (!plans.length) return { id: 'autostart', status: 'skipped', label,
-    detail: ui.text('doctorAutostartUnknown'), fix: ui.text('doctorFixAutostart', { command: program }) };
+  if (!plans.length) {
+    // A known script that is gone cannot start anything: the service is broken, and only a reinstall restores the payload.
+    if (records.some((record) => record.autostart === true) && records.every((record) => record.bin)) {
+      return { id: 'autostart', status: 'failed', label, detail: ui.text('doctorAutostartScriptGone'),
+        fix: ui.text('doctorFixInstall', { command: program }) };
+    }
+    return { id: 'autostart', status: 'skipped', label,
+      detail: ui.text('doctorAutostartUnknown'), fix: ui.text('doctorFixAutostart', { command: program }) };
+  }
   const asked = await attempt(async () => {
     for (const { plan } of plans) if (await readers.autostartPresent(plan)) return true;
     return false;

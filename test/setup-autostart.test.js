@@ -730,6 +730,7 @@ test('uninstall of one client removes the service when no surviving client has a
   f.clear();
   f.ran.length = 0;
   delete f.io.autostart; // the real lifecycle plans the autostart of the record
+  delete f.io.stopDaemon; // and the real stop removes the departing client's service
   const code = await main(['uninstall', '--client', 'claude-code'], f.io);
   assert.equal(code, exitCodeFor('ok'), f.output.join('\n'));
   // The departing client is gone, the survivor stays, and the service did not stay pointing at the deleted payload.
@@ -737,6 +738,9 @@ test('uninstall of one client removes the service when no surviving client has a
   await fs.access(f.records.codex.path);
   assert.ok(f.ran.some((command) => /systemctl|crontab|launchctl|schtasks/.test(command.command ?? command[0] ?? '')), JSON.stringify(f.ran));
   assert.equal(f.ran.some((command) => JSON.stringify(command).includes(f.records.codex.path)), false, JSON.stringify(f.ran));
+  // The service is removed once: the stop already took it away, and a second removal fails on a manager that errors on a missing one.
+  const removals = f.ran.filter((command) => JSON.stringify(command).includes('disable'));
+  assert.equal(removals.length, 1, JSON.stringify(f.ran));
 });
 
 test('uninstall does not hide a failure of the service itself while handing it to a surviving client', async (t) => {
@@ -855,12 +859,34 @@ for (const binSource of ['record', 'package']) {
       } });
       const row = result.rows.find((row) => row.id === 'autostart');
       assert.deepEqual(plans, []);
-      assert.equal(row.status, 'skipped');
-      assert.equal(row.detail, ui.text('doctorAutostartUnknown'));
       assert.equal(row.fix.includes('daemon start'), false);
+      if (binSource === 'record') {
+        // The script is known and gone: the service cannot start, so the row fails and the Fix restores the payload.
+        assert.equal(row.status, 'failed');
+        assert.equal(row.detail, ui.text('doctorAutostartScriptGone'));
+        assert.match(row.fix, /install$/);
+        assert.equal(result.rows.some((item) => item.status === 'failed'), true);
+      } else {
+        assert.equal(row.status, 'skipped');
+        assert.equal(row.detail, ui.text('doctorAutostartUnknown'));
+      }
     });
   }
 }
+
+test('doctor does not fail the autostart of an installation that never enabled it when its script is gone', async (t) => {
+  const f = await world(t, { installed: true });
+  const record = { ...f.records.codex, autostart: false };
+  await fs.unlink(join(record.path, record.bin));
+  const { diagnose } = await import('../src/doctor/diagnose.js');
+  const { createPresenter } = await import('../src/install/present.js');
+  const ui = createPresenter({ locale: 'en', write: () => {} });
+  const result = await diagnose({ ...f.io, records: [record], ui, readers: {
+    selfCheck: async () => [], mcpEntry: async () => ({ state: 'registered' }), servers: async () => [],
+    daemon: async () => ({ running: true }), autostartPresent: async () => false,
+  } });
+  assert.equal(result.rows.find((row) => row.id === 'autostart').status, 'skipped');
+});
 
 test('setup resolves a legacy record without path to the retained version payload', async (t) => {
   const f = await world(t);

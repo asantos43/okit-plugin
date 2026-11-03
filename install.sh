@@ -331,6 +331,7 @@ const TEXTS = Object.freeze({
   doctorAutostart: { en: 'Autostart', 'pt-BR': 'Início automático' },
   doctorAutostartOk: { en: 'the daemon starts with the machine', 'pt-BR': 'o daemon começa com a máquina' },
   doctorAutostartUnknown: { en: 'the installed daemon script could not be identified', 'pt-BR': 'não foi possível identificar o script do daemon instalado' },
+  doctorAutostartScriptGone: { en: 'the daemon was set to start with the machine, but the installed daemon script is missing or empty', 'pt-BR': 'o daemon deveria começar com a máquina, mas o script do daemon instalado não existe ou está vazio' },
   doctorAutostartMissing: { en: 'the daemon was set to start with the machine, but it is not set up', 'pt-BR': 'o daemon deveria começar com a máquina, mas não está configurado' },
   doctorFixAutostart: { en: 'Set it up: the setup offers the autostart step and installs it when the answer is yes: {command} setup', 'pt-BR': 'Configure: o setup oferece o passo de inicialização automática e o instala quando a resposta for sim: {command} setup' },
   doctorAutostartOptional: { en: 'optional: {command} setup offers it', 'pt-BR': 'opcional: {command} setup oferece isso' },
