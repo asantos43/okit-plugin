@@ -704,6 +704,22 @@ test('an installation whose daemon script cannot be identified does not run an a
   assert.match(f.output.join('\n'), /could not be identified/);
 });
 
+for (const damage of ['deleted', 'empty']) {
+  test(`uninstall removes the service of an installation whose daemon script is ${damage}`, async (t) => {
+    const f = await world(t, { clients: ['codex'], installed: true });
+    const record = { ...f.records.codex, autostart: true, link: false };
+    const script = join(record.path, record.bin);
+    if (damage === 'deleted') await fs.rm(script); else await fs.writeFile(script, '');
+    await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', record.client)), JSON.stringify(record));
+    f.clear();
+    f.ran.length = 0;
+    delete f.io.autostart; // the real lifecycle plans the autostart of the record
+    const code = await main(['uninstall', '--client', 'codex'], f.io);
+    assert.equal(code, exitCodeFor('ok'), f.output.join('\n'));
+    assert.ok(f.ran.some((command) => /systemctl|crontab|launchctl|schtasks/.test(command.command ?? command[0] ?? '')), JSON.stringify(f.ran));
+  });
+}
+
 for (const metadata of ['malformed', 'missing']) {
   for (const locale of ['en', 'pt-BR']) {
     test(`unknown legacy bin with ${metadata} metadata preserves the service (${locale})`, async (t) => {

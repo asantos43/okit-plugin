@@ -1,3 +1,5 @@
 Harden setup autostart across client records, verify login readiness and exact cron commands, and localize failures while preserving rollback. / Reforça a inicialização automática no setup para todos os registros de clientes, verifica o início no login e comandos cron exatos, e traduz falhas preservando a restauração.
 
 Resolve relative repair launchers and legacy setup records, require executable Node files and nonempty daemon scripts. / Resolve launchers relativos e registros legados no setup, exige arquivos Node executáveis e scripts do daemon não vazios.
+
+Uninstall and update still remove the service when its daemon script is gone. / Desinstalar e atualizar ainda removem o serviço quando o script do daemon sumiu.

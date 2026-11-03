@@ -30,7 +30,7 @@ export async function usableNode(node, platform = process.platform, access = fil
 }
 
 /** Resolve legacy records using the same package bin key as the installer, through a read-only seam. */
-export async function installationScript(record, { readText, command }) {
+export async function installationScript(record, { readText, command, verify = true }) {
   let bin = record.bin;
   if (!bin && record.path) {
     try {
@@ -40,6 +40,8 @@ export async function installationScript(record, { readText, command }) {
   }
   if (!record.path || typeof bin !== 'string' || !bin) return null;
   const script = join(record.path, bin);
+  // Removing a service needs only to name it: a deleted payload must not keep the service alive.
+  if (!verify) return script;
   try { return (await readText(script))?.trim() ? script : null; } catch { return null; }
 }
 

@@ -324,8 +324,8 @@ async function daemonCommand(ctx, action, args) {
   return exitCodeFor('ok');
 }
 
-async function installationAutostartPlan(ctx, io, record) {
-  const script = await installationScript(record, { readText: (path) => ctx.fs.readFile(path, 'utf8'), command: ctx.command });
+async function installationAutostartPlan(ctx, io, record, verify = true) {
+  const script = await installationScript(record, { readText: (path) => ctx.fs.readFile(path, 'utf8'), command: ctx.command, verify });
   if (!script) return null;
   return autostartPlan(detectAutostart(ctx.platform), {
     root: ctx.root, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE,
@@ -335,7 +335,7 @@ async function installationAutostartPlan(ctx, io, record) {
 
 function installerLifecycle(ctx, io) {
   const autostart = io.autostart ?? (async (record, action) => {
-    const plan = await installationAutostartPlan(ctx, io, record);
+    const plan = await installationAutostartPlan(ctx, io, record, action !== 'uninstall');
     if (!plan) throw new OperationalError('the installed daemon script could not be identified');
     return applyAutostart(plan, { run: ctx.run, write: ctx.write, action });
   });
