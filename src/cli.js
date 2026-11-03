@@ -232,9 +232,11 @@ async function presentInstaller(group, flags, ctx, io, stored) {
   // The program as this terminal starts it is known before the run: the lines the installer prints while it works name it too.
   const program = await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs }).catch(() => config.command);
   // A new terminal finds the command only when its folder is on the PATH or the installer put it there.
-  const reachable = (manages) => commandReachable({ config, env: ctx.env, platform: ctx.platform, bin, fs: ctx.fs, destination, manages }).catch(() => false);
+  // The folder of the link is the one an installation recorded (as the installer and the doctor read it), else the configured one.
+  const reachable = (manages, records) => commandReachable({ config, env: ctx.env, platform: ctx.platform, fs: ctx.fs, destination, manages,
+    bin: Object.values(records).find((record) => record?.linkDirectory)?.linkDirectory ?? bin }).catch(() => false);
   const manages = group === 'install' && !flags.includes('--no-path');
-  const linked = (group === 'install' ? !options['no-link'] : Object.values(before).some((record) => record?.link)) && await reachable(manages);
+  const linked = (group === 'install' ? !options['no-link'] : Object.values(before).some((record) => record?.link)) && await reachable(manages, before);
   const view = createInstallerView({ operation: group, command: config.command, locale: ctx.locale,
     write: ctx.out, verbose: flags.includes('--verbose'), hide: [io.tmpdir ?? tmpdir()],
     launch: { program, platform: ctx.platform, linked, dest: options.dest } });
@@ -245,7 +247,7 @@ async function presentInstaller(group, flags, ctx, io, stored) {
   // only when its folder is on the PATH, or the installer wrote it there.
   const remaining = await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs,
     remaining: Object.values(after).map((record) => record?.path).filter(Boolean) }).catch(() => program);
-  const pathReady = await reachable(manages);
+  const pathReady = await reachable(manages, after);
   view.finish({ code, before, after, client: options.client,
     dryRun: flags.includes('--dry-run'), purge: flags.includes('--purge'), checkOnly: flags.includes('--check'),
     flags, program: remaining, platform: ctx.platform, destination, pathReady });

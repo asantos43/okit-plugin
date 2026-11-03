@@ -651,3 +651,20 @@ test('D112 round 8, 4: the Fix of the self-check, run from the copy the release 
   assert.doesNotMatch(text, /okit-bootstrap/, text);
   assert.ok(f.output.some((line) => line.includes('Fix:') && line.includes('install')), text);
 });
+
+// Round 9.
+test('D112 round 9, 1: reachability follows the link folder an installation recorded, not the one the configuration names now', async (t) => {
+  const f = await fixture(t, 'linux');
+  f.io.env.PATH = '/usr/bin';
+  assert.equal(await main(['install', '--client', 'codex', '--no-path'], f.io), 0, f.output.join('\n'));
+  // The configuration now points at a folder that is on the PATH; the installation kept its own link folder, which is not.
+  const other = join(f.root, 'other-bin');
+  await filesystem.mkdir(other, { recursive: true });
+  f.io.env.PATH = `/usr/bin:${other}`;
+  await filesystem.writeFile(join(f.root, 'config.json'), JSON.stringify({ install: { ...f.io.config, linkDirectory: other } }));
+  f.clear();
+  await main(['update', '--check', '--client', 'codex'], f.io);
+  const text = f.output.join('\n');
+  assert.doesNotMatch(text, /(^|[\s'"])okit-plugin (update|doctor|setup)/m, text);
+  assert.ok(text.includes(RUNNING), text);
+});
