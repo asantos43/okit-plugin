@@ -8,3 +8,5 @@ The doctor reports the autostart as failed, with a reinstall Fix, when the recor
 The doctor resolves legacy records against the folder they were found in, including the installation that is running. / O doctor resolve registros legados na pasta em que foram encontrados, inclusive a instalação em execução.
 
 The running installation is found from a legacy record that names no folder (the folder it is placed in is `<destination>/<version>-<client>`). / A instalação em execução é encontrada a partir de um registro legado que não nomeia pasta (a pasta em que ela fica é `<destination>/<version>-<client>`).
+
+An empty destination in a record names no folder, in the discovery as everywhere else. / Um destination vazio em um registro não nomeia pasta, na descoberta como em todo o resto.

@@ -955,6 +955,12 @@ test('discovery finds the running installation from a legacy record that names n
   const found = await discoverRecords('/nowhere/else', { fs: runtimeFs, config, lenient: true, running });
   assert.equal(found.destination, runtimeFolder);
   assert.deepEqual(Object.keys(found.records), ['codex']);
+  const emptyFs = { readFile: async (file) => {
+    if (file === join(runtimeFolder, 'install.json')) return JSON.stringify({ client: 'codex', version: '1.0.0', destination: '' });
+    throw Object.assign(new Error('not there'), { code: 'ENOENT' });
+  } };
+  // An empty destination names nothing: the folder the records were read from is the one.
+  assert.equal((await discoverRecords('/nowhere/else', { fs: emptyFs, config, lenient: true, running })).destination, runtimeFolder);
   const other = await discoverRecords('/nowhere/else', { fs: runtimeFs, config, lenient: true, running: join(runtimeFolder, '2.0.0-codex') });
   assert.deepEqual(Object.keys(other.records), []);
 });

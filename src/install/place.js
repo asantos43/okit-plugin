@@ -1,6 +1,6 @@
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { installationOf, missingFile } from './where.js';
+import { destinationOf, installationOf, missingFile } from './where.js';
 import { extract } from './extract.js';
 import { installConfig, renderName } from './config.js';
 import { OperationalError, UsageError } from './exit.js';
@@ -155,7 +155,7 @@ export async function discoverRecords(destination, { fs, config = installConfig(
   // Every record that could not be read is named: the one of the destination and the one of the installation
   // that is running. A legacy record names no destination: the folder its records were read from is the one.
   return { records: runtime.records, invalid: [...found.invalid, ...runtime.invalid],
-    destination: installed.destination ?? runtimeFolder };
+    destination: destinationOf(installed, runtimeFolder) };
 }
 
 // Include the legacy file: saving a modern record can remove it.
