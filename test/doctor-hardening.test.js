@@ -76,7 +76,7 @@ test('the Fix of the autostart names the daemon with the absolute node of the pl
     root: '/state', config: installConfig(), records: [record], ui, command: 'okit-plugin', platform: 'linux',
     env: { HOME: '/home' }, home: '/home', run: async () => ({ code: 0, stdout: '' }), now: () => Date.now(),
     readers: {
-      nodeVersion: () => 'v22.0.0', readText: async () => { throw Object.assign(new Error('no file'), { code: 'ENOENT' }); },
+      nodeVersion: () => 'v22.0.0', readText: async (file) => { if (file.endsWith('/' + CLI)) return '// installed CLI'; throw Object.assign(new Error('no file'), { code: 'ENOENT' }); },
       servers: async () => [], callRead: async () => ({ ok: true }), daemon: async () => ({ running: true }),
       autostartPresent: async () => false, selfCheck: async () => [], mcpEntry: async () => ({ state: 'registered' }),
     },
@@ -100,7 +100,7 @@ test('the autostart is there when the service holds the command of any record, n
     root: '/state', config: installConfig(), records: [first, second], ui, command: 'okit-plugin', platform: 'linux',
     env: { HOME: '/home' }, home: '/home', run: async () => ({ code: 0, stdout: '' }), now: () => Date.now(),
     readers: {
-      nodeVersion: () => 'v22.0.0', readText: async () => { throw Object.assign(new Error('no file'), { code: 'ENOENT' }); },
+      nodeVersion: () => 'v22.0.0', readText: async (file) => { if (file.endsWith('/' + CLI)) return '// installed CLI'; throw Object.assign(new Error('no file'), { code: 'ENOENT' }); },
       servers: async () => [], callRead: async () => ({ ok: true }), daemon: async () => ({ running: true }),
       // Only the service of the second record's payload is installed.
       autostartPresent: async (plan) => { asked.push(plan.content); return plan.content.includes('1.0.0-codex'); },

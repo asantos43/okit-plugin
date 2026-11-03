@@ -438,3 +438,28 @@ test('only the package default stays bare; a builtin name uses the found file', 
   const standard = await world({ command: installConfig().command });
   assert.equal(rowOf(await diagnose(standard.input), 'install').fix, `Install it: ${installConfig().command} install`);
 });
+
+test('a relative PATH entry yields an absolute Fix that runs the printf launcher', { skip: process.platform === 'win32' }, async (t) => {
+  const folder = await fs.mkdtemp(join(tmpdir(), 'relative-launcher-'));
+  const previous = process.cwd();
+  t.after(async () => { process.chdir(previous); await fs.rm(folder, { recursive: true, force: true }); });
+  await fs.writeFile(join(folder, 'printf'), '#!/bin/sh\n/usr/bin/printf "relative-launcher:%s" "$1"\n', { mode: 0o755 });
+  await fs.symlink(process.execPath, join(folder, 'node'));
+  process.chdir(folder);
+  const { input } = await world({ command: 'printf' });
+  const row = rowOf(await diagnose({ ...input, fs, env: { PATH: '.' } }), 'install');
+  const line = row.fix.slice('Install it: '.length);
+  assert.equal(line, shown([join(folder, 'printf'), 'install'], 'linux'));
+  assert.deepEqual(argvOf(line), [join(folder, 'printf'), 'install']);
+  assert.equal(execFileSync('sh', ['-c', line], { encoding: 'utf8' }), 'relative-launcher:install');
+});
+
+
+test('relative PATH repair programs are absolute even with an injected filesystem', async () => {
+  const { input } = await world({ command: 'printf' });
+  const fake = { access: async (file) => {
+    if (!['printf', 'node'].includes(file)) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+  } };
+  const row = rowOf(await diagnose({ ...input, fs: fake, env: { PATH: '.' } }), 'install');
+  assert.equal(row.fix, `Install it: ${shown([join(process.cwd(), 'printf'), 'install'], 'linux')}`);
+});

@@ -1,4 +1,4 @@
-import { delimiter, join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import * as filesystem from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_CONFIG } from '../profiles.js';
@@ -117,6 +117,6 @@ export async function programWords({ config, platform, env, fs = filesystem }) {
   // A PATH that cannot be probed (an unreadable folder, a loop of links) proves nothing: the running CLI is the program.
   const found = await commandInPath({ fs, config, windows, path: path ?? '', separator: windows ? ';' : delimiter }).catch(() => undefined);
   const node = await commandInPath({ fs, config: { ...config, command: 'node' }, windows, path: path ?? '', separator: windows ? ';' : delimiter }).catch(() => undefined);
-  if (found && node) return [config.command === DEFAULT_CONFIG.install.command ? config.command : found];
+  if (found && node) return [config.command === DEFAULT_CONFIG.install.command ? config.command : resolve(found)];
   return [process.execPath, fileURLToPath(new URL('../cli.js', import.meta.url))];
 }

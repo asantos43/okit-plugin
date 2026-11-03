@@ -3,7 +3,8 @@
 // remove it — so the autostart preview can print the whole plan before a single
 // command runs, and a test can assert it without touching the machine.
 
-import { access as fileAccess, mkdir, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access as fileAccess, stat as fileStat, mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, isAbsolute, win32 } from 'node:path';
 import process from 'node:process';
@@ -18,10 +19,14 @@ export function absoluteNode(node, platform = process.platform) {
     ? node : process.execPath;
 }
 
-/** A saved Node must still exist when the service plan is built. */
-export async function usableNode(node, platform = process.platform, access = fileAccess) {
+/** A saved Node must still be an executable file when the service plan is built. */
+export async function usableNode(node, platform = process.platform, access = fileAccess, stat = fileStat) {
   const absolute = absoluteNode(node, platform);
-  try { await access(absolute); return absolute; } catch { return process.execPath; }
+  try {
+    if (!(await stat(absolute)).isFile()) return process.execPath;
+    await access(absolute, platform === 'win32' ? constants.F_OK : constants.X_OK);
+    return absolute;
+  } catch { return process.execPath; }
 }
 
 /** Resolve legacy records using the same package bin key as the installer, through a read-only seam. */
@@ -33,7 +38,9 @@ export async function installationScript(record, { readText, command }) {
       bin = pkg.bin?.[command];
     } catch { /* No installed package metadata means there is no safe script candidate. */ }
   }
-  return record.path && typeof bin === 'string' && bin ? join(record.path, bin) : null;
+  if (!record.path || typeof bin !== 'string' || !bin) return null;
+  const script = join(record.path, bin);
+  try { return (await readText(script))?.trim() ? script : null; } catch { return null; }
 }
 
 export const AUTOSTART_KINDS = ['systemd', 'cron', 'launchd', 'schtasks'];

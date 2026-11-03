@@ -473,7 +473,7 @@ async function autostartRow({ readers, fs, records, root, home, command, program
   // The node of a plan of this machine: the one of the installation, or the node of this process (absolute: a bare
   // `node` would be resolved by the PATH of a shell nobody knows).
   const planOf = async (record) => {
-    const node = await usableNode(record.settings?.node, platform, (path) => fs.access(path));
+    const node = await usableNode(record.settings?.node, platform, (path, mode) => fs.access(path, mode), (path) => fs.stat(path));
     const script = await installationScript(record, { readText: readers.readText, command });
     if (!script) return null;
     return { node, script, plan: autostartPlan(detectAutostart(platform), { root, home, command, node, script }) };

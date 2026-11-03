@@ -49,7 +49,8 @@ const pattern = (value) => new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&
 async function world({ records = [RECORD], files = {}, readers = {}, locale = 'en', defaults = false } = {}) {
   const lines = [];
   const ui = createPresenter({ locale, write: (line) => lines.push(line) });
-  const all = new Map(Object.entries(files));
+  const all = new Map(records.filter((record) => record.path && record.bin).map((record) => [join(record.path, record.bin), '// installed CLI']));
+  for (const [file, text] of Object.entries(files)) all.set(file, text);
   if (!all.has(PACKAGE_FILE)) all.set(PACKAGE_FILE, await fs.readFile(PACKAGE_FILE, 'utf8'));
   const readText = async (file) => {
     if (all.has(file)) return all.get(file);
@@ -74,10 +75,10 @@ async function world({ records = [RECORD], files = {}, readers = {}, locale = 'e
     platform: 'linux',
     env: { HOME: '/home', PATH: '/proven-bin' },
     home: '/home',
-    fs: { readFile: async (file, ...rest) => fs.readFile(file, ...rest), access: async (file, mode) => ['/proven-bin/okit-plugin', '/proven-bin/node'].includes(file) ? undefined : fs.access(file, mode) },
+    fs: { stat: (file) => ['/proven-bin/okit-plugin', '/proven-bin/node'].includes(file) ? Promise.resolve({ isFile: () => true }) : fs.stat(file), readFile: async (file, ...rest) => fs.readFile(file, ...rest), access: async (file, mode) => ['/proven-bin/okit-plugin', '/proven-bin/node'].includes(file) ? undefined : fs.access(file, mode) },
     run: async () => ({ code: 0, stdout: '' }),
     now: () => Date.now(),
-    readers: defaults ? { ...readers } : { ...fake, ...readers },
+    readers: defaults ? { readText, ...readers } : { ...fake, ...readers },
   };
   return { input, lines, files: all };
 }
@@ -96,8 +97,9 @@ const planOf = (kind) => autostartPlan(kind, {
 
 /** A file system that answers with the files of the map and with the real disk for everything else. */
 const fsOf = (files) => ({
+  stat: (file) => fs.stat(file),
   readFile: async (file, ...rest) => (files.has(file) ? files.get(file) : fs.readFile(file, ...rest)),
-  access: async (file) => (files.has(file) ? undefined : fs.access(file)),
+  access: async (file, mode) => (files.has(file) ? undefined : fs.access(file, mode)),
 });
 
 /** The readers of the world, except the one of the autostart: the real one is the one under test. */

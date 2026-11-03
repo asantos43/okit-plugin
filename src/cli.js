@@ -329,7 +329,7 @@ async function installationAutostartPlan(ctx, io, record) {
   if (!script) return null;
   return autostartPlan(detectAutostart(ctx.platform), {
     root: ctx.root, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE,
-    node: await usableNode(record.settings?.node, ctx.platform, (path) => ctx.fs.access(path)), script, command: ctx.command,
+    node: await usableNode(record.settings?.node, ctx.platform, (path, mode) => ctx.fs.access(path, mode), (path) => ctx.fs.stat(path)), script, command: ctx.command,
   });
 }
 

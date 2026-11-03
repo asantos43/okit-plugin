@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { applyAutostart, autostartExists, autostartPresent } from '../autostart.js';
+import { resolvedRecord } from '../install/where.js';
 import { installPaths } from '../install/config.js';
 import { exitCodeFor } from '../install/exit.js';
 import { discoverRecords, readRecords, saveAutostartRecords, snapshotRecords, restoreRecords } from '../install/place.js';
@@ -48,7 +49,7 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
     const candidates = [];
     for (const record of records) {
       try {
-        const candidate = await plan(record);
+        const candidate = await plan(resolvedRecord(record, destination));
         if (candidate) candidates.push(candidate);
       } catch { /* An old record still counts below, but cannot supply a plan. */ }
     }

@@ -101,7 +101,7 @@ for (const answer of ['y', 'Y', ' y ', 'yes', 's']) {
 test('accepted plan uses the node executable from the installation record', async (t) => {
   const f = await world(t);
   const savedNode = join(f.home, 'custom-node');
-  await fs.writeFile(savedNode, '// retained Node');
+  await fs.writeFile(savedNode, '// retained Node', { mode: 0o755 });
   const record = { ...f.records.codex, settings: { ...f.records.codex.settings, node: savedNode } };
   await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', record.client)), JSON.stringify(record));
   const before = await snapshot(f);
@@ -639,6 +639,7 @@ test('setup and doctor use the installed package bin and absolute node for a leg
   const record = { ...f.records.codex, settings: { node: 'node' } };
   delete record.bin;
   await fs.writeFile(join(record.path, 'package.json'), JSON.stringify({ bin: { [f.io.config.command]: 'legacy-cli.js' } }));
+  await fs.writeFile(join(record.path, 'legacy-cli.js'), '// installed CLI');
   await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', record.client)), JSON.stringify(record));
   f.io.ask = async () => 'yes';
   assert.equal(await main(['setup'], f.io), exitCodeFor('ok'), JSON.stringify(f.output));
@@ -747,16 +748,18 @@ for (const metadata of ['malformed', 'missing']) {
   }
 }
 
-for (const removed of [false, true]) {
-  test(`saved Node ${removed ? 'removed falls back to running Node' : 'existing stays in setup and doctor plans'}`, async (t) => {
+for (const state of ['executable', 'removed', 'directory', 'nonexecutable']) {
+  test(`saved Node ${state} in setup and doctor plans`, { skip: state === 'nonexecutable' && process.platform === 'win32' }, async (t) => {
     const f = await world(t);
     const savedNode = join(f.home, 'saved-node');
-    await fs.writeFile(savedNode, '// saved executable');
-    if (removed) await fs.unlink(savedNode);
+    await fs.writeFile(savedNode, '// saved executable', { mode: 0o755 });
+    if (state === 'removed' || state === 'directory') await fs.unlink(savedNode);
+    if (state === 'directory') await fs.mkdir(savedNode);
+    if (state === 'nonexecutable') await fs.chmod(savedNode, 0o644);
     const record = { ...f.records.codex, settings: { ...f.records.codex.settings, node: savedNode } };
     await fs.writeFile(join(f.destination, 'install.codex.json'), JSON.stringify(record));
     f.io.ask = async () => 'yes';
-    const node = removed ? process.execPath : savedNode;
+    const node = state === 'executable' ? savedNode : process.execPath;
     const script = join(record.path, record.bin);
     const expected = autostartPlan('systemd', { root: f.root, home: f.home, node, script, command: f.io.config.command });
     assert.equal(await main(['setup'], f.io), exitCodeFor('ok'));
@@ -776,3 +779,51 @@ for (const removed of [false, true]) {
     assert.ok(row.fix.includes(shown([node, script, 'daemon', 'start'], 'linux')), row.fix);
   });
 }
+
+for (const binSource of ['record', 'package']) {
+  for (const scriptState of ['missing', 'empty']) {
+    test(`setup and doctor reject ${scriptState} installed script from ${binSource}`, async (t) => {
+      const f = await world(t, { installed: true });
+      const record = { ...f.records.codex };
+      const script = join(record.path, record.bin);
+      if (binSource === 'package') delete record.bin;
+      await fs.writeFile(join(f.destination, 'install.codex.json'), JSON.stringify(record));
+      if (scriptState === 'missing') await fs.unlink(script);
+      else await fs.writeFile(script, '');
+      f.io.ask = async () => { throw new Error('must not ask without a plan'); };
+      const errors = [];
+      f.io.stderr = (line) => errors.push(line);
+      assert.equal(await main(['setup'], f.io), exitCodeFor('operational'));
+      assert.deepEqual(errors, ['Could not install autostart: no installation can supply an autostart plan']);
+      assert.deepEqual(f.written, []);
+      assert.deepEqual(f.ran, []);
+      const { diagnose } = await import('../src/doctor/diagnose.js');
+      const { createPresenter } = await import('../src/install/present.js');
+      const ui = createPresenter({ locale: 'en', write: () => {} });
+      const plans = [];
+      const result = await diagnose({ ...f.io, records: [record], ui, readers: {
+        selfCheck: async () => [], mcpEntry: async () => ({ state: 'registered' }), servers: async () => [],
+        daemon: async () => ({ running: true }), autostartPresent: async (plan) => { plans.push(plan); return false; },
+      } });
+      const row = result.rows.find((row) => row.id === 'autostart');
+      assert.deepEqual(plans, []);
+      assert.equal(row.status, 'skipped');
+      assert.equal(row.detail, ui.text('doctorAutostartUnknown'));
+      assert.equal(row.fix.includes('daemon start'), false);
+    });
+  }
+}
+
+test('setup resolves a legacy record without path to the retained version payload', async (t) => {
+  const f = await world(t);
+  const record = { ...f.records.codex };
+  delete record.path;
+  delete record.bin;
+  delete record.destination;
+  await fs.unlink(join(f.destination, 'install.codex.json'));
+  await fs.writeFile(join(f.destination, 'install.json'), JSON.stringify(record));
+  f.io.ask = async () => 'yes';
+  assert.equal(await main(['setup'], f.io), exitCodeFor('ok'));
+  assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
+  assert.deepEqual(f.ran, f.plan.install);
+});

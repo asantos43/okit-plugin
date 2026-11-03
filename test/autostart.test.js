@@ -304,3 +304,28 @@ test('legacy script recovery uses only the installed metadata', async () => {
     assert.deepEqual(reads, ['/payload/package.json']);
   }
 });
+
+test('usableNode passes platform access modes and checks the file through its seams', async () => {
+  const { constants } = await import('node:fs');
+  const { usableNode } = await import('../src/autostart.js');
+  for (const [platform, node, mode] of [['linux', '/saved/node', constants.X_OK], ['win32', 'C:/saved/node.exe', constants.F_OK]]) {
+    const calls = [];
+    assert.equal(await usableNode(node, platform, async (...args) => { calls.push(args); }, async (path) => {
+      assert.equal(path, node);
+      return { isFile: () => true };
+    }), node);
+    assert.deepEqual(calls, [[node, mode]]);
+  }
+});
+
+test('an installed script that is missing, empty or only whitespace is not a script', async () => {
+  const { installationScript } = await import('../src/autostart.js');
+  for (const content of ['', '  \n\t', undefined]) {
+    const script = await installationScript({ path: '/payload', bin: 'src/cli.js' }, { command: 'okit-plugin', readText: async () => {
+      if (content === undefined) throw Object.assign(new Error('gone'), { code: 'ENOENT' });
+      return content;
+    } });
+    assert.equal(script, null, JSON.stringify(content));
+  }
+  assert.equal(await installationScript({ path: '/payload', bin: 'src/cli.js' }, { command: 'okit-plugin', readText: async () => '// cli' }), join('/payload', 'src/cli.js'));
+});
