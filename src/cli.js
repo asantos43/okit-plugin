@@ -238,8 +238,9 @@ async function presentInstaller(group, flags, ctx, io, stored) {
   const after = await discoverRecords(destination, { fs: ctx.fs, config, lenient: true }).then((found) => found.records).catch(() => ({}));
   // An uninstall that takes the last client away can take the command off the PATH and the payload that holds this CLI
   // with it: what the output tells to type afterwards is worked out again from what is left.
-  const remaining = group === 'uninstall' && !Object.keys(after).length
-    ? await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs, afterRemoval: true }).catch(() => program) : program;
+  const remaining = group === 'uninstall'
+    ? await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs,
+      remaining: Object.values(after).map((record) => record?.path).filter(Boolean) }).catch(() => program) : program;
   view.finish({ code, before, after, client: options.client,
     dryRun: flags.includes('--dry-run'), purge: flags.includes('--purge'), checkOnly: flags.includes('--check'),
     flags, program: remaining, platform: ctx.platform, destination });

@@ -7,7 +7,8 @@ import { main } from '../src/cli.js';
 import { createInstallerView, createPresenter, presentDiagnosis, presentModelChoices, programLine, setupResultLines } from '../src/cli-present.js';
 import { offerSetup } from '../src/setup/offer.js';
 import { shown } from '../src/install/mcp-register.js';
-import { fixture } from './helpers/install-fixture.js';
+import { commandToken, resolveTokens } from '../src/install/command-token.js';
+import { answerCheck, fixture } from './helpers/install-fixture.js';
 
 // Each case is the regression of one finding of the independent critic: the outcome is told from the result of each
 // client and from the arguments of the run, never from the first error, a global flag or the header count.
@@ -462,7 +463,7 @@ for (const locale of LOCALES) test(`D112 round 4, 4: after the last client is re
 
   // When the running CLI was inside the payload that was deleted nothing runs any more (the bare command went with the link).
   const gone = { ...filesystem, access: async () => { throw Object.assign(new Error('gone'), { code: 'ENOENT' }); } };
-  const survivor = (files) => programLine({ config: f.io.config, platform: 'linux', env: { PATH: '' }, fs: files, afterRemoval: true });
+  const survivor = (files) => programLine({ config: f.io.config, platform: 'linux', env: { PATH: '' }, fs: files, remaining: [] });
   assert.equal(await survivor(gone), null);
   assert.equal(await survivor(filesystem), RUNNING);
 });
@@ -503,4 +504,45 @@ for (const locale of LOCALES) test(`D112 round 5, 3: the standalone setup names 
   await main(['setup', '--defaults'], f.io);
   const text = f.output.join('\n');
   assert.doesNotMatch(text, /(^|[ `'"])okit-plugin (setup|doctor)/m, text);
+});
+
+// Round 6.
+test('D112 round 6, 1: a program path with the control characters and the percent sign survives the token', () => {
+  const program = "'/opt/a\u0002b\u0003c%25d/node'";
+  const text = `Fix: ${commandToken(['install', '--client', 'codex'], { program })}.`;
+  const seen = [];
+  const resolved = resolveTokens(text, (words, options) => { seen.push({ words, options }); return `${options.program} ${words.join(' ')}`; });
+  assert.deepEqual(seen, [{ words: ['install', '--client', 'codex'], options: { later: false, program } }]);
+  assert.equal(resolved, `Fix: ${program} install --client codex.`);
+  const word = resolveTokens(commandToken(['a\u0002b', '100%']), (words) => words.join('|'));
+  assert.equal(word, 'a\u0002b|100%');
+});
+
+for (const locale of LOCALES) test(`D112 round 6, 2: after an uninstall the program is the CLI of an installation that is left: ${locale}`, async (t) => {
+  const f = await fixture(t, 'linux');
+  const staying = join(f.root, 'claude-payload');
+  await filesystem.mkdir(join(staying, 'src'), { recursive: true });
+  await filesystem.writeFile(join(staying, 'src/cli.js'), '// cli\n');
+  // The running CLI is the one that was just deleted with the payload of the departing client.
+  const files = { access: (path) => (path === CLI ? Promise.reject(Object.assign(new Error('gone'), { code: 'ENOENT' })) : filesystem.access(path)) };
+  const ask = (remaining) => programLine({ config: f.io.config, platform: 'linux', env: { PATH: '' }, fs: files, remaining });
+  assert.equal(await ask([staying]), shown([process.execPath, join(staying, 'src/cli.js')], 'linux'), locale);
+  assert.equal(await ask([join(f.root, 'missing-payload'), staying]), shown([process.execPath, join(staying, 'src/cli.js')], 'linux'));
+  assert.equal(await ask([join(f.root, 'missing-payload')]), null);
+  assert.equal(await ask([]), null);
+});
+
+for (const locale of LOCALES) test(`D112 round 6, 3: setup --defaults names every saved model and its work class: ${locale}`, async (t) => {
+  const pt = locale === 'pt-BR';
+  const f = await fixture(t, 'linux');
+  f.io.env.OKIT_LANGUAGE = locale;
+  f.io.adapters = [{ CLIENT: 'claude-code', listModels: async () => ({ client: 'claude-code', installed: true, models: ['haiku', 'sonnet', 'opus'], hidden: [], source: 'listing' }) }];
+  f.io.run = answerCheck;
+  assert.equal(await main(['setup', '--defaults'], f.io), 0, f.output.join('\n'));
+  const text = f.output.join('\n');
+  assert.ok(f.output.some((line) => line.includes(pt ? 'Trabalho | Modelo' : 'Work | Model')), text);
+  for (const model of ['haiku', 'sonnet', 'opus']) assert.ok(f.output.some((line) => line.startsWith('| ') && line.endsWith(`| ${model} |`)), `${model}\n${text}`);
+  for (const work of pt ? ['Tarefas pequenas', 'Tarefas do dia a dia', 'Tarefas complexas'] : ['Small tasks', 'Everyday tasks', 'Complex tasks']) {
+    assert.ok(f.output.some((line) => line.startsWith('| ') && line.includes(work)), `${work}\n${text}`);
+  }
 });

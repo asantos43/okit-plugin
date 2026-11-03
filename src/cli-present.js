@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 // Human CLI views are kept separate from the presenter embedded in release scripts.
 import { createPresenter as basePresenter, TEXTS as BASE_TEXTS, clientLabel as baseClientLabel,
   redactingWriter, localizeReason } from './install/present.js';
@@ -41,12 +42,20 @@ export function createPresenter(options = {}) {
 }
 
 /** The program as a person types it on this platform: the words the repairs of the doctor start with. */
-export async function programLine({ config, platform, env, fs, afterRemoval = false }) {
+export async function programLine({ config, platform, env, fs, remaining }) {
   const words = await programWords({ config, platform, env, fs });
-  // After an uninstall the running CLI can be inside the payload that was just deleted: a program that names a file
-  // that is gone cannot be typed again, and neither can the bare command (the link went with it): nothing is left (null),
-  // and the view points to the installer of the release.
-  if (afterRemoval && words.length > 1 && !await fs.access(words[1]).then(() => true, () => false)) return null;
+  // After an uninstall (`remaining`: the folders of the installations that are left) the running CLI can be inside the
+  // payload that was just deleted: a program that names a file that is gone cannot be typed again. The CLI of an
+  // installation that is left takes its place; with none, and no link, nothing is left (null) and the view points to the
+  // installer of the release.
+  const exists = (path) => fs.access(path).then(() => true, () => false);
+  if (remaining && words.length > 1 && !await exists(words[1])) {
+    for (const folder of remaining) {
+      const script = join(folder, 'src/cli.js');
+      if (await exists(script)) return shownCommand([words[0], script], platform);
+    }
+    return null;
+  }
   return shownCommand(words, platform);
 }
 /** Collect installer observations so the outcome can precede completed steps. */

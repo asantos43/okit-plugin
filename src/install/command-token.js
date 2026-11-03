@@ -7,13 +7,17 @@ import { randomBytes } from 'node:crypto';
 // cannot forge a token: it does not know the value.
 export const TOKEN_START = `\u0001${randomBytes(8).toString('hex')}`, TOKEN_SEP = '\u0002', TOKEN_END = '\u0003';
 const MODES = { later: 'l', now: 'n', program: 'p' };
+// A word of the command may hold the control characters (a program path the person chose): they are written as %XX, with
+// the percent sign itself, so a word never splits or ends the token.
+const escapeWord = (word) => String(word).replace(/[%\u0001\u0002\u0003]/g, (c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
+const unescapeWord = (word) => word.replace(/%(25|01|02|03)/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 
 /**
  * The token of a command: `later` is the command a new terminal finds, otherwise the program as it runs now. A writer that
  * has proven its own program (the self-check, on the PATH it ran with) gives it as `program`, already typed for the shell.
  */
 export const commandToken = (words = [], { later = false, program } = {}) =>
-  `${TOKEN_START}${program ? MODES.program : later ? MODES.later : MODES.now}${(program ? [program, ...words] : words).join(TOKEN_SEP)}${TOKEN_END}`;
+  `${TOKEN_START}${program ? MODES.program : later ? MODES.later : MODES.now}${(program ? [program, ...words] : words).map(escapeWord).join(TOKEN_SEP)}${TOKEN_END}`;
 
 /** Whether a text carries a command to type (a remedy), whoever wrote it. */
 export const hasCommand = (text) => String(text ?? '').includes(TOKEN_START);
@@ -22,7 +26,7 @@ export const hasCommand = (text) => String(text ?? '').includes(TOKEN_START);
 export const resolveTokens = (text, build) => String(text).replace(
   new RegExp(`${TOKEN_START}([lnp])([^${TOKEN_END}]*)${TOKEN_END}`, 'g'),
   (_, mode, words) => {
-    const list = words ? words.split(TOKEN_SEP) : [];
+    const list = words ? words.split(TOKEN_SEP).map(unescapeWord) : [];
     return mode === MODES.program ? build(list.slice(1), { later: false, program: list[0] }) : build(list, { later: mode === MODES.later });
   });
 

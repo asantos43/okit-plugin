@@ -804,6 +804,8 @@ export async function runSetup({
     }), 'usage');
   }
   const savedChanges = saved.applied;
+  // `--defaults` skips the confirmation, so the table that names every saved model and work class is shown once it is saved.
+  if (defaults && out && !ui && savedChanges.length) presentModelChoices({ locale, changes: savedChanges, command, out });
   const kept = saved.kept;
   const names = [...new Set(savedChanges.map((change) => change.client))];
   for (const client of new Set([...names, ...skipped.map((change) => change.client)])) {
