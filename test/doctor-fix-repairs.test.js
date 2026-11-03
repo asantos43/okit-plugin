@@ -182,6 +182,18 @@ test('the Fix of an installation whose payload is gone installs it again', async
   }, 'MCP registration');
 });
 
+test('the Fix of a damaged legacy installation that names no folder installs it again', async (t) => {
+  await repaired(t, async (f, io, path) => {
+    // The record names neither the folder of the installation nor the folder of the records, and the server is gone.
+    const file = join(f.destination, `install.${CLIENT}.json`);
+    const record = JSON.parse(await fs.readFile(file, 'utf8'));
+    delete record.path;
+    delete record.destination;
+    await fs.writeFile(file, JSON.stringify(record));
+    await fs.rm(join(path, SERVER));
+  }, 'MCP registration');
+});
+
 test('the Fix of an autostart that is not set up installs it again', async (t) => {
   // The installation that is running: the doctor and the `setup` of the command line build the same plan of the
   // autostart, so the file the Fix writes is the one the doctor looks for.

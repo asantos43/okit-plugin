@@ -71,7 +71,13 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
         break;
       }
     }
+    // The records with the folders resolved: a legacy record names none, and the uninstall needs them to identify the
+    // daemon script of the service.
+    const resolved = records.map((record) => resolvedRecord(record, destination));
     if (records.every((record) => record.autostart === true) && (ready || await alreadyThere(ctx, selected))) {
+      if (resolved.some((record, index) => record.path !== records[index].path || record.destination !== records[index].destination)) {
+        await saveAutostartRecords(destination, resolved, { fs: ctx.fs, config });
+      }
       ctx.out(text('autostartAlready'));
       return exitCodeFor('ok');
     }
@@ -91,9 +97,7 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
     const existed = await existedOnMachine(ctx, selected);
     await applyAutostart(selected, { run: ctx.run, write: ctx.write, action: 'install' });
     try {
-      // The records are saved with the folders the setup resolved: a legacy record without a path would otherwise keep
-      // the service on, with nothing for the uninstall to identify the daemon script by.
-      await saveAutostartRecords(destination, records.map((record) => resolvedRecord(record, destination)), { fs: ctx.fs, config });
+      await saveAutostartRecords(destination, resolved, { fs: ctx.fs, config });
     } catch (error) {
       let reason = localizeReason(error.message, locale);
       const unrestored = await restoreRecords(snapshot, ctx.fs);

@@ -10,3 +10,5 @@ The doctor resolves legacy records against the folder they were found in, includ
 The running installation is found from a legacy record that names no folder (the folder it is placed in is `<destination>/<version>-<client>`). / A instalação em execução é encontrada a partir de um registro legado que não nomeia pasta (a pasta em que ela fica é `<destination>/<version>-<client>`).
 
 An empty destination in a record names no folder, in the discovery as everywhere else. / Um destination vazio em um registro não nomeia pasta, na descoberta como em todo o resto.
+
+A legacy record that names no folder is resolved when the setup finds the service already installed and when the install replaces a damaged payload. / Um registro legado que não nomeia pasta é resolvido quando o setup encontra o serviço já instalado e quando a instalação substitui um payload danificado.

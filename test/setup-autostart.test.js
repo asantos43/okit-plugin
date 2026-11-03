@@ -964,3 +964,25 @@ test('discovery finds the running installation from a legacy record that names n
   const other = await discoverRecords('/nowhere/else', { fs: runtimeFs, config, lenient: true, running: join(runtimeFolder, '2.0.0-codex') });
   assert.deepEqual(Object.keys(other.records), []);
 });
+
+test('setup saves the resolved folders of a legacy record whose service is already installed', async (t) => {
+  const f = await world(t);
+  const record = { ...f.records.codex, autostart: true };
+  delete record.path;
+  delete record.destination;
+  await fs.unlink(join(f.destination, 'install.codex.json'));
+  await fs.writeFile(join(f.destination, 'install.json'), JSON.stringify(record));
+  await fs.mkdir(dirname(f.plan.path), { recursive: true });
+  await fs.writeFile(f.plan.path, f.plan.content);
+  assert.equal(await main(['setup'], f.io), exitCodeFor('ok'));
+  assert.deepEqual(stepLines(f), ['Autostart is already installed.']);
+  const saved = JSON.parse(await fs.readFile(join(f.destination, f.io.config.recordName.replace('{client}', 'codex')), 'utf8'));
+  assert.equal(saved.path, f.records.codex.path);
+  f.clear();
+  f.ran.length = 0;
+  delete f.io.autostart; // the real lifecycle plans the autostart of the record
+  delete f.io.stopDaemon;
+  const code = await main(['uninstall', '--client', 'codex'], f.io);
+  assert.equal(code, exitCodeFor('ok'), f.output.join('\n'));
+  assert.ok(f.ran.some((command) => JSON.stringify(command).includes('disable')), JSON.stringify(f.ran));
+});

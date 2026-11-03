@@ -1,6 +1,6 @@
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { destinationOf, installationOf, missingFile } from './where.js';
+import { destinationOf, installationOf, missingFile, resolvedRecord } from './where.js';
 import { extract } from './extract.js';
 import { installConfig, renderName } from './config.js';
 import { OperationalError, UsageError } from './exit.js';
@@ -261,7 +261,8 @@ export async function place(selected, downloaded, details, deps) {
   // The record of this client is read leniently: a record that cannot be read is no usable record, and the
   // installation of this client is written again (a clean install of it).
   const { records, invalid } = await readRecordsLenient(destination, fs, config);
-  const previous = records[details.client] ?? null;
+  // The record names its folder, or the installer's own folder for it is meant (a legacy record names none).
+  const previous = records[details.client] ? resolvedRecord(records[details.client], destination) : null;
   // The file of the record of this client is there, but the record cannot be read: the folder of this
   // installation is ours (the installer wrote it), so the clean install of this client writes it again.
   const unreadable = invalid.some((one) => one.file === recordPath(destination, details.client, config));
