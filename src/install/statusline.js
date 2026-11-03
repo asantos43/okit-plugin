@@ -5,6 +5,7 @@ import { clientRoot } from './config.js';
 import { quote } from './link.js';
 import { saveRecord } from './place.js';
 import { presenterOf } from './present.js';
+import { commandText } from './command-token.js';
 import { collectorArgsValid } from '../quota/statusline-collector.js';
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -119,7 +120,8 @@ export async function registerStatusline(record, flags, deps) {
   if (!appliesStatusline(record, flags, deps)) return null;
   const ui = presenterOf(deps);
   if (!flags.statusline && !record.statusline && !deps.tty) {
-    return { status: 'skipped', detail: ui.text('statuslineHow', { command: `${deps.config.command} install --client ${record.client} --statusline` }) };
+    const turnOn = commandText(ui, deps.config.command, ['install', '--client', record.client, '--statusline'], { later: true });
+    return { status: 'skipped', detail: ui.text('statuslineHow', { command: turnOn }) };
   }
   try {
     const plan = await planStatusline(record, deps);

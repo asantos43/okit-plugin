@@ -6,6 +6,7 @@ import process from 'node:process';
 
 import { readJson } from '../state.js';
 import { paths } from '../store.js';
+import { commandText } from '../install/command-token.js';
 import { setupPending, DEFAULT_CONFIG } from '../profiles.js';
 import { runSetup, setupResultLines, formatUnreadable, isReadableConfig, CONFIG_UNREADABLE } from './setup.js';
 
@@ -134,26 +135,29 @@ async function runOfferRow({
   write,
 } = {}) {
   const row = (status, detail) => ui.row(ui.text('models'), status, detail);
+  // The program the guides below start with: a token the installer view resolves, the plain command with no view.
+  const program = commandText(ui, command, [], { later: true });
   const stored = await readJson(paths(root).config, {});
   if (!isReadableConfig(stored)) {
-    row('skipped', formatUnreadable(ui.locale, command));
+    row('skipped', formatUnreadable(ui.locale, program));
     return { pending: true, offered: false, ran: false, failed: true };
   }
   if (!setupPending(stored)) return { pending: false, offered: false, ran: false };
   // Without a terminal there is nobody to answer, so the row says how to do it later.
   if (!tty || typeof ask !== 'function') {
-    row('info', ui.text('modelsPending', { command }));
+    row('info', ui.text('modelsPending', { command: program }));
     return { pending: true, offered: true, ran: false };
   }
   try {
-    const accepted = await ui.confirm(ask, { explain: [ui.text('modelsExplain', { command })], question: ui.text('modelsAsk'), defaultYes: true });
+    const accepted = await ui.confirm(ask, { explain: [ui.text('modelsExplain', { command: program })], question: ui.text('modelsAsk'), defaultYes: true });
     if (!accepted) {
-      row('skipped', ui.text('modelsDeclined', { command }));
+      row('skipped', ui.text('modelsDeclined', { command: program }));
       return { pending: true, offered: true, ran: false, declined: true };
     }
-    const result = await runSetup({ root, config: stored, env, run, ask, adapters, snapshot, write, command, ui });
+    const result = await runSetup({ root, config: stored, env, run, ask, adapters, snapshot, write, command: program, ui });
     if (ui.humanOutput) {
-      ui.explain(setupResultLines(result, ui.locale, command));
+      // An installation into a custom folder is somewhere the doctor does not look: no doctor line is offered for it.
+      ui.explain(setupResultLines(result, ui.locale, program, { doctor: !ui.customFolder }));
       if (result.changes.length) row('ok', ui.text('modelsSaved', { models: [...new Set(result.changes.map((change) => change.model))].join(', ') }));
       return { pending: true, offered: true, ran: true, code: result.code };
     }
@@ -163,7 +167,7 @@ async function runOfferRow({
     for (const message of result.messages.slice(result.cancelled || !models.length ? 1 : 0)) ui.note(message);
     return { pending: true, offered: true, ran: true, code: result.code };
   } catch (error) {
-    row('skipped', formatOffer('failed', ui.locale, { command, reason: error.message }));
+    row('skipped', formatOffer('failed', ui.locale, { command: program, reason: error.message }));
     return { pending: true, offered: true, ran: false, failed: true };
   }
 }
@@ -175,7 +179,7 @@ export async function offerSetup(input = {}) {
   try {
     return await (input.ui ? runOfferRow(input) : runOffer(input));
   } catch {
-    const message = formatOffer('unreadable', input.ui?.locale ?? locale, { command });
+    const message = formatOffer('unreadable', input.ui?.locale ?? locale, { command: commandText(input.ui, command, [], { later: true }) });
     if (input.ui) input.ui.row(input.ui.text('models'), 'skipped', message);
     else out(message);
     return { pending: true, offered: false, ran: false, failed: true };

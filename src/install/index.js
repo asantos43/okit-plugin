@@ -26,6 +26,7 @@ import { adapterQuotaReader } from '../env/quota.js';
 import { registerStatusline, appliesStatusline } from './statusline.js';
 import { verifyInstall } from './selfcheck.js';
 import { executionPolicyStep } from './policy.js';
+import { commandText } from './command-token.js';
 import { exitCodeFor, kindOf, LanguageError, UsageError } from './exit.js';
 
 const packageDirectory = fileURLToPath(new URL('../../', import.meta.url));
@@ -159,7 +160,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
               config: configOf(user), now: ctx.now }),
             write: ctx.writeConfig ?? ctx.write, command: deps.config.command }));
         } catch {
-          ui.warn(formatNotSaved(ui.locale, ctx.root, deps.config.command));
+          ui.warn(formatNotSaved(ui.locale, ctx.root, commandText(ui, deps.config.command, [], { later: true })));
         }
         await offerSetup({
           root: ctx.root,

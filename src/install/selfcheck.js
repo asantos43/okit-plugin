@@ -134,11 +134,15 @@ async function attempt(deps, spec) {
 const shellsOf = (deps) => deps.config.selfcheck.shells[deps.platform] ?? [];
 const shellNamed = (deps, name) => shellsOf(deps).find((shell) => shell.name === name);
 // The command the person runs again, written for the shell of the platform: every word a shell would read
-// differently is quoted, so a command or a client with a space in it is runnable as it is shown.
-const again = async (record, deps) => shown([
-  ...await programWords({ config: deps.config, platform: deps.platform, env: deps.env, fs: deps.fs }),
-  'install', '--client', record.client,
-], deps.platform);
+// differently is quoted, so a command or a client with a space in it is runnable as it is shown. In the installer's
+// output it is a token the view resolves (the program proven on the PATH of the check, else the running CLI, with the `--dest` of the run); without a
+// view (the doctor) it is written here from the program as this machine starts it.
+const again = async (record, deps) => {
+  const program = await programWords({ config: deps.config, platform: deps.platform, env: deps.env, fs: deps.fs });
+  return typeof deps.ui?.command === 'function'
+    ? deps.ui.command(['install', '--client', record.client], { program: shown(program, deps.platform) })
+    : shown([...program, 'install', '--client', record.client], deps.platform);
+};
 // A path, written for the shell of the platform (the same quoting of the commands).
 const asPath = (value, deps) => (value === undefined || value === null || value === '' ? '' : quotedWord(String(value), deps.platform));
 

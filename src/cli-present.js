@@ -4,6 +4,7 @@ import { createPresenter as basePresenter, TEXTS as BASE_TEXTS, clientLabel as b
 import { quotedWord, shown as shownCommand } from './install/mcp-register.js';
 import { programWords } from './install/where.js';
 import { flagsOf } from './install/flags.js';
+import { commandToken, hasCommand, resolveTokens } from './install/command-token.js';
 export * from './install/present.js';
 
 export const TEXTS = Object.freeze({ ...BASE_TEXTS,
@@ -40,7 +41,13 @@ export function createPresenter(options = {}) {
 }
 
 /** The program as a person types it on this platform: the words the repairs of the doctor start with. */
-export const programLine = async ({ config, platform, env, fs }) => shownCommand(await programWords({ config, platform, env, fs }), platform);
+export async function programLine({ config, platform, env, fs, bare }) {
+  const words = await programWords({ config, platform, env, fs });
+  // After an uninstall the running CLI can be inside the payload that was just deleted: a program that names a file
+  // that is gone cannot be typed again, so the one that survives is the bare command, as the bootstrap installer has it.
+  if (bare && words.length > 1 && !await fs.access(words[1]).then(() => true, () => false)) return shownCommand([bare], platform);
+  return shownCommand(words, platform);
+}
 /** Collect installer observations so the outcome can precede completed steps. */
 export function createInstallerView({ operation, command, locale, write, verbose = false, hide = [], launch: start = {} }) {
   const notes = [];
@@ -56,20 +63,24 @@ export function createInstallerView({ operation, command, locale, write, verbose
   // the folder an install was told to use. Lines raised by other modules name the plain command: `resolve` rewrites them.
   const launch = { program: command, platform: process.platform, linked: false, dest: undefined, ...start };
   const launcher = (later) => (later && launch.linked ? shownCommand([command], launch.platform) : launch.program);
-  const type = (words, { later = false } = {}) => {
+  const type = (words, { later = false, program } = {}) => {
     const list = operation === 'install' && launch.dest && words[0] === 'install' && !words.includes('--dest')
       ? [words[0], '--dest', launch.dest, ...words.slice(1)] : words;
-    return `${launcher(later)} ${list.map((word) => quotedWord(word, launch.platform)).join(' ')}`;
+    return `${program ?? launcher(later)} ${list.map((word) => quotedWord(word, launch.platform)).join(' ')}`;
   };
-  const escaped = command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const embedded = new RegExp(`(?<![\\w./\\\\-])${escaped} (setup|install|doctor|update|uninstall)(?![\\w-])`, 'g');
-  const resolve = (line) => String(line).replace(embedded, (_, verb) => type([verb], { later: true }));
+  // Other modules write a command into their text as a token (`ui.command`); `resolve` swaps each token for what `type`
+  // builds and touches nothing else, so a path or a message that happens to hold a command name stays as it is. A token
+  // with no words is the program alone, for the texts that carry their own verb (`{command} setup`).
+  const resolve = (line) => resolveTokens(line, (words, { later, program }) => (words.length ? type(words, { later, program }) : program ?? launcher(later)));
   let menu = false, titled = false, pathHint, modelsConfirmed = false;
   const title = () => { if (titled) return; titled = true; emit(`${command} — ${pt
     ? { install: 'Instalação', update: 'Atualização', uninstall: 'Desinstalação' }[operation]
     : { install: 'Install', update: 'Update', uninstall: 'Uninstall' }[operation]}`); };
   const original = { ...ui };
   ui.humanOutput = true;
+  ui.command = (words = [], { later = false, program } = {}) => commandToken(words, { later, program });
+  // An install into a custom folder: the doctor reads no folder of its own, so no text offers one (see `finish`).
+  ui.customFolder = operation === 'install' && Boolean(launch.dest);
   ui.header = (values) => {
     activeClient = normalizeClientLabel(values.client);
     headers.push({ ...values, client: activeClient });
@@ -279,8 +290,9 @@ export function createInstallerView({ operation, command, locale, write, verbose
   function renderSteps(say, { completed = false } = {}) {
     const multiple = new Set(steps.map((step) => step.client)).size > 1;
     for (const [index, step] of steps.entries()) {
-      // After a failure only the steps that were done are told: the one that failed is the cause the output already gives.
-      if (completed && step.status !== 'ok') continue;
+      // After a failure only the steps that were done are told, and a step that was skipped with a remedy (the quota
+      // recording that is off and how to turn it on): the one that failed is the cause the output already gives.
+      if (completed && step.status !== 'ok' && !(step.status === 'skipped' && hasCommand(step.detail))) continue;
       const name = step.key === 'register' ? `${pt ? 'Conectar' : 'Connect'} ${step.client}` : step.label;
       const complete = step.status === 'ok' && step.detail !== ui.text('registerMarketplaceManual');
       const result = complete ? (pt ? 'concluído' : 'complete') : resolve(step.detail || (step.status === 'plan' ? ui.text('stepPlanned') : ''));
@@ -358,7 +370,11 @@ export function workLabel(name, locale) {
   return labels[name] ?? name;
 }
 
-export function setupResultLines(result, locale, command) {
+/**
+ * `command` is the program the follow-ups start with. `doctor: false` leaves out every doctor line: an installation into a
+ * custom folder is somewhere the doctor does not look (it reads the folder of the settings and takes no folder of its own).
+ */
+export function setupResultLines(result, locale, command, { doctor = true } = {}) {
   const pt = locale === 'pt-BR';
   if (result.cancelled) return [pt ? 'Cancelado. Nada foi salvo.' : 'Cancelled. Nothing was saved.',
     pt ? `Tente novamente quando quiser: ${command} setup` : `Try again when ready: ${command} setup`];
@@ -396,9 +412,11 @@ export function setupResultLines(result, locale, command) {
         : `No model choices were saved${unmatched ? ` for ${unmatched}` : ''}: the active models did not match the recommended choices.`);
     }
     lines.push(...advice);
-    if (result.changes.length) lines.push(`${pt ? 'Próximo' : 'Next'}: ${check}`);
-    else if (result.skipped.length) lines.push(`${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`,
-      `${pt ? 'Altere os modelos' : 'Change models'}: ${command} setup --again`);
+    if (result.changes.length) { if (doctor) lines.push(`${pt ? 'Próximo' : 'Next'}: ${check}`); }
+    else if (result.skipped.length) {
+      if (doctor) lines.push(`${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`);
+      lines.push(`${pt ? 'Altere os modelos' : 'Change models'}: ${command} setup --again`);
+    }
     return lines;
   }
   return [pt ? 'Nenhum cliente com modelo ativo foi encontrado. Nada foi salvo.' : 'No client with an active model was found. Nothing was saved.',
