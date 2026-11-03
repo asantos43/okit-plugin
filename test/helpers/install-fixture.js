@@ -115,6 +115,10 @@ export async function fixture(t, platform = 'linux', { tty = false, ask, read } 
   const root = join(home, 'state'), destination = join(home, 'data'), bin = join(home, 'bin'), scratch = join(home, 'scratch');
   await fs.mkdir(root);
   await fs.mkdir(scratch);
+  // A person who runs the plugin has Node on the PATH (the command is a script that starts it): a stub stands for it.
+  const nodes = join(home, 'node-bin');
+  await fs.mkdir(nodes);
+  await fs.writeFile(join(nodes, platform === 'win32' ? 'node.cmd' : 'node'), '#!/bin/sh\n', { mode: 0o755 });
   const config = installConfig({ repository: 'example/project', api: 'https://fake.invalid', destination, linkDirectory: bin });
   await fs.writeFile(join(root, 'config.json'), JSON.stringify({ install: config }));
   const output = [], commands = [];
@@ -146,7 +150,7 @@ export async function fixture(t, platform = 'linux', { tty = false, ask, read } 
   const out = (line) => output.push(line);
   const mcp = mcpWorld();
   const io = { home, root, destination, bin, config, fs, fetch, platform, now: () => 1700000000000,
-    env: { HOME: home, PATH: platform === 'win32' ? '' : bin },
+    env: { HOME: home, PATH: platform === 'win32' ? nodes : [bin, nodes].join(delimiter) },
     pkg, arch: 'x64', tmpdir: scratch, tty, ask, read, outTty: false, clientRoot: join(home, 'client'),
     stdout: out, stderr: out, out, adapters: [], readQuota: async () => ({ source: 'off' }),
     detect: async () => true,

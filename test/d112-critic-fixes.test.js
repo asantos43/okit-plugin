@@ -185,6 +185,8 @@ for (const locale of LOCALES) test(`D112 round 2, 3: the retry of a failed purge
   const f = await fixture(t, 'linux');
   for (const client of ['claude-code', 'codex']) assert.equal(await main(['install', '--client', client], f.io), 0, f.output.join('\n'));
   f.io.env.OKIT_LANGUAGE = locale;
+  // No Node on the PATH: the retry names the program that runs (and `argsOf` below runs it in this process).
+  f.io.env.PATH = f.bin;
   let broken = true;
   f.io.stopDaemon = async () => { if (broken) throw new Error('stop denied'); return true; };
   f.clear();
@@ -667,4 +669,17 @@ test('D112 round 9, 1: reachability follows the link folder an installation reco
   const text = f.output.join('\n');
   assert.doesNotMatch(text, /(^|[\s'"])okit-plugin (update|doctor|setup)/m, text);
   assert.ok(text.includes(RUNNING), text);
+});
+
+// Round 10.
+test('D112 round 10, 1: the bare command is not told while no Node is on the PATH to start it', async (t) => {
+  const f = await fixture(t, 'linux');
+  f.io.env.PATH = '/usr/bin';
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.output.join('\n'));
+  // The link folder is on the PATH but nothing named node is: the script of the link cannot start.
+  f.io.env.PATH = f.bin;
+  f.clear();
+  await main(['update', '--check', '--client', 'codex'], f.io);
+  const text = f.output.join('\n');
+  assert.doesNotMatch(text, /(^|[\s'"])okit-plugin (update|doctor|setup)/m, text);
 });

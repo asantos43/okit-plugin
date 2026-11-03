@@ -153,10 +153,15 @@ export async function managedProfile(deps, shell) {
 export { binInPath } from '../env/path.js';
 
 /**
- * Whether a new terminal finds the command: its folder is on the PATH now, this run writes it there (`manages`: an
+ * Whether a new terminal runs the command: Node is on the PATH, and its folder is on the PATH now, this run writes it there (`manages`: an
  * install that was not told `--no-path`), or an earlier install did (the PATH state the installer keeps).
  */
 export async function commandReachable({ config, env, platform, bin, fs, destination, manages = false }) {
+  // The command is a script that starts `node` from the PATH: with no Node there, the bare name does not run either.
+  const windows = platform === config.windowsPlatform;
+  const path = windows ? Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] : env.PATH;
+  const node = await commandInPath({ fs, config: { ...config, command: 'node' }, windows, path: path ?? '', separator: windows ? ';' : delimiter }).catch(() => undefined);
+  if (!node) return false;
   if (binInPath({ env, config, platform, bin })) return true;
   if (manages && config.path.enabled !== false) return true;
   const stateFile = join(destination, config.path.stateFile);
