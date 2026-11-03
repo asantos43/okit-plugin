@@ -33,7 +33,7 @@ const MARKS = { en: 'warn', 'pt-BR': 'aviso' };
 const SUMMARIES = { en: /(\d+) failed, (\d+) to look at/, 'pt-BR': /(\d+) falharam, (\d+) para olhar/ };
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const unlinkedProgram = (f) => shown([process.execPath, join(f.destination, '1.0.0-claude-code', 'okit-plugin')]);
+const unlinkedProgram = (f) => shown([process.execPath, fileURLToPath(new URL('../src/cli.js', import.meta.url))]);
 
 /**
  * A made-up installation: the record of each client, the entry of the client registered as the installer registers it,
@@ -110,7 +110,7 @@ test('no installation: exit 1 and a Fix line with the command that installs it',
   const code = await main(['doctor'], f.io);
   const text = f.output.join('\n');
   assert.equal(code, exitCodeFor('operational'), text);
-  assert.match(text, /^ {6}Fix: Install it: okit-plugin install$/m, text);
+  assert.ok(text.includes(`Fix: Install it: ${unlinkedProgram(f)} install`), text);
   assert.match(text, /1 failed, [0-9]+ to look at/, summaryOf(text));
 });
 

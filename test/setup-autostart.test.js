@@ -8,6 +8,7 @@ import { setupAutostart } from '../src/setup/autostart-step.js';
 import { main } from '../src/cli.js';
 import { autostartPlan, detectAutostart } from '../src/autostart.js';
 import { exitCodeFor } from '../src/install/exit.js';
+import { shown } from '../src/install/mcp-register.js';
 import { installConfig } from '../src/install/config.js';
 import { readRecords } from '../src/install/place.js';
 import { fixture } from './helpers/install-fixture.js';
@@ -738,7 +739,8 @@ for (const metadata of ['malformed', 'missing']) {
       assert.equal(row.status, 'skipped');
       assert.equal(row.detail, ui.text('doctorAutostartUnknown'));
       assert.equal(row.fix.includes('daemon start'), false);
-      assert.equal(row.fix.includes('src/cli.js'), false);
+      assert.equal(row.fix, ui.text('doctorFixAutostart', { command: shown([process.execPath,
+        fileURLToPath(new URL('../src/cli.js', import.meta.url))], 'linux') }));
     });
   }
 }

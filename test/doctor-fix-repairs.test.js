@@ -356,7 +356,7 @@ test('the row of a configuration the runtime refuses says that a person fixes it
   const index = f.output.findIndex((line) => line.includes('Configuration'));
   assert.ok(index >= 0, f.output.join('\n'));
   assert.match(f.output[index], /\bfailed\b/, f.output[index]);
-  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*config\.json.*\), then run: okit-plugin doctor$/,
+  assert.match(f.output[index + 1], /^\s+Fix: Fix it or move it aside \(.*config\.json.*\), then run: .*src\/cli\.js doctor$/,
     f.output[index + 1]);
   assert.ok(MANUAL[2][1].length > 0);
 });

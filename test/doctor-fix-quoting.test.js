@@ -91,7 +91,7 @@ test('the argv of a command is written word by word, and the program of PowerShe
  *
  * @param {object} options the records, the files, the readers and the command of the run
  */
-async function world({ records = [], files = {}, readers = {}, command = 'okit-plugin', root = '/state' } = {}) {
+async function world({ records = [], files = {}, readers = {}, command = 'okit-plugin', root = '/state', onPath = true } = {}) {
   const lines = [];
   const ui = createPresenter({ locale: 'en', write: (line) => lines.push(line) });
   const all = new Map(Object.entries(files));
@@ -108,8 +108,8 @@ async function world({ records = [], files = {}, readers = {}, command = 'okit-p
   };
   return {
     input: {
-      root, config: installConfig(), records, ui, command, platform: 'linux', env: { HOME: '/home' }, home: '/home',
-      fs: { readFile: async (file, ...rest) => fs.readFile(file, ...rest), access: async (file) => fs.access(file) },
+      root, config: installConfig(), records, ui, command, platform: 'linux', env: { HOME: '/home', PATH: onPath ? '/proven-bin' : '' }, home: '/home',
+      fs: { readFile: async (file, ...rest) => fs.readFile(file, ...rest), access: async (file, mode) => { if (onPath && file.startsWith('/proven-bin/')) return; return fs.access(file, mode); } },
       run: async () => ({ code: 0, stdout: '' }), now: () => Date.now(),
       readers: { ...fake, ...readers },
     },
@@ -127,7 +127,8 @@ test('the command of the Fix of a row is read back by the shell exactly as it wa
     assert.equal(row.status, 'failed');
     // The Fix of the row names the command: the words after the colon are the command line.
     const line = row.fix.slice(row.fix.indexOf(': ') + 2);
-    assert.deepEqual(argvOf(line), [value, 'install'], line);
+    // An empty command cannot be found on the PATH: the running CLI is the program.
+    assert.deepEqual(argvOf(line), value === '' ? [process.execPath, RUNNING_CLI, 'install'] : [value, 'install'], line);
   }
 });
 
@@ -179,7 +180,7 @@ test('all doctor Fix programs use the PowerShell call operator', async () => {
 test('a bare registered node becomes the absolute executable in the doctor plan and Fix', async () => {
   const record = { client: 'codex', path: '/payload', bin: 'src/cli.js', settings: { node: 'node' }, autostart: true };
   const plans = [];
-  const { input } = await world({ records: [record], files: { '/payload/src/cli.js': '// installed CLI' }, readers: { autostartPresent: async (plan) => { plans.push(plan); return false; } } });
+  const { input } = await world({ onPath: false, records: [record], files: { '/payload/src/cli.js': '// installed CLI' }, readers: { autostartPresent: async (plan) => { plans.push(plan); return false; } } });
   const row = rowOf(await diagnose(input), 'autostart');
   assert.ok(plans[0].content.includes('"' + process.execPath + '"'));
   assert.ok(row.fix.includes(shown([process.execPath, '/payload/src/cli.js', 'daemon', 'start'], 'linux')), row.fix);
@@ -213,14 +214,18 @@ for (const command of ['my=plugin', '%plugin']) {
   }
 }
 
-for (const command of ['my=plugin', 'if', 'then']) {
+for (const command of ['my=plugin', 'if', 'then', 'elif', 'repeat', 'nocorrect']) {
   test(`the Fix really executes the configured program ${command}`, async (t) => {
     const folder = await fs.mkdtemp(join(tmpdir(), 'reserved-'));
     t.after(() => fs.rm(folder, { recursive: true, force: true }));
     await fs.writeFile(join(folder, command), '#!/bin/sh\nprintf "%s\\n" "$@"\n', { mode: 0o755 });
-    const { input } = await world({ command });
+    await fs.chmod(join(folder, command), 0o755);
+    const { input } = await world({ command, onPath: false });
+    input.env.PATH = folder;
+    input.fs = fs;
     const row = rowOf(await diagnose(input), 'install');
     const line = row.fix.slice(row.fix.indexOf(': ') + 2);
+    assert.equal(line, `'${command}' install`);
     assert.equal(execFileSync('sh', ['-c', line], {
       encoding: 'utf8', env: { ...process.env, PATH: `${folder}:${process.env.PATH}` },
     }), 'install\n');
@@ -243,13 +248,13 @@ test('reserved vocabulary is exact and only applies to the program on its platfo
 });
 
 for (const platform of ['linux', 'win32']) {
-  test(`all doctor repair programs use the unlinked payload on ${platform}`, async () => {
+  test(`all doctor repair programs use the running CLI without PATH on ${platform}`, async () => {
     const node = platform === 'win32' ? 'C:/Program Files/Node/node.exe' : '/opt/Node Dir/node';
     const record = { client: 'codex', path: '/payload', bin: 'src/cli.js', link: false, settings: { node }, autostart: true };
-    const prefix = shown([node, '/payload/src/cli.js'], platform);
+    const prefix = shown([process.execPath, RUNNING_CLI], platform);
     const seen = new Set();
     for (const unreadable of [false, true]) {
-      const { input } = await world({ records: [record], files: { '/payload/src/cli.js': '// installed CLI', '/state/config.json': '{', '/state/inbox.json': '{' }, readers: {
+      const { input } = await world({ onPath: false, records: [record], files: { '/payload/src/cli.js': '// installed CLI', '/state/config.json': '{', '/state/inbox.json': '{' }, readers: {
         nodeVersion: () => { if (unreadable) throw new Error('node unavailable'); return 'v1.0.0'; },
         mcpEntry: async () => ({ state: 'absent' }), autostartPresent: async () => false,
         daemon: async () => { if (unreadable) throw new Error('unreadable'); return { running: false }; },
@@ -264,13 +269,13 @@ for (const platform of ['linux', 'win32']) {
       }
     }
     for (const id of ['node', 'record', 'registration', 'config', 'inbox', 'session', 'daemon', 'autostart']) assert.ok(seen.has(id), id);
-    const { input } = await world({ records: [record], files: { '/payload/src/cli.js': '// installed CLI' } });
+    const { input } = await world({ onPath: false, records: [record], files: { '/payload/src/cli.js': '// installed CLI' } });
     const install = rowOf(await diagnose({ ...input, platform, client: 'missing' }), 'install');
-    // Filtering rows does not hide the runnable program of another client.
+    // Filtering rows does not change the running CLI fallback.
     assert.ok(install.fix.includes(`${prefix} install`), install.fix);
   });
 
-  test(`linked and absent records retain the configured command on ${platform}`, async () => {
+  test(`records of every shape use the command proven on PATH on ${platform}`, async () => {
     for (const records of [[], [{ client: 'codex', link: true, path: '/payload', bin: 'cli.js' }],
       [{ client: 'codex', link: false, path: '/payload', bin: 'cli.js' }, { client: 'claude-code', link: true }]]) {
       const { input } = await world({ records, readers: { nodeVersion: () => { throw new Error('bad node'); } } });
@@ -301,12 +306,12 @@ function assertProgram(row, words, platform = 'linux') {
   assert.ok(line.startsWith(`${shown(words, platform)} `), row.fix);
 }
 
-test('client filter uses the unlinked program of all resolved destination records', async () => {
+test('client filter does not change the running CLI fallback', async () => {
   const record = { client: 'codex', version: '1.0', destination: '/custom', bin: 'src/cli.js', link: false };
   const script = '/custom/1.0-codex/src/cli.js';
-  const { input } = await world({ records: [record], files: { [script]: '// CLI' }, readers: brokenNode });
+  const { input } = await world({ onPath: false, records: [record], files: { [script]: '// CLI' }, readers: brokenNode });
   const result = await diagnose({ ...input, client: 'claude-code' });
-  for (const row of result.rows.filter((row) => row.fix)) assertProgram(row, [process.execPath, script]);
+  for (const row of result.rows.filter((row) => row.fix)) assertProgram(row, [process.execPath, RUNNING_CLI]);
   assert.ok(rowOf(result, 'install').fix.includes('--client claude-code'));
   assert.equal(result.rows.some((row) => row.client === 'codex'), false);
 });
@@ -319,7 +324,7 @@ test('missing empty or unreadable installed scripts use the running package CLI'
     await fs.writeFile(script, '// CLI');
     await fs.unlink(script);
     for (const files of [{}, { [script]: '' }, { [script]: '   \n' }]) {
-      const { input } = await world({ records: [unlinked(folder)], files, readers: brokenNode });
+      const { input } = await world({ onPath: false, records: [unlinked(folder)], files, readers: brokenNode });
       const row = rowOf(await diagnose(input), 'node');
       assertProgram(row, [process.execPath, RUNNING_CLI]);
       assert.ok(!row.fix.includes(script), row.fix);
@@ -333,21 +338,49 @@ test('missing empty or unreadable installed scripts use the running package CLI'
   } finally { await fs.rm(folder, { recursive: true, force: true }); }
 });
 
-test('first usable installed script wins after missing and empty candidates', async () => {
-  for (const first of [undefined, '', '  ']) {
-    const files = { '/second/src/cli.js': '// CLI', ...(first === undefined ? {} : { '/first/src/cli.js': first }) };
-    const { input } = await world({ records: [unlinked('/first'), unlinked('/second', 'claude-code')], files, readers: brokenNode });
-    assertProgram(rowOf(await diagnose(input), 'node'), [process.execPath, '/second/src/cli.js']);
+for (const platform of ['linux', 'win32']) {
+  for (const records of [[], [{ client: 'codex', link: true, path: '/deleted-shim' }],
+    [{ ...unlinked('/payload'), settings: { node: '/deleted-node' } }]]) {
+    test(`PATH alone proves the repair program on ${platform}: ${JSON.stringify(records)}`, async () => {
+      const { input } = await world({ records, onPath: false, readers: brokenNode });
+      for (const env of [{}, { PATH: '' }, { Path: '/missing' }]) {
+        assertProgram(rowOf(await diagnose({ ...input, env, platform }), 'node'), [process.execPath, RUNNING_CLI], platform);
+      }
+      const probes = [];
+      const config = { ...input.config, pathExtensions: ['.cmd'] };
+      const env = platform === 'win32' ? { pAtH: '/missing;/proven-bin' } : { PATH: '/missing:/proven-bin' };
+      const fs = { ...input.fs, access: async (file, mode) => {
+        probes.push([file, mode]);
+        if (file === `/proven-bin/okit-plugin${platform === 'win32' ? '.cmd' : ''}`) return;
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      } };
+      assertProgram(rowOf(await diagnose({ ...input, config, env, fs, platform }), 'node'), ['okit-plugin'], platform);
+      assert.equal(probes.length, 2);
+    });
   }
-});
+}
 
-test('a link in any destination record keeps the command despite a client filter', async () => {
-  for (const records of [
-    [unlinked('/payload'), { client: 'claude-code', link: true }],
-    [{ client: 'claude-code', link: true }, unlinked('/payload')],
-  ]) {
-    const { input } = await world({ records, files: { '/payload/src/cli.js': '// CLI' }, readers: brokenNode });
-    const result = await diagnose({ ...input, client: 'codex' });
-    for (const row of result.rows.filter((row) => row.fix)) assertProgram(row, ['okit-plugin']);
-  }
-});
+for (const command of ['elif', 'repeat', 'nocorrect']) {
+  test(`POSIX quotes reserved program ${command} found on PATH`, async () => {
+    const { input } = await world({ command });
+    assert.equal(rowOf(await diagnose(input), 'install').fix, `Install it: '${command}' install`);
+    assert.equal(shown([command, command], 'linux'), `'${command}' ${command}`);
+  });
+}
+
+for (const platform of ['linux', 'win32']) {
+  test(`a deleted PATH shim cannot supply a repair program on ${platform}`, async (t) => {
+    const folder = await fs.mkdtemp(join(tmpdir(), 'deleted-shim-'));
+    t.after(() => fs.rm(folder, { recursive: true, force: true }));
+    const shim = join(folder, `okit-plugin${platform === 'win32' ? '.cmd' : ''}`);
+    await fs.writeFile(shim, '#!/bin/sh\n');
+    await fs.chmod(shim, 0o755);
+    const { input } = await world({ onPath: false, readers: brokenNode });
+    Object.assign(input, { platform, fs, env: platform === 'win32' ? { pAtH: folder } : { PATH: folder } });
+    assertProgram(rowOf(await diagnose(input), 'node'), ['okit-plugin'], platform);
+    await fs.unlink(shim);
+    for (const records of [[], [{ client: 'codex', link: true, settings: { node: join(folder, 'deleted-node') } }]]) {
+      assertProgram(rowOf(await diagnose({ ...input, records }), 'node'), [process.execPath, RUNNING_CLI], platform);
+    }
+  });
+}

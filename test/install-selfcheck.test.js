@@ -12,6 +12,7 @@ import { HOME_ENV, SELFCHECK_ENV } from '../src/store.js';
 import { statuslineCommand } from '../src/quota/statusline-collector.js';
 import { runSessionStart } from '../src/hook-session-start.js';
 import { configOf, DEFAULT_CONFIG } from '../src/profiles.js';
+import { shown } from '../src/install/mcp-register.js';
 import { installConfig } from '../src/install/config.js';
 import { createPresenter } from '../src/install/present.js';
 import { reportSelfCheck, selfCheck, probeBudget } from '../src/install/selfcheck.js';
@@ -76,6 +77,7 @@ async function world(t, platform, { argv = ['install', '--client', CLIENT, '--st
     await fs.mkdir(join(f.io.env.ProgramFiles, 'Git/bin'), { recursive: true });
     await fs.writeFile(join(f.io.env.ProgramFiles, 'Git/bin/bash.exe'), '');
   }
+  if (platform === 'win32' && env === undefined) f.io.env.PATH = f.bin;
   Object.assign(f.io.env, env);
   if (config) {
     const file = join(f.root, 'config.json');
@@ -1170,17 +1172,18 @@ test('R10: real run, installed with --no-link, a file at <bin>/<command> is not 
 // D103: the shell is also started the way the next terminal starts it (a login launch), for the shell of the person and
 // for the other shells whose profile holds the installer's PATH block. A profile that exits early or fails makes the check
 // fail, with the fix.
+const RUNNING_PROGRAM = shown([process.execPath, fileURLToPath(new URL('../src/cli.js', import.meta.url))]);
 const LOGIN_TEXTS = {
   en: {
     row: (shell, why) => `Command (${shell})  failed  a new ${shell} terminal will not find okit-plugin (${why})`,
-    fix: (file) => `Fix: In ${file}, put this line before anything that stops the file with \`return\`, fix the error of any command that fails (for example under \`set -e\`), and remove any \`exit\` from that file (a login file must not exit), then run: okit-plugin install --client claude-code (the line: export PATH='<bin>'\${PATH:+":$PATH"})`,
-    missing: (file, shell, line = `export PATH='<bin>'\${PATH:+":$PATH"}`) => `Fix: Put this line in ${file}, the file ${shell} reads at login, before anything that stops the file with \`return\`, fix the error of any command that fails (for example under \`set -e\`), and remove any \`exit\` from that file (a login file must not exit), then run: okit-plugin install --client claude-code (the line: ${line})`,
+    fix: (file) => `Fix: In ${file}, put this line before anything that stops the file with \`return\`, fix the error of any command that fails (for example under \`set -e\`), and remove any \`exit\` from that file (a login file must not exit), then run: ${RUNNING_PROGRAM} install --client claude-code (the line: export PATH='<bin>'\${PATH:+":$PATH"})`,
+    missing: (file, shell, line = `export PATH='<bin>'\${PATH:+":$PATH"}`) => `Fix: Put this line in ${file}, the file ${shell} reads at login, before anything that stops the file with \`return\`, fix the error of any command that fails (for example under \`set -e\`), and remove any \`exit\` from that file (a login file must not exit), then run: ${RUNNING_PROGRAM} install --client claude-code (the line: ${line})`,
     found: '  Command (bash)  ok  found, also at login',
   },
   'pt-BR': {
     row: (shell, why) => `Comando (${shell})  falhou  um terminal novo do ${shell} não achará okit-plugin (${why})`,
-    fix: (file) => `Correção: Em ${file}, ponha esta linha antes de qualquer coisa que pare esse arquivo com \`return\`, corrija o erro de qualquer comando que falhe (por exemplo sob \`set -e\`), e remova qualquer \`exit\` desse arquivo (um arquivo de login não pode sair), e rode: okit-plugin install --client claude-code (a linha: export PATH='<bin>'\${PATH:+":$PATH"})`,
-    missing: (file, shell, line = `export PATH='<bin>'\${PATH:+":$PATH"}`) => `Correção: Ponha esta linha em ${file}, o arquivo que o ${shell} lê no login, antes de qualquer coisa que pare esse arquivo com \`return\`, corrija o erro de qualquer comando que falhe (por exemplo sob \`set -e\`), e remova qualquer \`exit\` desse arquivo (um arquivo de login não pode sair), e rode: okit-plugin install --client claude-code (a linha: ${line})`,
+    fix: (file) => `Correção: Em ${file}, ponha esta linha antes de qualquer coisa que pare esse arquivo com \`return\`, corrija o erro de qualquer comando que falhe (por exemplo sob \`set -e\`), e remova qualquer \`exit\` desse arquivo (um arquivo de login não pode sair), e rode: ${RUNNING_PROGRAM} install --client claude-code (a linha: export PATH='<bin>'\${PATH:+":$PATH"})`,
+    missing: (file, shell, line = `export PATH='<bin>'\${PATH:+":$PATH"}`) => `Correção: Ponha esta linha em ${file}, o arquivo que o ${shell} lê no login, antes de qualquer coisa que pare esse arquivo com \`return\`, corrija o erro de qualquer comando que falhe (por exemplo sob \`set -e\`), e remova qualquer \`exit\` desse arquivo (um arquivo de login não pode sair), e rode: ${RUNNING_PROGRAM} install --client claude-code (a linha: ${line})`,
     found: '  Comando (bash)  ok  encontrado, também no login',
   },
 };
@@ -1685,9 +1688,9 @@ test('D109: the state root of the check is temporary, and it is removed even whe
 test('D109: a failure of the MCP check says what to do, in the language of the run', async (t) => {
   const wanted = {
     en: { row: 'MCP server  failed  the MCP server did not answer (the server did not answer in 6000 ms)',
-      fix: 'Fix: Install again to register the MCP server: okit-plugin install --client claude-code' },
+      fix: `Fix: Install again to register the MCP server: ${RUNNING_PROGRAM} install --client claude-code` },
     'pt-BR': { row: 'Servidor MCP  falhou  o servidor MCP não respondeu (o servidor não respondeu em 6000 ms)',
-      fix: 'Correção: Instale de novo para registrar o servidor MCP: okit-plugin install --client claude-code' },
+      fix: `Correção: Instale de novo para registrar o servidor MCP: ${RUNNING_PROGRAM} install --client claude-code` },
   };
   // The sentences of the probe are English: none of them may show in a row of another language.
   const ENGLISH_PROBE = /the server (did not answer|could not start|stopped|answered|wrote)|the control API (did not answer|of ours)|its control API|the check itself could not run/;
@@ -1894,7 +1897,7 @@ for (const verbose of [false, true]) {
 }
 
 for (const platform of ['linux', 'win32']) {
-  test(`unlinked self-check repairs run the installed script on ${platform}`, async (t) => {
+  test(`self-check repairs use PATH or the running CLI on ${platform}`, async (t) => {
     const f = await fixture(t, platform);
     const node = platform === 'win32' ? 'C:/Program Files/Node/node.exe' : '/opt/Node Dir/node';
     const path = join(f.destination, 'unlinked');
@@ -1906,7 +1909,15 @@ for (const platform of ['linux', 'win32']) {
       platform, destination: f.destination, bin: f.bin, temporary: tmpdir(),
       statuslineConfig: DEFAULT_CONFIG.statuslineRegistration, collectorConfig: DEFAULT_CONFIG.statuslineCollector });
     const payload = checks.find((check) => check.id === 'payload');
-    const prefix = platform === 'win32' ? `& '${node}'` : `'${node}'`;
-    assert.equal(payload.fix, `Install again: ${prefix} ${join(path, 'cli.js')} install --client ${CLIENT}`);
+    const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+    assert.equal(payload.fix, `Install again: ${shown([process.execPath, cli, 'install', '--client', CLIENT], platform)}`);
+    await fs.mkdir(f.bin, { recursive: true });
+    const command = join(f.bin, f.io.config.command + (platform === 'win32' ? '.cmd' : ''));
+    await fs.writeFile(command, '#!/bin/sh\n', { mode: 0o755 });
+    await fs.chmod(command, 0o755);
+    const linked = await selfCheck(record, '1.0.0', { ...f.io, env: { pAtH: f.bin, PATH: f.bin },
+      ui: createPresenter({ locale: 'en', write: () => {} }), platform, destination: f.destination, bin: f.bin, temporary: tmpdir(),
+      statuslineConfig: DEFAULT_CONFIG.statuslineRegistration, collectorConfig: DEFAULT_CONFIG.statuslineCollector });
+    assert.equal(linked.find((check) => check.id === 'payload').fix, `Install again: okit-plugin install --client ${CLIENT}`);
   });
 }

@@ -199,7 +199,7 @@ export async function diagnose(input) {
   try { destination = installPaths(settings, { home, env, platform }).destination; } catch { /* unsupported platforms have no default folder */ }
   const allResolved = records.map((record) => resolvedRecord(record, destination));
   const resolved = input.client ? allResolved.filter((record) => record.client === input.client) : allResolved;
-  const program = shown(await programWords(allResolved, { ...settings, command }, platform, readers.readText), platform);
+  const program = shown(await programWords({ config: { ...settings, command }, platform, env, fs }), platform);
   const rows = [];
 
   // The dependencies of the readers that need them: the settings, the runner of a process and the presenter.

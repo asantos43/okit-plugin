@@ -168,7 +168,7 @@ test('a legacy record that cannot be read says why, in plain words', async (t) =
   assert.match(text, /Installation record\s+failed\s+installation record unreadable: /, text);
   assert.ok(text.includes(join(f.destination, 'install.json')), text);
   // The Fix repairs it: the install of every client (the record belongs to no client).
-  assert.match(text, /^ {6}Fix: Install it again: okit-plugin install$/m, text);
+  assert.ok(text.includes(`Fix: Install it again: ${shown([process.execPath, fileURLToPath(new URL('../src/cli.js', import.meta.url))])} install`), text);
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -202,7 +202,7 @@ for (const damage of ['remove', 'empty']) {
         assert.equal(code, exitCodeFor('operational'), `${file}: ${text}`);
         const row = text.split('\n').find((line) => /Opencode: Payload\s+failed/.test(line));
         assert.ok(row?.includes(join(path, file)), `${file}: ${text}`);
-        const script = file === CLI ? fileURLToPath(new URL('../src/cli.js', import.meta.url)) : join(path, CLI);
+        const script = fileURLToPath(new URL('../src/cli.js', import.meta.url));
         assert.ok(text.includes(`Fix: Install again: ${shown([process.execPath, script, 'install', '--client', 'opencode'])}`), text);
       }
     }
@@ -244,7 +244,7 @@ test('the Fix and the detail of a self-check row quote the path and the command 
   // The Fix is the command as the shell reads it: the program in one word.
   const fix = /^ +Fix: Install again: (.*)$/m.exec(text);
   assert.ok(fix, text);
-  assert.deepEqual(argvOf(fix[1]), [process.execPath, join(path, CLI), 'install', '--client', CLIENT], fix[1]);
+  assert.deepEqual(argvOf(fix[1]), [process.execPath, fileURLToPath(new URL('../src/cli.js', import.meta.url)), 'install', '--client', CLIENT], fix[1]);
 });
 
 test('the Fix of a row that names the state folder quotes a path with a space', async () => {
@@ -266,7 +266,7 @@ test('the Fix of a row that names the state folder quotes a path with a space', 
   assert.ok(row.fix.includes(`'${file}'`), row.fix);
 });
 
-test('the Fix of an installation without a link names the absolute node, never a bare `node` of the record', async (t) => {
+test('the Fix of an installation without a link names the running node, never a bare `node` of the record', async (t) => {
   const f = await fixture(t);
   const { path, record } = await installation(f);
   await fs.writeFile(join(f.destination, `install.${CLIENT}.json`), JSON.stringify({ ...record, settings: { node: 'node' } }));
@@ -275,5 +275,5 @@ test('the Fix of an installation without a link names the absolute node, never a
   await main(['doctor'], f.io);
   const fix = /^ +Fix: Install again: (.*)$/m.exec(f.output.join('\n'));
   assert.ok(fix, f.output.join('\n'));
-  assert.deepEqual(argvOf(fix[1]).slice(0, 2), [process.execPath, join(path, CLI)], fix[1]);
+  assert.deepEqual(argvOf(fix[1]).slice(0, 2), [process.execPath, fileURLToPath(new URL('../src/cli.js', import.meta.url))], fix[1]);
 });

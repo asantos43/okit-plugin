@@ -35,7 +35,7 @@ const PLAIN_WIN = /^[A-Za-z0-9_@%+=:,./\\-]+$/;
 
 // Reserved command words must be quoted in program position; each shell has its own fixed vocabulary.
 const SHELL_RESERVED = {
-  posix: new Set('if then else fi do done case esac while until for in function select time coproc ! { } [[ ]]'.split(' ')),
+  posix: new Set('elif repeat nocorrect if then else fi do done case esac while until for in function select time coproc ! { } [[ ]]'.split(' ')),
   win32: new Set('if foreach function switch while do until for trap try catch finally return break continue throw param begin process end class data else elseif exit filter from in inlinescript parallel sequence workflow using var define dynamicparam enum hidden static'.split(' ')),
 };
 

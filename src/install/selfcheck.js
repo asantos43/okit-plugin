@@ -136,7 +136,7 @@ const shellNamed = (deps, name) => shellsOf(deps).find((shell) => shell.name ===
 // The command the person runs again, written for the shell of the platform: every word a shell would read
 // differently is quoted, so a command or a client with a space in it is runnable as it is shown.
 const again = async (record, deps) => shown([
-  ...await programWords([record], deps.config, deps.platform, (metadata) => deps.fs.readFile(metadata, 'utf8')),
+  ...await programWords({ config: deps.config, platform: deps.platform, env: deps.env, fs: deps.fs }),
   'install', '--client', record.client,
 ], deps.platform);
 // A path, written for the shell of the platform (the same quoting of the commands).
