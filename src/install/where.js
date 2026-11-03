@@ -50,12 +50,15 @@ export function installationOf(record, destination) {
  *
  * @param {object} record the installation record (as written)
  * @param {string} fallback the folder of the configuration (the default)
- * @returns {object} the record with its folders
+ * @returns {object} the record with its folders, and the retained version (`previous`) with its own
  */
 export function resolvedRecord(record, fallback) {
   const destination = destinationOf(record, fallback);
   const path = installationOf(record, destination);
-  return { ...record, destination, ...(path === undefined ? {} : { path }) };
+  // The retained version is an installation of the same folder of records: rollback, uninstall and the links read it.
+  const previous = record?.previous !== null && typeof record?.previous === 'object' && !Array.isArray(record.previous)
+    ? { previous: resolvedRecord(record.previous, destination) } : {};
+  return { ...record, destination, ...(path === undefined ? {} : { path }), ...previous };
 }
 
 /**

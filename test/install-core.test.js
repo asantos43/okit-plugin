@@ -588,9 +588,12 @@ test('legacy record migrates on write with previous chain intact', async (t) => 
   await fs.mkdir(f.destination);
   const legacy = { client: 'codex', version: '2', previous: { client: 'codex', version: '1', previous: null } };
   await fs.writeFile(join(f.destination, 'install.json'), JSON.stringify(legacy));
-  assert.deepEqual(await readRecord(f.destination, 'codex', fs), legacy);
+  // A record is read with its folders filled in, the retained version too.
+  const resolved = { ...legacy, destination: f.destination, path: join(f.destination, '2-codex'),
+    previous: { ...legacy.previous, destination: f.destination, path: join(f.destination, '1-codex') } };
+  assert.deepEqual(await readRecord(f.destination, 'codex', fs), resolved);
   await saveRecord(f.destination, legacy, f.deps);
-  assert.deepEqual(await readRecords(f.destination, fs), { codex: legacy });
+  assert.deepEqual(await readRecords(f.destination, fs), { codex: resolved });
   await assert.rejects(fs.stat(join(f.destination, 'install.json')), { code: 'ENOENT' });
 });
 

@@ -12,3 +12,5 @@ The running installation is found from a legacy record that names no folder (the
 An empty destination in a record names no folder, in the discovery as everywhere else. / Um destination vazio em um registro não nomeia pasta, na descoberta como em todo o resto.
 
 A legacy record that names no folder is resolved when the setup finds the service already installed and when the install replaces a damaged payload. / Um registro legado que não nomeia pasta é resolvido quando o setup encontra o serviço já instalado e quando a instalação substitui um payload danificado.
+
+Every reader of the installation records (link, uninstall, rollback, setup, the check) gets a legacy record and its retained versions with their folders filled in, so no step works from an undefined path. / Todo leitor dos registros da instalação (link, desinstalação, rollback, setup, verificação) recebe um registro legado e suas versões retidas com as pastas preenchidas, e nenhum passo trabalha com um caminho indefinido.

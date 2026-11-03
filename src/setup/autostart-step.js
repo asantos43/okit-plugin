@@ -3,7 +3,7 @@ import { applyAutostart, autostartExists, autostartPresent } from '../autostart.
 import { resolvedRecord } from '../install/where.js';
 import { installPaths } from '../install/config.js';
 import { exitCodeFor } from '../install/exit.js';
-import { discoverRecords, readRecords, saveAutostartRecords, snapshotRecords, restoreRecords } from '../install/place.js';
+import { discoverRecords, readRecords, recordsStoredIncomplete, saveAutostartRecords, snapshotRecords, restoreRecords } from '../install/place.js';
 import { fill, pick, TEXTS, localizeReason } from '../install/present.js';
 
 /**
@@ -75,7 +75,8 @@ export async function setupAutostart(ctx, { config, locale, ask, plan }) {
     // daemon script of the service.
     const resolved = records.map((record) => resolvedRecord(record, destination));
     if (records.every((record) => record.autostart === true) && (ready || await alreadyThere(ctx, selected))) {
-      if (resolved.some((record, index) => record.path !== records[index].path || record.destination !== records[index].destination)) {
+      // The records are read with their folders filled in: saving them writes what a record of an old shape lacked.
+      if (await recordsStoredIncomplete(destination, records, ctx.fs, config)) {
         await saveAutostartRecords(destination, resolved, { fs: ctx.fs, config });
       }
       ctx.out(text('autostartAlready'));

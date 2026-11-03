@@ -11,7 +11,7 @@ import { autostartPlan, detectAutostart } from '../src/autostart.js';
 import { exitCodeFor } from '../src/install/exit.js';
 import { shown } from '../src/install/mcp-register.js';
 import { installConfig } from '../src/install/config.js';
-import { readRecords } from '../src/install/place.js';
+import { readRecords, readRecordsLenient } from '../src/install/place.js';
 import { fixture } from './helpers/install-fixture.js';
 
 async function world(t, { clients = ['codex'], platform = 'linux', installed = false } = {}) {
@@ -1007,6 +1007,35 @@ test('uninstall works with the folders of a legacy record that names none, and h
   // The service now belongs to the survivor: its unit names the survivor's script.
   assert.ok(f.written.some((item) => item.content.includes(join(f.records.codex.path, f.records.codex.bin))), JSON.stringify(f.written));
   await assert.rejects(fs.access(f.records['claude-code'].path));
+});
+
+test('uninstall removes the payload and the record of a legacy record that names no folder, with its retained version', async (t) => {
+  const f = await world(t, { installed: true });
+  const { path, destination, ...legacy } = f.records.codex;
+  const retained = join(f.destination, `0.9.0-${legacy.client}`);
+  await fs.mkdir(retained, { recursive: true });
+  const record = { ...legacy, link: false, previous: { client: legacy.client, version: '0.9.0', previous: null } };
+  await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', legacy.client)), JSON.stringify(record));
+  delete f.io.stopDaemon;
+  const code = await main(['uninstall', '--client', legacy.client], f.io);
+  assert.equal(code, exitCodeFor('ok'), f.output.join('\n'));
+  await assert.rejects(fs.access(f.records.codex.path));
+  await assert.rejects(fs.access(retained));
+  await assert.rejects(fs.access(join(f.destination, f.io.config.recordName.replace('{client}', legacy.client))));
+});
+
+test('every reader gets a legacy record and its retained versions with their folders filled in', async (t) => {
+  const f = await world(t, { installed: true });
+  const { path, destination, ...legacy } = f.records.codex;
+  const record = { ...legacy, previous: { client: legacy.client, version: '0.9.0', previous: { client: legacy.client, version: '0.8.0', previous: null } } };
+  await fs.writeFile(join(f.destination, f.io.config.recordName.replace('{client}', legacy.client)), JSON.stringify(record));
+  for (const read of [readRecords, async (...args) => (await readRecordsLenient(...args)).records]) {
+    const { [legacy.client]: found } = await read(f.destination, fs, f.io.config);
+    assert.equal(found.destination, f.destination);
+    assert.equal(found.path, join(f.destination, `${legacy.version}-${legacy.client}`));
+    assert.equal(found.previous.path, join(f.destination, `0.9.0-${legacy.client}`));
+    assert.equal(found.previous.previous.path, join(f.destination, `0.8.0-${legacy.client}`));
+  }
 });
 
 test('a version or a client with a separator names no folder of the installer', async () => {

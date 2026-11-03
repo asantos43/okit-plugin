@@ -28,6 +28,12 @@ async function legacyRecord(destination, fs, config, skipped) {
   try { return checked(await fs.readFile(join(destination, 'install.json'), 'utf8'), 'install.json', config.command, skipped); }
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
+// A record of an old shape may name neither its folder nor the folder of its records: every reader gets them filled in
+// (`resolvedRecord`), the retained versions too, so no caller works from an `undefined` path.
+function resolvedRecords(records, destination) {
+  return Object.fromEntries(Object.entries(records).map(([client, record]) => [client,
+    record !== null && typeof record === 'object' ? resolvedRecord(record, destination) : record]));
+}
 /**
  * The records of the installation, by client. With `options.unreadable` (an array), a record that is not a JSON object
  * (null, a list, a number, text) is left out and its file path is pushed there, so a caller that only looks (`status`,
@@ -45,7 +51,7 @@ export async function readRecords(destination, fs, config = installConfig(), opt
       if (record || !lenient) records[client] = record;
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
-  return records;
+  return resolvedRecords(records, destination);
 }
 export async function readRecord(destination, client, fs, config = installConfig()) {
   if (typeof client !== 'string') { fs = client; client = null; }
@@ -121,7 +127,7 @@ export async function readRecordsLenient(destination, fs, config = installConfig
     const file = recordPath(destination, client, config);
     await read(file, client);
   }
-  return { records, invalid };
+  return { records: resolvedRecords(records, destination), invalid };
 }
 
 /**
@@ -206,6 +212,20 @@ export async function saveRecord(destination, record, deps) {
     await writeRecord(destination, { ...other, link: record.link, linkDirectory: record.linkDirectory,
       autostart: record.autostart }, deps);
   }
+}
+
+/**
+ * Whether a record is stored without its folders (an old shape, or the legacy `install.json`): the records are read
+ * with the folders filled in, so only the file says it.
+ */
+export async function recordsStoredIncomplete(destination, records, fs, config = installConfig()) {
+  for (const record of records) {
+    let stored = null;
+    try { stored = JSON.parse(await fs.readFile(recordPath(destination, record.client, config), 'utf8')); } catch { /* Not stored by itself. */ }
+    const named = (value) => typeof value === 'string' && value !== '';
+    if (!stored || !named(stored.path) || !named(stored.destination)) return true;
+  }
+  return false;
 }
 
 /** Updates only autostart for all clients covered by the destination's single service. */
