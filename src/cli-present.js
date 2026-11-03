@@ -167,10 +167,12 @@ export function createInstallerView({ operation, command, locale, write, verbose
         if (!causes.has(key)) causes.set(key, { failure, owners: [] });
         if (failure.client) causes.get(key).owners.push(failure.client);
       }
+      // A cause names its clients only when more than one client failed; the line starts with the cause itself.
+      const told = new Set([...causes.values()].flatMap(({ owners }) => owners)).size > 1;
       for (const { failure, owners } of causes.values()) {
         const reason = localizeReason(failure.reason, ui.locale);
         const body = failure.step && !(alone && failure.step === download) ? ui.text('failedAt', { step: failure.step, reason }) : reason;
-        say(`${multiple && owners.length ? `${[...new Set(owners)].join(', ')} — ` : ''}${body}`);
+        say(`${body}${told && owners.length ? ` (${[...new Set(owners)].join(', ')})` : ''}`);
       }
       for (const scope of failed.length ? failed : scopes) {
         const stuck = scope && ownFailures(scope).some(({ step }) => step === download);

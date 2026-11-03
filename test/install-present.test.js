@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { main } from '../src/cli.js';
 import { createPresenter, createInstallerView, finishLink, headerValues, pick, redact, redactingWriter, REASONS, TEXTS, localizeReason } from '../src/cli-present.js';
 import { EXCLUSIVE_FLAGS, ALLOWED_FLAGS } from '../src/install/index.js';
@@ -179,6 +179,8 @@ for (const locale of LOCALES) test(`D112 setup first run, ready and cancelled: $
     pt ? '\nAs escolhas valem para trabalhos futuros. Para alterá-las: okit-plugin setup --again' : '\nThese choices apply to future work. You can change them with: okit-plugin setup --again',
     pt ? 'Salvar estas escolhas? [s/N]:' : 'Save these choices? [y/N]:',
     pt ? '3 escolhas de modelos salvas para Codex.' : 'Saved 3 model choices for Codex.',
+    pt ? 'Nenhum valor de cota registrado. Peça ao seu assistente para chamar `quota_set` com o cliente "codex" e a porcentagem que resta.'
+      : 'No quota value recorded. Ask your assistant to call `quota_set` with the client "codex" and the percentage that is left.',
     pt ? 'Próximo: okit-plugin doctor --client codex' : 'Next: okit-plugin doctor --client codex');
   assert.deepEqual(f.output, expected);
   f.clear();
@@ -640,6 +642,11 @@ test('one language per run: --locale beats the saved language, which beats Engli
 test('errors name the step, the reason and what to do next, in the chosen language', async (t) => {
   for (const [locale, head, next] of [['en', /^The release could not be downloaded\. Nothing was installed\.$/, /^Check your connection, then retry: okit-plugin install --client claude-code$/], ['pt-BR', /^Não foi possível baixar a versão\. Nada foi instalado\.$/, /^Confira sua conexão e tente: okit-plugin install --client claude-code$/]]) {
     const f = await fixture(t, 'linux');
+    // The command and Node are on the PATH, so the retry names the command by its short name.
+    const commands = join(f.home, 'commands');
+    await fs.mkdir(commands);
+    for (const name of ['okit-plugin', 'node']) await fs.writeFile(join(commands, name), '#!/bin/sh\n', { mode: 0o755 });
+    f.io.env = { ...f.io.env, PATH: [commands, f.io.env.PATH].join(delimiter) };
     // A package that cannot be downloaded; every other request is the fixture's.
     const good = f.io.fetch;
     f.io.fetch = async (url, options) => { if (url.includes('/package/')) throw new Error('boom'); return good(url, options); };

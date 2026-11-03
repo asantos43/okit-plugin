@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { main } from '../src/cli.js';
 import { createInstallerView, createPresenter, presentDiagnosis, presentModelChoices, setupResultLines } from '../src/cli-present.js';
+import { shown } from '../src/install/mcp-register.js';
+import { fixture } from './helpers/install-fixture.js';
 
 // Each case is the regression of one finding of the independent critic: the outcome is told from the result of each
 // client and from the arguments of the run, never from the first error, a global flag or the header count.
@@ -54,8 +58,9 @@ for (const locale of LOCALES) test(`D112 critic 3: the cause and the retry of ea
     ui.endClients();
   }, { code: 1, client: 'all', flags: ['--client', 'all'] });
   const text = output.join('\n');
-  assert.ok(output.some((line) => line.startsWith('Codex — ') && line.includes('disk is full')), text);
-  assert.ok(output.some((line) => line.startsWith('Claude Code — ') && line.includes('bad archive')), text);
+  const failedAt = pt ? 'Falhou em Baixar e verificar: ' : 'Failed at Download and verify: ';
+  assert.ok(output.includes(`${failedAt}disk is full (Codex)`), text);
+  assert.ok(output.includes(`${failedAt}bad archive (Claude Code)`), text);
   assert.ok(output.some((line) => line.startsWith(`${pt ? 'Confira sua conexão e tente' : 'Check your connection, then retry'} (Codex): `)), text);
   assert.ok(output.some((line) => line.startsWith(`${pt ? 'Confira sua conexão e tente' : 'Check your connection, then retry'} (Claude Code): `)), text);
   assert.equal(new Set(output).size, output.length, text);
@@ -117,4 +122,14 @@ for (const locale of LOCALES) test(`D112 critic 7: the follow-ups of the doctor 
   assert.ok(session.some((line) => line.endsWith(`${program} doctor`)), session.join('\n'));
   const ready = diagnose([{ id: 'files', label: 'Files', status: 'ok', detail: 'fine' }]);
   assert.ok(ready.includes(`${pt ? 'Verifique novamente quando precisar' : 'Check again when needed'}: ${program} doctor`), ready.join('\n'));
+});
+
+for (const locale of LOCALES) test(`D112 critic 7: without the command on the PATH the retry names the running program: ${locale}`, async (t) => {
+  const f = await fixture(t, 'linux');
+  const good = f.io.fetch;
+  f.io.fetch = async (url, options) => { if (url.includes('/package/')) throw new Error('boom'); return good(url, options); };
+  assert.equal(await main(['install', '--client', 'claude-code', '--locale', locale], f.io), 1);
+  const program = shown([process.execPath, fileURLToPath(new URL('../src/cli.js', import.meta.url))], 'linux');
+  const retry = `${locale === 'pt-BR' ? 'Confira sua conexão e tente' : 'Check your connection, then retry'}: ${program} install --client claude-code`;
+  assert.ok(f.output.includes(retry), f.output.join('\n'));
 });
