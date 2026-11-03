@@ -7,6 +7,7 @@ import { DEFAULT_CONFIG, configOf } from '../profiles.js';
 import { createPresenter, planSteps, fill, localizeReason, pick, TEXTS, redactingStream, redactingWriter, resolveLocale, supportsUnicode, headerValues, clientLabel, finish, finishLink } from './present.js';
 import { writeJsonAtomic } from '../state.js';
 import { installConfig, installPaths, clientRoot } from './config.js';
+import { flagsOf } from './flags.js';
 import { chooseClient } from './menu.js';
 import { latestRelease } from './release.js';
 import { downloadRelease } from './download.js';
@@ -28,30 +29,8 @@ import { executionPolicyStep } from './policy.js';
 import { exitCodeFor, kindOf, LanguageError, UsageError } from './exit.js';
 
 const packageDirectory = fileURLToPath(new URL('../../', import.meta.url));
-const allowed = {
-  // `asset` and `fallback` come from the generated install scripts, which download and verify the package.
-  install: ['client', 'from', 'prerelease', 'repo', 'dest', 'no-link', 'no-path', 'autostart', 'dry-run', 'yes', 'statusline', 'no-statusline', 'locale', 'verbose', 'asset', 'fallback', 'set-execution-policy', 'no-execution-policy'],
-  update: ['client', 'check', 'rollback', 'dry-run', 'no-path', 'statusline', 'no-statusline', 'locale', 'verbose', 'set-execution-policy', 'no-execution-policy'],
-  uninstall: ['client', 'purge', 'yes', 'dry-run', 'locale', 'verbose'],
-};
-export const ALLOWED_FLAGS = allowed;
-// Pairs of flags that exclude each other; the refusal is translated by REASONS in present.js.
-export const EXCLUSIVE_FLAGS = [['check', 'rollback'], ['statusline', 'no-statusline'], ['set-execution-policy', 'no-execution-policy']];
-function flagsOf(command, args) {
-  const flags = {};
-  for (let index = 0; index < args.length; index += 1) {
-    const flag = args[index].replace(/^--/, '');
-    if (!args[index].startsWith('--') || !allowed[command]?.includes(flag)) throw new UsageError(`Unknown flag: ${args[index]}`);
-    if (['client', 'repo', 'dest', 'from', 'locale', 'asset'].includes(flag)) {
-      if (!args[index + 1] || args[index + 1].startsWith('--')) throw new UsageError(`Missing value for --${flag}`);
-      flags[flag] = args[++index];
-    } else flags[flag] = true;
-  }
-  for (const [first, second] of EXCLUSIVE_FLAGS) {
-    if (flags[first] && flags[second]) throw new UsageError(`--${first} and --${second} cannot be combined`);
-  }
-  return flags;
-}
+// The flags are read in ./flags.js, the one place the installer and the commands that replay a run share.
+export { ALLOWED_FLAGS, EXCLUSIVE_FLAGS } from './flags.js';
 
 // The terminal question: readline writes straight to its output, so the output is the redacting one.
 const readerOf = (hide) => async (question) => {

@@ -3,6 +3,7 @@ import { createPresenter as basePresenter, TEXTS as BASE_TEXTS, clientLabel as b
   redactingWriter, localizeReason } from './install/present.js';
 import { quotedWord, shown as shownCommand } from './install/mcp-register.js';
 import { programWords } from './install/where.js';
+import { flagsOf } from './install/flags.js';
 export * from './install/present.js';
 
 export const TEXTS = Object.freeze({ ...BASE_TEXTS,
@@ -40,7 +41,6 @@ export function createPresenter(options = {}) {
 
 /** The program as a person types it on this platform: the words the repairs of the doctor start with. */
 export const programLine = async ({ config, platform, env, fs }) => shownCommand(await programWords({ config, platform, env, fs }), platform);
-const VALUE_FLAGS =['--client', '--repo', '--dest', '--from', '--locale', '--asset'];
 /** Collect installer observations so the outcome can precede completed steps. */
 export function createInstallerView({ operation, command, locale, write, verbose = false, hide = [] }) {
   const notes = [];
@@ -114,30 +114,37 @@ export function createInstallerView({ operation, command, locale, write, verbose
     const known = Object.keys({ ...before, ...after });
     const idOf = (label) => known.find((id) => clientLabel(id) === label) ?? label.toLowerCase().replaceAll(' ', '-');
     const seen = [...new Set([...headers.map((header) => header.client), ...failures.map((failure) => failure.client).filter(Boolean)])];
-    const ids = client && client !== 'all' ? [client] : seen.length ? seen.map(idOf) : Object.keys(before);
-    const target = ids[0] ?? client ?? 'codex';
-    const scoped = ids.length ? ids : [target];
-    const multiple = scoped.length > 1;
+    // The arguments of the run, read the way the installer reads them (the last value of a repeated flag wins). `asked`
+    // is the client the run was told to work on; with none, the clients in scope are the ones the run itself showed
+    // (a header or a failure that names a client), or, for update and uninstall, the ones the installation holds.
+    const options = flags ? flagsOf(operation, flags, { lenient: true }) : {};
+    const asked = flags ? options.client : client;
+    const ids = asked && asked !== 'all' ? [asked] : seen.length ? seen.map(idOf) : operation === 'install' ? [] : Object.keys(before);
+    const sole = ids.length === 1, multiple = ids.length > 1;
     const names = (list) => list.map(clientLabel).join(', ');
-    const check = `${command} doctor${multiple ? '' : ` --client ${target}`}`;
     const stateOf = (id) => states.get(clientLabel(id));
+    // A client was chosen when the run says so: it showed a header or a failure that names one. A menu that was shown
+    // and answered is not a refused menu, whatever happened to the client chosen from it.
+    const selected = headers.length > 0 || failures.some((failure) => failure.client);
     // With one client in scope, a failure that names none is that client's.
-    const ownFailures = (id) => failures.filter((failure) => failure.client === clientLabel(id) || (!failure.client && !multiple));
-    const given = flags?.includes('--client') ? flags[flags.indexOf('--client') + 1] : undefined;
-    const replay = ({ omit = [], client: scope } = {}) => {
-      const rest = [];
-      for (let index = 0; index < (flags?.length ?? 0); index += 1) {
-        const flag = flags[index], value = VALUE_FLAGS.includes(flag) ? flags[++index] : undefined;
-        if (!['--client', '--locale', '--verbose', ...omit].includes(flag)) rest.push(flag, ...(value === undefined ? [] : [value]));
-      }
-      return `${program} ${[operation, ...(scope ? ['--client', scope] : []), ...rest].map((word, index) => (index ? quotedWord(word, platform) : word)).join(' ')}`;
-    };
+    const ownFailures = (id) => failures.filter((failure) => failure.client === clientLabel(id) || (!failure.client && sole));
+    // Every command the output asks for is built here. `type` is the program as this terminal can start it now (an
+    // operation to replay); `later` is the program a new terminal will find, when the installation holds the command link
+    // (`--no-link` leaves none, and then the running program is the only one that works).
+    const linked = Object.values({ ...before, ...after }).some((record) => record?.link);
+    const type = (words, { later = false } = {}) => `${later && linked ? command : program} ${words.map((word) => quotedWord(word, platform)).join(' ')}`;
+    const withClient = (id) => (id ? ['--client', id] : []);
+    const replay = ({ omit = [], client: scope } = {}) => type([operation, ...withClient(scope),
+      ...Object.entries(options).filter(([flag]) => !['client', 'locale', 'verbose', ...omit].includes(flag))
+        .flatMap(([flag, value]) => [`--${flag}`, ...(value === true ? [] : [value])])]);
+    const doctor = (id) => type(['doctor', ...withClient(id)], { later: true });
+    const check = doctor(sole ? ids[0] : undefined);
     // A rollback names its client when the installation holds several, so the others keep their version.
-    const rollbackLine = (id) => `${pt ? 'Volte à versão guardada' : 'Return to the retained version'}${multiple ? ` (${clientLabel(id)})` : ''}: ${command} update --rollback${known.length > 1 ? ` --client ${id}` : ''}`;
-    const scopes = !flags ? [client ?? target] : given ? [given] : operation === 'install' ? scoped : [undefined];
+    const rollbackLine = (id) => `${pt ? 'Volte à versão guardada' : 'Return to the retained version'}${multiple ? ` (${clientLabel(id)})` : ''}: ${type(['update', '--rollback', ...(known.length > 1 ? withClient(id) : [])], { later: true })}`;
+    const scopes = asked ? [asked] : operation === 'install' ? ids : [undefined];
     const once = new Set();
     const say = (line) => { if (!once.has(line)) { once.add(line); emit(line); } };
-    if (menu && code !== 0) {
+    if (menu && !selected) {
       for (const failure of failures.filter(({ reason }) => reason !== ui.text('clientNoTty'))) say(localizeReason(failure.reason, ui.locale));
       for (const id of offered) say(`${pt ? 'Instale para' : 'Install for'} ${clientLabel(id)}: ${replay({ client: id })}`);
       return;
@@ -147,22 +154,23 @@ export function createInstallerView({ operation, command, locale, write, verbose
       say(pt ? `Nenhuma instalação do plugin encontrada. Nada foi ${operation === 'update' ? 'atualizado' : 'removido'}.`
         : `No plugin installation was found. Nothing was ${operation === 'update' ? 'updated' : 'removed'}.`);
       for (const failure of failures.filter(({ reason }) => reason.startsWith('Client not registered:'))) say(localizeReason(failure.reason, ui.locale));
-      say(operation === 'update' ? `${pt ? 'Instale primeiro' : 'Install first'}: ${command} install --client ${target}`
-        : `${pt ? 'Confira o estado local' : 'Check the local state'}: ${command} doctor`);
+      // Without a client the run was told about, the first install is the one the program asks about; none is guessed.
+      say(operation === 'update' ? `${pt ? 'Instale primeiro' : 'Install first'}: ${type(['install', ...withClient(asked)])}`
+        : `${pt ? 'Confira o estado local' : 'Check the local state'}: ${type(['doctor'])}`);
       return;
     }
     if (code !== 0) {
       const download = ui.text('get');
       const unplaced = (id) => ownFailures(id).some(({ step }) => [download, ui.text('backup'), ui.text('files')].includes(step));
-      const failed = scoped.filter((id) => ownFailures(id).length);
-      const alone = !multiple && operation === 'install' && ownFailures(target).some(({ step }) => step === download);
+      const failed = ids.filter((id) => ownFailures(id).length);
+      const alone = sole && operation === 'install' && ownFailures(ids[0]).some(({ step }) => step === download);
       if (operation === 'install' && multiple && failed.some(unplaced)) {
-        say(scoped.every(unplaced) ? (pt ? 'Nenhum cliente foi instalado.' : 'No client was installed.')
+        say(ids.every(unplaced) ? (pt ? 'Nenhum cliente foi instalado.' : 'No client was installed.')
           : (pt ? 'Alguns clientes foram instalados. Outros precisam de atenção.' : 'Some clients were installed. Others need attention.'));
       } else if (alone) say(pt ? 'Não foi possível baixar a versão. Nada foi instalado.' : 'The release could not be downloaded. Nothing was installed.');
       const causes = new Map();
       // The first failure of each client is its cause; the rows that follow it are told by the notes.
-      for (const failure of [...failed.map((id) => ownFailures(id)[0]), ...failures.filter((failure) => !failure.client && multiple)]) {
+      for (const failure of [...failed.map((id) => ownFailures(id)[0]), ...failures.filter((failure) => !failure.client && !sole)]) {
         const key = `${failure.step}\n${failure.reason}`;
         if (!causes.has(key)) causes.set(key, { failure, owners: [] });
         if (failure.client) causes.get(key).owners.push(failure.client);
@@ -174,13 +182,15 @@ export function createInstallerView({ operation, command, locale, write, verbose
         const body = failure.step && !(alone && failure.step === download) ? ui.text('failedAt', { step: failure.step, reason }) : reason;
         say(`${body}${told && owners.length ? ` (${[...new Set(owners)].join(', ')})` : ''}`);
       }
-      for (const scope of failed.length ? failed : scopes) {
+      // A purge needs every remaining client in one command, so its retry is that one command, never one per client.
+      const purging = operation === 'uninstall' && Boolean(options.purge || purge);
+      for (const scope of purging ? [asked] : failed.length ? failed : scopes) {
         const stuck = scope && ownFailures(scope).some(({ step }) => step === download);
         const verb = stuck ? (pt ? 'Confira sua conexão e tente' : 'Check your connection, then retry') : (pt ? 'Tente novamente' : 'Try again');
         say(`${verb}${multiple && scope ? ` (${clientLabel(scope)})` : ''}: ${replay({ client: scope })}`);
       }
       if (operation === 'update') {
-        for (const id of failed.length ? failed : scoped) {
+        for (const id of failed.length ? failed : ids) {
           if (after[id]?.previous || before[id]?.previous) say(rollbackLine(id));
         }
       }
@@ -190,42 +200,42 @@ export function createInstallerView({ operation, command, locale, write, verbose
     if (dryRun) {
       say(pt ? 'Somente prévia. Nada mudou.' : 'Preview only. Nothing changed.');
       renderSteps(say);
-      for (const scope of scopes) say(`${pt ? 'Para aplicar' : 'Apply'}${scopes.length > 1 ? ` (${clientLabel(scope)})` : ''}: ${replay({ omit: ['--dry-run'], client: scope })}`);
+      for (const scope of scopes) say(`${pt ? 'Para aplicar' : 'Apply'}${scopes.length > 1 ? ` (${clientLabel(scope)})` : ''}: ${replay({ omit: ['dry-run'], client: scope })}`);
       flushNotes(say);
       return;
     }
-    if (operation === 'update' && scoped.every((id) => stateOf(id)?.current)) {
-      say(pt ? `${names(scoped)} ${multiple ? 'estão' : 'está'} em dia. Nada mudou.` : `${names(scoped)} ${multiple ? 'are' : 'is'} up to date. Nothing changed.`);
+    if (operation === 'update' && ids.length && ids.every((id) => stateOf(id)?.current)) {
+      say(pt ? `${names(ids)} ${multiple ? 'estão' : 'está'} em dia. Nada mudou.` : `${names(ids)} ${multiple ? 'are' : 'is'} up to date. Nothing changed.`);
       renderSteps(say);
       say(`${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`);
       flushNotes(say);
       return;
     }
     if (checkOnly) {
-      for (const id of scoped.filter((id) => stateOf(id)?.newer)) {
+      for (const id of ids.filter((id) => stateOf(id)?.newer)) {
         say(`${pt ? 'Nova versão disponível' : 'New version available'}${multiple ? ` (${clientLabel(id)})` : ''}: ${headers.find((header) => header.client === clientLabel(id))?.version}`);
       }
-      for (const scope of scopes) say(`${pt ? 'Para atualizar' : 'Update'}: ${replay({ omit: ['--check'], client: scope })}`);
+      for (const scope of scopes) say(`${pt ? 'Para atualizar' : 'Update'}: ${replay({ omit: ['check'], client: scope })}`);
       flushNotes(say);
       return;
     }
     if (operation === 'uninstall') {
       const remaining = Object.keys(after);
       if (remaining.length) {
-        say(pt ? `Integração do ${names(scoped)} removida. O comando foi mantido para ${names(remaining)}.`
-          : `Removed ${names(scoped)} integration. The command is kept for ${names(remaining)}.`);
-        say(`${pt ? 'Verifique a instalação restante' : 'Check the remaining installation'}: ${command} doctor${remaining.length === 1 ? ` --client ${remaining[0]}` : ''}`);
+        say(pt ? `Integração do ${names(ids)} removida. O comando foi mantido para ${names(remaining)}.`
+          : `Removed ${names(ids)} integration. The command is kept for ${names(remaining)}.`);
+        say(`${pt ? 'Verifique a instalação restante' : 'Check the remaining installation'}: ${doctor(remaining.length === 1 ? remaining[0] : undefined)}`);
       } else {
-        say(pt ? `Plugin removido do ${names(scoped)}.${purge ? '' : ' Seus ajustes foram mantidos.'}`
-          : `Removed the plugin from ${names(scoped)}.${purge ? '' : ' Your settings were kept.'}`);
+        say(pt ? `Plugin removido do ${names(ids)}.${purge ? '' : ' Seus ajustes foram mantidos.'}`
+          : `Removed the plugin from ${names(ids)}.${purge ? '' : ' Your settings were kept.'}`);
         if (purge) say(pt ? 'Os ajustes também foram removidos.' : 'Settings were also removed.');
-        for (const id of scoped) say(`${pt ? 'Instale novamente quando precisar' : 'Install again when needed'}${multiple ? ` (${clientLabel(id)})` : ''}: ${command} install --client ${id}`);
+        for (const id of ids) say(`${pt ? 'Instale novamente quando precisar' : 'Install again when needed'}${multiple ? ` (${clientLabel(id)})` : ''}: ${type(['install', ...withClient(id)], { later: true })}`);
       }
       renderSteps(say);
       flushNotes(say);
       return;
     }
-    for (const id of scoped) {
+    for (const id of ids) {
       const name = clientLabel(id), record = after[id];
       say(operation === 'install'
         ? (pt ? `Instalado para ${name}.${modelsConfirmed ? '' : ' Falta confirmar os modelos.'}` : `Installed for ${name}.${modelsConfirmed ? '' : ' Model choices still need confirmation.'}`)
@@ -233,8 +243,8 @@ export function createInstallerView({ operation, command, locale, write, verbose
           : (pt ? `${name} atualizado de ${before[id]?.version} para ${record?.version}.` : `Updated ${name} from ${before[id]?.version} to ${record?.version}.`));
     }
     renderSteps(say);
-    const changed = scoped.filter((id) => !stateOf(id)?.current);
-    say(operation === 'install' ? `${pt ? 'Próximo' : 'Next'}: ${command} setup`
+    const changed = ids.filter((id) => !stateOf(id)?.current);
+    say(operation === 'install' ? `${pt ? 'Próximo' : 'Next'}: ${type(['setup'], { later: true })}`
       : (pt ? `Próximo: reinicie ${names(changed)} e rode: ${check}` : `Next: restart ${names(changed)}, then run: ${check}`));
     if (operation === 'install') say(`${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`);
     if (pathHint) {
@@ -294,8 +304,9 @@ export function presentDiagnosis(result, { ui, command, client, clients, verbose
   if (fixes.length) out(`${pt ? 'Depois confira' : 'Then check'}: ${check}`);
   if (shown.some((row) => row.id === 'session' && row.status === 'warn' && !row.fix)) {
     const open = (client ? [client] : clients?.length ? clients : [...new Set(result.rows.map((row) => row.client).filter(Boolean))])
-      .map(clientLabel).join(', ') || clientLabel('codex');
-    out(pt ? `Nenhuma sessão de cliente aberta. Abra ${open} e rode: ${check}` : `No client session is open. Open ${open}, then run: ${check}`);
+      .map(clientLabel).join(', ');
+    // With no client in evidence, none is named.
+    out(pt ? `Nenhuma sessão de cliente aberta. Abra ${open || 'seu cliente'} e rode: ${check}` : `No client session is open. Open ${open || 'your client'}, then run: ${check}`);
   }
   if (labels.some((label) => /MCP/.test(label)) || shown.some((row) => /MCP/.test(`${row.detail} ${row.fix ?? ''}`))) out(pt
     ? 'MCP é a conexão usada pelo assistente para chamar ferramentas do plugin.'
@@ -331,18 +342,42 @@ export function setupResultLines(result, locale, command) {
   const clients = [...new Set([...result.changes, ...result.skipped].map((entry) => entry.client))];
   const check = `${command} doctor${clients.length === 1 ? ` --client ${clients[0]}` : ''}`;
   const advice = result.guidance ?? [];
-  if (result.kept?.length) return [pt ? 'As escolhas mais novas foram mantidas. Confira: MCP config_get {}' : 'Newer choices were kept. Check them: MCP config_get {}', ...advice];
-  if (result.changes.length) return [pt
-    ? `${result.changes.length} escolhas de modelos salvas para ${clients.map(clientLabel).join(', ')}.`
-    : `Saved ${result.changes.length} model choices for ${clients.map(clientLabel).join(', ')}.`,
-  ...advice, `${pt ? 'Próximo' : 'Next'}: ${check}`];
-  if (result.skipped.length) return [pt ? 'Todas as escolhas de modelos já estão salvas. Nada mudou.' : 'All model choices are already saved. Nothing changed.',
-    ...advice,
-    `${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`,
-    `${pt ? 'Altere os modelos' : 'Change models'}: ${command} setup --again`];
-  if (result.omitted?.length) return [pt
-    ? 'Nenhuma escolha de modelo foi salva: os modelos ativos não correspondem às escolhas recomendadas.'
-    : 'No model choices were saved: the active models did not match the recommended choices.', ...advice];
+  const kept = result.kept ?? [], omitted = result.omitted ?? [];
+  if (result.changes.length || result.skipped.length || kept.length || omitted.length) {
+    // Each group of the result is told by what it holds. With a single group the sentence is the short one; with
+    // several, every group names its clients and classes, so one group never stands for another.
+    const several = [result.changes, result.skipped, kept, omitted].filter((group) => group.length).length > 1;
+    const who = (entries) => entries.filter((entry) => entry?.client)
+      .map((entry) => (entry.class ? `${clientLabel(entry.client)} (${workLabel(entry.class, locale)})` : clientLabel(entry.client))).join(', ');
+    const lines = [];
+    if (result.changes.length) {
+      const saved = several ? who(result.changes) : '';
+      lines.push(saved
+        ? (pt ? `${result.changes.length} escolhas de modelos salvas: ${saved}.` : `Saved ${result.changes.length} model choices: ${saved}.`)
+        : (pt ? `${result.changes.length} escolhas de modelos salvas para ${clients.map(clientLabel).join(', ')}.`
+          : `Saved ${result.changes.length} model choices for ${clients.map(clientLabel).join(', ')}.`));
+    }
+    if (result.skipped.length) {
+      const already = several ? who(result.skipped) : '';
+      lines.push(already ? (pt ? `Já salvas, sem mudança: ${already}.` : `Already saved, unchanged: ${already}.`)
+        : (pt ? 'Todas as escolhas de modelos já estão salvas. Nada mudou.' : 'All model choices are already saved. Nothing changed.'));
+    }
+    if (kept.length) {
+      const newer = who(kept);
+      lines.push(pt ? `As escolhas mais novas foram mantidas${newer ? ` para ${newer}: elas mudaram enquanto você escolhia` : ''}. Confira: MCP config_get {}`
+        : `Newer choices were kept${newer ? ` for ${newer}: they changed while you were choosing` : ''}. Check them: MCP config_get {}`);
+    }
+    if (omitted.length) {
+      const unmatched = several ? who(omitted) : '';
+      lines.push(pt ? `Nenhuma escolha de modelo foi salva${unmatched ? ` para ${unmatched}` : ''}: os modelos ativos não correspondem às escolhas recomendadas.`
+        : `No model choices were saved${unmatched ? ` for ${unmatched}` : ''}: the active models did not match the recommended choices.`);
+    }
+    lines.push(...advice);
+    if (result.changes.length) lines.push(`${pt ? 'Próximo' : 'Next'}: ${check}`);
+    else if (result.skipped.length) lines.push(`${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`,
+      `${pt ? 'Altere os modelos' : 'Change models'}: ${command} setup --again`);
+    return lines;
+  }
   return [pt ? 'Nenhum cliente com modelo ativo foi encontrado. Nada foi salvo.' : 'No client with an active model was found. Nothing was saved.',
     pt ? `Instale ou ative um modelo no seu cliente de programação e rode: ${command} setup` : `Install or enable a model in your coding client, then run: ${command} setup`,
     `${pt ? 'Confira os clientes disponíveis' : 'Check which clients are available'}: MCP env_report {"locale":"${locale}"}`];

@@ -155,12 +155,17 @@ for (const locale of LOCALES) test(`D112 invalid answers never accumulate prefix
 for (const locale of LOCALES) test(`D112 absent update/uninstall preserve exit 2: ${locale}`, async (t) => {
   for (const command of ['update', 'uninstall']) {
     const f = await fixture(t), pt = locale === 'pt-BR';
+    // The command and Node are on the PATH, so the commands are named by their short name; no client is guessed.
+    const commands = join(f.home, 'commands');
+    await fs.mkdir(commands);
+    for (const name of ['okit-plugin', 'node']) await fs.writeFile(join(commands, name), '#!/bin/sh\n', { mode: 0o755 });
+    f.io.env = { ...f.io.env, PATH: [commands, f.io.env.PATH].join(delimiter) };
     assert.equal(await main([command, '--locale', locale], f.io), 2);
     assert.deepEqual(f.output, pt ? [`okit-plugin — ${command === 'update' ? 'Atualização' : 'Desinstalação'}`,
       `Nenhuma instalação do plugin encontrada. Nada foi ${command === 'update' ? 'atualizado' : 'removido'}.`,
-      command === 'update' ? 'Instale primeiro: okit-plugin install --client codex' : 'Confira o estado local: okit-plugin doctor']
+      command === 'update' ? 'Instale primeiro: okit-plugin install' : 'Confira o estado local: okit-plugin doctor']
       : [`okit-plugin — ${command === 'update' ? 'Update' : 'Uninstall'}`, `No plugin installation was found. Nothing was ${command === 'update' ? 'updated' : 'removed'}.`,
-        command === 'update' ? 'Install first: okit-plugin install --client codex' : 'Check the local state: okit-plugin doctor']);
+        command === 'update' ? 'Install first: okit-plugin install' : 'Check the local state: okit-plugin doctor']);
   }
 });
 

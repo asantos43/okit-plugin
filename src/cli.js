@@ -43,6 +43,7 @@ import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
 import { OperationalError } from './install/exit.js';
 const { installerCommand } = collectorEntry ? {} : await import('./install/index.js');
+const { flagsOf } = collectorEntry ? {} : await import('./install/flags.js');
 const { createPresenter, createInstallerView, commandTitle, programLine, localizeReason, redactingWriter, resolveLocale } = collectorEntry
   ? {} : await import('./cli-present.js');
 const { exitCodeFor, kindOf } = collectorEntry ? {} : await import('./install/exit.js');
@@ -217,12 +218,13 @@ async function presentInstaller(group, flags, ctx, io, stored) {
   const invoke = (extra = {}) => installerCommand(group, flags, ctx, { ...io, ...installerLifecycle(ctx, io), ...extra });
   // Machine/usage refusals are handled by the existing parser, byte for byte.
   if (io.ui || flags.includes('--json')) return invoke();
-  const valueOf = (flag) => flags[flags.indexOf(flag) + 1];
+  // The same reading of the arguments as the installer's: the last value of a repeated flag wins.
+  const options = flagsOf(group, flags, { lenient: true });
   let config, before, destination;
   try {
-    config = installConfig(stored?.install, flags.includes('--dest') ? { destination: valueOf('--dest') } : {});
+    config = installConfig(stored?.install, options.dest ? { destination: options.dest } : {});
     ({ destination } = installPaths(config, { ...ctx, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE }));
-    const found = await discoverRecords(destination, { fs: ctx.fs, config, lenient: group === 'install', explicitDestination: flags.includes('--dest') });
+    const found = await discoverRecords(destination, { fs: ctx.fs, config, lenient: group === 'install', explicitDestination: Boolean(options.dest) });
     destination = found.destination;
     before = found.records;
   } catch { return invoke(); }
@@ -231,7 +233,7 @@ async function presentInstaller(group, flags, ctx, io, stored) {
   const code = await invoke({ ui: view.ui });
   const after = await discoverRecords(destination, { fs: ctx.fs, config, lenient: true }).then((found) => found.records).catch(() => ({}));
   const program = await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs }).catch(() => config.command);
-  view.finish({ code, before, after, client: flags.includes('--client') ? valueOf('--client') : undefined,
+  view.finish({ code, before, after, client: options.client,
     dryRun: flags.includes('--dry-run'), purge: flags.includes('--purge'), checkOnly: flags.includes('--check'),
     flags, program, platform: ctx.platform });
   return code;
