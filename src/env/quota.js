@@ -40,11 +40,11 @@ export const LABELS = {
     noQuota: (client) => `No quota value recorded. Call \`quota_set\` with the client "${client}" and the percentage that is left.`,
     // The same remedy for the person: the setup is a step of the person, so it asks the assistant for the tool.
     noQuotaAsk: (client) => `No quota value recorded. Ask your assistant to call \`quota_set\` with the client "${client}" and the percentage that is left.`,
-    unknownClient: 'Client not recognized. Showing all clients; pass the `client` argument to choose one.',
-    views: 'Slots show running executors; actors lists available model + effort profiles, even when nothing is running.',
+    unknownClient: 'Showing all clients; pass the `client` argument to choose one.',
+    views: 'A slot allows one executor to run at a time.\nAn actor is a model and its reasoning effort in a coding client.',
     pct: (value) => `${Math.round(value)}%`,
     capacity: (clients, floor) => (
-      `executors that can launch now: ${clients}; quota floor ${floor}%`
+      `${clients ? `Executor slots (running/limit; one executor at a time): ${clients}.` : 'No coding client was found.'}\nMinimum quota to launch: ${floor}%.`
     ),
     capSource: { client: 'client', default: 'default' },
     cap: (client, live, cap, source, available) => `${client}: ${live}/${cap} (${source}), ${available} available`,
@@ -68,11 +68,11 @@ export const LABELS = {
     noQuota: (client) => `Nenhum valor de cota registrado. Chame \`quota_set\` com o cliente "${client}" e a porcentagem que resta.`,
     // A mesma solução para a pessoa: o setup é um passo da pessoa, então ela pede a ferramenta ao assistente.
     noQuotaAsk: (client) => `Nenhum valor de cota registrado. Peça ao seu assistente para chamar \`quota_set\` com o cliente "${client}" e a porcentagem que resta.`,
-    unknownClient: 'Cliente não reconhecido. Mostrando todos os clientes; passe o argumento `client` para escolher um.',
-    views: 'Vagas mostram executores em execução; actors lista perfis modelo + esforço disponíveis, mesmo sem nada rodando.',
+    unknownClient: 'Mostrando todos os clientes; passe o argumento `client` para escolher um.',
+    views: 'Uma vaga permite executar um executor por vez.\nUm ator é um modelo e seu esforço de raciocínio em um cliente de programação.',
     pct: (value) => `${Math.round(value)}%`,
     capacity: (clients, floor) => (
-      `executores que podem iniciar agora: ${clients}; piso de cota ${floor}%`
+      `${clients ? `Vagas de executores (em execução/limite; um executor por vez): ${clients}.` : 'Nenhum cliente de programação foi encontrado.'}\nCota mínima para iniciar: ${floor}%.`
     ),
     capSource: { client: 'própria', default: 'padrão' },
     cap: (client, live, cap, source, available) => `${client}: ${live}/${cap} (${source}), ${available} disponíveis`,

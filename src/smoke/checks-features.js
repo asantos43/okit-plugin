@@ -618,12 +618,12 @@ async function statusTableCheck(deps) {
   const header = table.markdown.split('\n')[0];
   need(header.split('|').length === 8, `the table must have six columns, got ${header}`);
   need(!table.markdown.includes(ESC) && !table.capacityLine.includes(ESC), 'the table must carry no ANSI');
-  need(table.capacityLine.includes('executors that can launch now'), 'the capacity line must be under the table');
+  need(table.capacityLine.includes('Minimum quota to launch'), 'the capacity line must be under the table');
 
   const pt = await statusTable(deps.stateRoot, { ...base, cache: new Map(), locale: 'pt-BR' });
   need(pt.markdown.includes('Assinatura'), 'pt-BR must be another word per column');
   need(!pt.markdown.includes('Subscription'), 'pt-BR must not keep the English header');
-  need(pt.capacityLine.includes('executores'), 'pt-BR must be another word on the capacity line');
+  need(pt.capacityLine.includes('Cota mínima'), 'pt-BR must be another word on the capacity line');
   need(pt.markdown.split('\n')[2].includes('64%'), 'the reading must reach the row');
 }
 

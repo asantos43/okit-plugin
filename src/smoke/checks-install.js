@@ -172,7 +172,7 @@ async function versionMatches(deps) {
     { root: deps.stateRoot, env: deps.env, snapshot: deps.snapshot, now: deps.now }));
   const lines = table.markdown.split('\n');
   need(lines[0].startsWith('| Subscription |'), `the status tool must print the table header, got ${lines[0]}`);
-  need(table.capacityLine.includes('executors that can launch now'), 'the status tool must print the capacity line');
+  need(table.capacityLine.includes('Minimum quota to launch'), 'the status tool must print the capacity line');
   if (deps.snapshot) {
     for (const row of deps.snapshot.clients.filter((entry) => !deps.snapshot.inUse
       || entry.client === deps.snapshot.inUse)) {
