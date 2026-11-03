@@ -729,3 +729,22 @@ test('D112 round 12, 1: a PATH state whose profile no longer holds the managed b
   for (const item of state.profiles) await filesystem.writeFile(item.path, '# the person removed it\n');
   await expectRunning();
 });
+
+for (const [shell, variable] of [['zsh', 'ZDOTDIR'], ['fish', 'XDG_CONFIG_HOME']]) test(`D112 round 15, 1: a recorded block is not proof for a shell the installer does not know or whose startup files are moved (${shell})`, async (t) => {
+  const f = await fixture(t, 'linux');
+  f.io.env.PATH = join(f.home, 'node-bin');
+  f.io.env.SHELL = `/bin/${shell}`;
+  assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.output.join('\n'));
+  const tell = async () => { f.clear(); await main(['update', '--check', '--client', 'codex'], f.io); return f.output.join('\n'); };
+  const short = /(^|[\s'"])okit-plugin (update|doctor|setup)/m;
+  assert.match(await tell(), short, `${shell}: the short name is told while the profile is read`);
+  f.io.env[variable] = join(f.home, 'elsewhere');
+  const moved = await tell();
+  assert.doesNotMatch(moved, short, moved);
+  assert.ok(moved.includes(RUNNING), moved);
+  delete f.io.env[variable];
+  f.io.env.SHELL = '/bin/csh';
+  const csh = await tell();
+  assert.doesNotMatch(csh, short, csh);
+  assert.ok(csh.includes(RUNNING), csh);
+});

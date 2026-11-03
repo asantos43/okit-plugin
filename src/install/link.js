@@ -176,7 +176,11 @@ export async function commandReachable({ config, env, platform, bin, fs, destina
     // Only the profiles the shell of this terminal reads count: a block in another shell's file is not read by this one.
     // (The installer writes for the fallback shell when the terminal names none.)
     const shell = windows ? null : currentShell(env, config) ?? config.path.fallbackShell;
-    const read = shell && state?.profiles?.length ? await shellProfiles({ fs, config, home }, shell) : [];
+    // A shell the installer does not know reads none of its files; zsh and fish read theirs from another folder when the
+    // terminal redirects them (`ZDOTDIR`, `XDG_CONFIG_HOME`), which this check cannot follow.
+    const moved = (shell === 'zsh' && env.ZDOTDIR && resolve(env.ZDOTDIR) !== resolve(home))
+      || (shell === 'fish' && env.XDG_CONFIG_HOME && resolve(env.XDG_CONFIG_HOME) !== resolve(home, '.config'));
+    const read = shell && config.path.shells[shell] && !moved && state?.profiles?.length ? await shellProfiles({ fs, config, home }, shell) : [];
     for (const item of (state?.profiles ?? []).filter((entry) => read.includes(entry.path))) {
       const text = await fs.readFile(item.path, 'utf8').catch(() => null);
       if (item.block && text?.includes(item.block) && item.block.includes(bin)) return true;
