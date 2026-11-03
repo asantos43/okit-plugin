@@ -233,7 +233,7 @@ async function presentInstaller(group, flags, ctx, io, stored) {
   const program = await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs }).catch(() => config.command);
   // A new terminal finds the command only when its folder is on the PATH or the installer put it there.
   // The folder of the link is the one an installation recorded (as the installer and the doctor read it), else the configured one.
-  const reachable = (manages, records, present) => commandReachable({ config, env: ctx.env, platform: ctx.platform, fs: ctx.fs, destination, manages, present,
+  const reachable = (manages, records, present) => commandReachable({ config, env: ctx.env, platform: ctx.platform, fs: ctx.fs, destination, manages, present, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE,
     bin: Object.values(records).find((record) => record?.linkDirectory)?.linkDirectory ?? bin }).catch(() => false);
   const manages = group === 'install' && !flags.includes('--no-path');
   const linked = (group === 'install' ? !options['no-link'] : Object.values(before).some((record) => record?.link)) && await reachable(manages, before, group !== 'install');

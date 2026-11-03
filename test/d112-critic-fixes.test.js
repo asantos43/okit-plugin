@@ -721,6 +721,11 @@ test('D112 round 12, 1: a PATH state whose profile no longer holds the managed b
   await expectRunning();
   for (const [path, block] of blocks) await filesystem.writeFile(path, block);
   assert.match(await tell(), /(^|[\s'"])okit-plugin (update|doctor|setup)/m, 'with the block back the short name is told');
+  // The block is intact, but this terminal runs another shell, which never reads that file.
+  f.io.env.SHELL = '/bin/zsh';
+  await expectRunning();
+  f.io.env.SHELL = '/bin/bash';
+  assert.match(await tell(), /(^|[\s'"])okit-plugin (update|doctor|setup)/m, 'the shell that reads the file is told the short name');
   for (const item of state.profiles) await filesystem.writeFile(item.path, '# the person removed it\n');
   await expectRunning();
 });
