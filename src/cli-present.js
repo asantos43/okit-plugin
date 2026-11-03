@@ -4,6 +4,7 @@ import { createPresenter as basePresenter, TEXTS as BASE_TEXTS, clientLabel as b
 export * from './install/present.js';
 
 export const TEXTS = Object.freeze({ ...BASE_TEXTS,
+  stepPlanned: { en: 'planned', 'pt-BR': 'planejado' },
   clientChoose: { en: 'Choose a coding client before installing.', 'pt-BR': 'Escolha um cliente de programação antes de instalar.' },
   clientAsk: { en: 'Choose a client [1–3, or all]:', 'pt-BR': 'Escolha um cliente [1–3, ou all]:' },
   autostartAsk: { en: 'Background service — runs waiting work while your client is closed. Start it with this machine? [y/N]:', 'pt-BR': 'Serviço em segundo plano — executa trabalhos em espera enquanto o cliente está fechado. Iniciar com esta máquina? [s/N]:' },
@@ -18,7 +19,8 @@ export const TEXTS = Object.freeze({ ...BASE_TEXTS,
   doctorAutostartOptional: { en: 'Optional', 'pt-BR': 'Opcional' },
   doctorDaemon: { en: 'Background service', 'pt-BR': 'Serviço em segundo plano' },
 });
-export const clientLabel = (name) => name === 'opencode' ? 'OpenCode' : baseClientLabel(name);
+const normalizeClientLabel = (name) => name === 'Opencode' ? 'OpenCode' : name;
+export const clientLabel = (name) => normalizeClientLabel(baseClientLabel(name));
 export const commandTitle = (command, locale, action) => `${command} — ${locale === 'pt-BR'
   ? { setup: 'Configuração', doctor: 'Verificação da instalação' }[action]
   : { setup: 'Setup', doctor: 'Installation check' }[action]}`;
@@ -27,7 +29,10 @@ export const catalogFallback = (locale) => locale === 'pt-BR'
   : 'The model list could not be read; these choices come from the built-in list.';
 export function createPresenter(options = {}) {
   const ui = basePresenter(options);
-  ui.text = (key, values = {}) => String(TEXTS[key]?.[ui.locale] ?? '').replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ''));
+  ui.text = (key, values = {}) => String(TEXTS[key]?.[ui.locale] ?? '').replace(/\{(\w+)\}/g, (_, key) => {
+    const value = key === 'client' ? normalizeClientLabel(values[key]) : values[key];
+    return String(value ?? '');
+  });
   return ui;
 }
 
@@ -35,8 +40,8 @@ export function createPresenter(options = {}) {
 export function createInstallerView({ operation, command, locale, write, verbose = false, hide = [] }) {
   const notes = [];
   const headers = [], steps = [], failures = [], offered = [];
-  let globalLine = false;
-  const ui = createPresenter({ locale, write: (line) => notes.push({ line, client: globalLine ? undefined : headers.at(-1)?.client }), verbose, hide });
+  let globalLine = false, activeClient;
+  const ui = createPresenter({ locale, write: (line) => notes.push({ line, client: globalLine ? undefined : activeClient }), verbose, hide });
   const pt = ui.locale === 'pt-BR';
   const emit = redactingWriter(write, hide);
   let current = false, menu = false, titled = false, pathHint, modelsConfirmed = false;
@@ -45,8 +50,13 @@ export function createInstallerView({ operation, command, locale, write, verbose
     : { install: 'Install', update: 'Update', uninstall: 'Uninstall' }[operation]}`); };
   const original = { ...ui };
   ui.humanOutput = true;
-  ui.header = (values) => headers.push({ ...values, client: values.client === 'Opencode' ? 'OpenCode' : values.client });
+  ui.header = (values) => {
+    activeClient = normalizeClientLabel(values.client);
+    headers.push({ ...values, client: activeClient });
+  };
+  ui.endClients = () => { activeClient = undefined; };
   ui.row = (label, status, detail = '') => {
+    label = normalizeClientLabel(label);
     if (label === ui.text('models') && status === 'ok') modelsConfirmed = true;
     if (label === ui.text('upToDate')) current = true;
     if (status === 'failed') failures.push({ step: label, reason: detail });
@@ -187,9 +197,9 @@ export function createInstallerView({ operation, command, locale, write, verbose
     for (const [index, step] of steps.entries()) {
       const name = step.key === 'register' ? `${pt ? 'Conectar' : 'Connect'} ${step.client}` : step.label;
       const complete = step.status === 'ok' && step.detail !== ui.text('registerMarketplaceManual');
-      const result = complete ? (pt ? 'concluído' : 'complete') : step.detail;
+      const result = complete ? (pt ? 'concluído' : 'complete') : step.detail || (step.status === 'plan' ? ui.text('stepPlanned') : '');
       const detail = complete && step.detail && !['get', 'local', 'files', 'register'].includes(step.key) ? ` — ${step.detail}` : '';
-      say(`${index + 1}. ${multiple ? `${step.client} — ` : ''}${name}: ${result}${detail}`);
+      say(`${index + 1}. ${multiple ? `${step.client} — ` : ''}${name}${result || detail ? `: ${result}${detail}` : ''}`);
     }
   }
   function flushNotes(say) {

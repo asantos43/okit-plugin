@@ -161,6 +161,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
       }, user, records[client]);
       results.push({ client, code });
     }
+    ui.endClients?.();
     if (results.length > 1) results.forEach(({ client, code }) => ui.row(clientLabel(client), code === 0 ? 'ok' : 'failed'));
     const succeeded = results.every(({ code }) => code === 0);
     if ((command === 'install' || command === 'update') && !flags.check && !flags.rollback && succeeded) {

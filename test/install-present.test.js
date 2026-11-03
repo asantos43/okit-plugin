@@ -33,6 +33,47 @@ const LOCALES = ['en', 'pt-BR'];
 
 const HINT = (bin) => `$env:Path = '${bin}' + ';' + $env:Path`;
 
+for (const locale of LOCALES) test(`client matrix has no owner after a partial install: ${locale}`, async (t) => {
+  const f = await fixture(t);
+  const fetch = f.io.fetch;
+  f.io.detect = async () => true;
+  f.io.fetch = async (url, options) => {
+    if (url.endsWith('/package/codex')) throw new Error('fake package failure');
+    return fetch(url, options);
+  };
+  assert.equal(await main(['install', '--client', 'all', '--locale', locale], f.io), 1);
+  const text = f.output.join('\n');
+  const matrix = f.output.filter((line) => /^\s*(Claude Code|Codex|OpenCode)\s+(ok|failed|falhou)$/.test(line));
+  assert.equal(matrix.length, 3, text);
+  assert.ok(matrix.some((line) => new RegExp(`^\\s*Codex\\s+${locale === 'en' ? 'failed' : 'falhou'}$`).test(line)), text);
+  assert.doesNotMatch(text, /^(Claude Code|Codex|OpenCode) — (Claude Code|Codex|OpenCode)\s+(ok|failed|falhou)$/m);
+  assert.doesNotMatch(text, /^(Claude Code|Codex|OpenCode) — .*Kit \((optional|opcional)\)/m);
+  assert.ok(matrix.some((line) => /^\s*OpenCode\s/.test(line)), text);
+});
+
+for (const locale of LOCALES) test(`client scope ends before shared PATH notes: ${locale}`, () => {
+  const output = [];
+  const { ui, finish } = createInstallerView({ operation: 'install', command: 'okit-plugin', locale, write: (line) => output.push(line) });
+  ui.header({ client: 'Claude Code', version: '1' });
+  ui.sequence(['register'], { client: 'Claude Code' })('register').plan();
+  ui.row(ui.text('selfcheckPath'), 'info', 'client-path');
+  ui.header({ client: 'Opencode', version: '1' });
+  ui.sequence(['register'], { client: 'OpenCode' })('register').plan();
+  ui.row(ui.text('selfcheckPath'), 'info', 'other-client-path');
+  ui.endClients();
+  ui.row(ui.text('selfcheckPath'), 'info', 'shared-path');
+  finish({ code: 0, client: 'all', dryRun: true });
+  const text = output.join('\n'), connect = locale === 'en' ? 'Connect' : 'Conectar';
+  const planned = locale === 'en' ? 'planned' : 'planejado';
+  assert.match(text, new RegExp(`^1\\. Claude Code — ${connect} Claude Code: ${planned}$`, 'm'));
+  assert.match(text, new RegExp(`^2\\. OpenCode — ${connect} OpenCode: ${planned}$`, 'm'));
+  assert.doesNotMatch(text, /Opencode|:\s*$/m);
+  assert.ok(output.some((line) => line.startsWith('Claude Code — ') && line.endsWith(' client-path')), text);
+  assert.ok(output.some((line) => line.startsWith('OpenCode — ') && line.endsWith(' other-client-path')), text);
+  assert.ok(output.some((line) => /^\s/.test(line) && line.endsWith(' shared-path')), text);
+  assert.doesNotMatch(text, /^(Claude Code|OpenCode) — .* shared-path$/m);
+});
+
 // D112 machine baseline captured from unchanged code before presentation edits.
 // | case | must pass | must refuse |
 // | --json, all five commands, both locales | byte-identical refusal and exit 2 | a new flag or JSON schema |
