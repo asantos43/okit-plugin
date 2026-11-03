@@ -44,12 +44,12 @@ export function createPresenter(options = {}) {
 /** The program as a person types it on this platform: the words the repairs of the doctor start with. */
 export async function programLine({ config, platform, env, fs, remaining }) {
   const words = await programWords({ config, platform, env, fs });
-  // After an uninstall (`remaining`: the folders of the installations that are left) the running CLI can be inside the
-  // payload that was just deleted: a program that names a file that is gone cannot be typed again. The CLI of an
-  // installation that is left takes its place; with none, and no link, nothing is left (null) and the view points to the
-  // installer of the release.
+  // After a run (`remaining`: the folders of the installations that are left) the running CLI may not be there to be typed
+  // again: it was inside the payload an uninstall just deleted, or it is the copy the release installer unpacks in a
+  // temporary folder and removes when it ends. The CLI of an installation that is left takes its place; with none, and no
+  // link, nothing is left (null) and the view points to the installer of the release.
   const exists = (path) => fs.access(path).then(() => true, () => false);
-  if (remaining && words.length > 1 && !await exists(words[1])) {
+  if (remaining && words.length > 1 && (EPHEMERAL.test(words[1]) || !await exists(words[1]))) {
     for (const folder of remaining) {
       const script = join(folder, 'src/cli.js');
       if (await exists(script)) return shownCommand([words[0], script], platform);
@@ -58,6 +58,8 @@ export async function programLine({ config, platform, env, fs, remaining }) {
   }
   return shownCommand(words, platform);
 }
+// The folder the release installer unpacks into (`mkdtemp(tmpdir()/okit-bootstrap-)` in `install/bootstrap.js`).
+const EPHEMERAL = /[\\/]okit-bootstrap-[^\\/]+[\\/]/;
 /** Collect installer observations so the outcome can precede completed steps. */
 export function createInstallerView({ operation, command, locale, write, verbose = false, hide = [], launch: start = {} }) {
   const notes = [];
@@ -146,7 +148,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
    * The outcome, told from the result of each client. `flags` and `program` are the arguments of the run and the way
    * to start the program: the commands that replay the operation are built from them.
    */
-  function finish({ code, before = {}, after = {}, client, dryRun = false, purge = false, checkOnly = false, flags, program = launch.program, platform = launch.platform, destination }) {
+  function finish({ code, before = {}, after = {}, client, dryRun = false, purge = false, checkOnly = false, flags, program = launch.program, platform = launch.platform, destination, pathReady = true }) {
     if (!menu && !headers.length && !failures.length) return;
     if (!menu) title();
     const known = Object.keys({ ...before, ...after });
@@ -170,7 +172,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
     // replay), or with `later` the one a new terminal will find, when the installation that remains holds the command link
     // (`--no-link`, or an uninstall that removed the last link, leave none, and then the running program is the only one
     // that works). A custom folder of an install belongs to the commands that install again.
-    Object.assign(launch, { program, platform, linked: Object.values(after).some((record) => record?.link), dest: options.dest });
+    Object.assign(launch, { program, platform, linked: pathReady && Object.values(after).some((record) => record?.link), dest: options.dest });
     const custom = operation === 'install' && Boolean(options.dest);
     const withClient = (id) => (id ? ['--client', id] : []);
     const replay = ({ omit = [], client: scope } = {}) => type([operation, ...withClient(scope),
@@ -265,7 +267,11 @@ export function createInstallerView({ operation, command, locale, write, verbose
       if (remaining.length) {
         say(pt ? `Integração do ${names(ids)} removida. O comando foi mantido para ${names(remaining)}.`
           : `Removed ${names(ids)} integration. The command is kept for ${names(remaining)}.`);
-        say(`${pt ? 'Verifique a instalação restante' : 'Check the remaining installation'}: ${doctor(remaining.length === 1 ? remaining[0] : undefined)}`);
+        // Nothing that runs is left (the command and the CLI of the kept installations are gone): the doctor cannot be
+        // started, and the installer of the release puts the command back.
+        if (launch.program === null) {
+          for (const id of remaining) say(`${pt ? 'Instale novamente para restaurar o comando' : 'Install again to restore the command'}${remaining.length > 1 ? ` (${clientLabel(id)})` : ''}: ${type(['install', ...withClient(id)])}`);
+        } else say(`${pt ? 'Verifique a instalação restante' : 'Check the remaining installation'}: ${doctor(remaining.length === 1 ? remaining[0] : undefined)}`);
       } else {
         say(pt ? `Plugin removido do ${names(ids)}.${purge ? '' : ' Seus ajustes foram mantidos.'}`
           : `Removed the plugin from ${names(ids)}.${purge ? '' : ' Your settings were kept.'}`);

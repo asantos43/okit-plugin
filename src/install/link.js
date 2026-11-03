@@ -152,6 +152,11 @@ export async function managedProfile(deps, shell) {
  */
 export { binInPath } from '../env/path.js';
 
+/** Whether a new terminal finds the command: its folder is on the PATH now, or the installer writes it there. */
+export function commandReachable({ config, env, platform, bin, noPath = false }) {
+  return binInPath({ env, config, platform, bin }) || (config.path.enabled !== false && !noPath);
+}
+
 /**
  * The warning that tells the user the exact command that makes the command
  * resolve in the current terminal, or null when bin is already in PATH.

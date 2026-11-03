@@ -546,3 +546,54 @@ for (const locale of LOCALES) test(`D112 round 6, 3: setup --defaults names ever
     assert.ok(f.output.some((line) => line.startsWith('| ') && line.includes(work)), `${work}\n${text}`);
   }
 });
+
+// Round 7.
+for (const locale of LOCALES) test(`D112 round 7, 1: a kept link that no new terminal finds does not stand for the command: ${locale}`, () => {
+  const pt = locale === 'pt-BR';
+  const prefix = `${pt ? 'Verifique a instalação restante' : 'Check the remaining installation'}: `;
+  const kept = { codex: { client: 'codex', link: true } };
+  const check = (pathReady) => render('uninstall', locale, (ui) => ui.header({ client: 'Claude Code', version: '1' }),
+    { code: 0, client: 'claude-code', flags: ['--client', 'claude-code', '--yes'], program: RUNNING,
+      before: { ...kept, 'claude-code': { client: 'claude-code', link: true } }, after: kept, pathReady })
+    .find((line) => line.startsWith(prefix));
+  assert.equal(check(true), `${prefix}okit-plugin doctor --client codex`);
+  assert.equal(check(false), `${prefix}${RUNNING} doctor --client codex`);
+});
+
+test('D112 round 7, 1b: an install with --no-path names the program that runs, not the bare command', async (t) => {
+  const f = await fixture(t, 'linux');
+  f.io.env.PATH = '/usr/bin';
+  assert.equal(await main(['install', '--client', 'codex', '--no-path'], f.io), 0, f.output.join('\n'));
+  const next = f.output.find((line) => line.startsWith('Next: ') && line.includes('setup'));
+  assert.equal(next, `Next: ${RUNNING} setup`, f.output.join('\n'));
+});
+
+for (const locale of LOCALES) test(`D112 round 7, 2: when no program is left the kept installations are put back by the installer of the release: ${locale}`, () => {
+  const pt = locale === 'pt-BR';
+  for (const [platform, installer] of [['linux', 'sh install.sh'], ['win32', './install.ps1']]) {
+    const output = render('uninstall', locale, (ui) => ui.header({ client: 'Claude Code', version: '1' }),
+      { code: 0, client: 'claude-code', flags: ['--client', 'claude-code', '--yes'], program: null, platform,
+        before: { codex: { client: 'codex', link: false }, 'claude-code': { client: 'claude-code', link: false } }, after: { codex: { client: 'codex', link: false } } });
+    const text = output.join('\n');
+    assert.doesNotMatch(text, /doctor|null/, text);
+    const line = output.find((entry) => entry.startsWith(`${pt ? 'Instale novamente para restaurar o comando' : 'Install again to restore the command'}: `));
+    assert.equal(line?.split(': ').slice(1).join(': '), `${installer} --client codex`, text);
+  }
+});
+
+for (const locale of LOCALES) test(`D112 round 7, 3: the copy the release installer unpacks is never the program to type afterwards: ${locale}`, async (t) => {
+  const f = await fixture(t, 'linux');
+  const unpacked = join(f.root, 'okit-bootstrap-abc123', 'extracted');
+  await filesystem.mkdir(unpacked, { recursive: true });
+  await filesystem.cp(fileURLToPath(new URL('../src', import.meta.url)), join(unpacked, 'src'), { recursive: true });
+  await filesystem.cp(fileURLToPath(new URL('../package.json', import.meta.url)), join(unpacked, 'package.json'));
+  const { programLine: fromTemp } = await import(new URL(`file://${join(unpacked, 'src/cli-present.js')}`).href);
+  const installed = join(f.root, 'installed');
+  await filesystem.mkdir(join(installed, 'src'), { recursive: true });
+  await filesystem.writeFile(join(installed, 'src/cli.js'), '// cli\n');
+  const ask = (remaining) => fromTemp({ config: f.io.config, platform: 'linux', env: { PATH: '' }, fs: filesystem, remaining });
+  assert.equal(await ask([installed]), shown([process.execPath, join(installed, 'src/cli.js')], 'linux'), locale);
+  assert.equal(await ask([]), null);
+  // Without a run to look back on, the copy that is running is still the program.
+  assert.equal(await fromTemp({ config: f.io.config, platform: 'linux', env: { PATH: '' }, fs: filesystem }), shown([process.execPath, join(unpacked, 'src/cli.js')], 'linux'));
+});
