@@ -27,7 +27,7 @@ import { formatNotSaved, formatUnreadable, runSetup, setupResultLines } from '..
 // | a reason raised by src/cli.js and shown by the installer | pt-BR text | English inside a pt-BR run |
 // | a --locale that is not a language | one language: valid --locale, else OKIT_LANGUAGE, else English | both languages in one line |
 
-import { fixture, SYSTEM, FORMAT } from './helpers/install-fixture.js';
+import { commandsOnPath, fixture, SYSTEM, FORMAT } from './helpers/install-fixture.js';
 
 const LABEL = { linux: 'Linux', darwin: 'macOS', win32: 'Windows' };
 const PLATFORMS = ['linux', 'darwin', 'win32'];
@@ -173,6 +173,7 @@ for (const locale of LOCALES) test(`D112 absent update/uninstall preserve exit 2
 
 for (const locale of LOCALES) test(`D112 setup first run, ready and cancelled: ${locale}`, async (t) => {
   const f = await fixture(t), pt = locale === 'pt-BR';
+  await commandsOnPath(f);
   f.io.setupAdapters = [{ CLIENT: 'codex', listModels: async () => ({ client: 'codex', installed: true, models: ['sol', 'astra'], source: 'listing' }) }];
   let answers = ['1', '1', '2', 'yes'];
   f.io.ask = async (question) => { f.output.push(question); return answers.shift(); };
@@ -204,6 +205,7 @@ for (const locale of LOCALES) test(`D112 setup first run, ready and cancelled: $
 
 for (const locale of LOCALES) test(`D112 setup nothing detected: ${locale}`, async (t) => {
   const f = await fixture(t), pt = locale === 'pt-BR';
+  await commandsOnPath(f);
   f.io.setupAdapters = [{ CLIENT: 'codex', listModels: async () => ({ client: 'codex', installed: false, models: [], source: 'listing' }) }];
   assert.equal(await main(['setup', '--defaults', '--locale', locale], f.io), 0);
   assert.deepEqual(f.output, pt ? ['okit-plugin — Configuração', 'Nenhum cliente com modelo ativo foi encontrado. Nada foi salvo.',

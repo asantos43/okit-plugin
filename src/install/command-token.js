@@ -1,7 +1,11 @@
+import { randomBytes } from 'node:crypto';
+
 // A command inside a text another module writes (a note, the detail of a step, a Fix line) is written as a token, never
 // as final text: only the installer view swaps the token for the command a person can type on this terminal. Text with
-// no token is never touched. The token uses control characters, which no path, message or user text contains.
-export const TOKEN_START = '\u0001', TOKEN_SEP = '\u0002', TOKEN_END = '\u0003';
+// no token is never touched.
+// The start carries a random value of this run, so a text that holds the control characters (a path the person chose)
+// cannot forge a token: it does not know the value.
+export const TOKEN_START = `\u0001${randomBytes(8).toString('hex')}`, TOKEN_SEP = '\u0002', TOKEN_END = '\u0003';
 const MODES = { later: 'l', now: 'n', program: 'p' };
 
 /**

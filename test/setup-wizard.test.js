@@ -40,6 +40,14 @@ async function temporaryHome(t) {
   return { home, root: join(home, '.okwork') };
 }
 
+// The command and Node on the PATH: the follow-up commands name the program this terminal can start.
+async function stubsOnPath(home, names) {
+  const folder = join(home, 'commands');
+  await mkdir(folder, { recursive: true });
+  for (const name of names) await writeFile(join(folder, name), '#!/bin/sh\n', { mode: 0o755 });
+  return folder;
+}
+
 async function writeConfig(root, text) {
   await mkdir(root, { recursive: true });
   await writeFile(join(root, 'config.json'), text, 'utf8');
@@ -643,7 +651,7 @@ for (const global of [0, 'abc']) {
       const errors = [];
       let writes = 0;
       const code = await mainBothLanguages(['setup', '--defaults'], {
-        root, command: 'custom-okit', env: { HOME: home, OKWORK_HOME: root },
+        root, command: 'custom-okit', env: { HOME: home, OKWORK_HOME: root, PATH: await stubsOnPath(home, ['custom-okit', 'node']) },
         run: falseRun(), adapters: [adapter],
         stdout: (line) => output.push(line), stderr: (line) => errors.push(line),
         writeConfig: async () => { writes += 1; },
@@ -721,7 +729,7 @@ test('setup --defaults says one simple sentence when the configuration folder re
     const errors = [];
     const code = await mainBothLanguages(['setup', '--defaults'], {
       root,
-      env: { HOME: home, OKWORK_HOME: root },
+      env: { HOME: home, OKWORK_HOME: root, PATH: await stubsOnPath(home, ['okit-plugin', 'node']) },
       run: falseRun(),
       adapters: [fakeClient('claude-code', ['haiku', 'sonnet', 'opus'])],
       stdout: (line) => output.push(line),

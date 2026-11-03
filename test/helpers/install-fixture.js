@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { tarGz, zip } from '../../src/release/archive.js';
 import { installConfig } from '../../src/install/config.js';
@@ -159,4 +159,18 @@ export async function fixture(t, platform = 'linux', { tty = false, ask, read } 
     .replaceAll(home, '<home>').replace(/ {2,}/g, '  ').trimEnd());
   return { home, root, destination, bin, scratch, io, output, commands, lines, name, mcp,
     setVersion: (value) => { version = value; }, clear: () => { output.length = 0; } };
+}
+
+/**
+ * Puts the command and Node on the PATH of the fixture, the way a person who installed the plugin has them: the follow-up
+ * commands of `setup` and `doctor` name the program this terminal can start, so they are the short name only then.
+ * Call it after the installs of a test (an existing command is not the plugin's own link).
+ */
+export async function commandsOnPath(f, platform = 'linux', names = ['okit-plugin', 'node']) {
+  const windows = platform === 'win32';
+  const folder = join(f.home, 'commands');
+  await fs.mkdir(folder, { recursive: true });
+  for (const name of names) await fs.writeFile(join(folder, name + (windows ? '.cmd' : '')), '#!/bin/sh\n', { mode: 0o755 });
+  const key = Object.keys(f.io.env).find((name) => name.toLowerCase() === 'path') ?? 'PATH';
+  f.io.env[key] = [folder, f.io.env[key]].filter(Boolean).join(windows ? ';' : delimiter);
 }

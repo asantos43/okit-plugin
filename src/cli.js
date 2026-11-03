@@ -239,7 +239,7 @@ async function presentInstaller(group, flags, ctx, io, stored) {
   // An uninstall that takes the last client away can take the command off the PATH and the payload that holds this CLI
   // with it: what the output tells to type afterwards is worked out again from what is left.
   const remaining = group === 'uninstall' && !Object.keys(after).length
-    ? await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs, bare: config.command }).catch(() => program) : program;
+    ? await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs, afterRemoval: true }).catch(() => program) : program;
   view.finish({ code, before, after, client: options.client,
     dryRun: flags.includes('--dry-run'), purge: flags.includes('--purge'), checkOnly: flags.includes('--check'),
     flags, program: remaining, platform: ctx.platform, destination });
@@ -250,10 +250,12 @@ async function runSetupCommand(ctx, { stored, locale, found, install }, io) {
   const defaults = Boolean(found['--defaults']);
   const again = Boolean(found['--again']);
   ctx.out(commandTitle(ctx.command, locale, 'setup'));
+  // What the setup tells to type afterwards is the program this terminal can start (the command may not be on the PATH).
+  const program = await programLine({ config: { ...install, command: ctx.command }, platform: ctx.platform, env: ctx.env, fs: ctx.fs }).catch(() => ctx.command);
   // A configuration that cannot be read stops the command here: the same
   // simple sentence everywhere, the file untouched and nothing written.
   if (!isReadableConfig(stored)) {
-    ctx.err(formatUnreadable(locale, ctx.command));
+    ctx.err(formatUnreadable(locale, program));
     return exitCodeFor('operational');
   }
   const reader = io.ask
@@ -271,12 +273,12 @@ async function runSetupCommand(ctx, { stored, locale, found, install }, io) {
       write: ctx.writeConfig ?? ctx.write,
       locale,
       again,
-      command: ctx.command,
+      command: program,
       out: ctx.out,
     });
-    for (const message of setupResultLines(result, locale, ctx.command)) ctx.out(message);
+    for (const message of setupResultLines(result, locale, program)) ctx.out(message);
     if (!defaults && result.code === 0 && !result.cancelled) {
-      return await setupAutostart(ctx, { config: install, locale, ask: reader.ask, plan: (record) => installationAutostartPlan(ctx, io, record) });
+      return await setupAutostart({ ...ctx, command: program }, { config: install, locale, ask: reader.ask, plan: (record) => installationAutostartPlan(ctx, io, record) });
     }
     return result.code;
   } finally {

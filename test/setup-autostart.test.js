@@ -12,11 +12,12 @@ import { exitCodeFor } from '../src/install/exit.js';
 import { shown } from '../src/install/mcp-register.js';
 import { installConfig } from '../src/install/config.js';
 import { readRecords, readRecordsLenient } from '../src/install/place.js';
-import { fixture } from './helpers/install-fixture.js';
+import { commandsOnPath, fixture } from './helpers/install-fixture.js';
 
 async function world(t, { clients = ['codex'], platform = 'linux', installed = false } = {}) {
   const f = await fixture(t, platform);
   for (const client of clients) assert.equal(await main(['install', '--client', client], f.io), 0, f.output.join('\n'));
+  await commandsOnPath(f, platform);
   const records = await readRecords(f.destination, fs, f.io.config);
   if (installed) {
     for (const record of Object.values(records)) {

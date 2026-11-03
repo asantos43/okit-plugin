@@ -41,11 +41,12 @@ export function createPresenter(options = {}) {
 }
 
 /** The program as a person types it on this platform: the words the repairs of the doctor start with. */
-export async function programLine({ config, platform, env, fs, bare }) {
+export async function programLine({ config, platform, env, fs, afterRemoval = false }) {
   const words = await programWords({ config, platform, env, fs });
   // After an uninstall the running CLI can be inside the payload that was just deleted: a program that names a file
-  // that is gone cannot be typed again, so the one that survives is the bare command, as the bootstrap installer has it.
-  if (bare && words.length > 1 && !await fs.access(words[1]).then(() => true, () => false)) return shownCommand([bare], platform);
+  // that is gone cannot be typed again, and neither can the bare command (the link went with it): nothing is left (null),
+  // and the view points to the installer of the release.
+  if (afterRemoval && words.length > 1 && !await fs.access(words[1]).then(() => true, () => false)) return null;
   return shownCommand(words, platform);
 }
 /** Collect installer observations so the outcome can precede completed steps. */
@@ -66,7 +67,11 @@ export function createInstallerView({ operation, command, locale, write, verbose
   const type = (words, { later = false, program } = {}) => {
     const list = operation === 'install' && launch.dest && words[0] === 'install' && !words.includes('--dest')
       ? [words[0], '--dest', launch.dest, ...words.slice(1)] : words;
-    return `${program ?? launcher(later)} ${list.map((word) => quotedWord(word, launch.platform)).join(' ')}`;
+    const rest = list.map((word) => quotedWord(word, launch.platform));
+    // Nothing that runs is left (an uninstall took the command and the payload of this CLI away): the way back in is the
+    // installer of the release, which takes the same flags.
+    if (launch.program === null && !program) return [launch.platform === 'win32' ? './install.ps1' : 'sh install.sh', ...(list[0] === 'install' ? rest.slice(1) : rest)].join(' ');
+    return `${program ?? launcher(later)} ${rest.join(' ')}`;
   };
   // Other modules write a command into their text as a token (`ui.command`); `resolve` swaps each token for what `type`
   // builds and touches nothing else, so a path or a message that happens to hold a command name stays as it is. A token

@@ -460,10 +460,10 @@ for (const locale of LOCALES) test(`D112 round 4, 4: after the last client is re
   assert.equal(await main(argsOf(line), f.io), 0, f.output.join('\n'));
   assert.ok(f.output.some((out) => out.startsWith(pt ? 'Instalado para Codex.' : 'Installed for Codex.')), f.output.join('\n'));
 
-  // When the running CLI was inside the payload that was deleted, the program that survives is the bare command.
+  // When the running CLI was inside the payload that was deleted nothing runs any more (the bare command went with the link).
   const gone = { ...filesystem, access: async () => { throw Object.assign(new Error('gone'), { code: 'ENOENT' }); } };
-  const survivor = (files) => programLine({ config: f.io.config, platform: 'linux', env: { PATH: '' }, fs: files, bare: f.io.config.command });
-  assert.equal(await survivor(gone), 'okit-plugin');
+  const survivor = (files) => programLine({ config: f.io.config, platform: 'linux', env: { PATH: '' }, fs: files, afterRemoval: true });
+  assert.equal(await survivor(gone), null);
   assert.equal(await survivor(filesystem), RUNNING);
 });
 
@@ -475,4 +475,32 @@ for (const locale of LOCALES) test(`D112 round 4, 5: a failure keeps the skipped
   heal();
   f.clear();
   assert.equal(await main(argsOf(quota), f.io), 0, f.output.join('\n'));
+});
+
+// Round 5.
+for (const locale of LOCALES) test(`D112 round 5, 1: a text with the control characters of a token is never read as a command: ${locale}`, () => {
+  const forged = '/data/\u0001ninstall\u0003/\u0001linstall --client codex\u0003';
+  const output = render('install', locale, (ui) => { ui.header({ client: 'Codex', version: '1' }); ui.row('Path', 'info', forged); },
+    { code: 0, client: 'codex', flags: ['--client', 'codex'] });
+  assert.ok(output.join('\n').includes(forged), output.join('\n'));
+});
+
+for (const locale of LOCALES) test(`D112 round 5, 2: when nothing that runs is left the way back is the installer of the release: ${locale}`, () => {
+  const pt = locale === 'pt-BR';
+  for (const [platform, installer] of [['linux', 'sh install.sh'], ['win32', './install.ps1']]) {
+    const output = render('uninstall', locale, (ui) => ui.header({ client: 'Codex', version: '1' }),
+      { code: 0, client: 'codex', flags: ['--client', 'codex', '--yes'], program: null, platform, before: { codex: { client: 'codex', link: true } }, after: {} });
+    const line = output.find((text) => text.startsWith(`${pt ? 'Instale novamente quando precisar' : 'Install again when needed'}: `));
+    assert.equal(line?.split(': ').slice(1).join(': '), `${installer} --client codex`, output.join('\n'));
+    assert.doesNotMatch(output.join('\n'), /okit-plugin install|null/);
+  }
+});
+
+for (const locale of LOCALES) test(`D112 round 5, 3: the standalone setup names the program this terminal can start: ${locale}`, async (t) => {
+  const f = await fixture(t, 'linux');
+  f.io.env.OKIT_LANGUAGE = locale;
+  f.io.env.PATH = '/usr/bin';
+  await main(['setup', '--defaults'], f.io);
+  const text = f.output.join('\n');
+  assert.doesNotMatch(text, /(^|[ `'"])okit-plugin (setup|doctor)/m, text);
 });
