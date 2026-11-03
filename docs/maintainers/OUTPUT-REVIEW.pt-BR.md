@@ -2,7 +2,7 @@
 
 ![okit-plugin: Manutenção](../images/banners/maintainers.svg)
 
-Somente etapas 1–2: evidências e propostas para revisão do Producer. Não implica implementação nem aprovação de contrato de máquina. Veja os [mock-ups](OUTPUT-MOCKUPS.pt-BR.md) e a [versão em inglês](OUTPUT-REVIEW.md).
+Evidências e propostas para revisão do Producer. Não implica implementação nem aprovação de contrato de máquina. Veja os [mock-ups](OUTPUT-MOCKUPS.pt-BR.md) e a [versão em inglês](OUTPUT-REVIEW.md).
 
 <a id="contents"></a>
 ## Índice
@@ -25,7 +25,18 @@ Reproduza cada comando com `task_home=$(mktemp -d)` seguido de `HOME="$task_home
 
 Os trechos são literais, cortados entre linhas/campos, salvo indicação de molde do código. Caminhos e horários variáveis foram omitidos escolhendo trechos sem eles. Ramos lidos no código são separados dos estados executados; não são apresentados como reproduzidos. As capturas MCP chamam `callTool(TOOLS, ctx, name, args)` dos módulos reais, com raiz temporária e `ctx.env={HOME:process.env.HOME,PATH:''}`; dispensam sockets e clientes externos. Isso testa ausência de executáveis, não identificador de cliente inválido.
 
-Princípios: **L** um idioma, pela regra da CLI (`--locale`, `OKIT_LANGUAGE` válido, idioma salvo, inglês padrão); **S** título e resumo curto primeiro; **D** tabelas contêm dados, orientação abaixo; **N** estados vazios/ausentes dão o próximo comando ou chamada exata; **H** cada dica/motivo uma vez; **W** palavras simples ou significado do jargão em uma linha; **Q** perguntas curtas e opções visíveis; **M** preservar JSON, sinalizadores de protocolo e códigos de saída. Molde do código evidencia redação, não cria comando executável.
+Princípios, citados pela letra nas linhas de problema abaixo:
+
+- **L, um idioma:** seguir a regra de idioma da CLI (`--locale`, `OKIT_LANGUAGE` válido, idioma salvo, inglês padrão).
+- **S, resumo primeiro:** título e resumo curto vêm primeiro.
+- **D, dados separados da orientação:** tabelas contêm dados; a orientação vem abaixo.
+- **N, próximo passo:** estados vazios ou ausentes dão o próximo comando ou chamada exata.
+- **H, dica uma vez:** cada dica ou motivo aparece uma vez.
+- **W, palavras simples:** palavras simples, ou o significado do jargão em uma linha.
+- **Q, perguntas curtas:** perguntas curtas com opções visíveis.
+- **M, contrato de máquina:** JSON, sinalizadores de protocolo e códigos de saída ficam como estão.
+
+Um molde do código evidencia a redação; não cria comando executável.
 
 Problemas têm IDs globais estáveis P1–P32; as traduções usam as mesmas seções e IDs. Contagens: setup 8, doctor 4, install 4, update 2, uninstall 2, respostas MCP 12. As melhorias do D92 (idioma, apresentador comum, passos numerados e notas globais sem repetição) são preservadas; só os defeitos restantes são listados nos três comandos.
 

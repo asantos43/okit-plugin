@@ -2,7 +2,7 @@
 
 ![okit-plugin: Maintainers](../images/banners/maintainers.svg)
 
-Steps 1–2 only: evidence and proposals for Producer review. No implementation or machine-contract approval is implied. See [target mock-ups](OUTPUT-MOCKUPS.md) and [Português](OUTPUT-REVIEW.pt-BR.md).
+Evidence and proposals for Producer review. No implementation or machine-contract approval is implied. See [target mock-ups](OUTPUT-MOCKUPS.md) and [Português](OUTPUT-REVIEW.pt-BR.md).
 
 <a id="contents"></a>
 ## Contents
@@ -25,7 +25,18 @@ Reproduce each command with `task_home=$(mktemp -d)` followed by `HOME="$task_ho
 
 Excerpts below are verbatim, trimmed at line/field boundaries unless explicitly marked as source templates. Volatile paths/timestamps are omitted by choosing excerpts without them. Source-only branches are distinguished from executed states; they are not claimed as reproduced. MCP captures call `callTool(TOOLS, ctx, name, args)` from the real modules with temporary root and `ctx.env={HOME:process.env.HOME,PATH:''}`; transport sockets and external clients are unnecessary. This intentionally tests absent executables, not an invalid client identifier.
 
-Principles: **L** one language, using the CLI locale rule (`--locale`, valid `OKIT_LANGUAGE`, saved language, English default); **S** title and short summary first; **D** tables contain data, advice below; **N** empty/missing states give the exact next command/tool call; **H** each hint/reason once; **W** plain words or a one-line meaning for jargon; **Q** short questions with visible options; **M** preserve JSON, protocol flags and exit codes. A source template is evidence of wording, not a new executable command.
+Principles, referred to by their letter in the problem lines below:
+
+- **L, one language:** follow the CLI locale rule (`--locale`, valid `OKIT_LANGUAGE`, saved language, English default).
+- **S, summary first:** a title and a short summary come first.
+- **D, data apart from advice:** tables hold data; advice goes below them.
+- **N, next step:** empty or missing states give the exact next command or tool call.
+- **H, hint once:** each hint or reason appears once.
+- **W, plain words:** plain words, or a one-line meaning for jargon.
+- **Q, short questions:** short questions with visible options.
+- **M, machine contract:** JSON, protocol flags and exit codes stay as they are.
+
+A source template is evidence of wording, not a new executable command.
 
 Problems use stable global IDs P1–P32; translated documents use identical sections and IDs. Counts: setup 8, doctor 4, install 4, update 2, uninstall 2, MCP replies 12. D92 improvements (locale, shared presenter, numbered steps, de-duplicated global notes) are retained; only remaining defects are listed for its three commands.
 
