@@ -4,3 +4,5 @@ Doctor and self-check repairs use the configured command only when found as a fi
 Repairs keep only the default command bare and use the found file for other names, require Node on PATH, fall back to the running Node when the saved one is missing, and check shared autostart against all records. / Reparos mantêm solto só o comando padrão e usam o arquivo encontrado nos demais, exigem Node no PATH, usam o Node em execução quando o salvo sumiu e verificam o início automático compartilhado com todos os registros.
 
 The doctor reports the autostart as failed, with a reinstall Fix, when the recorded daemon script is gone. / O doctor relata o início automático como falho, com a correção de reinstalar, quando o script do daemon registrado não existe mais.
+
+The doctor resolves legacy records against the folder they were found in, including the installation that is running. / O doctor resolve registros legados na pasta em que foram encontrados, inclusive a instalação em execução.

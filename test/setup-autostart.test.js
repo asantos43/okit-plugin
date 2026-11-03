@@ -922,3 +922,21 @@ test('a legacy record that setup enabled the autostart for can be uninstalled wi
   assert.equal(code, exitCodeFor('ok'), f.output.join('\n'));
   assert.ok(f.ran.some((command) => JSON.stringify(command).includes('disable')), JSON.stringify(f.ran));
 });
+
+test('doctor resolves a legacy record against the folder its records were found in, not the default one', async (t) => {
+  const f = await world(t, { installed: true });
+  const record = { ...f.records.codex };
+  delete record.path;
+  delete record.destination;
+  const { diagnose } = await import('../src/doctor/diagnose.js');
+  const { createPresenter } = await import('../src/install/present.js');
+  const ui = createPresenter({ locale: 'en', write: () => {} });
+  const readers = { selfCheck: async () => [], mcpEntry: async () => ({ state: 'registered' }), servers: async () => [],
+    daemon: async () => ({ running: true }), autostartPresent: async () => true };
+  const elsewhere = { ...f.io, config: { ...f.io.config, destination: '' }, home: join(f.home, 'elsewhere'), env: { ...f.io.env, HOME: join(f.home, 'elsewhere'), XDG_DATA_HOME: undefined } };
+  const failed = (result) => result.rows.filter((row) => row.status === 'failed').map((row) => row.id);
+  const found = await diagnose({ ...elsewhere, destination: f.destination, records: [record], ui, readers });
+  const guessed = await diagnose({ ...elsewhere, destination: undefined, records: [record], ui, readers });
+  assert.deepEqual(failed(found), failed(await diagnose({ ...f.io, records: [f.records.codex], ui, readers })));
+  assert.notDeepEqual(failed(guessed), failed(found));
+});

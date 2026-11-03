@@ -151,8 +151,10 @@ export async function discoverRecords(destination, { fs, config = installConfig(
   if (!installed) return { ...found, destination };
   // Every record that could not be read is named: the one of the destination and the one of the installation
   // that is running.
+  // A legacy record names no destination: the folder its records were read from is the one.
+  const runtimeFolder = dirname(packageDirectory.replace(/[\\/]$/, ''));
   return { records: runtime.records, invalid: [...found.invalid, ...runtime.invalid],
-    destination: installed.destination ?? destination };
+    destination: installed.destination ?? runtimeFolder };
 }
 
 // Include the legacy file: saving a modern record can remove it.

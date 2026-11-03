@@ -175,7 +175,7 @@ const ordersShape = (value) => ({ ok: plain(value) && Array.isArray(value.orders
  * of the MCP server and the checks of the install self-check), then the state files, the session, the autostart and the
  * daemon.
  *
- * @param {object} input the state root, the settings, the records, the presenter and the readers
+ * @param {object} input the state root, the settings, the records, the folder they were found in (`destination`), the presenter and the readers
  * @returns {Promise<{rows: object[], failed: number, warnings: number}>}
  */
 export async function diagnose(input) {
@@ -195,8 +195,11 @@ export async function diagnose(input) {
   const run = input.run ?? (async () => { throw Object.assign(new Error('no runner of processes was given'), { code: 'ENOENT' }); });
   const readers = { ...defaultReaders({ fs, run, timeoutMs: settings.timeoutMs }), ...(input.readers ?? {}) };
   const chosen = input.client ? records.filter((record) => record.client === input.client) : records;
-  let destination;
-  try { destination = installPaths(settings, { home, env, platform }).destination; } catch { /* unsupported platforms have no default folder */ }
+  // The folder of the records: the one they were found in, else the default one.
+  let destination = typeof input.destination === 'string' && input.destination !== '' ? input.destination : undefined;
+  if (destination === undefined) {
+    try { destination = installPaths(settings, { home, env, platform }).destination; } catch { /* unsupported platforms have no default folder */ }
+  }
   const allResolved = records.map((record) => resolvedRecord(record, destination));
   const resolved = input.client ? allResolved.filter((record) => record.client === input.client) : allResolved;
   const program = shown(await programWords({ config: { ...settings, command }, platform, env, fs }), platform);
