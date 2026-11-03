@@ -171,10 +171,11 @@ export async function commandReachable({ config, env, platform, bin, fs, destina
   // Only a hint for the text of a message: a state that cannot be read is no proof (the commands that manage it refuse it).
   try {
     const state = saved ? pathState(saved, basename(stateFile), config.command) : null;
-    // A profile that no longer holds the managed block puts nothing on the PATH, whatever the state says.
+    // A profile that no longer holds the block the installer wrote, whole (as the installer itself checks), puts nothing on the
+    // PATH, whatever the state says: the person may have removed it or commented it out.
     for (const item of state?.profiles ?? []) {
       const text = await fs.readFile(item.path, 'utf8').catch(() => null);
-      if (text?.includes(config.path.begin)) return true;
+      if (item.block && text?.includes(item.block) && item.block.includes(bin)) return true;
     }
     return Boolean(state?.windows);
   } catch { return false; }

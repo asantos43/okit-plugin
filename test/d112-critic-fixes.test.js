@@ -710,8 +710,17 @@ test('D112 round 12, 1: a PATH state whose profile no longer holds the managed b
   assert.ok(state.profiles.length > 0, 'the install wrote the managed block into a profile');
   const tell = async () => { f.clear(); await main(['update', '--check', '--client', 'codex'], f.io); return f.output.join('\n'); };
   assert.match(await tell(), /(^|[\s'"])okit-plugin (update|doctor|setup)/m, 'with the block in the profile the short name is told');
+  const expectRunning = async () => {
+    const text = await tell();
+    assert.doesNotMatch(text, /(^|[\s'"])okit-plugin (update|doctor|setup)/m, text);
+    assert.ok(text.includes(RUNNING), text);
+  };
+  // The markers stay but the statements are commented out.
+  const blocks = new Map(state.profiles.map((item) => [item.path, item.block]));
+  for (const [path, block] of blocks) await filesystem.writeFile(path, block.split('\n').map((line, index, lines) => (index === 0 || index === lines.length - 1 || !line.trim() ? line : `# ${line}`)).join('\n'));
+  await expectRunning();
+  for (const [path, block] of blocks) await filesystem.writeFile(path, block);
+  assert.match(await tell(), /(^|[\s'"])okit-plugin (update|doctor|setup)/m, 'with the block back the short name is told');
   for (const item of state.profiles) await filesystem.writeFile(item.path, '# the person removed it\n');
-  const text = await tell();
-  assert.doesNotMatch(text, /(^|[\s'"])okit-plugin (update|doctor|setup)/m, text);
-  assert.ok(text.includes(RUNNING), text);
+  await expectRunning();
 });
