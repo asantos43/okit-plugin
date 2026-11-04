@@ -36,4 +36,8 @@ O setup e o status consultam a cota automática ou manual disponível. Antes da 
 
 O estado normalmente fica em `~/.okwork`; `OKWORK_HOME` escolhe outra pasta. Use a mesma pasta nos comandos seguintes. Seu assistente lista os ajustes editáveis, valores, origens e efeitos (`config_get`); veja [detalhes da configuração](../components/configuration.pt-BR.md).
 
+## Quota por conta
+
+[Contas](accounts.pt-BR.md) têm leituras de quota, amostras do coletor, slots e escolhas de modelos separados. Adicione uma com `okit-plugin account add <client> <nome> --config-dir <caminho-absoluto>` e siga as instruções de login manual e coletor Claude. Renomear preserva o id estável e seu histórico. `ANTHROPIC_API_KEY` e `CLAUDE_CODE_OAUTH_TOKEN` prevalecem sobre um login Claude guardado; macOS Keychain e armazenamento por keyring do Codex mostram login como `unknown`. Um marcador local de login não verifica acesso nem quota.
+
 [Guia](README.pt-BR.md) · [English](models-and-quota.md)

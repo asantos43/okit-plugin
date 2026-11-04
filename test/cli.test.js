@@ -16,27 +16,27 @@ import { quotaEnv } from './helpers/env.js';
 // Every other command of the plugin is a tool of the MCP server, the assistant's side of the work.
 
 // The commands the person may run, and the groups the program answers with the usage.
-const FIVE = ['doctor', 'install', 'setup', 'uninstall', 'update'];
+const USER_COMMANDS = ['account', 'doctor', 'install', 'setup', 'uninstall', 'update'];
 // The groups that were commands of the program and are tools of the server now.
 const REMOVED = ['status', 'env', 'actors', 'config', 'quota', 'telemetry', 'trajectory', 'inbox', 'todo', 'kit',
   'autostart', 'smoke', 'smoke-demo', 'client-smoke'];
 // The entry points the machine starts: they work, but they are not in the usage.
 const INTERNAL = [['hook', 'session-start'], ['hook', 'post-compact'], ['statusline-collector'], ['daemon', 'run-once']];
 
-test('the usage text lists exactly the five commands of the person and none of the internal ones', async (t) => {
+test('the usage text lists exactly the user commands and none of the internal ones', async (t) => {
   const root = await tempRoot(t);
   const run = await cli(['--help'], { root });
   assert.equal(run.code, 0, run.err.join('\n'));
   const text = run.out.join('\n');
-  assert.deepEqual(COMMANDS.map((entry) => entry.group).sort(), FIVE);
-  for (const group of FIVE) assert.match(text, new RegExp(`^.*okit-plugin ${group}\\b`, 'm'), group);
+  assert.deepEqual(COMMANDS.map((entry) => entry.group).sort(), USER_COMMANDS);
+  for (const group of USER_COMMANDS) assert.match(text, new RegExp(`^.*okit-plugin ${group}\\b`, 'm'), group);
   for (const group of [...REMOVED, 'daemon', 'hook', 'statusline-collector']) {
     assert.doesNotMatch(text, new RegExp(`okit-plugin ${group}\\b`), group);
   }
   const printed = [...text.matchAll(/^(?:usage:|\s+)\s*okit-plugin ([a-z-]+)\b/gm)].map((match) => match[1]);
-  assert.deepEqual(printed.sort(), FIVE);
+  assert.deepEqual([...new Set(printed)].sort(), USER_COMMANDS);
   // The table of the commands and the text that is printed are the same table.
-  assert.deepEqual(COMMANDS.map((entry) => entry.group), ['install', 'update', 'uninstall', 'setup', 'doctor']);
+  assert.deepEqual(COMMANDS.map((entry) => entry.group), ['install', 'update', 'uninstall', 'setup', 'doctor', 'account']);
 });
 
 test('every removed command answers the usage with exit 2 and writes nothing', async (t) => {
@@ -76,7 +76,7 @@ test('help is available only first or after a user command', { timeout: 30000 },
       assert.match(run.err.join('\n'), /^usage: okit-plugin install/, [...entry, flag].join(' '));
     }
   }
-  for (const group of FIVE) {
+  for (const group of USER_COMMANDS) {
     for (const flag of ['--help', '-h']) {
       for (const argv of [[group, flag], [group, 'show', flag]]) {
         const run = await cli(argv, { root });

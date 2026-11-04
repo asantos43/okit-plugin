@@ -9,6 +9,28 @@ import { readyLine } from './env/ready.js';
 import { commandToken, hasCommand, resolveTokens } from './install/command-token.js';
 export * from './install/present.js';
 
+export const presentAccount = (row) => [row.client, row.id, row.label, row.configDir ?? 'default', row.login].join('\t');
+export const accountChanged = (action, locale) => action === 'remove'
+  ? (locale === 'pt-BR' ? 'Conta removida da configuração. A pasta e o login permanecem.' : 'Account removed from configuration. The folder and login remain.')
+  : (locale === 'pt-BR' ? 'Conta renomeada. O id e o histórico permanecem.' : 'Account renamed. The id and history remain.');
+
+export function accountInstructions(row, { locale, platform, command, root }) {
+  const pt = locale === 'pt-BR';
+  const variable = row.client === 'claude-code' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
+  const executable = row.client === 'claude-code' ? 'claude' : 'codex';
+  const assignment = (key, value, shell) => shell === 'win32'
+    ? `$env:${key}='${value.replaceAll("'", "''")}'; ` : `${key}=${quotedWord(value, 'linux')} `;
+  const lines = [];
+  if (row.login !== 'logged-in') lines.push(`${pt ? 'O login é manual. Execute' : 'Login is manual. Run'}: ${assignment(variable, row.configDir, platform)}${executable}`);
+  if (row.client === 'claude-code') {
+    lines.push(pt ? 'Na pasta desta conta, registre em settings.json → statusLine (type: command) o comando:'
+      : 'In this account folder, register in settings.json → statusLine (type: command) the command:');
+    // Claude runs statusLine commands in a POSIX shell, including Git Bash on Windows.
+    lines.push(`${assignment(variable, row.configDir, 'linux')}${assignment('OKWORK_HOME', root, 'linux')}${shownCommand([command, 'statusline-collector'], 'linux')}`);
+  }
+  return lines;
+}
+
 export const TEXTS = Object.freeze({ ...BASE_TEXTS,
   stepPlanned: { en: 'planned', 'pt-BR': 'planejado' },
   clientChoose: { en: 'Choose a coding client before installing.', 'pt-BR': 'Escolha um cliente de programação antes de instalar.' },

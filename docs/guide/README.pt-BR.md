@@ -13,5 +13,6 @@ Escolha uma tarefa para colocar o plugin em funcionamento e pedir ajuda ao assis
 4. [Ver uma demonstração](smoke-demo.pt-BR.md): confira o trabalho proposto antes de aprovar qualquer coisa.
 5. [Atualizar ou remover](update-and-remove.pt-BR.md): confira as mudanças antes de aplicá-las.
 6. [Resolver um problema](troubleshooting.pt-BR.md): encontre a instrução para corrigir um item ausente.
+7. [Gerenciar contas](accounts.pt-BR.md): adicione uma pasta separada do cliente, faça login manual e mantenha quota por conta.
 
 [Componentes e configuração](../components/README.pt-BR.md) · [Página do plugin](../../README.pt-BR.md) · [English](README.md)

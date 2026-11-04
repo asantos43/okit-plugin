@@ -69,6 +69,10 @@ const USAGE_LINES = [
   '       {command} uninstall [--client <c>] [--purge] [--yes] [--dry-run]',
   '       {command} setup [--defaults] [--again] [--locale en|pt-BR]',
   '       {command} doctor [--client <c>] [--verbose] [--locale en|pt-BR]',
+  '       {command} account add <client> <name> --config-dir <path>',
+  '       {command} account list [<client>] [--json]',
+  '       {command} account remove <client> <id>',
+  '       {command} account rename <client> <account> <new-name>',
 ].map((line) => (line.includes('--locale en|pt-BR') ? `${line} {default}` : line));
 
 /**
@@ -419,7 +423,7 @@ function installerLifecycle(ctx, io) {
 const separateLocale = (args) => args.flatMap((arg) => (arg.startsWith('--locale=') ? ['--locale', arg.slice('--locale='.length)] : [arg]));
 
 // The groups that answer the help flag wherever it comes: the commands of the person.
-const HELPED_GROUPS = ['setup', 'install', 'update', 'uninstall', 'doctor'];
+const HELPED_GROUPS = ['setup', 'install', 'update', 'uninstall', 'doctor', 'account'];
 
 /** Help is a first argument or a flag after one of the five user commands. */
 function wantsHelp([group, ...args]) {
@@ -504,6 +508,12 @@ export async function main(argv = [], io = {}) {
       return exitCodeFor('ok');
     }
     if (invalidHelp) return ctx.unknown();
+    if (group === 'account') {
+      if (chosen.invalid) return refuse(ctx, chosen.locale, 'Choose a language: en, pt-BR.');
+      const { accountCommand } = await import('./accounts-cli.js');
+      const flags = separateLocale(args);
+      return await accountCommand(ctx, action, flags.filter((word, index) => word !== '--locale' && flags[index - 1] !== '--locale'));
+    }
     if (group === 'setup') {
       const flags = action === undefined ? args : [action, ...args];
       return await setupCommand(ctx, flags, io);
