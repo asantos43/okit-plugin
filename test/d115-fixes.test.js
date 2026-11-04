@@ -625,8 +625,8 @@ test('round 2: account add localizes mkdir failures without OS text or paths', a
   const code = await main(['account', 'add', 'codex', 'Work', '--config-dir', join(blocker, 'work'), '--locale', 'pt-BR'],
     { root, env: { HOME: root }, stdout() {}, stderr: (line) => output.push(line) });
   assert.equal(code, 1);
-  assert.match(output.join('\n'), /Não foi possível atualizar os ajustes \(E(?:NOTDIR|EXIST)\)/);
-  assert.doesNotMatch(output.join('\n'), /PRIVATE_PATH|mkdir|not a directory|Cannot update/);
+  assert.match(output.join('\n'), /Não foi possível criar a pasta da conta \(E(?:NOTDIR|EXIST)\)/);
+  assert.doesNotMatch(output.join('\n'), /PRIVATE_PATH|mkdir|not a directory|Cannot update|ajustes/);
   assert.equal(await readJson(join(root, 'config.json'), null), null);
 });
 

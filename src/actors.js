@@ -24,7 +24,9 @@ export async function listActors(deps = {}) {
   if (!deps.client && !deps.all && !snapshot.inUse) notes.push(labelsOf(deps.locale).unknownClient);
   for (const observation of accountRows(snapshot.clients)) {
     if (observation.installed === false) {
-      notes.push(`${observation.client}: ${labelsOf(deps.locale).optional}.`);
+      // A client with several saved accounts has one row for each, and one note.
+      const note = `${observation.client}: ${labelsOf(deps.locale).optional}.`;
+      if (!notes.includes(note)) notes.push(note);
       continue;
     }
     const { cells: _cells, order: _order, ...quota } = observation.quota;

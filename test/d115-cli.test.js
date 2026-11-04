@@ -178,3 +178,17 @@ test('round 11: labelling the default is refused when it would move the default 
   assert.equal(ptBr.code, 2, ptBr.text);
   assert.match(ptBr.text, /cadastre essa pasta como uma conta/);
 });
+
+test('round 14: a folder that cannot be created is named as the folder, not as the settings', async (t) => {
+  const { root, invoke } = await fixture(t);
+  const file = join(root, 'a-file');
+  await fs.writeFile(file, 'x');
+  for (const [locale, wanted] of [['en', /Cannot create the account folder \(E(EXIST|NOTDIR)\)/], ['pt-BR', /Não foi possível criar a pasta da conta \(E(EXIST|NOTDIR)\)/]]) {
+    const result = await invoke(['add', 'codex', 'Blocked', '--config-dir', locale === 'en' ? file : join(file, 'inside'), '--locale', locale], { platform: 'linux' });
+    assert.equal(result.code, 1, result.text);
+    assert.match(result.text, wanted);
+    assert.doesNotMatch(result.text, /settings|ajustes/);
+    assert.ok(!result.text.includes(root), 'no path');
+  }
+  assert.equal(await fs.readFile(paths(root).config, 'utf8').catch(() => null), null, 'nothing was saved');
+});

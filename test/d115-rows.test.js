@@ -179,3 +179,13 @@ test('the snapshot reads each account through the real quota reader (the reader 
     assert.equal(input.cache.size, 2);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('round 14: an uninstalled client with several accounts gets one note in actors', async () => {
+  const snapshot = await environmentSnapshot(deps());
+  const uninstalled = { ...snapshot, clients: snapshot.clients.map((row) => ({ ...row, installed: false,
+    accounts: row.accounts?.map((account) => ({ ...account, installed: false })) })) };
+  assert.ok((uninstalled.clients[0].accounts?.length ?? 0) > 1, 'the fixture has more than one account');
+  const actors = await listActors({ snapshot: uninstalled, locale: 'en', all: true });
+  const notes = actors.markdown.split('\n').filter((line) => line.includes('not installed (optional)'));
+  assert.equal(notes.length, 1, actors.markdown);
+});

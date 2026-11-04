@@ -58,7 +58,13 @@ export async function accountCommand(ctx, action, args) {
       const next = action === 'add' ? withAccountAdded(raw, client, name, directory, { env: ctx.env, defaultDir })
         : action === 'remove' ? withAccountRemoved(raw, client, name)
           : withAccountRenamed(raw, client, selected?.id ?? name, value, { env: ctx.env, defaultDir, currentDefaultDir });
-      if (action === 'add') await ctx.fs.mkdir(directory, { recursive: true, mode: 0o700 });
+      if (action === 'add') {
+        try { await ctx.fs.mkdir(directory, { recursive: true, mode: 0o700 }); } catch (error) {
+          // The folder is what failed, not the settings: say so, with the system code and no path.
+          const failure = /^E[A-Z0-9]+$/.test(error?.code ?? '') ? `Cannot create the account folder (${error.code}).` : 'Cannot create the account folder.';
+          throw new OperationalError(failure);
+        }
+      }
       await (ctx.writeConfig ?? ctx.write ?? writeJsonAtomic)(target.config, next);
       if (action === 'add') {
         const account = accountsOf(next, client).at(-1);
