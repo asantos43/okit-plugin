@@ -518,7 +518,8 @@ test('input inventory: every read of a file in src/ is classified, and every cla
   assert.ok(READ_POINTS.some((row) => row.rule === 'managed-path.json (the PATH state)'));
   // The same scan covers the adapters: the quota file of each client is found by it, and has a rule.
   for (const client of ['claude-code', 'codex', 'opencode']) {
-    const quota = fileReads().filter((found) => found.file === `adapters/${client}/index.js` && /\.quota, `\$\{CLIENT\}\.json`\)$/.test(found.arg));
+    const quota = fileReads().filter((found) => found.file === `adapters/${client}/index.js`
+      && /\.quota, (?:`\$\{CLIENT\}\.json`|files\.reading|accountFiles\(CLIENT, account\)\.reading)\)$/.test(found.arg));
     assert.equal(quota.length, 1, `${client}: the read of quota/${client}.json is found by the scan`);
     assert.ok(READ_POINTS.some((row) => row.rule === 'quota/<client>.json (the manual reading)' && row.file.startsWith('adapters/')));
   }

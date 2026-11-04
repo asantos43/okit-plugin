@@ -9,6 +9,7 @@ import process from 'node:process';
 
 import { installSkillFiles } from '../../src/skills.js';
 import { configOf } from '../../src/profiles.js';
+import { accountEnv, accountFiles, accountsOf, DEFAULT_ACCOUNT_ID } from '../../src/accounts.js';
 import { listModelsOf, makeSpawner } from '../../src/spawn-process.js';
 import { readJson } from '../../src/state.js';
 import { timeOf } from '../../src/quota-fields.js';
@@ -74,13 +75,21 @@ export function capabilities() {
 
 /**
  * Uses a fresh session reading when newer than the manual sample. Read-only.
- * @param {{stateRoot?: string, env?: object, config?: object, now?: Function}} [opts]
+ * @param {{stateRoot?: string, env?: object, config?: object, now?: Function, account?: string}} [opts]
  */
-export async function readQuota({ stateRoot: root, env, now = Date.now, config } = {}) {
+export async function readQuota({ stateRoot: root, env, now = Date.now, config, account = DEFAULT_ACCOUNT_ID } = {}) {
   const base = root ?? stateRoot(env);
   const settings = config ?? await readJson(join(base, 'config.json'), {});
-  const automatic = await readCodexSessionQuota({ config: settings, env, now });
-  const stored = await readJson(join(paths(base).quota, `${CLIENT}.json`), null);
+  let sessionEnv = env;
+  if (account !== DEFAULT_ACCOUNT_ID) {
+    const selected = accountsOf(settings, CLIENT).find((entry) => entry.id === account);
+    if (!selected) throw new Error('Unknown Codex account. / Conta Codex desconhecida.');
+    const quota = configOf(settings).codexQuota;
+    sessionEnv = { ...accountEnv(CLIENT, selected, env ?? process.env),
+      [quota.sessionsEnv]: join(selected.configDir, 'sessions') };
+  }
+  const automatic = await readCodexSessionQuota({ config: settings, env: sessionEnv, now });
+  const stored = await readJson(join(paths(base).quota, accountFiles(CLIENT, account).reading), null);
   const recorded = timeOf(stored?.recordedAt);
   if (automatic && (!finite(stored?.remainingPct) || !recorded
     || Date.parse(automatic.recordedAt) > recorded.ms)) return automatic;

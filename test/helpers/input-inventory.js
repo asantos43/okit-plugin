@@ -27,6 +27,7 @@ const lineOf = (text, index) => text.slice(0, index).split('\n').length;
 
 /** The top-level keys, with the type the code expects and where a wrong value is refused. `range` is [min, max]. */
 export const TOP_LEVEL_KEYS = Object.freeze({
+  accounts: { type: 'object', checkedBy: 'configOf / accountsProblem (ConfigError accountsSetting)' },
   language: { type: 'choice', values: ['en', 'pt-BR'], checkedBy: 'resolveLocale (a value that is not a language is ignored as a saved language and refused as --locale)' },
   install: { type: 'object', checkedBy: 'INSTALL_SCHEMA (installConfig)' },
   limitWarnings: { type: 'list', checkedBy: 'configOf (ConfigError limitWarnings)' },
@@ -363,8 +364,8 @@ export const READ_POINTS = Object.freeze([
   // The plugin's own configuration, wherever it is read.
   { file: 'src/', arg: /^(paths\([\w.]+\)\.config|join\(root, 'config\.json'\)|join\(ctx\.root, 'config\.json'\)|join\(stateRoot, 'config\.json'\)|target\.config|files\.config|join\(context\.root, 'config\.json'\))$/, rule: CONFIG_JSON },
   // The adapters (adapters/): the same scan, one table.
-  { file: 'adapters/', arg: /\.quota, `\$\{CLIENT\}\.json`\)$/, rule: 'quota/<client>.json (the manual reading)' },
-  { file: 'adapters/', arg: /\.quota, STATUSLINE_FILE\)$/, rule: 'quota/claude-code-statusline.json (the sample of the collector)' },
+  { file: 'adapters/', arg: /\.quota, (?:`\$\{CLIENT\}\.json`|files\.reading|accountFiles\(CLIENT, account\)\.reading)\)$/, rule: 'quota/<client>.json (the manual reading)' },
+  { file: 'adapters/', arg: /\.quota, files\.statusline\)$/, rule: 'quota/claude-code-statusline.json (the sample of the collector)' },
   { file: 'adapters/claude-code/index.js', arg: /^path$/, rule: 'settings.json of the client (role)' },
   { file: 'adapters/claude-code/index.js', arg: /^file$/, excluded: 'hooks/hooks.json of the client, read only by installHooks, which no command of this inventory calls (the maintainers\' smoke runner does); a file that is not JSON is refused and left alone' },
   { file: 'adapters/', arg: /^join\(source, 'SKILL\.md'\)$/, excluded: 'the SKILL.md of a skill folder of the package being installed (code and text of the program), read only to know the folder is a skill' },

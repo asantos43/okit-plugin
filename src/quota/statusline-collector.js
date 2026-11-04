@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import process from 'node:process';
 import { configOf } from '../profiles.js';
+import { accountFiles, accountOfConfigDir } from '../accounts.js';
 import { readJson, writeJsonAtomic } from '../state.js';
 import { paths, stateRoot as defaultRoot, SELFCHECK_ENV } from '../store.js';
 
@@ -153,7 +154,7 @@ export function runPrevious({ command, args, input, timeoutMs, maxOutputBytes })
 
 /** Collection must never prevent the user's bar from running. Output stays binary. */
 export async function collectStatusline({ input, previous, stateRoot, run = runPrevious,
-  now = Date.now, config } = {}) {
+  now = Date.now, config, env = process.env, platform = process.platform } = {}) {
   previous ??= Array.isArray(config?.statuslineCollector?.previous)
     ? config.statuslineCollector.previous : undefined;
   let settings;
@@ -164,7 +165,8 @@ export async function collectStatusline({ input, previous, stateRoot, run = runP
       const value = JSON.parse(input.toString());
       // The collector stores what the client sent and nothing more: the percentages are read by the core.
       if (plain(value) && plain(value[settings.fields.rateLimits])) {
-        await writeJsonAtomic(join(paths(stateRoot).quota, STATUSLINE_FILE),
+        const account = accountOfConfigDir({ client: 'claude-code', config, env, platform });
+        await writeJsonAtomic(join(paths(stateRoot).quota, accountFiles(account.client, account.id).statusline),
           { receivedAt: new Date(now()).toISOString(), input: value });
       }
     }
@@ -206,7 +208,7 @@ export async function statuslineCommand(argv, io = {}) {
     }
     if (size > settings.maxInputBytes) return 0;
     const output = await collectStatusline({ input: Buffer.concat(chunks), previous,
-      stateRoot: root, run: io.run, now: io.now, config });
+      stateRoot: root, run: io.run, now: io.now, config, env: io.env ?? process.env, platform: io.platform });
     (io.stdout ?? ((bytes) => process.stdout.write(bytes)))(output);
   } catch { /* No diagnostics on a status bar. */ }
   return 0;

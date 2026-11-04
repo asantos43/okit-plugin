@@ -360,6 +360,14 @@ export const REASONS = [
   [/^Unsupported platform: (.+)$/, 'Sistema sem suporte: $1', 'Unsupported platform: x'],
   // The rules a setting of install.* is refused by (INSTALL_SCHEMA in config-schema.js), one entry per rule.
   ...RULE_REASONS,
+  // The accounts of a client (src/accounts.js).
+  [/^Unsupported account client\.$/, 'Cliente de conta não suportado.', 'Unsupported account client.'],
+  [/^Invalid account id\.$/, 'Id de conta inválido.', 'Invalid account id.'],
+  [/^Account label must be non-empty text of at most 40 characters without controls\.$/, 'O nome da conta deve ser um texto não vazio de até 40 caracteres sem controles.', 'Account label must be non-empty text of at most 40 characters without controls.'],
+  [/^Account labels must be unique within the client\.$/, 'Os nomes das contas devem ser únicos no cliente.', 'Account labels must be unique within the client.'],
+  [/^Use unique account ids, valid labels and absolute config directories; default has no directory\.$/, 'Use ids de conta únicos, nomes válidos e pastas de configuração absolutas; default não tem pasta.', 'Use unique account ids, valid labels and absolute config directories; default has no directory.'],
+  [/^The default account cannot be removed\.$/, 'A conta default não pode ser removida.', 'The default account cannot be removed.'],
+  [/^Unknown account\.$/, 'Conta desconhecida.', 'Unknown account.'],
   // The state files (src/state.js, src/limits.js): the path and what the system said stay as they are.
   [/^Cannot read (.+?): ([^]*)$/, 'Não foi possível ler $1: $2', 'Cannot read /state/config.json: unreadable'],
   [/^Invalid JSON in (.+?): ([^]*)$/, 'JSON inválido em $1: $2', 'Invalid JSON in /state/config.json: Unexpected token'],

@@ -286,10 +286,10 @@ export function clientsOf(config, fallback = CLIENTS) {
  * @returns {Function} `async (client) => reading`
  */
 export function adapterQuotaReader({ stateRoot: root, env, now, config, adapters = ADAPTER_QUOTA } = {}) {
-  return async (client) => {
+  return async (client, account) => {
     const read = adapters[client];
     if (read === undefined) return { source: 'off' };
-    return read({ stateRoot: root, env, now, config });
+    return read({ stateRoot: root, env, now, config, ...(account === undefined ? {} : { account }) });
   };
 }
 

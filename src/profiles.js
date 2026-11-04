@@ -2,6 +2,7 @@
 // picks which configured profile to use and may lower it on low quota.
 import process from 'node:process';
 import { isAbsolute } from 'node:path';
+import { accountsProblem } from './accounts.js';
 import { setupPending as environmentSetupPending } from './env/configuration.js';
 
 import { EFFORT_CLASSES } from './classify.js';
@@ -658,6 +659,7 @@ export function configuredClientsOf(config) {
 // refusal is raised in English (the message of the error) and shown by `localizeReason` (src/install/present.js),
 // which reads this catalog; no refusal of a setting carries both languages in one line.
 export const CONFIG_MESSAGES = Object.freeze({
+  accountsSetting: { en: 'Accounts setting {key} is not valid: use unique account ids, valid labels and absolute config directories; default has no directory.', 'pt-BR': 'A configuração de contas {key} não é válida: use ids de conta únicos, nomes válidos e pastas de configuração absolutas; a conta default não tem pasta.' },
   language: { kind: 'language', en: 'Choose a language: {languages}.', 'pt-BR': 'Escolha um idioma: {languages}.' },
   limitsObject: { en: 'limits must be an object', 'pt-BR': 'limits deve ser um objeto' },
   limitsClients: { en: 'limits.clients must be an object', 'pt-BR': 'limits.clients deve ser um objeto' },
@@ -748,6 +750,10 @@ export function storedRootOf(raw) {
 }
 
 export function configOf(config) {
+  if (config?.accounts !== undefined) {
+    const problem = accountsProblem(config.accounts);
+    if (problem) throw new ConfigError('accountsSetting', { key: problem.key });
+  }
   const merged = { ...DEFAULT_CONFIG, ...(config ?? {}) };
   merged.trajectory = { ...DEFAULT_CONFIG.trajectory, ...config?.trajectory };
   merged.telemetry = { ...DEFAULT_CONFIG.telemetry, ...config?.telemetry,
