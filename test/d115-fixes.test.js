@@ -15,7 +15,8 @@ import { readJson } from '../src/state.js';
 import { makeSpawner } from '../src/spawn-process.js';
 import { statusTable } from '../src/status.js';
 import { detectClients } from '../src/env/models.js';
-import { accountsProblem, accountOfConfigDir, withAccountAdded, withAccountRenamed } from '../src/accounts.js';
+import { accountsProblem, accountOfConfigDir, accountsOf, withAccountAdded, withAccountRenamed } from '../src/accounts.js';
+import { roleContext, formatRoleContext } from '../src/roles.js';
 import { readinessRows } from '../src/doctor/ready-rows.js';
 import { formatEnvironmentReport } from '../src/env/report.js';
 import { listActors } from '../src/actors.js';
@@ -1103,4 +1104,99 @@ test('round 8: a run of an account that is not saved takes no slot of the defaul
   assert.equal(status.live, 2);
   assert.deepEqual((await limitsStatus(root, config, { client, account: 'work' })).byClient, { [`${client}:work`]: 0 });
   assert.equal((await canSpawn(root, { client, account: 'work', config })).ok, true);
+});
+
+// | Round 9 | Must pass | Must refuse |
+// | Collector | a config of the shape of a config (accounts absent, {} or a list per client) | a root or accounts that is null, [], text or a number, a client that is not a list |
+// | Readiness | a credential variable of the client counts as a login | `not-logged-in` for a run that authenticates through the variable |
+// | Role context | every account of a client, by name, with its own quota, slots and actors | the default's quota and slots under the client's name |
+
+test('round 9: a config.json that parses but is not a config writes no reading for a named folder', async (t) => {
+  const input = statuslineInput(50), run = async () => Buffer.from('bar');
+  const malformed = ['null', '[]', '"text"', '5', '{"accounts":[]}', '{"accounts":null}', '{"accounts":5}',
+    '{"accounts":"x"}', '{"accounts":{"claude-code":{}}}', '{"accounts":{"claude-code":5}}',
+    '{"accounts":{"claude-code":[5]}}', '{"accounts":{"claude-code":[{"id":"BAD ID"}]}}'];
+  for (const text of malformed) {
+    const root = await temporary(t), quota = paths(root).quota;
+    await fs.writeFile(join(root, 'config.json'), text);
+    const out = [];
+    await statuslineCommand(['--previous', 'echo'], { root, stdin: [input], run, stdout: (bytes) => out.push(Buffer.from(bytes)),
+      now: () => 1800000000000, env: { CLAUDE_CONFIG_DIR: '/work' } });
+    assert.equal(Buffer.concat(out).toString(), 'bar', `${text}: the bar still answers`);
+    assert.equal(await exists(join(quota, 'claude-code-statusline.json')), false, `${text}: not in the default's file`);
+    // Without the folder variable the reading is the default's, as it always was.
+    await statuslineCommand(['--previous', 'echo'], { root, stdin: [input], run, stdout() {}, now: () => 1800000000000, env: {} });
+    assert.equal(await exists(join(quota, 'claude-code-statusline.json')), true, `${text}: no variable`);
+  }
+  // A config of the right shape is still honored.
+  for (const text of ['{}', '{"accounts":{}}']) {
+    const root = await temporary(t);
+    await fs.writeFile(join(root, 'config.json'), text);
+    await statuslineCommand([], { root, stdin: [input], run, stdout() {}, now: () => 1800000000000, env: { CLAUDE_CONFIG_DIR: '/work' } });
+    assert.equal(await exists(join(paths(root).quota, 'claude-code-statusline.json')), true, text);
+  }
+});
+
+test('round 9: collectStatusline and the account readers never fall back to the default for a config of the wrong shape', async (t) => {
+  const root = await temporary(t);
+  const wrong = [null, [], 'text', 5, { accounts: [] }, { accounts: null }, { accounts: 5 },
+    { accounts: { 'claude-code': {} } }, { accounts: { 'claude-code': [null] } }];
+  for (const config of wrong) {
+    const label = JSON.stringify(config);
+    await collectStatusline({ stateRoot: root, config, now: () => 1800000000000, input: statuslineInput(50),
+      env: { CLAUDE_CONFIG_DIR: '/work' } });
+    assert.equal(await exists(paths(root).quota), false, label);
+    assert.equal(accountOfConfigDir({ client: 'claude-code', config, env: { CLAUDE_CONFIG_DIR: '/work' } }), null, label);
+    assert.equal(accountOfConfigDir({ client: 'claude-code', config, env: {} }).id, 'default', label);
+    assert.deepEqual(accountsOf(config, 'claude-code').map(({ id }) => id), ['default'], label);
+    // The warning of the environment says the folder names no account.
+    assert.deepEqual(accountWarnings('claude-code', { CLAUDE_CONFIG_DIR: '/work' }, { config, platform: 'linux', home: '/h' })
+      .map(({ code }) => code), ['config-dir-unregistered'], label);
+  }
+});
+
+test('round 9: a credential variable of the client is a login for readiness (one account and several)', async (t) => {
+  const root = await temporary(t);
+  const several = round6Config(root);
+  for (const variable of ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']) {
+    const control = await environmentSnapshot(round6Deps(several, root));
+    for (const account of control.clients[0].accounts) {
+      assert.equal(account.login, 'logged-out');
+      assert.ok(account.candidates.every((actor) => actor.restrictions.includes('not-logged-in') && !actor.canLaunch), 'without the variable');
+    }
+    const snapshot = await environmentSnapshot({ ...round6Deps(several, root), env: { HOME: root, [variable]: 'x' } });
+    assert.equal(snapshot.clients[0].accounts.length, 2);
+    for (const account of snapshot.clients[0].accounts) {
+      assert.equal(account.login, 'logged-out', 'the login field keeps the truth of the marker');
+      assert.ok(account.candidates.length > 0);
+      assert.ok(account.candidates.every((actor) => !actor.restrictions.includes('not-logged-in')), JSON.stringify(account.candidates));
+    }
+    assert.ok(snapshot.clients[0].accounts[0].warnings.some(({ code }) => code === 'env-credential-overrides-login'));
+    assert.equal(readiness(snapshot).gaps.some(({ reason }) => reason === 'not-logged-in'), false);
+    assert.deepEqual(readiness(snapshot).accounts, [{ client: 'claude-code', ready: 2, total: 2 }]);
+    // One account: never restricted for the login, with or without the variable.
+    const lone = await environmentSnapshot({ ...round6Deps({ profiles: several.profiles }, root), env: { HOME: root, [variable]: 'x' } });
+    assert.ok(lone.clients[0].candidates.every((actor) => !actor.restrictions.includes('not-logged-in')));
+  }
+});
+
+test('round 9: the role context lists every account of a client with its own quota, slots and actors', () => {
+  const account = (id, label, remainingPct, available, model) => ({ id, label, isDefault: id === 'default',
+    actors: [{ model, effort: 'high', restrictions: remainingPct < 10 ? ['low'] : [] }], quota: { remainingPct }, slots: { available } });
+  const snapshot = { now: 1, clients: [{ client: 'claude-code', installed: true,
+    actors: [{ model: 'm-default', effort: 'high', restrictions: [] }], quota: { remainingPct: 80 }, slots: { available: 2 },
+    accounts: [account('default', 'default', 80, 2, 'm-default'), account('work', 'Work', 5, 0, 'm-work')] }] };
+  const context = roleContext({ snapshot, items: [], orders: [], limits: {} });
+  assert.deepEqual(context.actors.map(({ client, account: id, accountLabel, model }) => [client, id, accountLabel, model]),
+    [['claude-code', 'default', 'default', 'm-default'], ['claude-code', 'work', 'Work (work)', 'm-work']]);
+  const en = formatRoleContext(context), pt = formatRoleContext(context, 'pt-BR');
+  assert.match(en, /claude-code: Work \(work\): m-work \+ high; quota 5%; free slots 0; restrictions: low/);
+  assert.match(en, /claude-code: default: m-default \+ high; quota 80%; free slots 2; restrictions: none/);
+  assert.match(pt, /claude-code: Work \(work\): m-work \+ high; cota 5%; vagas livres 0; restrições: low/);
+  assert.match(pt, /claude-code: default: m-default \+ high; cota 80%; vagas livres 2; restrições: nenhum/);
+  // One account: the line it always was.
+  const single = roleContext({ snapshot: { now: 1, clients: [{ client: 'codex', actors: [{ model: 'c', effort: 'low', restrictions: [] }],
+    quota: { remainingPct: 70 }, slots: { available: 1 } }] }, items: [], orders: [], limits: {} });
+  assert.deepEqual(single.actors, [{ client: 'codex', model: 'c', effort: 'low', restrictions: [], quota: { remainingPct: 70 }, slots: { available: 1 } }]);
+  assert.match(formatRoleContext(single), /Available actors: codex: c \+ low; quota 70%; free slots 1; restrictions: none/);
 });

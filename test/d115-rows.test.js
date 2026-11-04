@@ -85,16 +85,26 @@ test('logged-out account restricts candidates and environment warning never expo
     env: { ANTHROPIC_API_KEY: 'secret-value', CLAUDE_CODE_OAUTH_TOKEN: 'other-secret' } }));
   const [personal, work] = snapshot.clients[0].accounts;
   assert.equal(work.login, 'logged-out');
-  assert.ok(work.candidates.every((actor) => !actor.canLaunch && actor.restrictions.includes('not-logged-in')));
+  // A credential variable in the environment authenticates the run whatever the marker says: no login restriction.
+  assert.ok(work.candidates.every((actor) => !actor.restrictions.includes('not-logged-in')));
+  assert.ok(work.candidates.some((actor) => actor.canLaunch));
   // The warnings of the environment belong to the client: they ride on the default's row, once.
   assert.deepEqual(work.warnings, []);
   assert.deepEqual(personal.warnings.map((warning) => warning.variable), ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']);
-  assert.equal(readiness(snapshot).accounts[0].ready, 0);
+  assert.equal(readiness(snapshot).accounts[0].ready, 1);
   for (const locale of ['en', 'pt-BR']) {
     const text = formatEnvironmentReport(snapshot, locale);
     assert.match(text, /ANTHROPIC_API_KEY/);
     assert.ok(!text.includes('secret'));
   }
+});
+
+test('logged-out account without a credential variable restricts its candidates', async () => {
+  const snapshot = await environmentSnapshot(deps({ fs: disk({ absent: ['/work'] }), env: {} }));
+  const [, work] = snapshot.clients[0].accounts;
+  assert.equal(work.login, 'logged-out');
+  assert.ok(work.candidates.every((actor) => !actor.canLaunch && actor.restrictions.includes('not-logged-in')));
+  assert.equal(readiness(snapshot).accounts[0].ready, 0);
 });
 
 test('two accounts and implicit default: doctor, actors, status, env_report and ready in both locales', async () => {

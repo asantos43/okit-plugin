@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import process from 'node:process';
 import { configOf } from '../profiles.js';
-import { accountFiles, accountOfConfigDir } from '../accounts.js';
+import { accountFiles, accountOfConfigDir, accountsWellFormed } from '../accounts.js';
 import { readJson, writeJsonAtomic } from '../state.js';
 import { paths, stateRoot as defaultRoot, SELFCHECK_ENV } from '../store.js';
 import { defaultFolderOf, homeOf } from '../install/config.js';
@@ -169,10 +169,12 @@ export async function collectStatusline({ input, previous, stateRoot, run = runP
       if (plain(value) && plain(value[settings.fields.rateLimits])) {
         // The folder of the default account is the one the client uses with no override: the default has no
         // folder saved with it, so the folder of the environment that names it is the default's own.
-        const defaultDir = defaultFolderOf('claude-code', { config, env, platform, home });
-        // With the folder variable set and the settings unreadable, the account of the folder is unknown: nothing.
-        const account = unreadable && env.CLAUDE_CONFIG_DIR ? null
-          : accountOfConfigDir({ client: 'claude-code', config, env, platform, defaultDir });
+        // Settings that cannot be read, or that parse but are not a configuration (a root that is not an object,
+        // accounts of the wrong shape), tell nothing about the folder: with the variable set, nothing is written.
+        const trusted = !unreadable && accountsWellFormed(config);
+        const defaultDir = trusted ? defaultFolderOf('claude-code', { config, env, platform, home }) : undefined;
+        const account = !trusted && env.CLAUDE_CONFIG_DIR ? null
+          : accountOfConfigDir({ client: 'claude-code', config: trusted ? config : {}, env, platform, defaultDir });
         // A folder that names no account writes nothing: the reading of one account never overwrites another's.
         if (account) {
           await writeJsonAtomic(join(paths(stateRoot).quota, accountFiles(account.client, account.id).statusline),

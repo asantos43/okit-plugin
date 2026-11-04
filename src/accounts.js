@@ -28,10 +28,25 @@ export function accountFiles(client, id = DEFAULT_ACCOUNT_ID) {
   return { reading: `${client}${suffix}.json`, statusline: `${client}-statusline${suffix}.json` };
 }
 
-/** The implicit default is always first; saved extras retain their order. */
+/**
+ * Whether the saved accounts have the shape of a configuration: an absent configuration or absent accounts mean
+ * "none saved"; a root that is not an object, accounts that are not an object, or a client whose entries are not
+ * a list of objects with a valid id is not a configuration at all. Structure only: values are for `accountsProblem`.
+ */
+export function accountsWellFormed(config) {
+  if (config === undefined) return true;
+  if (!object(config)) return false;
+  if (config.accounts === undefined) return true;
+  return object(config.accounts) && Object.values(config.accounts).every((entries) => Array.isArray(entries)
+    && entries.every((entry) => object(entry) && typeof entry.id === 'string' && ID.test(entry.id)));
+}
+
+/** The implicit default is always first; saved extras retain their order. A malformed list counts as none saved. */
 export function accountsOf(config, client) {
   supported(client);
-  const entries = config?.accounts?.[client] ?? [];
+  const saved = object(config?.accounts) ? config.accounts[client] : undefined;
+  const entries = Array.isArray(saved)
+    ? saved.filter((entry) => object(entry) && typeof entry.id === 'string' && ID.test(entry.id)) : [];
   const defaultEntry = entries.find(({ id }) => id === DEFAULT_ACCOUNT_ID);
   return [{ id: DEFAULT_ACCOUNT_ID, label: defaultEntry?.label ?? 'default' },
     ...entries.filter(({ id }) => id !== DEFAULT_ACCOUNT_ID)].map((entry) => ({
@@ -89,6 +104,8 @@ export function accountOfConfigDir({ client, config, env = {}, platform = proces
   const accounts = accountsOf(config, client);
   const dir = env[CLIENT_ENV[client]];
   if (!dir) return accounts[0];
+  // A configuration of the wrong shape says nothing about which account the folder is: it names none.
+  if (!accountsWellFormed(config)) return null;
   const named = accounts.find((account) => account.configDir
     && normalizedDir(account.configDir, platform) === normalizedDir(dir, platform));
   if (named) return named;

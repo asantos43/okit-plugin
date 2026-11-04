@@ -1,6 +1,6 @@
 import { capOf } from '../limits.js';
 import { accountsOf, accountEnv, accountFiles } from '../accounts.js';
-import { loginState, accountWarnings } from '../accounts-login.js';
+import { loginState, accountWarnings, credentialInEnv } from '../accounts-login.js';
 import { configOf, DEFAULT_CONFIG, normalizeLimits } from '../profiles.js';
 import { setupPending } from './configuration.js';
 import { adapterQuotaReader, clientsOf, detectClient, labelsOf, DEFAULT_TTL_MS, readingWithAge, readingOf, rowOf } from './quota.js';
@@ -239,7 +239,7 @@ export async function environmentSnapshot(deps = {}) {
       const confirmed = available.some((pair) => pair.model === actor.model && pair.effort === actor.effort);
       // An installation nobody could confirm is not a client to launch from: the readiness says the same.
       const restrictions = [installed === null && 'unknown-install', !confirmed && 'unconfirmed', quota.status === 'off' && 'unknown-quota',
-        expired && 'expired-quota', accounts.length > 1 && login === 'logged-out' && 'not-logged-in',
+        expired && 'expired-quota', accounts.length > 1 && login === 'logged-out' && !credentialInEnv(client, deps.env) && 'not-logged-in',
         quota.status === 'red' && 'low', free === 0 && 'busy'].filter(Boolean);
       return { ...actor, confirmed, restrictions, canLaunch: restrictions.length === 0 };
     });

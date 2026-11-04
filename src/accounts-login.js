@@ -33,6 +33,10 @@ export async function loginState({ client, account, install, config = { install 
 }
 
 const CONFIG_ENV = { 'claude-code': 'CLAUDE_CONFIG_DIR', codex: 'CODEX_HOME' };
+const CREDENTIAL_ENV = { 'claude-code': ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'] };
+
+/** Whether a credential variable of the client is set: a run authenticates through it, whatever the login marker says. */
+export const credentialInEnv = (client, env = process.env) => (CREDENTIAL_ENV[client] ?? []).some((name) => Boolean(env?.[name]));
 
 /**
  * Environment credentials take precedence over every stored Claude login. With saved accounts for the client, a
@@ -40,10 +44,10 @@ const CONFIG_ENV = { 'claude-code': 'CLAUDE_CONFIG_DIR', codex: 'CODEX_HOME' };
  * value): the collector writes nothing for that folder.
  */
 export function accountWarnings(client, env = process.env, { config, platform = process.platform, home } = {}) {
-  const warnings = client === 'claude-code' ? ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']
+  const warnings = client === 'claude-code' ? CREDENTIAL_ENV[client]
     .filter((name) => Boolean(env[name])).map((variable) => ({ code: 'env-credential-overrides-login', variable })) : [];
   const variable = CONFIG_ENV[client];
-  if (variable && config && env[variable]) {
+  if (variable && config !== undefined && env[variable]) {
     const defaultDir = defaultFolderOf(client, { config, env, platform, home });
     if (accountOfConfigDir({ client, config, env, platform, defaultDir }) === null) {
       warnings.push({ code: 'config-dir-unregistered', client, variable });

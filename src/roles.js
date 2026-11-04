@@ -1,5 +1,6 @@
 import { inScope } from './applies.js';
 import { orderStatus } from './orders.js';
+import { accountName, accountRows } from './env/account-rows.js';
 
 const POLICY = {
   Director: {
@@ -33,7 +34,9 @@ export function roleContext({ client, briefing, snapshot, items, orders, limits,
     reason: 'Clarify briefing role: Executor or Critic. / Esclareça o papel do briefing: Executor ou Critic.' };
   const now = snapshot?.now ?? Date.now();
   const applicable = (record) => inScope(record, cwd) && (!scope || !record.scope || record.scope === 'all' || record.scope === scope);
-  const clients = snapshot?.clients ?? [];
+  // A client with several accounts is one row per account, each with its own quota, slots and actors; a client with
+  // one account stays the row it always was.
+  const clients = accountRows(snapshot?.clients ?? []);
   const appliedLimits = limits ?? snapshot?.config?.limits;
   const unknown = [];
   if (!snapshot) unknown.push('environment / ambiente');
@@ -42,15 +45,17 @@ export function roleContext({ client, briefing, snapshot, items, orders, limits,
   if (!appliedLimits) unknown.push('limits / limites');
   if (!clients.length) unknown.push('actors, quota and slots / atores, cota e vagas');
   for (const row of clients) {
-    if (!row.actors?.length) unknown.push(`${row.client}: actors / atores`);
-    if (row.quota?.remainingPct == null) unknown.push(`${row.client}: quota / cota`);
-    if (!row.slots) unknown.push(`${row.client}: slots / vagas`);
+    const name = clean(accountName(row));
+    if (!row.actors?.length) unknown.push(`${name}: actors / atores`);
+    if (row.quota?.remainingPct == null) unknown.push(`${name}: quota / cota`);
+    if (!row.slots) unknown.push(`${name}: slots / vagas`);
   }
   return { status: 'ready', client, role, actor: actor ? { model: actor.model, effort: actor.effort ?? null } : null,
     briefing: briefing == null ? null : typeof briefing === 'string' ? briefing : briefing.text ?? briefing.body ?? '',
     policy: POLICY[role], orders: orders?.filter((order) => applicable(order) && orderStatus(order, now) === 'active').map((order) => clean(order.title ?? order.text)),
     limits: appliedLimits ?? null, work: items?.filter((item) => applicable(item) && !['consolidated', 'failed'].includes(item.status)).map((item) => clean(item.title)),
-    actors: clients.flatMap((row) => (row.actors ?? []).map((entry) => ({ client: row.client, model: entry.model, effort: entry.effort,
+    actors: clients.flatMap((row) => (row.actors ?? []).map((entry) => ({ client: row.client,
+      ...row.account ? { account: row.account, accountLabel: clean(row.accountLabel) } : {}, model: entry.model, effort: entry.effort,
       restrictions: entry.restrictions ?? [], quota: row.quota, slots: row.slots }))), unknown };
 }
 
@@ -60,7 +65,7 @@ export function formatRoleContext(context, language = 'en') {
   const unknown = pt ? 'desconhecido' : 'unknown';
   const list = (values) => values == null ? unknown : values.length ? values.join('; ') : pt ? 'nenhum' : 'none';
   const [may, mustNot] = context.policy[pt ? 'pt' : 'en'];
-  const actors = context.actors.map((actor) => `${actor.client}: ${actor.model} + ${actor.effort ?? unknown}; ${pt ? 'cota' : 'quota'} ${actor.quota?.remainingPct ?? unknown}%; ${pt ? 'vagas livres' : 'free slots'} ${actor.slots?.available ?? unknown}; ${pt ? 'restrições' : 'restrictions'}: ${list(actor.restrictions)}`);
+  const actors = context.actors.map((actor) => `${accountName(actor)}: ${actor.model} + ${actor.effort ?? unknown}; ${pt ? 'cota' : 'quota'} ${actor.quota?.remainingPct ?? unknown}%; ${pt ? 'vagas livres' : 'free slots'} ${actor.slots?.available ?? unknown}; ${pt ? 'restrições' : 'restrictions'}: ${list(actor.restrictions)}`);
   return [ROLE_ROUTING, `${pt ? 'Papel' : 'Role'}: ${context.role}`,
     `${pt ? 'Pode' : 'May'}: ${may}`, `${pt ? 'Não pode' : 'Must not'}: ${mustNot}`,
     `${pt ? 'Ordens' : 'Orders'}: ${list(context.orders)}`,
