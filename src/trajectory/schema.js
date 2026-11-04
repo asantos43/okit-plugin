@@ -75,6 +75,7 @@ export function trajectory(context = {}, steps = []) {
   return normalize({ schema_version: SCHEMA_VERSION, session_id: context.session_id ?? null,
     agent: { name: 'okit-plugin', version: context.version ?? 'unknown', model_name: context.model ?? null,
       extra: { role: context.role ?? 'executor', client: context.client ?? null,
+        ...(context.account && context.account !== 'default' ? { account: context.account } : {}),
         effort: context.effort ?? null, demand: context.demand ?? null, step: context.step ?? null,
         ...(context.role === 'critic' ? { critic_of: context.critic_of ?? null } : {}) } },
     steps: steps.map((value, index) => step({ ...value, model_name: value.model_name ?? context.model ?? null, step_id: index + 1 })) }, { producer: true });

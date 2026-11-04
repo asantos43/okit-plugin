@@ -68,7 +68,8 @@ export async function readCodexSessionQuota({ config, env = process.env, platfor
   openFile = open } = {}) {
   try {
     const settings = configOf(config).codexQuota;
-    const configured = env?.[settings.sessionsEnv] || settings.sessionsDirectory;
+    const configured = env?.[settings.sessionsEnv]
+      || (env?.CODEX_HOME ? join(env.CODEX_HOME, 'sessions') : settings.sessionsDirectory);
     const home = homeOf(env, platform) || env?.HOME || env?.USERPROFILE;
     const directory = configured.startsWith('~/')
       ? (home ? join(home, configured.slice(2)) : null)

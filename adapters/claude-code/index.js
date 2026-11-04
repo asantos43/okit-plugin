@@ -304,7 +304,7 @@ export async function spawn(actor, briefing, opts = {}) {
   const prompt = delivery.native.agentCall.prompt;
 
   if (mode === 'NATIVE') {
-    await capture(opts.stateRoot ?? stateRoot(opts.env), { session_id: runId, client: CLIENT,
+    await capture(opts.stateRoot ?? stateRoot(opts.env), { session_id: runId, client: CLIENT, account: opts.account,
       model: profile.model, effort: profile.effort, role: delivery.context.role.toLowerCase(),
       demand: opts.demand ?? null, step: opts.step ?? null, critic_of: opts.critic_of ?? null },
     { transcript: opts.transcript, message: prompt });
@@ -317,6 +317,7 @@ export async function spawn(actor, briefing, opts = {}) {
     {
       runId,
       client: CLIENT,
+      account: opts.account, config: opts.config,
       role: delivery.context.role.toLowerCase(), critic_of: opts.critic_of,
       step: opts.step,
       profile: {

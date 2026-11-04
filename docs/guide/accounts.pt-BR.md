@@ -35,4 +35,6 @@ Para cota manual, chame `quota_set` com `client: "claude-code"`, `account: "work
 
 `acquire_slot` aceita o mesmo id opcional. Vagas, limites e cota recusam ids inexistentes; ids inexistentes em execuções gravadas contam no cliente puro. O teto do cliente vale separadamente para cada conta; `limits_status` conta em `claude-code` e `claude-code:work`, e `live` soma todas as execuções. Seus campos opcionais `client` e `account` selecionam uma conta. Modelos, evidências e pasta de cada extra usam o ambiente dela; o catálogo salvo da default não confirma uma extra. No Windows, a casa prioriza `USERPROFILE` sobre `HOME`.
 
+Processos usam o id informado pelo chamador ou, se omitido, a conta da vaga reservada; contas inexistentes são recusadas antes do lançamento. Extras definem `CODEX_HOME` ou `CLAUDE_CONFIG_DIR`; default preserva o ambiente atual. Gravações locais guardam o id estável em `agent.extra.account` somente para extras; exportação, listagem e `trajectory_show` o preservam após renomear. Entregas nativas também registram o id informado. A cota das sessões do Codex usa `CODEX_SESSIONS_DIR`, depois `<CODEX_HOME>/sessions`, depois a pasta configurada (normalmente `~/.codex/sessions`). Extras sempre consultam as sessões da própria pasta.
+
 [Guia](README.pt-BR.md) · [Modelos e quota](models-and-quota.pt-BR.md) · [English](accounts.md)

@@ -16,7 +16,7 @@ export function redact(event, fields = {}) {
   const safe = {};
   for (const [key, value] of Object.entries(fields)) {
     if (privateField(key)) continue;
-    if (key === 'account' && (event !== 'quota.check' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value))) continue;
+    if (key === 'account' && (value === 'default' || typeof value !== 'string' || !/^[a-z0-9-]{1,32}$/.test(value))) continue;
     if (['count', 'durationMs'].includes(key)) {
       if (typeof value === 'number' && Number.isFinite(value) && value >= 0) safe[key] = value;
     } else if (key === 'state') {

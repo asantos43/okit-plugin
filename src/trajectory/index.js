@@ -53,6 +53,7 @@ export async function show(root, id) {
   const lines = [`${data.agent.extra?.role === 'critic' ? 'Reviewer / Crítico' : 'Helper / Ajudante'}: ${data.agent.model_name ?? missing}`,
     `Effort / Esforço: ${data.agent.extra?.effort ?? missing}`,
     `Stopped at step / Parou no passo: ${data.steps.at(-1)?.step_id ?? missing}`];
+  if (data.agent.extra?.account && data.agent.extra.account !== 'default') lines.push(`Account / Conta: ${data.agent.extra.account}`);
   for (const item of data.steps) {
     const calls = new Map((item.tool_calls ?? []).map(call => [call.tool_call_id, call]));
     const failedCalls = new Set(Array.isArray(item.extra?.failed_calls) ? item.extra.failed_calls : []);

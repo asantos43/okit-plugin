@@ -35,4 +35,6 @@ For manual quota, call `quota_set` with `client: "claude-code"`, `account: "work
 
 `acquire_slot` accepts the same optional account id. Unknown ids are refused by slots, limits and quota; unknown ids in saved runs count under the bare client. The client cap applies separately to each account; `limits_status` counts them under `claude-code` and `claude-code:work`, and `live` sums all runs. Its optional `client` and `account` select one account. Each extra's models, evidence and config path use its own environment; the default's saved catalog cannot confirm an extra. On Windows, home discovery prefers `USERPROFILE` over `HOME`.
 
+Process launches use the account id supplied by the caller, or the reserved slot's account when omitted, and refuse unknown accounts before launch. Extra accounts set `CODEX_HOME` or `CLAUDE_CONFIG_DIR`; default preserves the current environment. Local recordings keep the stable id in `agent.extra.account` only for extras; export, listing and `trajectory_show` retain it after renaming. Native handoffs also record the supplied account id. Codex session quota uses `CODEX_SESSIONS_DIR`, then `<CODEX_HOME>/sessions`, then the configured sessions directory (normally `~/.codex/sessions`). Extra accounts always read their own folder's sessions.
+
 [Guide](README.md) · [Models and quota](models-and-quota.md) · [Português](accounts.pt-BR.md)

@@ -8,3 +8,6 @@ Refuse normalized duplicate account folders on add, rename and saved configurati
 Require new account folders to be absolute on the current system while preserving saved foreign paths.
 Show installed extra accounts in doctor readiness even when the default account is absent.
 Localize account mutation and config_set filesystem failures using only a fixed message and OS code.
+Use the selected account environment before spawning clients or listing models, refusing unknown accounts before launch.
+Retain non-default stable account ids in run history, native captures, trajectory reports and execution telemetry.
+Read Codex sessions under CODEX_HOME before the home fallback, preserving explicit session overrides.

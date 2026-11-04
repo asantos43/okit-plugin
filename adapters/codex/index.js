@@ -144,7 +144,7 @@ export async function spawn(actor, briefing, opts = {}) {
   if (delivery.status !== 'ready') throw new TypeError(delivery.reason);
   const prompt = delivery.native.prompt;
   if (mode === 'NATIVE') {
-    await capture(opts.stateRoot ?? stateRoot(opts.env), { session_id: runId, client: CLIENT,
+    await capture(opts.stateRoot ?? stateRoot(opts.env), { session_id: runId, client: CLIENT, account: opts.account,
       model, effort, role: delivery.context.role.toLowerCase(), demand: opts.demand ?? null,
       step: opts.step ?? null, critic_of: opts.critic_of ?? null }, { transcript: opts.transcript, message: prompt });
     return { mode, runId, agentCall: { model, effort, prompt } };
@@ -152,7 +152,8 @@ export async function spawn(actor, briefing, opts = {}) {
   const spawner = makeSpawner({ spawn: opts.spawn, logDir: opts.logDir, cwd: opts.cwd,
     env: { ...(opts.env ?? process.env), CODEX_HOME: configRoot(opts) } });
   return spawner({ title: prompt, id: opts.demand, appliesTo: opts.appliesTo }, {
-    runId, client: CLIENT, profile: { model, effort, sandbox: opts.sandbox ?? actor.sandbox },
+    runId, client: CLIENT, account: opts.account, config: opts.config,
+    profile: { model, effort, sandbox: opts.sandbox ?? actor.sandbox },
     role: delivery.context.role.toLowerCase(), critic_of: opts.critic_of, step: opts.step,
     maxMinutes: opts.maxMinutes,
   });

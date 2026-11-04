@@ -21,9 +21,149 @@ import { formatEnvironmentReport } from '../src/env/report.js';
 import { listActors } from '../src/actors.js';
 import { configSet } from '../src/core/config.js';
 import { localizeReason } from '../src/install/present.js';
+import { EventEmitter } from 'node:events';
+import { setTimeout as sleep } from 'node:timers/promises';
+import * as codex from '../adapters/codex/index.js';
+import * as claude from '../adapters/claude-code/index.js';
+import { readCodexSessionQuota } from '../adapters/codex/session-quota.js';
+import { trajectory, validate } from '../src/trajectory/schema.js';
+import { exportTrajectory, list as trajectoryList, show } from '../src/trajectory/index.js';
+import { redact } from '../src/telemetry/catalog.js';
+import childProcess from 'node:child_process';
+import { daemonOperation } from '../src/core/daemon.js';
+import { inboxAdd } from '../src/inbox.js';
 
 const client = 'claude-code';
 const accounts = { [client]: [{ id: 'work', label: 'Work', configDir: '/work' }] };
+const round3Accounts = { accounts: Object.fromEntries(['codex', 'claude-code'].map(name =>
+  [name, [{ id: 'work', label: 'Renamed label', configDir: `/accounts/${name}/work` }]])) };
+const childStub = () => Object.assign(new EventEmitter(), { pid: 123, unref() {} });
+test('round 3: daemon process spawning honors the supplied client environment', async t => {
+  const root = await temporary(t), calls = [];
+  const env = { HOME: root, CODEX_HOME: join(root, 'custom-default') };
+  await fs.writeFile(join(root, 'config.json'), JSON.stringify({ profiles: { codex: {
+    simple: { model: 'm' }, normal: { model: 'm' }, hard: { model: 'm' },
+  } } }));
+  t.mock.method(childProcess, 'spawn', (_command, _args, options) => { calls.push(options.env); return childStub(); });
+  await inboxAdd(root, { title: 'test', client: 'codex' });
+  const result = await daemonOperation(root, { action: 'run-once' }, { env });
+  assert.equal(result.spawned.length, 1);
+  assert.equal(calls[0].CODEX_HOME, env.CODEX_HOME);
+});
+test('round 3: Codex default quota follows sessions override, CODEX_HOME, then HOME', async t => {
+  const root = await temporary(t), at = Date.now();
+  const directories = [join(root, '.codex/sessions'), join(root, 'work/sessions'), join(root, 'explicit')];
+  for (const [index, directory] of directories.entries()) {
+    await fs.mkdir(directory, { recursive: true });
+    await fs.writeFile(join(directory, 'rollout-test.jsonl'), JSON.stringify({
+      timestamp: new Date(at).toISOString(), type: 'event_msg',
+      payload: { type: 'token_count', rate_limits: { primary: {
+        used_percent: 10 + index * 20, window_minutes: 300, resets_at: Math.floor(at / 1000) + 3600,
+      } } },
+    }) + '\n');
+  }
+  for (const [env, expected] of [
+    [{ HOME: root }, 90], [{ HOME: root, CODEX_HOME: join(root, 'work') }, 70],
+    [{ HOME: root, CODEX_HOME: join(root, 'work'), CODEX_SESSIONS_DIR: directories[2] }, 50],
+  ]) {
+    assert.equal((await readCodexSessionQuota({ env, now: () => at })).remainingPct, expected);
+    assert.equal((await codex.readQuota({ env, stateRoot: root, now: () => at })).remainingPct, expected);
+  }
+  const config = { accounts: { codex: [{ id: 'work', label: 'Work', configDir: join(root, 'work') }] } };
+  assert.equal((await codex.readQuota({ config, stateRoot: root, account: 'work', now: () => at,
+    env: { HOME: root, CODEX_SESSIONS_DIR: directories[2] } })).remainingPct, 70);
+});
+test('round 3: native adapter captures retain the account id', async t => {
+  const root = await temporary(t);
+  await fs.writeFile(join(root, 'config.json'), JSON.stringify({ ...round3Accounts, trajectory: { enabled: true } }));
+  for (const adapter of [codex, claude]) {
+    await adapter.spawn({ model: 'm' }, 'Role: Executor\nhello', { mode: 'NATIVE', runId: adapter.CLIENT,
+      stateRoot: root, account: 'work', config: round3Accounts });
+    assert.equal((await exportTrajectory(root, adapter.CLIENT)).agent.extra.account, 'work');
+  }
+});
+
+test('round 3: telemetry preserves stable account ids on execution events, omitting default', () => {
+  for (const event of ['profile.choice', 'role.choice', 'demand.status', 'quota.check']) {
+    assert.deepEqual(redact(event, { client: 'codex', account: 'work' }), { client: 'codex', account: 'work' });
+    for (const account of ['default', '/private/path', 'Display name', {}, 'x'.repeat(33)]) {
+      assert.deepEqual(redact(event, { client: 'codex', account }), { client: 'codex' });
+    }
+  }
+});
+test('round 3: trajectory keeps only a non-default stable account id and remains Harbor-valid', () => {
+  const context = { session_id: 'run', client: 'codex', model: 'm' };
+  const steps = [{ message: 'hello' }];
+  const original = trajectory(context, steps);
+  assert.deepEqual(trajectory({ ...context, account: 'default' }, steps), original);
+  const work = trajectory({ ...context, account: 'work', label: 'Renamed', configDir: '/private/path' }, steps);
+  assert.equal(work.agent.extra.account, 'work');
+  assert.equal(validate(work), true);
+  assert.equal(JSON.stringify(work).includes('/private/path'), false);
+  assert.equal(JSON.stringify(work).includes('Renamed'), false);
+});
+
+test('round 3: reserved account survives process capture, export, list and trajectory_show', async t => {
+  const root = await temporary(t);
+  await fs.writeFile(join(root, 'config.json'), JSON.stringify({ ...round3Accounts, trajectory: { enabled: true } }));
+  await acquireSlot(root, 'captured', { client: 'codex', account: 'work', config: round3Accounts });
+  const child = childStub();
+  await makeSpawner({ logDir: join(root, 'runs'), cwd: root, env: {}, spawn: () => child })(
+    { title: 'hello' }, { client: 'codex', runId: 'captured', profile: { model: 'm' } });
+  child.emit('close', 0);
+  let saved;
+  for (let n = 0; n < 100 && !saved; n++) {
+    saved = await exportTrajectory(root, 'captured').catch(() => null);
+    if (!saved) await sleep(10);
+  }
+  assert.equal(saved?.agent.extra.account, 'work');
+  assert.equal(validate(saved), true);
+  assert.equal((await trajectoryList(root))[0].account, 'work');
+  assert.match(await show(root, 'captured'), /Account \/ Conta: work/);
+});
+test('round 3: adapters forward account selection to process spawning and model listing', async t => {
+  const root = await temporary(t);
+  for (const adapter of [codex, claude]) {
+    const variable = adapter.CLIENT === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR';
+    let received;
+    await adapter.spawn({ model: 'm' }, 'Role: Executor\ntest', { mode: 'PROCESS', runId: adapter.CLIENT,
+      config: round3Accounts, account: 'work', logDir: join(root, 'runs'), cwd: root, env: {},
+      spawn: (_command, _args, options) => { received = options.env; return childStub(); } });
+    assert.equal(received[variable], `/accounts/${adapter.CLIENT}/work`);
+    await adapter.listModels({ config: round3Accounts, account: 'work', env: {},
+      run: async ({ env }) => { received = env; return { code: 0, stdout: '[]' }; } });
+    assert.equal(received[variable], `/accounts/${adapter.CLIENT}/work`);
+    await assert.rejects(adapter.listModels({ config: round3Accounts, account: 'ghost', env: {} }), /Unknown account/);
+  }
+});
+
+// | Round 3 | Must pass | Must refuse |
+// | Processes | default env unchanged; explicit or reserved account env | unknown account before spawn |
+// | History | stable id through capture/export/list/show; Harbor validation | label/path as identity |
+// | Sessions | explicit sessions, CODEX_HOME, HOME precedence | cross-account quota |
+test('round 3: spawn uses the selected or reserved account environment for both clients', async t => {
+  const root = await temporary(t), calls = [];
+  await fs.writeFile(join(root, 'config.json'), JSON.stringify(round3Accounts));
+  const env = { HOME: root, CODEX_HOME: '/default/codex', CLAUDE_CONFIG_DIR: '/default/claude', KEEP: 'same' };
+  const spawn = makeSpawner({ logDir: join(root, 'runs'), cwd: root, env,
+    spawn: (_command, _args, options) => { calls.push(options.env); return childStub(); } });
+  for (const client of ['codex', 'claude-code']) {
+    for (const [index, account] of [undefined, 'default', 'work'].entries()) {
+      const runId = `${client}-${index}`;
+      await spawn({ title: 'test' }, { client, runId, account, profile: { model: 'm' } });
+      const variable = client === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR';
+      assert.deepEqual(calls.at(-1), { ...env, ...(account === 'work'
+        ? { [variable]: `/accounts/${client}/work` } : {}), OKWORK_NO_DAEMON: '1' });
+      assert.equal((await readJson(join(root, 'runs', `${runId}.json`))).account, account === 'work' ? 'work' : undefined);
+    }
+    await acquireSlot(root, `${client}-reserved`, { client, account: 'work', config: round3Accounts });
+    await spawn({ title: 'reserved' }, { client, runId: `${client}-reserved`, profile: { model: 'm' } });
+    assert.equal(calls.at(-1)[client === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR'], `/accounts/${client}/work`);
+    const count = calls.length;
+    await assert.rejects(spawn({ title: 'bad' }, { client, runId: 'bad', account: 'ghost', profile: { model: 'm' } }), /Unknown account/);
+    assert.equal(calls.length, count);
+  }
+});
 async function temporary(t) {
   const root = await fs.mkdtemp(join(tmpdir(), 'd115-fixes-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
