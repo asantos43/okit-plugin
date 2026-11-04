@@ -3,8 +3,10 @@ import { resolve } from 'node:path';
 export const SCHEMA_VERSION = 'ATIF-v1.4';
 export const unavailable = null;
 export const MAX_DEPTH = 100;
+// Plain assignment is an own data property for every key but `__proto__`, and far cheaper than defineProperty.
 export function ownData(target, key, value) {
-  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+  if (key !== '__proto__') target[key] = value;
+  else Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
 }
 const depthMarker = '[truncated: too deep]';
 // Walk JSON iteratively: neither cloning nor the depth check uses the JS stack.
@@ -42,7 +44,8 @@ const usageKeys = ['prompt_tokens', 'completion_tokens', 'cached_tokens', 'cost_
 // Harbor: token counters are non-negative integers; only the cost may be fractional.
 const amount = (key, value) => numeric(value) !== null && (key === 'cost_usd' || Number.isSafeInteger(value)) ? value : null;
 export function metrics(values = {}) {
-  return Object.fromEntries(usageKeys.map(key => [key, amount(key, values?.[key])]));
+  return { prompt_tokens: amount('prompt_tokens', values?.prompt_tokens), completion_tokens: amount('completion_tokens', values?.completion_tokens),
+    cached_tokens: amount('cached_tokens', values?.cached_tokens), cost_usd: amount('cost_usd', values?.cost_usd) };
 }
 export function step(value = {}) {
   return { step_id: value.step_id, timestamp: value.timestamp ?? null,
@@ -356,7 +359,8 @@ export function normalize(data = {}, { producer = false, dir } = {}) {
     for (const [key, values] of Object.entries(state)) item.extra[key] = [...values];
   }
   if (!steps.length) steps.push({ timestamp: null, source: 'system', message: '' });
-  result.steps = steps.map((item, index) => ({ ...item, step_id: index + 1 }));
+  steps.forEach((item, index) => { item.step_id = index + 1; });
+  result.steps = steps;
   assignCallIds(result.steps);
   if (Object.hasOwn(data, 'final_metrics') || producer || restructured) {
     result.final_metrics = finalMetrics(result.steps, data?.final_metrics, Array.isArray(data.steps) ? data.steps.length : 0, restructured);

@@ -89,6 +89,9 @@ const record = value => value !== null && typeof value === 'object' && !Array.is
 // The only lossy usage repairs: null/invalid counters and invalid token arrays.
 const usable = (key, value) => typeof value === 'number' && Number.isFinite(value) && value >= 0
   && (key === 'cost_usd' ? value <= Number.MAX_SAFE_INTEGER : Number.isSafeInteger(value));
+// A stored total is kept whenever Harbor and `amount()` accept it; only sums need the safe-integer cap.
+const storedUsable = (key, value) => typeof value === 'number' && Number.isFinite(value) && value >= 0
+  && (key === 'cost_usd' || Number.isSafeInteger(value));
 export function conservation(input, output) {
   const failures = [], before = Array.isArray(input?.steps) ? input.steps : [], after = output.steps;
   const identity = validate(input);
@@ -100,7 +103,7 @@ export function conservation(input, output) {
     if (!equal(a, b)) failures.push(`conservation: ${key} changed`);
     const total = output.final_metrics?.[`total_${key}`], stored = input?.final_metrics?.[`total_${key}`];
     // Strict identity includes independently recorded totals; stored totals can outlive capped steps.
-    if (identity || usable(key, stored)) {
+    if (identity || storedUsable(key, stored)) {
       if (total !== stored) failures.push(`conservation: stored total_${key} changed`);
     } else if (output.final_metrics) {
       const present = after.some(step => usable(key, step?.metrics?.[key]));
