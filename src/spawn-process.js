@@ -219,9 +219,13 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
       throw error;
     });
     const accountId = options.account ?? reserved?.account;
-    const config = options.config ?? (accountId === undefined ? {} : await readJson(join(dirname(runs), 'config.json'), {}));
+    // A default run reads the saved accounts too (they decide whether it keeps the client's folder variable); an
+    // unreadable file there changes nothing for it, while a run that names an account still needs the file.
+    const configFile = join(dirname(runs), 'config.json');
+    const config = options.config ?? (options.client === 'opencode' ? {}
+      : accountId === undefined ? await readJson(configFile, {}).catch(() => ({})) : await readJson(configFile, {}));
     const selected = options.client === 'opencode' ? null : requireAccount(config, options.client, accountId);
-    const childEnv = selected ? accountEnv(options.client, selected, env) : env;
+    const childEnv = selected ? accountEnv(options.client, selected, env, undefined, config) : env;
     const dir = await demandCwd(demand?.appliesTo, fallbackCwd);
     const built = buildCommand(options.client, {
       briefing: briefingOf(demand),
@@ -509,7 +513,8 @@ const isTimeout = (error) => error?.code === 'ETIMEDOUT' || error?.killed === tr
  *   hidden: string[], source: 'listing'|'catalog', reason: string}>}
  */
 export async function listModelsOf(client, { settings = {}, env = process.env, run = execRun, cwd, account, config } = {}) {
-  if (account !== undefined) env = accountEnv(client, requireAccount(config, client, account), env);
+  if (account !== undefined) env = accountEnv(client, requireAccount(config, client, account), env, undefined, config);
+  else if (client === 'claude-code' || client === 'codex') env = accountEnv(client, { id: 'default' }, env, undefined, config);
   const command = typeof settings.command === 'string' && settings.command.trim() !== ''
     ? settings.command : null;
   if (command === null) {

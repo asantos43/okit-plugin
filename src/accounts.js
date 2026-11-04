@@ -80,11 +80,30 @@ function duplicateDir(accounts, client, { platform = process.platform, env = pro
   return false;
 }
 
-/** Only extras override the client's environment; the default preserves it. */
-export function accountEnv(client, account, env, configEnv = CLIENT_ENV[client]) {
+/**
+ * Only extras override the client's environment. The default preserves it, unless the configuration (`config`) has
+ * saved accounts for the client: the default is then the folder the client uses with no override (`defaultFolderOf`),
+ * so the variable, which may name an extra, is dropped. A call without `config` is the default as it always was.
+ */
+export function accountEnv(client, account, env, configEnv = CLIENT_ENV[client], config = undefined) {
   supported(client);
-  return account?.isDefault || account?.id === DEFAULT_ACCOUNT_ID || !account?.configDir
-    ? env : { ...env, [configEnv]: account.configDir };
+  if (account?.isDefault || account?.id === DEFAULT_ACCOUNT_ID) {
+    if (!config || !Object.hasOwn(config.accounts ?? {}, client) || !env || !Object.hasOwn(env, configEnv)) return env;
+    const { [configEnv]: _override, ...clean } = env;
+    return clean;
+  }
+  return !account?.configDir ? env : { ...env, [configEnv]: account.configDir };
+}
+
+/** The environment of the default account of every client at once: what `accountEnv` gives the default of each. */
+export function defaultEnv(env, config) {
+  let clean = env;
+  for (const client of Object.keys(CLIENT_ENV)) {
+    if (config && Object.hasOwn(config.accounts ?? {}, client)) {
+      clean = accountEnv(client, { id: DEFAULT_ACCOUNT_ID }, clean ?? process.env, undefined, config);
+    }
+  }
+  return clean;
 }
 
 /**

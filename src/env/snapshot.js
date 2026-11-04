@@ -1,5 +1,5 @@
 import { capOf } from '../limits.js';
-import { accountsOf, accountEnv, accountFiles } from '../accounts.js';
+import { accountsOf, accountEnv, accountFiles, defaultEnv } from '../accounts.js';
 import { loginState, accountWarnings, credentialInEnv } from '../accounts-login.js';
 import { configOf, DEFAULT_CONFIG, normalizeLimits } from '../profiles.js';
 import { setupPending } from './configuration.js';
@@ -38,7 +38,7 @@ async function readingReceived(deps, config, client) {
 
 async function statuslineState(deps, config, command) {
   const settings = config.statuslineRegistration;
-  const location = { config: installConfig(config.install), env: deps.env ?? process.env,
+  const location = { config: installConfig(config.install), env: defaultEnv(deps.env, config) ?? process.env,
     home: deps.home ?? homeOf(deps.env, deps.platform) ?? homedir() };
   const path = join(clientRoot(settings.client, location), settings.settingsFile);
   let active = null;
@@ -121,7 +121,7 @@ export async function environmentReadings(deps) {
   const plugin = deps.plugin ?? { path: records.find((record) => record.path)?.path
     ?? resolve(fileURLToPath(new URL('../..', import.meta.url))),
   onPath: binInPath(location), ...unreadable.length ? { unreadableRecords: unreadable } : {} };
-  return { plugin, versions: deps.versions ?? await environmentVersions({ ...deps, env }, config) };
+  return { plugin, versions: deps.versions ?? await environmentVersions({ ...deps, env: defaultEnv(env, deps.config) }, config) };
 }
 
 export async function environmentSnapshot(deps = {}) {
@@ -156,7 +156,8 @@ export async function environmentSnapshot(deps = {}) {
     : deps.client ? [deps.client] : [...new Set([...clientsOf(config), ...known])]
       .filter((client) => known.includes(client));
   if (deps.view !== 'selected') clients.sort((a, b) => Number(b === inUse) - Number(a === inUse));
-  const observed = await (deps.detectClients ?? detectClients)({ ...deps, config });
+  // The default account lists with the folder the client uses with no override, never one an extra named.
+  const observed = await (deps.detectClients ?? detectClients)({ ...deps, config, env: defaultEnv(deps.env, config) });
   const detected = { clients: observed.clients.map((record) => {
     const normalized = normalizeClientObservation(record, record.client);
     normalized.installed = deps.versions?.[record.client]?.installed ?? normalized.installed;
@@ -250,7 +251,7 @@ export async function environmentSnapshot(deps = {}) {
         - Math.abs(sizeOrder.indexOf(b) - sizeOrder.indexOf(size)))[0] ?? null,
     })) };
     const location = { config: installConfig(config.install), env: ['claude-code', 'codex'].includes(client)
-      ? accountEnv(client, account, deps.env ?? process.env) : deps.env ?? process.env,
+      ? accountEnv(client, account, deps.env ?? process.env, undefined, config) : deps.env ?? process.env,
       home: deps.home ?? homeOf(deps.env, deps.platform) ?? homedir() };
     return { ...account, account: account.id, login, warnings, client, inUse: client === inUse, installed, candidates, sizeCoverage,
       configPath: !known.includes(client) ? null : account.isDefault && ['claude-code', 'codex'].includes(client)

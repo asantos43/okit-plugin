@@ -15,7 +15,7 @@ import { readJson } from '../src/state.js';
 import { makeSpawner } from '../src/spawn-process.js';
 import { statusTable } from '../src/status.js';
 import { detectClients } from '../src/env/models.js';
-import { accountsProblem, accountOfConfigDir, accountsOf, withAccountAdded, withAccountRenamed } from '../src/accounts.js';
+import { accountEnv, accountsProblem, accountOfConfigDir, accountsOf, withAccountAdded, withAccountRenamed } from '../src/accounts.js';
 import { roleContext, formatRoleContext } from '../src/roles.js';
 import { readinessRows } from '../src/doctor/ready-rows.js';
 import { formatEnvironmentReport } from '../src/env/report.js';
@@ -260,8 +260,10 @@ test('round 3: spawn uses the selected or reserved account environment for both 
       const runId = `${client}-${index}`;
       await spawn({ title: 'test' }, { client, runId, account, profile: { model: 'm' } });
       const variable = client === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR';
-      assert.deepEqual(calls.at(-1), { ...env, ...(account === 'work'
-        ? { [variable]: `/accounts/${client}/work` } : {}), OKWORK_NO_DAEMON: '1' });
+      // With saved accounts the default is the folder the client uses with no override: it never inherits the variable.
+      const { [variable]: _inherited, ...clean } = env;
+      assert.deepEqual(calls.at(-1), { ...account === 'work' ? { ...env, [variable]: `/accounts/${client}/work` } : clean,
+        OKWORK_NO_DAEMON: '1' });
       assert.equal((await readJson(join(root, 'runs', `${runId}.json`))).account, account === 'work' ? 'work' : undefined);
     }
     await acquireSlot(root, `${client}-reserved`, { client, account: 'work', config: round3Accounts });
@@ -1199,4 +1201,80 @@ test('round 9: the role context lists every account of a client with its own quo
     quota: { remainingPct: 70 }, slots: { available: 1 } }] }, items: [], orders: [], limits: {} });
   assert.deepEqual(single.actors, [{ client: 'codex', model: 'c', effort: 'low', restrictions: [], quota: { remainingPct: 70 }, slots: { available: 1 } }]);
   assert.match(formatRoleContext(single), /Available actors: codex: c \+ low; quota 70%; free slots 1; restrictions: none/);
+});
+
+// | Round 10 | Must pass | Must refuse |
+// | Default run | saved accounts for the client: no folder variable of that client in the child | the variable of an extra (acc2) inherited by the default |
+// | Default listing | the model listing and the snapshot of the default ignore the variable | the listing of the extra shown on the default row |
+// | No accounts / extras | the variable preserved; an extra gets its own folder | a variable dropped with no saved accounts |
+
+test('round 10: a default run with saved accounts never inherits the folder variable of the client', async (t) => {
+  const root = await temporary(t), calls = [];
+  const env = { HOME: root, CODEX_HOME: '/acc2', CLAUDE_CONFIG_DIR: '/acc2', KEEP: 'same' };
+  const spawn = (dir) => makeSpawner({ logDir: join(root, dir, 'runs'), cwd: root, env,
+    spawn: (_command, _args, options) => { calls.push(options.env); return childStub(); } });
+  await fs.mkdir(join(root, 'with'), { recursive: true });
+  await fs.mkdir(join(root, 'without'), { recursive: true });
+  await fs.writeFile(join(root, 'with', 'config.json'), JSON.stringify(round3Accounts));
+  for (const [name, variable] of [['codex', 'CODEX_HOME'], ['claude-code', 'CLAUDE_CONFIG_DIR']]) {
+    for (const [index, account] of [undefined, 'default'].entries()) {
+      await spawn('with')({ title: 'test' }, { client: name, runId: `${name}-${index}`, account, profile: { model: 'm' } });
+      assert.equal(Object.hasOwn(calls.at(-1), variable), false, `${name} ${account}: variable dropped`);
+      assert.equal(calls.at(-1).KEEP, 'same');
+    }
+    await spawn('with')({ title: 'test' }, { client: name, runId: `${name}-work`, account: 'work', profile: { model: 'm' } });
+    assert.equal(calls.at(-1)[variable], `/accounts/${name}/work`, 'an extra overrides with its folder');
+    // No saved accounts for the client: the variable is preserved, as the single account always did.
+    await spawn('without')({ title: 'test' }, { client: name, runId: `${name}-none`, profile: { model: 'm' } });
+    assert.equal(calls.at(-1)[variable], '/acc2');
+  }
+});
+
+test('round 10: accountEnv drops the variable only for the default of a client with saved accounts', () => {
+  const env = { HOME: '/h', CLAUDE_CONFIG_DIR: '/acc2' };
+  const [base, work] = accountsOf(round3Accounts, 'claude-code');
+  assert.deepEqual(accountEnv('claude-code', base, env, undefined, round3Accounts), { HOME: '/h' });
+  assert.equal(env.CLAUDE_CONFIG_DIR, '/acc2', 'the input is not changed');
+  assert.equal(accountEnv('claude-code', base, env), env, 'a call without the configuration is as it always was');
+  assert.equal(accountEnv('claude-code', base, env, undefined, {}), env);
+  assert.equal(accountEnv('claude-code', base, env, undefined, { accounts: { codex: [] } }), env, 'accounts of another client');
+  assert.deepEqual(accountEnv('claude-code', base, env, undefined, { accounts: { 'claude-code': [] } }), { HOME: '/h' },
+    'every account removed: the client still has accounts');
+  assert.deepEqual(accountEnv('claude-code', work, env, undefined, round3Accounts),
+    { HOME: '/h', CLAUDE_CONFIG_DIR: '/accounts/claude-code/work' });
+});
+
+test('round 10: the model listing of the default ignores the folder variable when accounts are saved', async () => {
+  for (const adapter of [codex, claude]) {
+    const variable = adapter.CLIENT === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR';
+    const seen = [];
+    const run = async ({ env }) => { seen.push(env); return { code: 0, stdout: '[]' }; };
+    // Claude Code has no listing command of its own; give it one so the process runs.
+    const listing = { setup: { detect: { [adapter.CLIENT]: { command: 'lister', args: [], timeoutMs: 1000, parse: 'lines' } } } };
+    const withAccounts = { ...round3Accounts, ...listing };
+    await adapter.listModels({ config: withAccounts, env: { [variable]: '/acc2' }, run });
+    await adapter.listModels({ config: withAccounts, account: 'default', env: { [variable]: '/acc2' }, run });
+    assert.ok(seen.length >= 2 && seen.every((env) => !Object.hasOwn(env, variable)), `${adapter.CLIENT}: dropped`);
+    await adapter.listModels({ config: listing, env: { [variable]: '/acc2' }, run });
+    assert.equal(seen.at(-1)[variable], '/acc2', `${adapter.CLIENT}: no saved accounts`);
+    await adapter.listModels({ config: withAccounts, account: 'work', env: { [variable]: '/acc2' }, run });
+    assert.equal(seen.at(-1)[variable], `/accounts/${adapter.CLIENT}/work`);
+  }
+});
+
+test('round 10: the snapshot lists the default without the variable and keeps it with no saved accounts', async () => {
+  const seen = [];
+  const detect = async ({ env, onlyClient }) => {
+    seen.push({ only: onlyClient, folder: env.CLAUDE_CONFIG_DIR });
+    return { clients: [{ client, installed: true, models: [env.CLAUDE_CONFIG_DIR ? 'acc2-model' : 'default-model'], source: 'listing' }] };
+  };
+  const env = { HOME: '/default', CLAUDE_CONFIG_DIR: '/acc2' };
+  const snapshot = await environmentSnapshot({ ...observation(), env, detectClients: detect });
+  assert.deepEqual(seen, [{ only: undefined, folder: undefined }, { only: client, folder: '/work' }]);
+  assert.deepEqual(snapshot.clients[0].accounts.map((row) => row.models), [['default-model'], ['acc2-model']]);
+  assert.equal(env.CLAUDE_CONFIG_DIR, '/acc2', 'the environment of the caller is not changed');
+  seen.length = 0;
+  const single = await environmentSnapshot({ ...observation({}), env, detectClients: detect });
+  assert.deepEqual(seen, [{ only: undefined, folder: '/acc2' }]);
+  assert.deepEqual(single.clients[0].models, ['acc2-model']);
 });
