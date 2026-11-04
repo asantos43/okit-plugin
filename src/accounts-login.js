@@ -3,12 +3,25 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { clientRoot, installConfig, homeOf } from './install/config.js';
 
-/** Detect credential markers without opening credentials. Unreadable state is unknown. */
-export async function loginState({ client, account, env = process.env, platform = process.platform,
+/** The install options of the person; the defaults when the configuration has none (or cannot be read). */
+function installOf(install) {
+  try { return installConfig(install); } catch { return installConfig(); }
+}
+
+/**
+ * Detect credential markers without opening credentials. Unreadable state is unknown.
+ *
+ * The folder of the default account is the one the install options of the person name, not the one the defaults of
+ * the installer name: the account that is not an extra lives in the folder the client itself uses.
+ *
+ * @param {object} input the client, the account, the install options of the person and the world to read
+ * @returns {Promise<string>} the login state
+ */
+export async function loginState({ client, account, install, env = process.env, platform = process.platform,
   fs = filesystem, home = homeOf(env, platform) ?? homedir() }) {
   if (!['claude-code', 'codex'].includes(client)) return 'unknown';
   if (client === 'claude-code' && platform === 'darwin') return 'unknown';
-  const root = account?.configDir || clientRoot(client, { config: installConfig(), env, home });
+  const root = account?.configDir || clientRoot(client, { config: installOf(install), env, home });
   if (client === 'codex') {
     try {
       const config = await fs.readFile(join(root, 'config.toml'), 'utf8');

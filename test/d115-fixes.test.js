@@ -803,3 +803,88 @@ test('round 5: the configured entries of the environment name the account of eac
   assert.deepEqual(single.plugin.configured.filter((entry) => entry?.item === 'models'),
     [{ item: 'models', client: 'claude-code' }]);
 });
+
+// | Round 6 | Must pass | Must refuse |
+// | Login | the folder of the install options of the person | the folder of the defaults of the installer |
+// | Collector | the folder of the default account | a folder that names no account |
+// | Codex | the sessions of the folder of the install options | the sessions of the defaults of the installer |
+
+/** The person who configured a folder of their own for the Claude Code client. */
+const round6Config = (root) => ({
+  install: { clients: { 'claude-code': { rootParts: ['claude-custom'] } } },
+  accounts: { 'claude-code': [{ id: 'work', label: 'Work', configDir: join(root, 'work') }] },
+  profiles: { 'claude-code': { simple: { model: 'm' }, normal: { model: 'm' }, hard: { model: 'm' } } },
+});
+
+/** The world of one snapshot: the real file system of a temporary home, the models of one listing. */
+const round6Deps = (config, root) => ({ config, env: { HOME: root }, home: root, platform: 'linux', record: false,
+  now: () => 1800000000000, cache: new Map(), plugin: { onPath: true },
+  versions: { 'claude-code': { installed: true, version: 'default' } },
+  readQuota: async () => ({ remainingPct: 80, source: 'manual' }),
+  detectClients: async () => ({ clients: [{ client: 'claude-code', installed: true, models: ['m'], source: 'listing' }] }) });
+
+
+test('round 6: the login of the default account follows the install options of the person', async (t) => {
+  const root = await temporary(t);
+  const config = round6Config(root);
+  await fs.mkdir(join(root, 'claude-custom'), { recursive: true });
+  await fs.writeFile(join(root, 'claude-custom', '.credentials.json'), '{}');
+  await fs.writeFile(join(root, 'config.json'), JSON.stringify(config));
+  const lines = [];
+  const code = await main(['account', 'list', 'claude-code'], { root, env: { HOME: root },
+    stdout: (line) => lines.push(line), stderr: (line) => lines.push(line) });
+  assert.equal(code, 0);
+  const rows = lines.filter((line) => line.startsWith('claude-code')).map((line) => line.split('\t'));
+  assert.deepEqual(rows.map((row) => [row[1], row[4]]), [['default', 'logged-in'], ['work', 'logged-out']],
+    lines.join('\n'));
+  const snapshot = await environmentSnapshot(round6Deps(config, root));
+  const [personal, work] = snapshot.clients[0].accounts;
+  assert.equal(personal.login, 'logged-in');
+  assert.equal(work.login, 'logged-out');
+  assert.equal(personal.candidates.some((actor) => actor.restrictions.includes('not-logged-in')), false,
+    JSON.stringify(personal.candidates));
+  assert.equal(personal.configPath, join(root, 'claude-custom'));
+});
+
+test('round 6: the collector writes the reading of the default when the environment names its own folder', async (t) => {
+  const root = await temporary(t);
+  const quota = paths(root).quota;
+  await fs.mkdir(quota, { recursive: true });
+  const defaultFile = join(quota, 'claude-code-statusline.json');
+  const accounts = { 'claude-code': [{ id: 'work', label: 'Work', configDir: '/work' }] };
+  // The folder of the default account: with the defaults of the installer and with the install options of the person.
+  for (const [config, folder] of [[{ accounts }, join(root, '.claude')],
+    [{ ...round6Config(root), accounts }, join(root, 'claude-custom')]]) {
+    await fs.writeFile(defaultFile, 'the reading of the default');
+    await collectStatusline({ stateRoot: root, config, env: { HOME: root, CLAUDE_CONFIG_DIR: folder },
+      platform: 'linux', home: root, now: () => 1800000000000, input: statuslineInput(50) });
+    assert.match(await fs.readFile(defaultFile, 'utf8'), /rate_limits/, folder);
+  }
+  // A folder that names no account writes nothing: the reading of the default is never overwritten.
+  await fs.writeFile(defaultFile, 'the reading of the default');
+  await collectStatusline({ stateRoot: root, config: round6Config(root),
+    env: { HOME: root, CLAUDE_CONFIG_DIR: join(root, 'unknown') }, platform: 'linux', home: root,
+    now: () => 1800000000000, input: statuslineInput(50) });
+  assert.equal(await fs.readFile(defaultFile, 'utf8'), 'the reading of the default');
+  assert.equal(await fs.readFile(join(quota, 'claude-code-statusline.work.json'), 'utf8').catch(() => null), null);
+});
+
+test('round 6: the Codex sessions of the default account follow the install options of the person', async (t) => {
+  const root = await temporary(t), at = Date.now();
+  const write = async (directory, used) => {
+    await fs.mkdir(directory, { recursive: true });
+    await fs.writeFile(join(directory, 'rollout-test.jsonl'), JSON.stringify({
+      timestamp: new Date(at).toISOString(), type: 'event_msg',
+      payload: { type: 'token_count', rate_limits: { primary: {
+        used_percent: used, window_minutes: 300, resets_at: Math.floor(at / 1000) + 3600 } } },
+    }) + '\n');
+  };
+  await write(join(root, 'codex-custom/sessions'), 10);
+  await write(join(root, 'elsewhere/sessions'), 50);
+  const config = { install: { clients: { codex: { rootParts: ['codex-custom'] } } } };
+  const reading = await readCodexSessionQuota({ config, env: { HOME: root }, now: () => at });
+  assert.equal(reading?.remainingPct, 90);
+  // The folder the person configured wins over the folder of the install options.
+  const configured = { ...config, codexQuota: { sessionsDirectory: join(root, 'elsewhere/sessions') } };
+  assert.equal((await readCodexSessionQuota({ config: configured, env: { HOME: root }, now: () => at }))?.remainingPct, 50);
+});

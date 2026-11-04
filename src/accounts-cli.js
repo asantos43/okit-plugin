@@ -32,11 +32,12 @@ export async function accountCommand(ctx, action, args) {
     configOf(raw);
     return raw;
   };
-  const describe = async (account) => ({ client: account.client, id: account.id, label: account.label,
-    configDir: account.configDir, login: await loginState({ ...ctx, client: account.client, account }) });
+  const describe = async (account, install) => ({ client: account.client, id: account.id, label: account.label,
+    configDir: account.configDir, login: await loginState({ ...ctx, client: account.client, account, install }) });
   if (action === 'list') {
     const raw = await load();
-    const rows = await Promise.all((client ? [client] : CLIENTS).flatMap((id) => accountsOf(raw, id)).map(describe));
+    const rows = await Promise.all((client ? [client] : CLIENTS).flatMap((id) => accountsOf(raw, id))
+      .map((account) => describe(account, raw.install)));
     if (json) ctx.out(JSON.stringify(rows));
     else rows.forEach((row) => ctx.out(presentAccount(row)));
     return exitCodeFor('ok');
@@ -56,7 +57,7 @@ export async function accountCommand(ctx, action, args) {
       await (ctx.writeConfig ?? ctx.write ?? writeJsonAtomic)(target.config, next);
       if (action === 'add') {
         const account = accountsOf(next, client).at(-1);
-        const row = await describe(account);
+        const row = await describe(account, raw.install);
         ctx.out(presentAccount(row));
         accountInstructions(row, ctx).forEach(ctx.out);
       } else ctx.out(accountChanged(action, ctx.locale));

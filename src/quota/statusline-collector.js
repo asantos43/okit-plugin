@@ -5,6 +5,7 @@ import { configOf } from '../profiles.js';
 import { accountFiles, accountOfConfigDir } from '../accounts.js';
 import { readJson, writeJsonAtomic } from '../state.js';
 import { paths, stateRoot as defaultRoot, SELFCHECK_ENV } from '../store.js';
+import { clientDefaultRoot, homeOf } from '../install/config.js';
 
 /** The file the person records the quota in (the `quota_set` tool writes it); the collector never writes it. */
 export const READING_FILE = 'claude-code.json';
@@ -154,7 +155,8 @@ export function runPrevious({ command, args, input, timeoutMs, maxOutputBytes })
 
 /** Collection must never prevent the user's bar from running. Output stays binary. */
 export async function collectStatusline({ input, previous, stateRoot, run = runPrevious,
-  now = Date.now, config, env = process.env, platform = process.platform } = {}) {
+  now = Date.now, config, env = process.env, platform = process.platform,
+  home = homeOf(env, platform) ?? '' } = {}) {
   previous ??= Array.isArray(config?.statuslineCollector?.previous)
     ? config.statuslineCollector.previous : undefined;
   let settings;
@@ -165,7 +167,10 @@ export async function collectStatusline({ input, previous, stateRoot, run = runP
       const value = JSON.parse(input.toString());
       // The collector stores what the client sent and nothing more: the percentages are read by the core.
       if (plain(value) && plain(value[settings.fields.rateLimits])) {
-        const account = accountOfConfigDir({ client: 'claude-code', config, env, platform });
+        // The folder of the default account is the one the client uses with no override: the default has no
+        // folder saved with it, so the folder of the environment that names it is the default's own.
+        const defaultDir = clientDefaultRoot('claude-code', { install: config?.install, env, platform, home });
+        const account = accountOfConfigDir({ client: 'claude-code', config, env, platform, defaultDir });
         // A folder that names no account writes nothing: the reading of one account never overwrites another's.
         if (account) {
           await writeJsonAtomic(join(paths(stateRoot).quota, accountFiles(account.client, account.id).statusline),

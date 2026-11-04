@@ -77,20 +77,23 @@ export function accountEnv(client, account, env, configEnv = CLIENT_ENV[client])
  *
  * The folder of an extra account is the one saved with it. The folder of the default is the one the client
  * uses when no account overrides it: with no environment of its own, or with a client that never had accounts,
- * the folder is the default's. A folder that names no saved account (the folder of an account that was removed,
- * or one that was never saved) belongs to nobody: the caller must write nothing for it, or the reading of one
- * account would overwrite the reading of another.
+ * the folder is the default's. The default has no folder saved with it, so the caller tells which folder is its
+ * own (`defaultDir`): a folder that names it is the default's. A folder that names no saved account (the folder
+ * of an account that was removed, or one that was never saved) belongs to nobody: the caller must write nothing
+ * for it, or the reading of one account would overwrite the reading of another.
  *
- * @param {{client: string, config: object, env?: object, platform?: string}} input
+ * @param {{client: string, config: object, env?: object, platform?: string, defaultDir?: string}} input
  * @returns {object|null} the account of the folder, or null when the folder names none
  */
-export function accountOfConfigDir({ client, config, env = {}, platform = process.platform }) {
+export function accountOfConfigDir({ client, config, env = {}, platform = process.platform, defaultDir }) {
   const accounts = accountsOf(config, client);
   const dir = env[CLIENT_ENV[client]];
   if (!dir) return accounts[0];
   const named = accounts.find((account) => account.configDir
     && normalizedDir(account.configDir, platform) === normalizedDir(dir, platform));
   if (named) return named;
+  // The folder of the default account is never saved with it, so the caller says which one is its own.
+  if (defaultDir && normalizedDir(defaultDir, platform) === normalizedDir(dir, platform)) return accounts[0];
   // The configuration knows the accounts of this client (even when every one of them was removed: the folder of
   // a removed account stays and its collector still runs), so the folder names no account and belongs to nobody.
   if (Object.hasOwn(config?.accounts ?? {}, client)) return null;

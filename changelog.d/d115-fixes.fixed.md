@@ -17,3 +17,4 @@ Name the pure client and the stable account id in every account row of the JSON 
 Double every PowerShell string delimiter (the typographic quotes too) in the paths of the login line, the collector command and the installers.
 Never let the status bar collector write a configuration folder that names no account into the file of another account.
 Give each configured model entry the account it belongs to, so the environment report tells the accounts apart.
+Read the login of the default account in the folder of the install options of the person, and recognize the folder of the default account in the status bar collector, so the reading of the default is never lost.

@@ -1,8 +1,8 @@
 import { open, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import process from 'node:process';
-import { configOf } from '../../src/profiles.js';
-import { homeOf } from '../../src/install/config.js';
+import { configOf, DEFAULT_CONFIG } from '../../src/profiles.js';
+import { clientDefaultRoot, homeOf } from '../../src/install/config.js';
 
 async function sessionFiles(directory, settings) {
   const files = [];
@@ -68,9 +68,17 @@ export async function readCodexSessionQuota({ config, env = process.env, platfor
   openFile = open } = {}) {
   try {
     const settings = configOf(config).codexQuota;
-    const configured = env?.[settings.sessionsEnv]
-      || (env?.CODEX_HOME ? join(env.CODEX_HOME, 'sessions') : settings.sessionsDirectory);
     const home = homeOf(env, platform) || env?.HOME || env?.USERPROFILE;
+    // The folder of the default account: the one the install options of the person name, under the home. The
+    // variable of the client in the environment is an override of the folder, never the folder itself.
+    const defaultFolder = clientDefaultRoot('codex', { install: config?.install, env, platform, home });
+    const defaultSessions = defaultFolder ? join(defaultFolder, 'sessions') : null;
+    // The folder the person configured wins; the default of the setting is the folder of the default account,
+    // which follows the install options.
+    const configuredSessions = settings.sessionsDirectory === DEFAULT_CONFIG.codexQuota.sessionsDirectory
+      ? defaultSessions ?? settings.sessionsDirectory : settings.sessionsDirectory;
+    const configured = env?.[settings.sessionsEnv]
+      || (env?.CODEX_HOME ? join(env.CODEX_HOME, 'sessions') : configuredSessions);
     const directory = configured.startsWith('~/')
       ? (home ? join(home, configured.slice(2)) : null)
       : configured;

@@ -190,7 +190,7 @@ export async function environmentSnapshot(deps = {}) {
   // clients: what `missing` and `configured` collect never depends on which read of a file answered first.
   const logins = new Map();
   await Promise.all(clients.flatMap((client) => accountsOfClient(client).map(async (account) => {
-    logins.set(account.key, await loginState({ ...deps, client, account }));
+    logins.set(account.key, await loginState({ ...deps, client, account, install: config.install }));
   })));
   const rows = clients.map((client) => {
     const accounts = accountsOfClient(client);
