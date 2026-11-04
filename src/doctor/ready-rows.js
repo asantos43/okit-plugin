@@ -43,11 +43,11 @@ export function readinessRows({ snapshot, kit, ui, program }) {
   const words = WORDS[ui.locale] ?? WORDS.en;
   const answer = readiness(snapshot);
   const rows = [];
-  const installed = (snapshot?.clients ?? []).filter((row) => row.installed === true);
+  const installed = accountRows(snapshot?.clients).filter((row) => row.installed === true);
   if (snapshot && !installed.length) {
     rows.push({ id: 'clients', status: 'warn', label: words.clients, detail: words.noClients, fix: words.fixClients(program) });
   }
-  for (const row of accountRows(installed)) {
+  for (const row of installed) {
     const account = row.account ? { account: row.account, accountLabel: row.accountLabel } : {};
     if (row.account) {
       rows.push({ id: 'login', client: row.client, ...account, label: 'Login',

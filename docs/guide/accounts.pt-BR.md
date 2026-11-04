@@ -7,7 +7,7 @@ Claude Code e Codex podem ter várias contas. Cada uma tem id estável, nome edi
 <a id="manage"></a>
 ## Gerenciar uma conta
 
-1. Adicione uma pasta com caminho absoluto e execute o comando impresso de login manual.
+1. Adicione uma pasta distinta com caminho absoluto neste sistema e execute o comando impresso de login manual.
 2. Registre o comando impresso do coletor Claude, se aplicável, e confira `account list`.
 3. Renomeie ou remova o registro conforme necessário; o id fica estável ao renomear.
 
@@ -29,10 +29,10 @@ Para Claude Code, add imprime um comando do coletor. Registre-o manualmente em `
 
 List mostra default primeiro em cada cliente; o JSON contém `client`, `id`, `label`, `configDir` (null para default) e `login`. Remove aceita id e só altera a configuração do plugin: pasta, login e histórico gravado permanecem. Default não pode ser removida. Rename aceita id ou nome atual, altera apenas o nome e mantém a consulta de quota e histórico pelo id.
 
-Quota, slots e escolhas de modelos são por conta. `ANTHROPIC_API_KEY` e `CLAUDE_CODE_OAUTH_TOKEN` prevalecem sobre um login Claude guardado. Confira o ambiente antes de interpretar a quota de uma conta.
+Quota, slots e escolhas de modelos são por conta. Relatórios incluem extras instaladas mesmo sem default instalada. Pastas devem ser únicas no cliente, incluindo a pasta conhecida de default; equivalências léxicas e diferenças de caixa no Windows contam como a mesma pasta. Falhas de disco mostram mensagem traduzida e código do sistema. `ANTHROPIC_API_KEY` e `CLAUDE_CODE_OAUTH_TOKEN` prevalecem sobre um login Claude guardado.
 
 Para cota manual, chame `quota_set` com `client: "claude-code"`, `account: "work"` e `pct: 80`; consulte com `quota_show` usando cliente e conta iguais. Utilize o id estável; o cliente continua sendo `claude-code`. Sem `account`, o arquivo continua `quota/claude-code.json`; a extra usa `quota/claude-code.work.json`. Contas inexistentes são recusadas.
 
-`acquire_slot` aceita o mesmo id opcional. O teto do cliente vale separadamente para cada conta; `limits_status` conta em `claude-code` e `claude-code:work`, e `live` soma todas as execuções. Seus campos opcionais `client` e `account` selecionam uma conta. Modelos, evidências e pasta de cada extra são observados com o ambiente dela; o catálogo salvo da default não confirma uma extra. No Windows, a casa prioriza `USERPROFILE` sobre `HOME`.
+`acquire_slot` aceita o mesmo id opcional. Vagas, limites e cota recusam ids inexistentes; ids inexistentes em execuções gravadas contam no cliente puro. O teto do cliente vale separadamente para cada conta; `limits_status` conta em `claude-code` e `claude-code:work`, e `live` soma todas as execuções. Seus campos opcionais `client` e `account` selecionam uma conta. Modelos, evidências e pasta de cada extra usam o ambiente dela; o catálogo salvo da default não confirma uma extra. No Windows, a casa prioriza `USERPROFILE` sobre `HOME`.
 
 [Guia](README.pt-BR.md) · [Modelos e quota](models-and-quota.pt-BR.md) · [English](accounts.md)

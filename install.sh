@@ -425,6 +425,9 @@ const REASONS = [
   // The rules a setting of install.* is refused by (INSTALL_SCHEMA in config-schema.js), one entry per rule.
   ...RULE_REASONS,
   // The accounts of a client (src/accounts.js).
+  [/^Account folder must be absolute on this system\.$/, 'A pasta da conta deve ser absoluta neste sistema.', 'Account folder must be absolute on this system.'],
+  [/^Account folders must be unique within the client\.$/, 'As pastas das contas devem ser únicas no cliente.', 'Account folders must be unique within the client.'],
+  [/^Cannot update settings \((E[A-Z0-9]+)\)\.$/, 'Não foi possível atualizar os ajustes ($1).', 'Cannot update settings (ENOTDIR).'],
   [/^Account configuration must be an object with readable profiles\.$/, 'A configuração de contas deve ser um objeto com perfis legíveis.', 'Account configuration must be an object with readable profiles.'],
   [/^Unsupported account client\.$/, 'Cliente de conta não suportado.', 'Unsupported account client.'],
   [/^Invalid account id\.$/, 'Id de conta inválido.', 'Invalid account id.'],

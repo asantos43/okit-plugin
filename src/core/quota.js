@@ -14,7 +14,7 @@ import { paths } from '../store.js';
 import { readJson, writeJsonAtomic } from '../state.js';
 import { argsOf, optionalName, optionalNumber, requiredNumber, requiredText } from './arguments.js';
 import { Refusal } from './refusal.js';
-import { accountFiles, accountsOf } from '../accounts.js';
+import { accountFiles, requireAccount } from '../accounts.js';
 
 // The name of a client is a name, never a path: the reading of a client is
 // written as `<client>.json` inside the quota folder of the root, so a name
@@ -45,8 +45,7 @@ function quotaFile(name, root, client, account) {
 
 function selectedAccount(client, account, config) {
   if (account === undefined) return;
-  accountFiles(client, account);
-  if (!accountsOf(config, client).some((entry) => entry.id === account)) throw new Refusal('Unknown account.');
+  requireAccount(config, client, account);
 }
 
 /** The settings of a root: `config.json` over the defaults. */

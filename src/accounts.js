@@ -40,6 +40,31 @@ export function accountsOf(config, client) {
   }));
 }
 
+/** Resolve an input id against saved accounts, never just its slug syntax. */
+export function requireAccount(config, client, id = DEFAULT_ACCOUNT_ID) {
+  accountKey(client, id);
+  const account = accountsOf(config, client).find((entry) => entry.id === id);
+  if (!account) refuse(reason('Unknown account.', 'Conta desconhecida.'));
+  return account;
+}
+
+const pathOf = (platform) => platform === 'win32' ? path.win32 : path.posix;
+function normalizedDir(value, platform) {
+  const resolved = pathOf(platform).resolve(value).replace(/[\\/]+$/, '');
+  return platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function duplicateDir(accounts, client, { platform = process.platform, env = process.env, defaultDir } = {}) {
+  const dirs = new Set();
+  for (const dir of [defaultDir ?? env[CLIENT_ENV[client]], ...accounts.map((entry) => entry.configDir)]) {
+    if (!dir || !pathOf(platform).isAbsolute(dir)) continue;
+    const key = normalizedDir(dir, platform);
+    if (dirs.has(key)) return true;
+    dirs.add(key);
+  }
+  return false;
+}
+
 /** Only extras override the client's environment; the default preserves it. */
 export function accountEnv(client, account, env, configEnv = CLIENT_ENV[client]) {
   supported(client);
@@ -50,12 +75,9 @@ export function accountEnv(client, account, env, configEnv = CLIENT_ENV[client])
 /** Compare lexical paths using the requested platform, without following links. */
 export function accountOfConfigDir({ client, config, env = {}, platform = process.platform }) {
   const accounts = accountsOf(config, client);
-  const normalize = (value) => {
-    const resolved = (platform === 'win32' ? path.win32 : path.posix).resolve(value).replace(/[\\/]+$/, '');
-    return platform === 'win32' ? resolved.toLowerCase() : resolved;
-  };
   const dir = env[CLIENT_ENV[client]];
-  return (dir && accounts.find((account) => account.configDir && normalize(account.configDir) === normalize(dir))) || accounts[0];
+  return (dir && accounts.find((account) => account.configDir
+    && normalizedDir(account.configDir, platform) === normalizedDir(dir, platform))) || accounts[0];
 }
 
 /** Generate a bounded slug once, reserving default and resolving collisions. */
@@ -85,7 +107,7 @@ export function validateLabel(label, { client, accounts = [], exceptId } = {}) {
 }
 
 /** First invalid saved accounts value, or null; consumed by the config schema. */
-export function accountsProblem(value) {
+export function accountsProblem(value, options = {}) {
   const invalid = (key) => ({ key, ...reason('Use unique account ids, valid labels and absolute config directories; default has no directory.',
     'Use ids de conta únicos, nomes válidos e pastas de configuração absolutas; default não tem pasta.') });
   if (!object(value)) return invalid('accounts');
@@ -103,6 +125,8 @@ export function accountsProblem(value) {
       }
     }
     const accounts = accountsOf({ accounts: value }, client);
+    // A collector may run with an extra's environment; only an explicit context identifies the default here.
+    if (duplicateDir(accounts, client, { env: {}, ...options })) return invalid(`accounts.${client}`);
     if (accounts.some((entry) => !validateLabel(entry.label, { accounts, exceptId: entry.id }).ok)) return invalid(`accounts.${client}`);
   }
   return null;
@@ -116,8 +140,14 @@ function withEntries(config, client, entries) {
 }
 
 /** Add an extra using its initial label as the seed of its stable id. */
-export function withAccountAdded(config, client, label, configDir) {
+export function withAccountAdded(config, client, label, configDir, options = {}) {
   const accounts = accountsOf(config, client);
+  if (typeof configDir !== 'string' || !pathOf(options.platform ?? process.platform).isAbsolute(configDir)) {
+    refuse(reason('Account folder must be absolute on this system.', 'A pasta da conta deve ser absoluta neste sistema.'));
+  }
+  if (duplicateDir([...accounts, { configDir }], client, options)) {
+    refuse(reason('Account folders must be unique within the client.', 'As pastas das contas devem ser únicas no cliente.'));
+  }
   const check = validateLabel(label, { client, accounts });
   if (!check.ok) refuse(check.reason);
   const id = newAccountId(label, accounts.map((account) => account.id));
@@ -126,16 +156,18 @@ export function withAccountAdded(config, client, label, configDir) {
 
 /** Removal only changes configuration; it never deletes account files. */
 export function withAccountRemoved(config, client, id) {
-  const accounts = accountsOf(config, client);
+  requireAccount(config, client, id);
   if (id === DEFAULT_ACCOUNT_ID) refuse(reason('The default account cannot be removed.', 'A conta default não pode ser removida.'));
-  if (!accounts.some((account) => account.id === id)) refuse(reason('Unknown account.', 'Conta desconhecida.'));
   return withEntries(config, client, (config?.accounts?.[client] ?? []).filter((entry) => entry.id !== id));
 }
 
 /** Renaming the implicit default saves only its label, never a directory. */
-export function withAccountRenamed(config, client, id, label) {
+export function withAccountRenamed(config, client, id, label, options = {}) {
   const accounts = accountsOf(config, client);
-  if (!accounts.some((account) => account.id === id)) refuse(reason('Unknown account.', 'Conta desconhecida.'));
+  requireAccount(config, client, id);
+  if (duplicateDir(accounts, client, options)) {
+    refuse(reason('Account folders must be unique within the client.', 'As pastas das contas devem ser únicas no cliente.'));
+  }
   const check = validateLabel(label, { client, accounts, exceptId: id });
   if (!check.ok) refuse(check.reason);
   const entries = config?.accounts?.[client] ?? [];

@@ -40,7 +40,8 @@ test('add creates a private directory, preserves markers and reports login witho
     assert.equal(JSON.parse(result.out[0])[1].login, 'logged-in');
     assert.equal((await config()).accounts[client][0].configDir, directory);
     result = await invoke(['add', client, `${label} alias`, '--config-dir', directory], { platform: 'linux' });
-    assert.match(result.text, /logged-in/);
+    assert.equal(result.code, 2);
+    assert.match(result.text, /Account folders must be unique/);
     assert.doesNotMatch(result.text, /Login is manual/);
     assert.equal(await fs.readFile(join(directory, marker), 'utf8'), 'SECRET-D115');
     assert.deepEqual(await fs.readdir(directory), [marker]);

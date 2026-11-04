@@ -15,6 +15,12 @@ import { readJson } from '../src/state.js';
 import { makeSpawner } from '../src/spawn-process.js';
 import { statusTable } from '../src/status.js';
 import { detectClients } from '../src/env/models.js';
+import { accountsProblem, withAccountAdded, withAccountRenamed } from '../src/accounts.js';
+import { readinessRows } from '../src/doctor/ready-rows.js';
+import { formatEnvironmentReport } from '../src/env/report.js';
+import { listActors } from '../src/actors.js';
+import { configSet } from '../src/core/config.js';
+import { localizeReason } from '../src/install/present.js';
 
 const client = 'claude-code';
 const accounts = { [client]: [{ id: 'work', label: 'Work', configDir: '/work' }] };
@@ -40,6 +46,10 @@ function observation(config = { accounts }) {
 // | Quota | own file, unchanged default | unknown account, compound client |
 // | Home | native Windows profile | HOME overriding USERPROFILE |
 // | JSON | localized exit 1 | contents or parser text in either stream |
+// | Round 2 ids | configured default/work | ghost ids in slots/status/spawn/quota/CLI |
+// | Round 2 paths | distinct native absolute folders | lexical duplicates, foreign add paths |
+// | Round 2 reports | installed extra with absent default | hiding the extra |
+// | Round 2 disk | localized code on add/remove/rename/config_set | OS text or paths |
 test('slots count and cap each account independently, with unchanged default records', async (t) => {
   const root = await temporary(t);
   const config = { accounts, limits: { global: 3, clients: { [client]: 1 } } };
@@ -204,6 +214,7 @@ test('MCP account schemas and handlers share the account contract', async (t) =>
 
 test('writing process metadata preserves the account of an existing slot', async (t) => {
   const root = await temporary(t);
+  await fs.writeFile(join(root, 'config.json'), JSON.stringify({ accounts }));
   await acquireSlot(root, 'reserved', { client, account: 'work' });
   const spawn = makeSpawner({ logDir: join(root, 'runs'), cwd: root,
     spawn: () => ({ pid: 123, on() {}, unref() {} }) });
@@ -231,4 +242,178 @@ test('detectClients lists only the requested client when one is named', async ()
   assert.deepEqual(only.clients.map((row) => row.client), ['codex']);
   assert.deepEqual(calls, ['codex']);
   assert.equal((await detectClients({ adapters })).clients.length, 2);
+});
+
+test('round 2: every account input refuses a valid but unknown slug', async (t) => {
+  const root = await temporary(t);
+  const config = { accounts };
+  await fs.writeFile(join(root, 'config.json'), JSON.stringify(config));
+  for (const account of ['ghost-a', 'ghost-b']) {
+    await assert.rejects(acquireSlot(root, account, { client, account, config }), /Unknown account/);
+    await assert.rejects(canSpawn(root, { client, account, config }), /Unknown account/);
+    await assert.rejects(limitsStatus(root, config, { client, account }), /Unknown account/);
+    for (const name of ['acquire_slot', 'limits_status', 'quota_show', 'quota_set']) {
+      const args = { client, account, ...(name === 'acquire_slot' ? { runId: account } : {}),
+        ...(name === 'quota_set' ? { pct: 50 } : {}) };
+      await assert.rejects(TOOLS.find((tool) => tool.name === name).handler(args, { root, config }), /Unknown account/);
+    }
+    for (const action of ['remove', 'rename']) {
+      const output = [];
+      assert.equal(await main(['account', action, client, account, ...(action === 'rename' ? ['New'] : [])],
+        { root, env: { HOME: root }, stdout() {}, stderr: (line) => output.push(line) }), 2);
+      assert.match(output.join('\n'), /Unknown account/);
+    }
+  }
+  assert.deepEqual((await limitsStatus(root, config)).byClient, {});
+});
+
+test('round 2: unknown saved run accounts consume the bare client cap', async (t) => {
+  const root = await temporary(t);
+  const config = { accounts, limits: { clients: { [client]: 1 } } };
+  await fs.mkdir(join(root, 'runs'));
+  await fs.writeFile(join(root, 'runs/ghost.json'), JSON.stringify({ client, account: 'ghost-a', status: 'live' }));
+  assert.deepEqual((await limitsStatus(root, config)).byClient, { [client]: 1 });
+  assert.equal((await canSpawn(root, { client, config })).ok, false);
+  assert.equal((await acquireSlot(root, 'default', { client, config })).ok, false);
+  assert.equal((await canSpawn(root, { client, account: 'work', config })).ok, true);
+});
+
+test('round 2: add and saved mutations refuse normalized duplicate account folders', () => {
+  for (const [platform, directory, aliases] of [
+    ['linux', '/tmp/shared', ['/tmp/shared', '/tmp/shared/', '/tmp/a/../shared']],
+    ['win32', 'C:\\Accounts\\Work', ['c:\\accounts\\work\\', 'C:\\Accounts\\a\\..\\Work']],
+  ]) {
+    const config = { accounts: { codex: [{ id: 'one', label: 'One', configDir: directory }] } };
+    for (const alias of aliases) {
+      assert.throws(() => withAccountAdded(config, 'codex', 'Two', alias, { platform, env: {} }), /folders must be unique/);
+      assert.throws(() => withAccountAdded({}, 'codex', 'Two', alias,
+        { platform, env: { CODEX_HOME: directory } }), /folders must be unique/);
+      assert.throws(() => withAccountAdded({}, 'codex', 'Two', alias,
+        { platform, env: {}, defaultDir: directory }), /folders must be unique/);
+      assert.throws(() => withAccountRenamed(config, 'codex', 'one', 'Renamed',
+        { platform, env: {}, defaultDir: alias }), /folders must be unique/);
+      const saved = { codex: [...config.accounts.codex, { id: 'two', label: 'Two', configDir: alias }] };
+      assert.ok(accountsProblem(saved, { platform, env: {} }));
+      if (platform === process.platform) assert.throws(() => withAccountRenamed({ accounts: saved }, 'codex', 'two', 'Renamed'), /unique/);
+    }
+    assert.equal(accountsProblem(config.accounts, { platform, env: {} }), null);
+    assert.ok(accountsProblem(config.accounts, { platform, env: { CODEX_HOME: directory } }));
+  }
+});
+
+test('round 2: reading saved accounts does not mistake a collector environment for the default', () => {
+  const previous = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = '/tmp/collector-work';
+  try {
+    const saved = { codex: [{ id: 'work', label: 'Work', configDir: '/tmp/collector-work' }] };
+    assert.equal(accountsProblem(saved), null);
+    assert.ok(accountsProblem(saved, { env: process.env, platform: 'linux' }));
+  } finally {
+    if (previous === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previous;
+  }
+});
+
+test('round 2: CLI add refuses the known default folder and lexical aliases of extras', async (t) => {
+  const root = await temporary(t);
+  const directory = join(root, 'shared');
+  const config = { accounts: { codex: [{ id: 'one', label: 'One', configDir: directory }] } };
+  for (const [saved, folder] of [[{}, join(root, '.codex')], [config, `${directory}/`]]) {
+    await fs.writeFile(join(root, 'config.json'), JSON.stringify(saved));
+    const output = [];
+    assert.equal(await main(['account', 'add', 'codex', 'Two', '--config-dir', folder, '--locale', 'pt-BR'],
+      { root, env: { HOME: root }, stdout() {}, stderr: (line) => output.push(line) }), 2);
+    assert.match(output.join('\n'), /pastas das contas devem ser únicas/);
+    assert.deepEqual(await readJson(join(root, 'config.json')), saved);
+  }
+});
+
+test('round 2: new folders must be absolute on the host; saved foreign paths remain readable', async (t) => {
+  for (const [platform, pass, refuse] of [
+    ['linux', '/accounts/work', 'C:\\Accounts\\Work'],
+    ['darwin', '/accounts/work', 'C:\\Accounts\\Work'],
+    ['win32', 'C:\\Accounts\\Work', 'C:Accounts\\Work'],
+  ]) {
+    assert.doesNotThrow(() => withAccountAdded({}, 'codex', 'Work', pass, { platform, env: {} }));
+    assert.throws(() => withAccountAdded({}, 'codex', 'Work', refuse, { platform, env: {} }), /absolute on this system/);
+  }
+  assert.equal(accountsProblem({ codex: [{ id: 'work', label: 'Work', configDir: 'C:\\Accounts\\Work' }] },
+    { platform: 'linux', env: {} }), null);
+  if (process.platform === 'win32') return;
+  const root = await temporary(t);
+  const output = [];
+  const code = await main(['account', 'add', 'codex', 'W', '--config-dir', 'C:\\Accounts\\Work', '--locale', 'pt-BR'],
+    { root, env: { HOME: root }, stdout() {}, stderr: (line) => output.push(line) });
+  assert.equal(code, 2);
+  assert.match(output.join('\n'), /absoluta neste sistema/);
+  assert.equal(await readJson(join(root, 'config.json'), null), null);
+});
+
+test('round 2: doctor and every account report retain an installed extra when default is absent', async () => {
+  const config = { accounts, profiles: { [client]: {
+    simple: { model: 'm' }, normal: { model: 'm' }, hard: { model: 'm' } } } };
+  const snapshot = await environmentSnapshot({ ...observation(config), versions: { [client]: { installed: false } },
+    detectClients: async ({ env }) => ({ clients: [{ client, installed: Boolean(env.CLAUDE_CONFIG_DIR),
+      source: 'listing', models: ['m'] }] }) });
+  const doctor = readinessRows({ snapshot, ui: { locale: 'en' }, program: 'okit-plugin' });
+  assert.equal(doctor.rows.some((row) => row.id === 'clients'), false);
+  assert.ok(doctor.rows.some((row) => row.id === 'models' && row.account === 'work'));
+  assert.equal(doctor.rows.some((row) => row.account === 'default'), false);
+  assert.equal(doctor.ready, true);
+  assert.match(formatEnvironmentReport(snapshot), /claude-code: Work \(work\): installed/);
+  assert.ok((await listActors({ snapshot })).actors.some((row) => row.cells.some((cell) => String(cell).includes('Work (work)'))));
+  const status = await statusTable('', { snapshot, all: true, demands: [] });
+  assert.match(status.capacityLine, /Work \(work\)/);
+  assert.equal(readiness(snapshot).accounts[0].ready, 1);
+});
+
+test('round 2: account add localizes mkdir failures without OS text or paths', async (t) => {
+  const root = await temporary(t);
+  const blocker = join(root, 'PRIVATE_PATH');
+  await fs.writeFile(blocker, 'file');
+  const output = [];
+  const code = await main(['account', 'add', 'codex', 'Work', '--config-dir', join(blocker, 'work'), '--locale', 'pt-BR'],
+    { root, env: { HOME: root }, stdout() {}, stderr: (line) => output.push(line) });
+  assert.equal(code, 1);
+  assert.match(output.join('\n'), /Não foi possível atualizar os ajustes \(E(?:NOTDIR|EXIST)\)/);
+  assert.doesNotMatch(output.join('\n'), /PRIVATE_PATH|mkdir|not a directory|Cannot update/);
+  assert.equal(await readJson(join(root, 'config.json'), null), null);
+});
+
+test('round 2: all account mutations sanitize write and lock-directory failures', async (t) => {
+  for (const failure of ['write', 'wrapped-write', 'locks']) {
+    for (const action of ['add', 'remove', 'rename']) {
+      const root = await temporary(t);
+      await fs.writeFile(join(root, 'config.json'), JSON.stringify({ accounts }));
+      const output = [];
+      const error = Object.assign(new Error('PRIVATE_PATH: raw filesystem text'), { code: 'EACCES' });
+      const io = { root, env: { HOME: root }, stdout() {}, stderr: (line) => output.push(line),
+        ...(failure !== 'locks' ? { writeConfig: async () => {
+          throw failure === 'write' ? error : new Error('PRIVATE_PATH: wrapped filesystem text', { cause: error });
+        } }
+          : { fs: { ...fs, mkdir: async () => { throw error; } } }) };
+      const args = action === 'add' ? ['New', '--config-dir', join(root, 'new')]
+        : ['work', ...(action === 'rename' ? ['Renamed'] : [])];
+      assert.equal(await main(['account', action, client, ...args, '--locale', 'pt-BR'], io), 1);
+      assert.match(output.join('\n'), /Não foi possível atualizar os ajustes \(EACCES\)/);
+      assert.doesNotMatch(output.join('\n'), /PRIVATE_PATH|raw filesystem/);
+      assert.deepEqual((await readJson(join(root, 'config.json'))).accounts, accounts);
+    }
+  }
+});
+
+test('round 2: config_set sanitizes writer and lock-directory errors', async (t) => {
+  const root = await temporary(t);
+  const error = Object.assign(new Error('PRIVATE_PATH: raw filesystem text'), { code: 'ENOSPC' });
+  await assert.rejects(configSet(root, { key: 'language', value: 'en' }, { write: async () => { throw error; } }), (failure) => {
+    assert.equal(failure.message, 'Cannot update settings (ENOSPC).');
+    assert.equal(localizeReason(failure.message, 'pt-BR'), 'Não foi possível atualizar os ajustes (ENOSPC).');
+    return true;
+  });
+  await assert.rejects(configSet(root, { key: 'language', value: 'en' }, { write: async () => {
+    throw new Error('PRIVATE_PATH: wrapped filesystem text', { cause: error });
+  } }), /Cannot update settings \(ENOSPC\)/);
+  const blocked = await temporary(t);
+  await fs.writeFile(join(blocked, 'locks'), 'file');
+  await assert.rejects(configSet(blocked, { key: 'language', value: 'en' }), /Cannot update settings \(EEXIST\)/);
 });

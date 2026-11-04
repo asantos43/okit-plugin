@@ -3,8 +3,9 @@ import { accountsOf, withAccountAdded, withAccountRemoved, withAccountRenamed } 
 import { loginState } from './accounts-login.js';
 import { configOf } from './profiles.js';
 import { paths } from './store.js';
-import { readJson, withLock, writeJsonAtomic } from './state.js';
-import { UsageError, OperationalError, exitCodeFor } from './install/exit.js';
+import { readJson, withLock, writeJsonAtomic, settingsError } from './state.js';
+import { clientRoot, installConfig, homeOf } from './install/config.js';
+import { OperationalError, exitCodeFor } from './install/exit.js';
 import { presentAccount, accountInstructions, accountChanged } from './cli-present.js';
 import { isReadableConfig } from './setup/setup.js';
 
@@ -40,23 +41,26 @@ export async function accountCommand(ctx, action, args) {
     else rows.forEach((row) => ctx.out(presentAccount(row)));
     return exitCodeFor('ok');
   }
-  await ctx.fs.mkdir(target.locks, { recursive: true });
-  return withLock(path.join(target.locks, 'config'), async () => {
-    const raw = await load();
-    const selected = accountsOf(raw, client).find((account) => account.id === name)
-      ?? accountsOf(raw, client).find((account) => account.label === name);
-    if (action === 'rename' && !selected) throw new UsageError('Unknown account.');
-    const next = action === 'add' ? withAccountAdded(raw, client, name, directory)
-      : action === 'remove' ? withAccountRemoved(raw, client, name)
-        : withAccountRenamed(raw, client, selected.id, value);
-    if (action === 'add') await ctx.fs.mkdir(directory, { recursive: true, mode: 0o700 });
-    await (ctx.writeConfig ?? ctx.write ?? writeJsonAtomic)(target.config, next);
-    if (action === 'add') {
-      const account = accountsOf(next, client).at(-1);
-      const row = await describe(account);
-      ctx.out(presentAccount(row));
-      accountInstructions(row, ctx).forEach(ctx.out);
-    } else ctx.out(accountChanged(action, ctx.locale));
-    return exitCodeFor('ok');
-  });
+  try {
+    await ctx.fs.mkdir(target.locks, { recursive: true });
+    return await withLock(path.join(target.locks, 'config'), async () => {
+      const raw = await load();
+      const selected = accountsOf(raw, client).find((account) => account.id === name)
+        ?? accountsOf(raw, client).find((account) => account.label === name);
+      const defaultDir = clientRoot(client, { config: installConfig(raw.install), env: ctx.env,
+        home: ctx.home ?? homeOf(ctx.env, ctx.platform) ?? '' });
+      const next = action === 'add' ? withAccountAdded(raw, client, name, directory, { env: ctx.env, defaultDir })
+        : action === 'remove' ? withAccountRemoved(raw, client, name)
+          : withAccountRenamed(raw, client, selected?.id ?? name, value, { env: ctx.env, defaultDir });
+      if (action === 'add') await ctx.fs.mkdir(directory, { recursive: true, mode: 0o700 });
+      await (ctx.writeConfig ?? ctx.write ?? writeJsonAtomic)(target.config, next);
+      if (action === 'add') {
+        const account = accountsOf(next, client).at(-1);
+        const row = await describe(account);
+        ctx.out(presentAccount(row));
+        accountInstructions(row, ctx).forEach(ctx.out);
+      } else ctx.out(accountChanged(action, ctx.locale));
+      return exitCodeFor('ok');
+    });
+  } catch (error) { throw settingsError(error); }
 }

@@ -7,7 +7,7 @@ Claude Code and Codex can have multiple accounts. Each has a stable id, an edita
 <a id="manage"></a>
 ## Manage an account
 
-1. Add a folder with an absolute path, then run the printed manual login command.
+1. Add a distinct folder with a path absolute on this system, then run the printed manual login command.
 2. Register the printed Claude collector command, if applicable, and check `account list`.
 3. Rename or remove the saved entry as needed; its id stays stable when renamed.
 
@@ -29,10 +29,10 @@ For Claude Code, add prints a collector command. Register it manually as `status
 
 List shows the default first for each client; JSON contains `client`, `id`, `label`, `configDir` (null for default) and `login`. Remove accepts an id and only changes plugin configuration: the folder, login and recorded history remain. Default cannot be removed. Rename accepts an id or current label, changes only the label and preserves quota/history lookup by id.
 
-Quota, slots and model choices are per account. `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` override a stored Claude login. Check the environment before interpreting an account's allowance.
+Quota, slots and model choices are per account. Reports include installed extras even if default is absent. Folder paths must be unique within the client, including the known default folder; lexical aliases and Windows case differences count as the same folder. Disk failures report a localized message and OS code. `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` override a stored Claude login.
 
 For manual quota, call `quota_set` with `client: "claude-code"`, `account: "work"` and `pct: 80`; read it with `quota_show` using the same client and account. Use the stable id, never `claude-code:work` as the client. Omitting `account` keeps the default file `quota/claude-code.json`; the extra uses `quota/claude-code.work.json`. Unknown accounts are refused.
 
-`acquire_slot` accepts the same optional account id. The client cap applies separately to each account; `limits_status` counts them under `claude-code` and `claude-code:work`, and `live` sums all runs. Its optional `client` and `account` select one account. Each extra's models, evidence and config path are observed with its own configuration environment; the default's saved catalog cannot confirm an extra. On Windows, home discovery prefers `USERPROFILE` over `HOME`.
+`acquire_slot` accepts the same optional account id. Unknown ids are refused by slots, limits and quota; unknown ids in saved runs count under the bare client. The client cap applies separately to each account; `limits_status` counts them under `claude-code` and `claude-code:work`, and `live` sums all runs. Its optional `client` and `account` select one account. Each extra's models, evidence and config path use its own environment; the default's saved catalog cannot confirm an extra. On Windows, home discovery prefers `USERPROFILE` over `HOME`.
 
 [Guide](README.md) · [Models and quota](models-and-quota.md) · [Português](accounts.pt-BR.md)
