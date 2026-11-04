@@ -62,7 +62,7 @@ const RULE_REASONS = Object.freeze(Object.values(RULES).map(({ en, pt, example }
 
 /** Shared with the standalone installer: prefer the native Windows home. */
 function homeOf(env = process.env, platform = process.platform) {
-  return platform === 'win32' ? env.USERPROFILE ?? env.HOME : env.HOME;
+  return (platform === 'win32' ? env.USERPROFILE || env.HOME : env.HOME) || undefined;
 }
 // The quotes PowerShell reads as the delimiters of a string: the ASCII quote and the typographic ones.
 const POWERSHELL_QUOTES = /[\u0027\u2018\u2019\u201a\u201b]/g;

@@ -2,7 +2,7 @@
 // instead of trusting the client to hold the cap.
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { requireAccount, accountsOf, accountKey } from './accounts.js';
+import { requireAccount, requireBareClient, accountsOf, accountKey } from './accounts.js';
 
 import { DEFAULT_CONFIG, configOf } from './profiles.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
@@ -111,7 +111,7 @@ function checkCaps(counts, limits, client) {
  */
 export async function canSpawn(root, { client, account, config } = {}) {
   const settings = await settingsOf(root, config);
-  const key = account === undefined ? client : requireAccount(settings, client, account).key;
+  const key = account === undefined ? requireBareClient(client) : requireAccount(settings, client, account).key;
   return checkCaps(await liveCounts(root, key, settings), settings.limits, client);
 }
 /**
@@ -133,7 +133,7 @@ export async function acquireSlot(root, runId, { client, account, config, waitMs
     const result = await withLock(runsDir(root), async () => {
       const settings = await settingsOf(root, config);
       const { limits } = settings;
-      const key = account === undefined ? client : requireAccount(settings, client, account).key;
+      const key = account === undefined ? requireBareClient(client) : requireAccount(settings, client, account).key;
       const counts = await liveCounts(root, key, settings);
       const room = checkCaps(counts, limits, client);
       if (!room.ok) return room;

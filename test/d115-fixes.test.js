@@ -1278,3 +1278,22 @@ test('round 10: the snapshot lists the default without the variable and keeps it
   assert.deepEqual(seen, [{ only: undefined, folder: '/acc2' }]);
   assert.deepEqual(single.clients[0].models, ['acc2-model']);
 });
+
+test('round 13: an empty home variable names no home, and macOS folders that differ only in case are one folder', async () => {
+  const { homeOf } = await import('../src/install/present.js');
+  assert.equal(homeOf({ HOME: '' }, 'linux'), undefined);
+  assert.equal(homeOf({ HOME: '', USERPROFILE: '' }, 'win32'), undefined);
+  assert.equal(homeOf({ USERPROFILE: '', HOME: 'C:\\h' }, 'win32'), 'C:\\h');
+  assert.equal(homeOf({ HOME: '/h' }, 'linux'), '/h');
+  const config = { accounts: { codex: [{ id: 'one', label: 'One', configDir: '/Users/me/Work' }] } };
+  assert.throws(() => withAccountAdded(config, 'codex', 'Two', '/Users/me/work', { platform: 'darwin', env: {} }), /folders must be unique/);
+  assert.doesNotThrow(() => withAccountAdded(config, 'codex', 'Two', '/Users/me/work', { platform: 'linux', env: {} }));
+});
+
+test('round 13: a client name carrying an account key is refused by the slots, not counted as that account', async (t) => {
+  const root = await temporary(t);
+  const config = { accounts: { 'claude-code': [{ id: 'work', label: 'Work', configDir: '/accounts/work' }] } };
+  await assert.rejects(canSpawn(root, { client: 'claude-code:work', config }), /Unsupported account client/);
+  await assert.rejects(acquireSlot(root, 'r1', { client: 'claude-code:work', config }), /Unsupported account client/);
+  assert.equal((await acquireSlot(root, 'r2', { client: 'claude-code', account: 'work', config })).ok, true);
+});

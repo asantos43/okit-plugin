@@ -55,6 +55,12 @@ export function accountsOf(config, client) {
   }));
 }
 
+/** A client given without an account is the bare name: `client:id` is the key of an account, never a client. */
+export function requireBareClient(client) {
+  if (typeof client === 'string' && client.includes(':')) refuse(reason('Unsupported account client.', 'Cliente de conta não suportado.'));
+  return client;
+}
+
 /** Resolve an input id against saved accounts, never just its slug syntax. */
 export function requireAccount(config, client, id = DEFAULT_ACCOUNT_ID) {
   accountKey(client, id);
@@ -73,7 +79,8 @@ function duplicateDir(accounts, client, { platform = process.platform, env = pro
   const dirs = new Set();
   for (const dir of [defaultDir ?? env[CLIENT_ENV[client]], ...accounts.map((entry) => entry.configDir)]) {
     if (!dir || !pathOf(platform).isAbsolute(dir)) continue;
-    const key = normalizedDir(dir, platform);
+    // macOS volumes are case-insensitive by default: two spellings of one folder are one folder when accounts are added.
+    const key = platform === 'darwin' ? normalizedDir(dir, platform).toLowerCase() : normalizedDir(dir, platform);
     if (dirs.has(key)) return true;
     dirs.add(key);
   }

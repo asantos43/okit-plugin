@@ -3,7 +3,7 @@ Observe extra accounts with their own configuration environment, model evidence,
 Accept optional account ids in manual quota and concurrency MCP tools, refusing unknown quota accounts.
 Prefer USERPROFILE on Windows through shared home selection, including login and environment reports.
 Refuse unreadable account configuration with localized fixed text and omit JSON parser contents from state errors.
-Validate account existence through one helper for slots, limits, spawn checks, quota and CLI; count unknown saved run accounts under the bare client.
+Validate account existence through one helper for slots, limits, spawn checks, quota and CLI; count an unknown saved run account under its own `<client>:<id>` key.
 Refuse normalized duplicate account folders on add, rename and saved configuration checks, including a known default folder.
 Require new account folders to be absolute on the current system while preserving saved foreign paths.
 Show installed extra accounts in doctor readiness even when the default account is absent.
@@ -24,3 +24,4 @@ Round 9 of the accounts: a `config.json` that parses but is not a configuration 
 Round 10 of the accounts: once a client has saved accounts, the default account no longer inherits the client folder variable (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) in its runs, model listing and environment snapshot, so a client started with an extra account folder cannot spend that account as the default.
 Round 11 of the accounts: adding an account checks its folder against the default as it will be once the first account is saved (the folder the client variable names can now become an account, the install folder can no longer be added twice), and giving the default a label is refused when it would silently move the default off the client folder variable.
 Round 12 of the accounts: the standalone installers fall back to the home of the machine when `HOME` is set but empty, as they did before the accounts.
+Round 13 of the accounts: an empty `HOME` or `USERPROFILE` names no home anywhere, folders that differ only in case are one folder when accounts are added on macOS, a client name carrying an account key (`claude-code:work`) is refused by the slots, and the guide says where an unknown account of a saved run is counted.
