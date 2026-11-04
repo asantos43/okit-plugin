@@ -14,7 +14,9 @@ export function boundedClone(value, limit = MAX_DEPTH) {
   const pending = [{ value, copy: root, depth: 0 }];
   while (pending.length) {
     const { value: source, copy, depth } = pending.pop();
-    for (const [key, child] of Object.entries(source)) {
+    for (const key in source) {
+      if (!Object.hasOwn(source, key)) continue;
+      const child = source[key];
       let next = child;
       if (child !== null && typeof child === 'object') {
         next = depth + 1 > limit ? depthMarker : Array.isArray(child) ? [] : {};
@@ -31,7 +33,7 @@ function bounded(value) {
     const [item, depth] = pending.pop();
     if (item === null || typeof item !== 'object') continue;
     if (depth > MAX_DEPTH) return false;
-    for (const child of Object.values(item)) pending.push([child, depth + 1]);
+    for (const key in item) if (Object.hasOwn(item, key)) pending.push([item[key], depth + 1]);
   }
   return true;
 }
@@ -74,18 +76,26 @@ const finalFields = ['total_steps', ...usageKeys.map(key => `total_${key}`), 'ex
 const callFields = ['tool_call_id', 'function_name', 'arguments', 'extra'];
 const resultFields = ['source_call_id', 'content', 'subagent_trajectory_ref', 'extra'];
 const tokenArrays = ['prompt_token_ids', 'completion_token_ids', 'logprobs'];
-const hasOnly = (value, allowed) => object(value) && Object.keys(value).every(key => allowed.includes(key));
+const hasOnly = (value, allowed) => {
+  if (!object(value)) return false;
+  for (const key in value) if (Object.hasOwn(value, key) && !allowed.includes(key)) return false;
+  return true;
+};
 function confine(value, allowed) {
-  const entries = Object.entries(object(value) ? value : {}), strays = entries.filter(([key]) => !allowed.includes(key));
-  const kept = Object.fromEntries(entries.filter(([key]) => allowed.includes(key)));
+  const kept = {}, strays = {}; let stray = false, collision = false;
+  if (object(value)) for (const key in value) {
+    if (!Object.hasOwn(value, key)) continue;
+    if (allowed.includes(key)) ownData(kept, key, value[key]);
+    else { ownData(strays, key, value[key]); stray = true;
+      if (object(value.extra) && Object.hasOwn(value.extra, key)) collision = true; }
+  }
   if (!optional(kept.extra, object)) delete kept.extra;
-  if (strays.length) kept.extra = {
-    ...(strays.some(([key]) => Object.hasOwn(kept.extra ?? {}, key)) ? { extra: kept.extra } : kept.extra),
-    ...Object.fromEntries(strays) };
+  if (stray) kept.extra = { ...(collision ? { extra: kept.extra } : kept.extra), ...strays };
   return kept;
 }
+const usageFields = [...usageKeys, ...tokenArrays, 'extra'];
 function usageOf(value) {
-  const kept = confine(value, [...usageKeys, ...tokenArrays, 'extra']);
+  const kept = confine(value, usageFields);
   // Null/invalid usage is the only lossy repair; metadata is retained independently.
   for (const key of usageKeys) if (amount(key, kept[key]) === null) delete kept[key];
   for (const key of tokenArrays) if (!numberList(kept[key], key !== 'logprobs')) delete kept[key];
@@ -109,7 +119,8 @@ function argumentsObject(value) {
   return object(value) ? value : { input: value };
 }
 function normalizeStep(value) {
-  const input = boundedClone(object(value) ? value : { message: value });
+  // normalize already owns a depth-bounded clone of the input.
+  const input = object(value) ? value : { message: value };
   let item = { source: 'agent', message: '', ...input };
   item.metrics = usageOf(input.metrics);
   if (!['agent', 'user', 'system'].includes(item.source)) item.source = 'agent';
@@ -374,7 +385,7 @@ function validRef(value) {
     && (value.trajectory_id != null || value.trajectory_path != null);
 }
 function validUsage(value, final = false) {
-  return hasOnly(value, final ? finalFields : [...usageKeys, ...tokenArrays, 'extra']) && metadata(value)
+  return hasOnly(value, final ? finalFields : usageFields) && metadata(value)
     && usageKeys.every(key => optional(value[final ? `total_${key}` : key], key === 'cost_usd' ? real : integer))
     && (final ? optional(value.total_steps, n => integer(n) && n >= 0)
       : tokenArrays.every(key => optional(value[key], list => numberList(list, key !== 'logprobs'))));

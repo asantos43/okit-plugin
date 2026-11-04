@@ -7,6 +7,31 @@ import { boundedClone, normalize, validate, totals, ownData } from './schema.js'
 
 const prefix = 'okit-plugin-';
 const bytes = value => Buffer.byteLength(`${JSON.stringify(value, null, 2)}\n`);
+// Pretty JSON size without allocating a serialized step; cache until it changes.
+function stepBytes(value) {
+  let size = 1;
+  const pending = [[value, 0]];
+  while (pending.length) {
+    const [item, depth] = pending.pop();
+    if (item === null || typeof item !== 'object') {
+      size += Buffer.byteLength(JSON.stringify(item)); continue;
+    }
+    const array = Array.isArray(item); let count = 0;
+    size += 2;
+    for (const key in item) {
+      if (!Object.hasOwn(item, key)) continue;
+      if (item[key] === undefined) {
+        if (array) { count++; size += 2 * (depth + 1) + 4; }
+        continue;
+      }
+      count++; size += 2 * (depth + 1);
+      if (!array) size += Buffer.byteLength(JSON.stringify(key)) + 2;
+      pending.push([item[key], depth + 1]);
+    }
+    if (count) size += 2 * count + 2 * depth;
+  }
+  return size;
+}
 export const safeId = id => typeof id === 'string' && id.length <= 255
   && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) && !id.includes('..');
 export async function files(config) {
@@ -39,6 +64,11 @@ export function capped(data, config) {
   data.final_metrics ??= totals(data.steps);
   const marker = config.truncationMarker;
   const rootSteps = new Set(data.steps);
+  let stepSizes = new WeakMap();
+  const measured = item => {
+    if (!stepSizes.has(item)) stepSizes.set(item, stepBytes(item));
+    return stepSizes.get(item);
+  };
   // Include embedded children and free-form payloads, without recursive walking.
   const pending = [{ value: data, free: false }], payloads = [], runs = [];
   while (pending.length) {
@@ -63,8 +93,8 @@ export function capped(data, config) {
   confirmations = 3;
   for (const run of runs.reverse()) {
     run.final_metrics ??= totals(run.steps);
-    for (const item of [...run.steps].reverse()) {
-      const before = bytes(item);
+    for (let index = run.steps.length - 1; index >= 0; index--) {
+      const item = run.steps[index], before = measured(item);
       item.source = 'system';
       item.message = marker;
       delete item.model_name;
@@ -76,9 +106,12 @@ export function capped(data, config) {
       if (item.extra) {
         delete item.extra.failed_calls;
         delete item.extra.failed_results;
-        if (!Object.keys(item.extra).length) delete item.extra;
+        let empty = true;
+        for (const key in item.extra) if (Object.hasOwn(item.extra, key)) { empty = false; break; }
+        if (empty) delete item.extra;
       }
-      size -= before - bytes(item);
+      stepSizes.set(item, stepBytes(item));
+      size -= before - measured(item);
       if (fits()) return data;
     }
   }
@@ -96,8 +129,9 @@ export function capped(data, config) {
   if (size <= limit) return data;
   // Each removed step is measured once; confirm the file once after all removals.
   // Standalone pretty sizes undercount indentation, so this estimate is conservative.
+  stepSizes = new WeakMap(); // Payload replacements may have changed retained extras.
   for (const run of runs) {
-    while (run.steps.length > 1 && size > limit) size -= bytes(run.steps.pop());
+    while (run.steps.length > 1 && size > limit) size -= measured(run.steps.pop());
     run.final_metrics.total_steps = run.steps.length;
   }
   if (!data.steps.length || bytes(data) > limit) {

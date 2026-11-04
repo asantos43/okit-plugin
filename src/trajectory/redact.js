@@ -1,10 +1,10 @@
 import { DEFAULT_CONFIG } from '../profiles.js';
 const privateKeyPattern = DEFAULT_CONFIG.trajectory.redactionPatterns.at(-1);
+const privateKeyMarkers = /-----BEGIN [^-]*PRIVATE KEY-----|-----END [^-]*PRIVATE KEY-----/gi;
 // One marker scan: an unmatched BEGIN must never rescan the remaining text.
 function privateKeys(text, replacement) {
-  const markers = /-----BEGIN [^-]*PRIVATE KEY-----|-----END [^-]*PRIVATE KEY-----/gi;
   const chunks = []; let begin = -1, copied = 0;
-  for (const marker of text.matchAll(markers)) {
+  for (const marker of text.matchAll(privateKeyMarkers)) {
     if (marker[0].slice(5, 10).toUpperCase() === 'BEGIN') {
       if (begin < 0) begin = marker.index;
     } else if (begin >= 0) {

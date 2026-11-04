@@ -195,7 +195,8 @@ export function stress(seed = 114, { length = 1200000, depth = 3000, width = 500
   const pem = { ...base(), steps: [{ source: 'agent', message: '-----BEGIN PRIVATE KEY-----\n'.repeat(pemMarkers) }] };
   const captures = samples.map(([client, , transcript]) => ({ client, transcript, message: 'Start', outcome: 'Done',
     usage: { prompt_tokens: 2, completion_tokens: 1, cached_tokens: 1, cost_usd: 0.25 } }));
-  return [long, deep, counts, wide, users, repeated, proto, ...lines, hostile, pem, ...captures];
+  const emptyRows = samples.map(([client]) => ({ client, transcript: '{}\n'.repeat(readerLines) }));
+  return [long, deep, counts, wide, users, repeated, proto, ...lines, hostile, pem, ...captures, ...emptyRows];
 }
 // (a) soundness, (b) totality, (c) valid output, (d) strict identity.
 // Match whole JSON strings/numbers so digits inside strings, fractions and exponents do not count.

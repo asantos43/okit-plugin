@@ -12,8 +12,60 @@ import { codexFixture } from './helpers/trajectory-samples.js';
 import { fuzz, diff, conservation, conservationCases } from '../scripts/check-atif.mjs';
 import { redact } from '../src/trajectory/redact.js';
 import { settings } from '../src/trajectory/config.js';
+import { records } from '../src/trajectory/read.js';
 const context = { session_id: 'atif', model: 'example-model' };
+// | Review 14 | Must pass | Must refuse / skip |
+// | decoding | leading BOM, CRLF, Unicode message text | BOM stripping inside chunks |
+// | cost | sub-MiB empty rows in <2s, 8x rows in <12x time | empty-object steps |
+test('review 14: JSONL skips empty rows before parsing and parses content rows once', () => {
+  const parse = JSON.parse; let calls = 0;
+  try {
+    JSON.parse = (...args) => { calls++; return parse(...args); };
+    assert.deepEqual(records('{}\n[]\n0\nnull\n""\n\n{"content":"x"}\n{"content":"y"}'),
+      [{ content: 'x' }, { content: 'y' }]);
+    assert.equal(calls, 2);
+  } finally { JSON.parse = parse; }
+});
+for (const [client, reader] of samples) test(`review 14: ${client} cheap JSONL stays within budget`, async t => {
+  const root = await rootOf(t);
+  const measure = async n => {
+    const input = '{}\n'.repeat(n - 1) + '{}', start = performance.now();
+    const data = normalize(reader(input, context));
+    assert.equal(await save(root, data), true);
+    const elapsed = performance.now() - start;
+    assert.equal(data.steps.length, 1); return elapsed;
+  };
+  await measure(3000);
+  const small = await measure(30000), large = await measure(240000), full = await measure(349333);
+  assert.ok(full < 2000, `${client}: ${full} ms`);
+  assert.ok(large < Math.max(small, 1) * 12, `${client}: ${small} / ${large} ms`);
+  for (const line of ['{}', '[]', '0', 'null', '""', '', '{ }']) {
+    const start = performance.now(), data = reader(Array(30000).fill(line).join('\r\n'), context);
+    assert.ok(validate(data)); assert.equal(data.steps.length, 1);
+    assert.equal(data.steps[0].message, '');
+    assert.ok(performance.now() - start < 2000);
+  }
+});
 // | Review 13 | Must pass | Must refuse / repair |
+for (const [client, reader] of samples) test(`review 14: ${client} BOM transcripts preserve messages and file capture`, async t => {
+  const root = await rootOf(t), file = join(root, 'transcript.jsonl');
+  const rowOf = message => client === 'claude-code' ? { message: { role: 'user', content: message } }
+    : client === 'codex' ? { type: 'message', role: 'user', content: message }
+      : { info: { role: 'user' }, parts: [{ type: 'text', text: message }] };
+  for (const message of ['keep me', 'keep me\u2028', 'keep me\u2029', 'keep me\ud800']) {
+    const row = rowOf(message), json = JSON.stringify(row);
+    for (const body of [json, JSON.stringify([row], null, 2), `${json}\r\n${json}\r\n`]) {
+      for (const prefix of ['\ufeff', '\ufeff\r\n\r\n']) {
+        const transcript = prefix + body, data = reader(transcript, context);
+        assert.equal(data.steps[0].message, message); assert.ok(validate(data));
+        await writeFile(file, transcript);
+        assert.equal(await capture(root, { ...context, client }, { file }), true);
+        const saved = JSON.parse(await readFile(join(root, 'trajectory', 'okit-plugin-atif.json'), 'utf8'));
+        assert.equal(saved.steps[0].message, message); assert.ok(validate(saved));
+      }
+    }
+  }
+});
 // | conservation | usage moved once; metadata kept | restored usage; discarded receipts |
 test('review 13 finding 1: orphan result does not restore folded prompt tokens', () => {
   const input = { steps: [{ source: 'agent', message: 'A', metrics: { prompt_tokens: 10 } },
@@ -907,7 +959,7 @@ test('fuzz: the seeded odd trajectories all satisfy validate()', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'atif-fuzz-')); t.after(() => rm(dir, { recursive: true, force: true }));
   const { files, failures } = await fuzz(dir, { n: 100, stressSizes: { length: 2000, depth: 120, width: 150,
     userLines: 200, readerLines: 200, timestampLength: 2000, pemMarkers: 200 } });
-  assert.deepEqual(failures, []); assert.equal(files.length, 117);
+  assert.deepEqual(failures, []); assert.equal(files.length, 120);
   for (const file of files) assert.ok(validate(JSON.parse(await readFile(file, 'utf8'))), file);
   const users = JSON.parse(await readFile(files[104], 'utf8'));
   assert.equal(users.steps.length, 200); assert.ok(users.steps.every(item => item.source === 'user'));
@@ -929,10 +981,14 @@ test('fuzz: the seeded odd trajectories all satisfy validate()', async t => {
   assert.ok(clocks.steps.every(item => item.timestamp === null && item.extra.original_timestamp.length > 2000));
   const pem = JSON.parse(await readFile(files[113], 'utf8'));
   assert.equal(pem.steps[0].message, '-----BEGIN PRIVATE KEY-----\n'.repeat(200));
-  for (const file of files.slice(114)) {
+  for (const file of files.slice(114, 117)) {
     const data = JSON.parse(await readFile(file, 'utf8'));
     assert.equal(data.final_metrics.total_steps, data.steps.length);
     assert.equal(data.final_metrics.total_prompt_tokens, 14);
+  }
+  for (const file of files.slice(117)) {
+    const data = JSON.parse(await readFile(file, 'utf8'));
+    assert.equal(data.steps.length, 1); assert.equal(data.steps[0].message, '');
   }
   assert.equal(({}).payload, undefined);
 });
