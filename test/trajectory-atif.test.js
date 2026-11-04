@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { trajectory, normalize, validate, readable, totals } from '../src/trajectory/schema.js';
@@ -11,6 +11,70 @@ import { samples } from './helpers/trajectory-samples.js';
 import { codexFixture } from './helpers/trajectory-samples.js';
 import { fuzz } from '../scripts/check-atif.mjs';
 const context = { session_id: 'atif', model: 'example-model' };
+// | Harbor corpus | Must pass | Must refuse |
+// | models | all optional fields, nulls, empty collections, multimodal, recursive children | unknown fields, bad content/ref shapes, zero-call metrics |
+const fixtureDir = new URL('./fixtures/atif-valid/', import.meta.url);
+const findings = [
+  ['metrics.extra request_id on an empty agent', { message: '', metrics: { prompt_tokens: 3, extra: { request_id: 'r' } } }],
+  ['observation refs and extra', { observation: { results: [{ subagent_trajectory_ref: [{ trajectory_path: 'child.json' }], extra: { score: 1 } }] } }],
+  ['tool-call extra timeout', { tool_calls: [{ tool_call_id: 't', function_name: 'read', arguments: {}, extra: { timeout: 30 } }] }],
+  ['float reasoning_effort', { reasoning_effort: 0.5 }],
+  ['multimodal result content', { observation: { results: [{ content: [{ type: 'image', source: { media_type: 'image/png', path: 'a.png' } }] }] } }],
+  ['copied context and zero llm_call_count', { is_copied_context: true, llm_call_count: 0 }],
+  ['token ids and logprobs', { metrics: { prompt_token_ids: [1, 2], completion_token_ids: [3], logprobs: [-0.5] } }],
+];
+for (const [index, [name, fields]] of findings.entries()) {
+  test(`review 4 finding ${index + 1}: preserves ${name}`, async t => {
+    const data = trajectory({ ...context, session_id: 'finding' }, [{ message: 'Hello' }]);
+    if (index === 0) data.steps.push({ step_id: 2, source: 'agent', timestamp: null, message: '', ...fields });
+    else Object.assign(data.steps[0], fields);
+    data.final_metrics = totals(data.steps);
+    assert.deepEqual(normalize(data), data); assert.ok(validate(data)); assert.ok(readable(data));
+    const root = await rootOf(t); await save(root, data);
+    assert.deepEqual(await exportTrajectory(root, 'finding'), data);
+  });
+}
+for (const name of await readdir(fixtureDir)) {
+  test(`Harbor fixture ${name}: identity, validation, reading and save/reload`, async t => {
+    const data = JSON.parse(await readFile(new URL(name, fixtureDir)));
+    assert.ok(validate(data)); assert.ok(readable(data)); assert.deepEqual(normalize(data), data);
+    if (!data.session_id) data.session_id = 'fixture'; // Storage requires a safe filename.
+    const root = await rootOf(t); await save(root, data);
+    const saved = JSON.parse(await readFile(join(root, 'trajectory', `okit-plugin-${data.session_id}.json`)));
+    assert.deepEqual(saved, data); assert.deepEqual(normalize(saved), saved);
+    assert.ok(validate(saved)); assert.ok(readable(saved));
+    assert.deepEqual(await exportTrajectory(root, data.session_id), data);
+    const tool = TOOLS.find(item => item.name === 'trajectory_show');
+    assert.equal(typeof JSON.parse(await tool.handler({ run: data.session_id }, { root })), 'string');
+  });
+}
+test('Harbor models: optional shapes across every accepted version and model validators', () => {
+  const fixture = findings[4][1].observation.results[0].content;
+  for (let version = 0; version <= 7; version++) {
+    const data = { schema_version: `ATIF-v1.${version}`, agent: { name: '', version: '', tool_definitions: [] },
+      steps: [{ step_id: 1, source: 'user', message: fixture, model_name: null,
+        tool_calls: null, metrics: null, observation: { results: [{}] } }] };
+    assert.ok(validate(data)); assert.ok(readable(data)); assert.deepEqual(normalize(data), data);
+  }
+  const base = trajectory(context, [{ message: 'x' }]);
+  assert.equal(validate({ ...base, schema_version: null }), false);
+  const coerced = { agent: { name: 'a', version: '1' }, steps: [{ step_id: '1', source: 'agent', message: '',
+    is_copied_context: 'yes', llm_call_count: '1', metrics: { prompt_tokens: '-2', cost_usd: '0.5', prompt_token_ids: [true, '2'] } }] };
+  assert.ok(validate(coerced)); assert.ok(readable(coerced)); assert.deepEqual(normalize(coerced), coerced);
+  for (const timestamp of ['2026-11-03', '20261103', '2026-W45-2', '2026W452', '2026-11-03 10:00:00',
+    '20261103T100000,1234567+00:60', '2026-11-03T10.5Z']) {
+    const data = structuredClone(base); data.steps[0].timestamp = timestamp;
+    assert.ok(validate(data), timestamp); assert.deepEqual(normalize(data), data);
+  }
+  for (const timestamp of ['2026-1103', '202611-03', '2026-11-03T10:0030', '2026-11-03T10+24:00', '2026-W54-1']) {
+    const data = structuredClone(base); data.steps[0].timestamp = timestamp; assert.equal(validate(data), false, timestamp);
+  }
+  for (const fields of [{ llm_call_count: 0, metrics: {} }, { llm_call_count: 0, reasoning_content: '' },
+    { is_copied_context: [] }, { observation: { results: [{ subagent_trajectory_ref: [{ session_id: 'alone' }] }] } },
+    { message: [{ type: 'text', source: { media_type: 'image/png', path: 'x' } }] }]) {
+    const data = structuredClone(base); Object.assign(data.steps[0], fields); assert.equal(validate(data), false);
+  }
+});
 // | Corpus | Must pass | Must refuse |
 // | writer | agent fields, string messages/results, object arguments, extra, local result IDs | rules 1–6 violations |
 // | reader | old and new v1.0–v1.7 | unknown versions |
@@ -29,7 +93,7 @@ for (const [client, reader, fixture] of samples) {
     const user = { step_id: data.steps.length + 1, timestamp: null, source: 'user', message: 'Hello' };
     data.steps.push(user); data.final_metrics = totals(data.steps);
     for (const key of ['model_name', 'reasoning_effort', 'reasoning_content', 'tool_calls', 'metrics']) {
-      const bad = structuredClone(data); bad.steps.at(-1)[key] = key === 'tool_calls' ? [] : null;
+      const bad = structuredClone(data); bad.steps.at(-1)[key] = key === 'tool_calls' ? [] : key === 'metrics' ? {} : 'agent-only';
       assert.equal(validate(bad), false, key);
     }
     assert.ok(validate(data));
@@ -149,7 +213,7 @@ test('case 2: Codex missing call IDs become unique strings without binding null 
       { tool_call_id: `call-${data.steps.length + 1}-1`, function_name: 'read', arguments: {} }] }] });
   const ids = collision.steps.flatMap(item => item.tool_calls ?? []).map(call => call.tool_call_id);
   assert.equal(new Set(ids).size, ids.length); assert.ok(validate(collision));
-  for (const id of [null, '', 7]) {
+  for (const id of [null, 7]) {
     const bad = structuredClone(data); bad.steps.find(item => item.tool_calls).tool_calls[0].tool_call_id = id;
     assert.equal(validate(bad), false);
   }
@@ -177,7 +241,7 @@ test('case 3: legacy capped export preserves stored totals of 30 with retained u
   delete data.final_metrics.total_cached_tokens;
   await writeFile(join(root, 'trajectory', 'okit-plugin-atif.json'), JSON.stringify(data));
   const filled = await exportTrajectory(root, 'atif');
-  assert.equal(filled.final_metrics.total_cached_tokens, null);
+  assert.equal(filled.final_metrics.total_cached_tokens, undefined);
   assert.equal(filled.final_metrics.total_prompt_tokens, 30);
 });
 test('case 4: capped failed tools leave no dangling failure IDs', async t => {
@@ -206,11 +270,11 @@ test('case 5: orphan failure indices distinguish failed and successful null resu
   assert.match(outputs[0], /^Failed tool/); assert.match(outputs[1], /^Result/);
   for (const failed_calls of [[null], ['missing'], [7], 'bad']) {
     const bad = structuredClone(data); bad.steps[0].extra.failed_calls = failed_calls;
-    assert.equal(validate(bad), false);
+    assert.equal(validate(bad), true, 'extra is arbitrary Harbor metadata');
   }
   for (const failed_results of [[-1], [2], [0.5], [null], 'bad']) {
     const bad = structuredClone(data); bad.steps[0].extra.failed_results = failed_results;
-    assert.equal(validate(bad), false);
+    assert.equal(validate(bad), true, 'extra is arbitrary Harbor metadata');
   }
   const malformed = structuredClone(data); malformed.steps[0].observation.results[0] = null;
   assert.equal(validate(malformed), false);
@@ -249,10 +313,10 @@ test('old saved files remain listed and shown by trajectory_show', async t => {
   assert.equal(exported.steps.length, 1); assertLocalResults(exported);
   assert.deepEqual(exported.steps[0].extra.failed_calls, ['call-1']);
 });
-test('reader accepts v1.0 through v1.7, writer emits only v1.4', () => {
+test('reader and normalizer preserve v1.0 through v1.7, new trajectories use v1.4', () => {
   for (let version = 0; version <= 7; version++) {
     const data = trajectory(context, [{ message: 'Hello' }]); data.schema_version = `ATIF-v1.${version}`;
-    assert.ok(readable(data)); assert.equal(normalize(data).schema_version, 'ATIF-v1.4');
+    assert.ok(readable(data)); assert.equal(normalize(data).schema_version, data.schema_version);
     data.steps = [oldSteps[1]]; data.final_metrics = totals(data.steps); assert.ok(readable(data));
   }
   assert.equal(readable({ ...trajectory(context), schema_version: 'ATIF-v1.8' }), false);
@@ -271,7 +335,7 @@ test('capture additions and save guard write strict files with unchanged usage',
 // Review 3: the whole Harbor schema, not only Steps. Each test fails on the previous commit.
 test('finding 1: non-ISO timestamps become null and keep their text in extra', async t => {
   const root = await rootOf(t);
-  for (const text of ['November 3, 2026', '2026-11-03', '2026-02-30T10:00:00Z', '2026-11-03T24:00:00Z']) {
+  for (const text of ['November 3, 2026', '2026-02-30T10:00:00Z', '2026-11-03T24:00:00Z']) {
     const data = trajectory(context, [{ message: 'Hello', timestamp: text }]);
     assert.equal(data.steps[0].timestamp, null); assert.equal(data.steps[0].extra.original_timestamp, text);
     assert.ok(validate(data)); assert.deepEqual(normalize(data), data);
@@ -289,7 +353,7 @@ test('finding 2: token counters must be non-negative integers, cost may be fract
   assert.deepEqual(data.steps[0].metrics, { cost_usd: 0.25 }); assert.deepEqual(data.steps[1].metrics, { prompt_tokens: 4 });
   assert.equal(data.final_metrics.total_prompt_tokens, 4); assert.equal(data.final_metrics.total_cost_usd, 0.25);
   assert.equal(data.final_metrics.total_completion_tokens, null); assert.ok(validate(data));
-  for (const [key, value] of [['prompt_tokens', 1.5], ['cached_tokens', -1], ['completion_tokens', '2']]) {
+  for (const [key, value] of [['prompt_tokens', 1.5], ['cached_tokens', []], ['completion_tokens', 'bad']]) {
     const bad = structuredClone(data); bad.steps[1].metrics[key] = value; assert.equal(validate(bad), false, key);
   }
   const bad = structuredClone(data); bad.final_metrics.total_prompt_tokens = 6.5; assert.equal(validate(bad), false);
@@ -298,7 +362,7 @@ test('finding 2: token counters must be non-negative integers, cost may be fract
 test('finding 3: agent.version is always a string', () => {
   assert.equal(trajectory({ session_id: 'x' }).agent.version, 'unknown');
   const data = trajectory(context);
-  for (const [version, expected] of [[null, 'unknown'], [undefined, 'unknown'], ['', 'unknown'], [{}, 'unknown'], [7, '7'], ['1.2', '1.2']]) {
+  for (const [version, expected] of [[null, 'unknown'], [undefined, 'unknown'], ['', ''], [{}, 'unknown'], [7, '7'], ['1.2', '1.2']]) {
     const fixed = normalize({ ...data, agent: { ...data.agent, version } }); assert.equal(fixed.agent.version, expected);
   }
   assert.equal(validate({ ...data, agent: { ...data.agent, version: null } }), false);
@@ -331,9 +395,9 @@ test('finding 5: totals stored in a capped file survive normalize and save', asy
   assert.equal(saved.final_metrics.total_prompt_tokens, 30);
   const stale = trajectory(context, [{ message: 'Used', metrics: { prompt_tokens: 5 } }]);
   stale.final_metrics.total_prompt_tokens = 2;
-  assert.equal(normalize(stale).final_metrics.total_prompt_tokens, 5);
+  assert.deepEqual(normalize(stale), stale, 'Harbor accepts independently recorded totals');
 });
-test('finding 6: total_steps always equals the number of steps', async t => {
+test('finding 6: repaired legacy steps update total_steps; Harbor-valid totals remain literal', async t => {
   const root = await rootOf(t); await mkdir(join(root, 'trajectory'));
   const legacy = trajectory({ ...context, session_id: 'old-two' });
   legacy.steps = [oldSteps[2], { ...oldSteps[0], step_id: 2 }]; legacy.final_metrics = totals(legacy.steps);
@@ -342,7 +406,7 @@ test('finding 6: total_steps always equals the number of steps', async t => {
   const exported = await exportTrajectory(root, 'old-two');
   assert.equal(exported.steps.length, 1); assert.equal(exported.final_metrics.total_steps, 1); assert.ok(validate(exported));
   const data = trajectory(context, [{ message: 'A' }, { message: 'B' }]);
-  data.final_metrics.total_steps = 9; assert.equal(normalize(data).final_metrics.total_steps, 2);
+  data.final_metrics.total_steps = 9; assert.deepEqual(normalize(data), data);
 });
 test('duplicate call IDs are renamed with their results', () => {
   const data = trajectory(context, [{ tool_calls: [{ tool_call_id: 'same', function_name: 'read', arguments: {} }],

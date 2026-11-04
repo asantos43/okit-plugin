@@ -44,8 +44,8 @@ export async function prune(root) {
 }
 export async function show(root, id) {
   const data = await exportTrajectory(root, id), missing = 'not available / não disponível';
-  const lines = [`${data.agent.extra.role === 'critic' ? 'Reviewer / Crítico' : 'Helper / Ajudante'}: ${data.agent.model_name ?? missing}`, 
-    `Effort / Esforço: ${data.agent.extra.effort ?? missing}`,
+  const lines = [`${data.agent.extra?.role === 'critic' ? 'Reviewer / Crítico' : 'Helper / Ajudante'}: ${data.agent.model_name ?? missing}`,
+    `Effort / Esforço: ${data.agent.extra?.effort ?? missing}`,
     `Stopped at step / Parou no passo: ${data.steps.at(-1)?.step_id ?? missing}`];
   for (const item of data.steps) {
     lines.push(`${item.step_id}. ${item.source}: ${item.message || missing}`);
@@ -53,8 +53,8 @@ export async function show(root, id) {
     for (const call of item.tool_calls ?? []) lines.push(`Tool / Ferramenta: ${call.function_name} ${JSON.stringify(call.arguments)}`);
     for (const [index, result] of (item.observation?.results ?? []).entries()) {
       const call = data.steps.flatMap(step => step.tool_calls ?? []).find(call => call.tool_call_id === result.source_call_id);
-      const failed = (result.source_call_id !== null && item.extra?.failed_calls?.includes(result.source_call_id))
-        || item.extra?.failed_results?.includes(index) || result.content?.is_error;
+      const failed = (result.source_call_id != null && Array.isArray(item.extra?.failed_calls) && item.extra.failed_calls.includes(result.source_call_id))
+        || (Array.isArray(item.extra?.failed_results) && item.extra.failed_results.includes(index)) || result.content?.is_error;
       lines.push(`${failed ? 'Failed tool / Ferramenta que falhou' : 'Result / Resultado'}: ${call?.function_name ?? missing}: ${JSON.stringify(result.content)}`);
     }
     lines.push(`Tokens in / entrada: ${item.metrics?.prompt_tokens ?? missing}; out / saída: ${item.metrics?.completion_tokens ?? missing}; cached / em cache: ${item.metrics?.cached_tokens ?? missing}`);

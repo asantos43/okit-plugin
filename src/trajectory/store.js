@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { readJson, writeJsonAtomic, withLock } from '../state.js';
 import { settings } from './config.js';
 import { redact } from './redact.js';
-import { normalize, validate } from './schema.js';
+import { normalize, validate, totals } from './schema.js';
 
 const prefix = 'okit-plugin-';
 const bytes = value => Buffer.byteLength(`${JSON.stringify(value, null, 2)}\n`);
@@ -26,6 +26,7 @@ export async function pruneFiles(config, now = Date.now()) {
 export function capped(data, config) {
   const limit = Math.min(config.maxFileBytes, config.maxBytes);
   if (bytes(data) <= limit) return data;
+  data.final_metrics ??= totals(data.steps);
   const marker = config.truncationMarker;
   for (const item of [...data.steps].reverse()) {
     item.source = 'system';

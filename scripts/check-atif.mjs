@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { samples } from '../test/helpers/trajectory-samples.js';
 import { capture } from '../src/trajectory/capture.js';
 import { trajectory, normalize, validate } from '../src/trajectory/schema.js';
@@ -32,15 +33,18 @@ function generator(seed) {
   const messages = ['', 'Hello', 'Olá, ação ✓ 日本語', null, undefined, 5, { text: 'json' }, ['a'], true];
   const ids = ['a', 'b', 'c', 'call-1', 'call-2-1', null, undefined, '', '  ', 7];
   const args = [{ path: 'a' }, '{"x":1}', 'plain', null, undefined, [], 7, '[]', {}];
-  const contents = ['ok', '', null, undefined, 5, { output: 'oops', is_error: true }, { is_error: false }, ['a'], true];
+  const contents = ['ok', '', null, undefined, 5, { output: 'oops', is_error: true }, { is_error: false }, ['a'], true,
+    [{ type: 'image', source: { media_type: 'image/png', path: 'https://example.test/a.png' } }]];
   const extras = [undefined, { note: 'kept' }, { nested: { a: [1, 2] } }, null, 'text', [1], 5, { original_timestamp: 'kept' },
     { failed_calls: ['a'] }, { failed_calls: 'bad' }, { failed_results: [0] }, { failed_results: [99] }, { failed_calls: [null, 7, 'b'] }];
   const call = () => ({ ...(chance(0.9) ? { tool_call_id: pick(ids) } : {}), function_name: pick(['read', 'write', '', 7, null, undefined]),
-    arguments: pick(args), ...stray() });
-  const result = () => ({ source_call_id: pick(ids), content: pick(contents), ...stray() });
+    arguments: pick(args), ...(chance(0.4) ? { extra: { timeout: 30 } } : {}), ...stray() });
+  const result = () => ({ source_call_id: pick(ids), content: pick(contents),
+    ...(chance(0.4) ? { subagent_trajectory_ref: [{ trajectory_path: 'child.json' }], extra: { score: 1 } } : {}), ...stray() });
   const metrics = () => chance(0.15) ? pick([null, 'text', [], 5]) : { ...(chance(0.8) ? { prompt_tokens: pick(counts) } : {}),
     ...(chance(0.8) ? { completion_tokens: pick(counts) } : {}), ...(chance(0.6) ? { cached_tokens: pick(counts) } : {}),
-    ...(chance(0.6) ? { cost_usd: pick([...costs, 0.5]) } : {}), ...(chance(0.2) ? { extra: pick([{ n: 1 }, 'bad', null]) } : {}), ...stray() };
+    ...(chance(0.6) ? { cost_usd: pick([...costs, 0.5]) } : {}), ...(chance(0.2) ? { extra: pick([{ n: 1 }, 'bad', null]) } : {}),
+    ...(chance(0.4) ? { prompt_token_ids: [1, 2], completion_token_ids: [3], logprobs: [-0.5] } : {}), ...stray() };
   const step = () => ({ ...(chance(0.8) ? { source: pick(['agent', 'agent', 'user', 'system', 'odd', null, 7]) } : {}),
     ...(chance(0.8) ? { timestamp: pick(stamps) } : {}), ...(chance(0.9) ? { message: chance(0.03) ? huge : pick(messages) } : {}),
     ...(chance(0.4) ? { tool_calls: chance(0.1) ? pick(['odd', {}, null]) : many(3, call) } : {}),
@@ -77,11 +81,12 @@ function generator(seed) {
     } };
 }
 
-const kinds = ['steps', 'raw', 'capped', 'legacy', 'capture'];
+const kinds = ['steps', 'raw', 'capped', 'legacy', 'capture', 'valid'];
 // Pushes N odd trajectories through trajectory → normalize → save (old files through exportTrajectory) and writes them to `dir`.
 export async function fuzz(dir, { n = 200, seed = 114 } = {}) {
   const out = resolve(dir), root = await mkdtemp(join(tmpdir(), 'fuzz-atif-')), staging = join(root, 'legacy');
   const random = generator(seed), files = [], failures = [];
+  const maximal = JSON.parse(await readFile(new URL('../test/fixtures/atif-valid/maximal-v1.7.json', import.meta.url)));
   await mkdir(out, { recursive: true }); await mkdir(staging);
   const configure = (extra = {}) => writeFile(join(root, 'config.json'),
     JSON.stringify({ trajectory: { enabled: true, dir: out, maxBytes: 1000000000, ...extra } }));
@@ -90,11 +95,18 @@ export async function fuzz(dir, { n = 200, seed = 114 } = {}) {
       const kind = kinds[index % kinds.length], id = `fuzz-${seed}-${index}`, file = join(out, `okit-plugin-${id}.json`);
       try {
         await configure();
-        if (kind === 'steps') {
+        if (kind === 'valid') {
+          const input = { ...structuredClone(maximal), session_id: id, schema_version: `ATIF-v1.${Math.floor(index / kinds.length) % 8}` };
+          if (!validate(input) || !isDeepStrictEqual(normalize(input), input)) throw new Error('valid input was changed');
+          await save(root, input);
+          if (!isDeepStrictEqual(JSON.parse(await readFile(file, 'utf8')), input)) throw new Error('save changed valid input');
+        } else if (kind === 'steps') {
           await save(root, trajectory({ session_id: id, version: random.pick(random.versions), model: random.pick([undefined, 'm', 7]),
             client: 'codex', effort: 'high', role: random.pick(['executor', 'critic']) }, random.many(8, () => random.step())));
         } else if (kind === 'raw') {
-          await save(root, normalize(random.envelope(id)));
+          const input = random.envelope(id), normalized = normalize(input);
+          if (validate(input) && !isDeepStrictEqual(normalized, input)) throw new Error('valid raw input was changed');
+          await save(root, normalized);
         } else if (kind === 'capped') {
           const data = normalize({ ...random.envelope(id), steps: [{ message: 'filler '.repeat(500), metrics: { prompt_tokens: 5 } }, ...random.steps()] });
           data.final_metrics.total_prompt_tokens = 30;
@@ -104,8 +116,11 @@ export async function fuzz(dir, { n = 200, seed = 114 } = {}) {
           await save(root, JSON.parse(await readFile(file, 'utf8')));
         } else if (kind === 'legacy') {
           await configure({ dir: staging });
-          await writeFile(join(staging, `okit-plugin-${id}.json`), JSON.stringify(random.legacy(id)));
-          await writeFile(file, `${JSON.stringify(await exportTrajectory(root, id), null, 2)}\n`);
+          const input = random.legacy(id);
+          await writeFile(join(staging, `okit-plugin-${id}.json`), JSON.stringify(input));
+          const exported = await exportTrajectory(root, id);
+          if (validate(input) && !isDeepStrictEqual(exported, input)) throw new Error('export changed valid legacy input');
+          await writeFile(file, `${JSON.stringify(exported, null, 2)}\n`);
         } else {
           const [client, , transcript] = random.pick(samples);
           const ok = await capture(root, { session_id: id, client, model: 'example-model', effort: 'high' }, { transcript,

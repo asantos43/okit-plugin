@@ -18,7 +18,7 @@ export function trajectory(context = {}, steps = []) {
       extra: { role: context.role ?? 'executor', client: context.client ?? null,
         effort: context.effort ?? null, demand: context.demand ?? null, step: context.step ?? null,
         ...(context.role === 'critic' ? { critic_of: context.critic_of ?? null } : {}) } },
-    steps: steps.map((value, index) => step({ ...value, model_name: value.model_name ?? context.model ?? null, step_id: index + 1 })) });
+    steps: steps.map((value, index) => step({ ...value, model_name: value.model_name ?? context.model ?? null, step_id: index + 1 })) }, true);
 }
 export function totals(steps) {
   const result = { total_steps: steps.length };
@@ -30,14 +30,15 @@ export function totals(steps) {
   return result;
 }
 const agentFields = ['model_name', 'reasoning_effort', 'reasoning_content', 'tool_calls', 'metrics'];
-const stepFields = ['step_id', 'timestamp', 'source', 'message', 'extra', 'observation', ...agentFields];
+const stepFields = ['step_id', 'timestamp', 'source', 'message', 'extra', 'observation', 'is_copied_context', 'llm_call_count', ...agentFields];
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 // Harbor forbids unknown fields in each of these objects; the ones that have `extra` keep strays there.
-const topFields = ['schema_version', 'session_id', 'agent', 'steps', 'notes', 'final_metrics', 'extra'];
-const agentKeys = ['name', 'version', 'model_name', 'extra'];
+const topFields = ['schema_version', 'session_id', 'trajectory_id', 'agent', 'steps', 'notes', 'final_metrics', 'extra', 'continued_trajectory_ref', 'subagent_trajectories'];
+const agentKeys = ['name', 'version', 'model_name', 'tool_definitions', 'extra'];
 const finalFields = ['total_steps', ...usageKeys.map(key => `total_${key}`), 'extra'];
-const callFields = ['tool_call_id', 'function_name', 'arguments'];
-const resultFields = ['source_call_id', 'content'];
+const callFields = ['tool_call_id', 'function_name', 'arguments', 'extra'];
+const resultFields = ['source_call_id', 'content', 'subagent_trajectory_ref', 'extra'];
+const tokenArrays = ['prompt_token_ids', 'completion_token_ids', 'logprobs'];
 const hasOnly = (value, allowed) => object(value) && Object.keys(value).every(key => allowed.includes(key));
 function confine(value, allowed) {
   const entries = Object.entries(object(value) ? value : {}), strays = entries.filter(([key]) => !allowed.includes(key));
@@ -47,8 +48,9 @@ function confine(value, allowed) {
   return kept;
 }
 function usageOf(value) {
-  const kept = confine(value, [...usageKeys, 'extra']);
+  const kept = confine(value, [...usageKeys, ...tokenArrays, 'extra']);
   for (const key of usageKeys) if (Object.hasOwn(kept, key) && amount(key, kept[key]) === null) delete kept[key];
+  for (const key of tokenArrays) if (kept[key] != null && !numberList(kept[key], key !== 'logprobs')) delete kept[key];
   return kept;
 }
 // Harbor wants ISO 8601: a real calendar date and clock time, with an optional offset.
@@ -74,27 +76,33 @@ function normalizeStep(value) {
   item.metrics = usageOf(input.metrics);
   if (!['agent', 'user', 'system'].includes(item.source)) item.source = 'agent';
   if (!object(item.extra)) delete item.extra;
-  if (!isoTime(item.timestamp)) {
+  if (!harborTime(item.timestamp) && item.timestamp != null) {
     if (typeof item.timestamp === 'string' && item.timestamp) item.extra = { ...item.extra, original_timestamp: item.timestamp };
     item.timestamp = null;
   }
-  for (const key of ['model_name', 'reasoning_effort']) {
-    if (item[key] != null && typeof item[key] !== 'string') delete item[key];
-  }
+  if (item.model_name != null && typeof item.model_name !== 'string') delete item.model_name;
+  if (item.reasoning_effort != null && typeof item.reasoning_effort !== 'string' && !finite(item.reasoning_effort)) delete item.reasoning_effort;
+  if (item.is_copied_context != null && typeof item.is_copied_context !== 'boolean') delete item.is_copied_context;
+  if (item.llm_call_count != null && (!Number.isInteger(item.llm_call_count) || item.llm_call_count < 0)) delete item.llm_call_count;
+  if (item.llm_call_count === 0 && (Object.keys(item.metrics).length || item.reasoning_content != null)) delete item.llm_call_count;
   if (typeof item.reasoning_content !== 'string') delete item.reasoning_content;
-  item.message = item.message == null ? '' : typeof item.message === 'string' ? item.message : JSON.stringify(item.message);
+  item.message = item.message == null ? '' : content(item.message) ? item.message : JSON.stringify(item.message);
   for (const key of Object.keys(item).filter(key => !stepFields.includes(key))) {
     item.extra = { ...item.extra, [key]: item[key] }; delete item[key];
   }
   item.tool_calls = (Array.isArray(item.tool_calls) ? item.tool_calls : []).map(call => ({
+    ...(object(call?.extra) ? { extra: call.extra } : {}),
     tool_call_id: call?.tool_call_id, function_name: String(call?.function_name ?? 'unknown'),
     arguments: argumentsObject(call?.arguments) }));
   const results = Array.isArray(item.observation?.results) ? item.observation.results : [];
-  item.observation = { results: results.map(result => ({ source_call_id: result?.source_call_id ?? null, content: result?.content })) };
+  item.observation = { results: results.map(result => ({
+    ...(object(result?.extra) ? { extra: result.extra } : {}),
+    ...(Array.isArray(result?.subagent_trajectory_ref) ? { subagent_trajectory_ref: result.subagent_trajectory_ref.filter(validRef) } : {}),
+    source_call_id: result?.source_call_id ?? null, content: result?.content })) };
   for (const [index, result] of item.observation.results.entries()) {
     if (result.content?.is_error) item.extra = { ...item.extra,
       failed_results: [...new Set([...(Array.isArray(item.extra?.failed_results) ? item.extra.failed_results : []), index])] };
-    if (typeof result.content !== 'string') result.content = JSON.stringify(result.content ?? null);
+    if (result.content !== null && !content(result.content)) result.content = JSON.stringify(result.content ?? null);
   }
   return item;
 }
@@ -156,9 +164,11 @@ function finalMetrics(steps, stored) {
   }
   return kept.extra ? { ...result, extra: kept.extra } : result;
 }
-export function normalize(data = {}) {
+export function normalize(data = {}, producer = false) {
+  // Harbor-valid input is already canonical for storage; never rewrite its optional fields.
+  if (!producer && validate(data)) return structuredClone(data);
   const steps = [], result = confine(data, topFields);
-  result.schema_version = SCHEMA_VERSION;
+  result.schema_version = /^ATIF-v1\.[0-7]$/.test(data?.schema_version) ? data.schema_version : SCHEMA_VERSION;
   result.agent = confine(result.agent, agentKeys);
   if (typeof result.agent.version === 'number') result.agent.version = String(result.agent.version);
   if (typeof result.agent.version !== 'string' || !result.agent.version) result.agent.version = 'unknown';
@@ -171,9 +181,11 @@ export function normalize(data = {}) {
     const previous = steps.findLast(candidate => candidate.source === 'agent');
     const empty = !item.message && !item.tool_calls.length && !item.observation?.results?.length && !item.reasoning_content;
     const keepExtra = Object.keys(item.extra ?? {}).some(key => !['failed_calls', 'failed_results'].includes(key));
-    if ((item.source !== 'agent' || empty) && Object.keys(usage).length) {
+    if (item.source !== 'agent' && Object.keys(usage).length) {
       if (previous) {
-        for (const [key, n] of Object.entries(usage)) previous.metrics = { ...previous.metrics, [key]: (previous.metrics?.[key] ?? 0) + n };
+        for (const [key, n] of Object.entries(usage)) previous.metrics = { ...previous.metrics,
+          [key]: tokenArrays.includes(key) ? [...(previous.metrics?.[key] ?? []), ...n] : (previous.metrics?.[key] ?? 0) + n };
+        if (usageExtra) previous.metrics = { ...previous.metrics, extra: { ...previous.metrics?.extra, ...usageExtra } };
         usage = {}; usageExtra = undefined;
       }
       else item.source = 'agent';
@@ -197,43 +209,100 @@ export function normalize(data = {}) {
   if (!validate(result)) throw new Error('Invalid saved run / Execução salva inválida');
   return result;
 }
+const finite = value => typeof value === 'number' && Number.isFinite(value);
+// Pydantic's non-strict numeric/bool fields also accept JSON booleans and numeric strings.
+const integer = value => typeof value === 'boolean' || Number.isInteger(value)
+  || (text(value) && /^[+-]?\d+(?:\.0+)?$/.test(value.trim()));
+const real = value => typeof value === 'number' || typeof value === 'boolean'
+  || (text(value) && /^[+-]?(?:(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|inf(?:inity)?|nan)$/i.test(value.trim()));
+const boolean = value => typeof value === 'boolean' || value === 0 || value === 1
+  || (text(value) && /^(?:0|1|off|on|f|t|false|true|n|y|no|yes)$/i.test(value));
+const numberList = (value, integers = false) => Array.isArray(value)
+  && value.every(integers ? integer : real);
+const optional = (value, check) => value == null || check(value);
+const text = value => typeof value === 'string';
+const metadata = value => optional(value.extra, object);
+function content(value) {
+  return text(value) || (Array.isArray(value) && value.every(part => hasOnly(part, ['type', 'text', 'source'])
+    && (part.type === 'text' ? text(part.text) && part.source == null
+      : part.type === 'image' && part.text == null && hasOnly(part.source, ['media_type', 'path'])
+        && ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(part.source.media_type) && text(part.source.path))));
+}
+function validRef(value) {
+  return hasOnly(value, ['trajectory_id', 'session_id', 'trajectory_path', 'extra']) && metadata(value)
+    && ['trajectory_id', 'session_id', 'trajectory_path'].every(key => optional(value[key], text))
+    && (value.trajectory_id != null || value.trajectory_path != null);
+}
+function validUsage(value, final = false) {
+  return hasOnly(value, final ? finalFields : [...usageKeys, ...tokenArrays, 'extra']) && metadata(value)
+    && usageKeys.every(key => optional(value[final ? `total_${key}` : key], key === 'cost_usd' ? real : integer))
+    && (final ? optional(value.total_steps, n => integer(n) && Number(n) >= 0)
+      : tokenArrays.every(key => optional(value[key], list => numberList(list, key !== 'logprobs'))));
+}
+function validStep(item, index) {
+  return hasOnly(item, stepFields) && integer(item.step_id) && Number(item.step_id) === index + 1 && metadata(item)
+    && ['agent', 'user', 'system'].includes(item.source) && content(item.message)
+    && optional(item.timestamp, harborTime) && optional(item.model_name, text)
+    && optional(item.reasoning_effort, v => text(v) || real(v)) && optional(item.reasoning_content, text)
+    && optional(item.is_copied_context, boolean)
+    && optional(item.llm_call_count, n => integer(n) && Number(n) >= 0)
+    && (item.source === 'agent' || agentFields.every(key => item[key] == null))
+    && (item.source !== 'agent' || item.llm_call_count == null || Number(item.llm_call_count) !== 0
+      || (item.metrics == null && item.reasoning_content == null))
+    && optional(item.metrics, validUsage)
+    && optional(item.tool_calls, calls => Array.isArray(calls) && calls.every(call => hasOnly(call, callFields)
+      && text(call.tool_call_id) && text(call.function_name) && object(call.arguments) && metadata(call)))
+    && optional(item.observation, obs => hasOnly(obs, ['results']) && Array.isArray(obs.results)
+      && obs.results.every(result => hasOnly(result, resultFields) && metadata(result)
+        && optional(result.content, content) && optional(result.source_call_id, text)
+        && (result.source_call_id == null || item.tool_calls?.some(call => call.tool_call_id === result.source_call_id))
+        && optional(result.subagent_trajectory_ref, refs => Array.isArray(refs) && refs.every(validRef))));
+}
 export function validate(data) {
-  if (data?.schema_version !== SCHEMA_VERSION || !Array.isArray(data.steps) || !data.steps.length || !data.steps.every(object)) return false;
-  const ids = data.steps.flatMap(item => item.tool_calls ?? []).map(call => call?.tool_call_id);
-  return validEnvelope(data) && hasOnly(data, topFields) && new Set(ids).size === ids.length
-    && (data.notes === undefined || typeof data.notes === 'string') && (data.extra === undefined || object(data.extra))
-    && hasOnly(data.agent, agentKeys) && typeof data.agent.name === 'string' && !!data.agent.name
-    && typeof data.agent.version === 'string'
-    && (data.agent.model_name === null || typeof data.agent.model_name === 'string')
-    && hasOnly(data.final_metrics, finalFields) && (data.final_metrics.extra === undefined || object(data.final_metrics.extra))
-    && usageKeys.every(key => data.final_metrics[`total_${key}`] === null || amount(key, data.final_metrics[`total_${key}`]) !== null)
-    && data.steps.every((item, index) => item.step_id === index + 1
-    && ['agent', 'user', 'system'].includes(item.source)
-    && typeof item.message === 'string' && Object.keys(item).every(key => stepFields.includes(key))
-    && (item.timestamp === null || isoTime(item.timestamp))
-    && (item.extra === undefined || object(item.extra))
-    && ['model_name', 'reasoning_effort'].every(key => item[key] == null || typeof item[key] === 'string')
-    && (item.source === 'agent' || ![...agentFields, 'observation'].some(key => Object.hasOwn(item, key)))
-    && (!Object.hasOwn(item, 'metrics') || (object(item.metrics) && Object.keys(item.metrics).length > 0
-      && Object.entries(item.metrics).every(([key, value]) => key === 'extra' ? object(value)
-        : usageKeys.includes(key) && amount(key, value) !== null)))
-    && (!Object.hasOwn(item, 'tool_calls') || (Array.isArray(item.tool_calls) && item.tool_calls.length > 0
-      && item.tool_calls.every(call => hasOnly(call, callFields) && typeof call.function_name === 'string'
-        && object(call.arguments) && typeof call.tool_call_id === 'string' && !!call.tool_call_id.trim())))
-    && (!Object.hasOwn(item.extra ?? {}, 'failed_calls') || (Array.isArray(item.extra.failed_calls)
-      && item.extra.failed_calls.every(id => typeof id === 'string' && !!id.trim()
-        && item.tool_calls?.some(call => call.tool_call_id === id))))
-    && (!Object.hasOwn(item.extra ?? {}, 'failed_results') || (Array.isArray(item.extra.failed_results)
-      && item.extra.failed_results.every(index => Number.isInteger(index) && index >= 0
-        && index < (item.observation?.results?.length ?? 0) && item.observation.results[index]?.source_call_id === null)))
-    && (!Object.hasOwn(item, 'reasoning_content') || (typeof item.reasoning_content === 'string' && !!item.reasoning_content))
-    && (!Object.hasOwn(item, 'observation') || (hasOnly(item.observation, ['results']) && item.observation.results?.length > 0
-      && Array.isArray(item.observation.results) && item.observation.results.every(result => hasOnly(result, resultFields) && typeof result.content === 'string'
-        && (result.source_call_id === null || item.tool_calls?.some(call => call.tool_call_id === result.source_call_id))))));
+  if (!hasOnly(data, topFields) || !/^ATIF-v1\.[0-7]$/.test(data.schema_version === undefined ? 'ATIF-v1.7' : data.schema_version)
+    || !metadata(data) || !['session_id', 'trajectory_id', 'notes', 'continued_trajectory_ref'].every(key => optional(data[key], text))
+    || !hasOnly(data.agent, agentKeys) || !text(data.agent.name) || !text(data.agent.version) || !metadata(data.agent)
+    || !optional(data.agent.model_name, text)
+    || !optional(data.agent.tool_definitions, defs => Array.isArray(defs) && defs.every(object))
+    || !Array.isArray(data.steps) || !data.steps.length || !data.steps.every(validStep)
+    || !optional(data.final_metrics, value => validUsage(value, true))) return false;
+  if (data.subagent_trajectories == null) return true;
+  if (!Array.isArray(data.subagent_trajectories)) return false;
+  const ids = new Set();
+  return data.subagent_trajectories.every(child => validate(child) && child.trajectory_id != null
+    && !ids.has(child.trajectory_id) && !!ids.add(child.trajectory_id));
+}
+// datetime.fromisoformat accepts calendar/basic/week dates and fractional clocks/offsets.
+function harborTime(value) {
+  if (!text(value)) return false;
+  const week = /^(\d{4})(-?)W(\d{2})(?:\2([1-7]))?/.exec(value);
+  if (week) {
+    const [, year, , number, day = '1'] = week;
+    if (+number < 1 || +number > 53 || +year < 1) return false;
+    const jan = new Date(0); jan.setUTCFullYear(+year, 0, 4);
+    jan.setUTCDate(jan.getUTCDate() - (jan.getUTCDay() || 7) + 1 + (+number - 1) * 7);
+    const thursday = new Date(jan); thursday.setUTCDate(jan.getUTCDate() + 3);
+    if (thursday.getUTCFullYear() !== +year) return false;
+    jan.setUTCDate(jan.getUTCDate() + +day - 1);
+    return harborTime(jan.toISOString().slice(0, 10) + value.slice(week[0].length));
+  }
+  const date = /^(\d{4})(-?)(\d{2})\2(\d{2})/.exec(value);
+  if (!date || !isoTime(`${date[1]}-${date[3]}-${date[4]}T00:00:00`)) return false;
+  const rest = value.slice(date[0].length);
+  if (!rest) return true;
+  const clock = Array.from(rest).slice(1).join('');
+  const parts = /^(.*?)(Z|[+-].*)?$/.exec(clock);
+  const readClock = input => /^(\d{2})(?:(:?)(\d{2})(?:\2(\d{2}))?)?(?:[.,](\d+))?$/.exec(input);
+  const time = readClock(parts[1]);
+  if (!time || +time[1] > 23 || +(time[3] ?? 0) > 59 || +(time[4] ?? 0) > 59) return false;
+  if (!parts[2] || parts[2] === 'Z') return true;
+  const offset = readClock(parts[2].slice(1));
+  return !!offset && +offset[1] * 3600 + +(offset[3] ?? 0) * 60 + +(offset[4] ?? 0)
+    + Number(`0.${offset[5] ?? 0}`) < 86400;
 }
 export function readable(data) {
-  return /^ATIF-v1\.[0-7]$/.test(data?.schema_version)
-    && (validate({ ...data, schema_version: SCHEMA_VERSION }) || validateLegacy({ ...data,
+  return validate(data) || (/^ATIF-v1\.[0-7]$/.test(data?.schema_version)
+    && validateLegacy({ ...data,
       final_metrics: { ...totals(Array.isArray(data.steps) ? data.steps : []), ...data.final_metrics } }));
 }
 function validEnvelope(data) {

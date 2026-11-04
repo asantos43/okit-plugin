@@ -170,12 +170,11 @@ test('show and export through the core and the MCP retain step details and expla
   await assert.rejects(exportTrajectory(root, '../config'));
   await assert.rejects(exportTrajectory(root, 'absent'));
 });
-test('schema accepts null unknowns and refuses invalid version, roles and token values', () => {
+test('schema accepts arbitrary agent metadata and refuses invalid versions and fractional tokens', () => {
   const valid = trajectory({ session_id: 'empty' });
   assert.equal(validate(valid), true);
   for (const mutate of [data => { data.schema_version = 'unknown'; },
-    data => { delete data.agent.extra.role; }, data => { delete data.agent.extra.effort; },
-    data => { data.steps[0].metrics.prompt_tokens = -1; }]) {
+    data => { data.steps[0].metrics.prompt_tokens = 1.5; }]) {
     const data = claude(claudeFixture, context); mutate(data); assert.equal(validate(data), false);
   }
 });
@@ -199,15 +198,15 @@ test('validate refuses bad step numbers and save normalizes them', async t => {
     assert.equal(validate(await exportTrajectory(root, context.session_id)), true);
   }
 });
-test('a critic must carry the critic_of key even when the reference is unknown', async t => {
+test('producer adds critic_of while Harbor readers permit omitted agent metadata', async t => {
   const root = await rootOf(t, {});
   const data = claude(claudeFixture, { ...context, role: 'critic' });
   assert.equal(data.agent.extra.critic_of, null);
   assert.equal(validate(data), true);
   delete data.agent.extra.critic_of;
-  assert.equal(validate(data), false);
-  await assert.rejects(save(root, data), /^Error: Invalid saved run \/ Execução salva inválida$/);
-  assert.deepEqual(await readdir(root), ['config.json']);
+  assert.equal(validate(data), true);
+  assert.equal(await save(root, data), true);
+  assert.deepEqual(await exportTrajectory(root, data.session_id), data);
 });
 test('Codex command results distinguish failure from success by exit code', () => {
   for (const [exit_code, failed] of [[1, true], [0, false]]) {
