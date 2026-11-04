@@ -8,6 +8,7 @@ import { collectorArgsValid } from '../quota/statusline-collector.js';
 import { cliScript, hookScript, hookNode, isAnotherNode, isOurHook } from './register.js';
 import { mcpPlan, quotedWord, shown } from './mcp-register.js';
 import { clientRoot } from './config.js';
+import { depsFor, hasAccounts, registeredTargets, viewOf } from './account-scope.js';
 import { presenterOf, clientLabel, powershellLiteral, redact, controlReason } from './present.js';
 import { extraText } from './texts.js';
 import { installationOf, isEphemeral, missingFile, programWords } from './where.js';
@@ -32,9 +33,10 @@ const EXTRA_LABELS = { payload: 'selfcheckPayload' };
  */
 export function checkLabel(check, ui) {
   const extra = EXTRA_LABELS[check.id];
-  if (extra) return extraText(extra, ui.locale);
   const key = LABELS[check.id];
-  return key ? ui.text(key) : String(check.id);
+  const label = extra ? extraText(extra, ui.locale) : key ? ui.text(key) : String(check.id);
+  // A check of one account of several says whose it is.
+  return check.account ? `${label} [${check.account}]` : label;
 }
 
 const QUOTE = {
@@ -613,6 +615,24 @@ async function guarded(id, deps, record, step) {
 }
 
 /**
+ * The accounts whose registration the checks read back (D116): null (the single-account path, unchanged) unless the
+ * record holds a registration of an extra account or the default one was taken out. The first registered account is the
+ * main one; the others are told in rows of their own, so a record with several accounts shows one set per account.
+ *
+ * @param {object} record the installation record
+ * @param {object} deps the dependencies (`accountsConfig` is the person's configuration)
+ * @returns {{main: object, others: object[]}|null}
+ */
+export function accountPlan(record, deps) {
+  if (!deps.accountsConfig || !hasAccounts(record.client)) return null;
+  if (!Object.keys(record.accounts ?? {}).length && record.defaultRegistered !== false) return null;
+  const [first, ...rest] = registeredTargets(record, deps.accountsConfig, deps);
+  if (!first) return null;
+  const part = (target) => ({ label: target.label, record: viewOf(record, target), deps: depsFor(deps, target) });
+  return { main: part(first), others: rest.map(part) };
+}
+
+/**
  * The checks of one installed client, in order.
  *
  * @param {object} record the installation record (as written)
@@ -624,11 +644,24 @@ export async function selfCheck(record, expected, deps) {
   const applies = record.client === deps.statuslineConfig.client;
   const ui = presenterOf(deps);
   deps = { ...deps, ui };
+  const plan = accountPlan(record, deps);
+  const main = plan?.main ?? { record, deps };
+  /** The status bar and hook checks, in the folder of every registered account (one set when there is one account). */
+  const accountChecks = async () => {
+    const all = [main, ...(plan?.others ?? [])];
+    const several = all.length > 1;
+    const rows = [];
+    for (const part of all) {
+      const checks = await guarded('statusline', part.deps, part.record, () => runWritten(part.record, part.deps));
+      rows.push(...(several ? checks.map((check) => ({ ...check, account: part.label })) : checks));
+    }
+    return rows;
+  };
   const results = [
     ...await guarded('payload', deps, record, () => payloadCheck(record, deps)),
     ...await guarded('version', deps, record, () => versionCheck(record, expected, deps)),
     ...await guarded('command', deps, record, () => commandChecks(record, deps)),
-    ...(applies ? await guarded('statusline', deps, record, () => runWritten(record, deps))
+    ...(applies ? await accountChecks()
       : ['statusline', 'hook', 'collector'].map((id) => skipCheck(id, ui.text('selfcheckNotUsed'), { quiet: true }))),
     ...await guarded('mcp', deps, record, () => mcpChecks(record, deps)),
     ...await guarded('path', deps, record, () => pathCheck(record, deps)),

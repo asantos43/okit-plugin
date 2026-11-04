@@ -5,6 +5,8 @@ import { UsageError } from './install/exit.js';
 
 export const DEFAULT_ACCOUNT_ID = 'default';
 const CLIENT_ENV = { 'claude-code': 'CLAUDE_CONFIG_DIR', codex: 'CODEX_HOME' };
+/** The clients that have accounts. */
+export const ACCOUNT_CLIENTS = Object.freeze(Object.keys(CLIENT_ENV));
 const ID = /^[a-z0-9-]{1,32}$/;
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const reason = (en, pt) => ({ en, 'pt-BR': pt });

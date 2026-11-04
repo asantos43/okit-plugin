@@ -313,6 +313,12 @@ export const RECORD_FIELDS = Object.freeze({
   destination: someText, at: someText, sha256: someText, linkDirectory: optional(textOrNull),
   link: optional(nullable(flag)), autostart: optional(nullable(flag)), wasRunning: optional(nullable(flag)), prerelease: optional(nullable(flag)),
   statusline: optional(nullable(record({ path: text({ empty: true }), backup: text({ empty: true }), existed: optional(flag) }))),
+  // D116: the registrations of the extra accounts, by account id; and whether the default account is registered
+  // (absent: it is, as every record before accounts).
+  accounts: optional(nullable(table(record({
+    statusline: optional(nullable(record({ path: text({ empty: true }), backup: text({ empty: true }), existed: optional(flag) }))),
+  })))),
+  defaultRegistered: optional(nullable(flag)),
   settings: optional(nullable(record({ node: someText }))),
 });
 /** `managed-path.json`: the profile blocks added to the person's shell files and the entry added to the Windows PATH. */

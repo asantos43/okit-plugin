@@ -11,8 +11,8 @@ import { flagsOf } from './flags.js';
 import { chooseClient } from './menu.js';
 import { latestRelease } from './release.js';
 import { downloadRelease } from './download.js';
-import { discoverRecords, payloadComplete, place, readRecords, readRecordsLenient } from './place.js';
-import { registrationPlan, mcpNotes } from './register.js';
+import { discoverRecords, payloadComplete, place, readRecords, readRecordsLenient, saveRecord } from './place.js';
+import { registrationPlan, mcpNotes, register } from './register.js';
 import { mcpPlan, ensureMcp, shown } from './mcp-register.js';
 import { activate, backup, rollback } from './update.js';
 import { uninstall } from './uninstall.js';
@@ -24,6 +24,8 @@ import { offerSetup } from '../setup/offer.js';
 import { initializeDetectedConfig, setupReader, formatUnreadable, formatNotSaved } from '../setup/setup.js';
 import { adapterQuotaReader } from '../env/quota.js';
 import { registerStatusline, appliesStatusline } from './statusline.js';
+import { accountIds, depsFor, hasExtras, header, involvesAccounts, markRegistered, pruneAccounts, registeredTargets, requestedAccount, targetOf } from './account-scope.js';
+import { accountsOf } from '../accounts.js';
 import { verifyInstall } from './selfcheck.js';
 import { executionPolicyStep } from './policy.js';
 import { commandText } from './command-token.js';
@@ -99,6 +101,11 @@ export async function installerCommand(command, args, ctx, io = {}) {
     ui = createPresenter({ locale: chosen.locale, write: ctx.out, hide });
     if (chosen.invalid) throw new LanguageError('Choose a language: en, pt-BR.');
     const flags = flagsOf(command, args);
+    // An account is named with its client; an update moves every registered account, so it names none.
+    if (flags.account !== undefined) {
+      if (command === 'update') throw new UsageError('An update moves every registered account; run it without --account.');
+      if (!flags.client || flags.client === 'all') throw new UsageError('Name the client of the account with --client.');
+    }
     ui = io.ui ?? createPresenter({ locale: chosen.locale, verbose: Boolean(flags.verbose), write: ctx.out,
       unicode: supportsUnicode({ tty: io.outTty ?? Boolean(process.stdout.isTTY), env: ctx.env, platform: ctx.platform }), hide });
     const config = installConfig(user?.install, flags.dest ? { destination: flags.dest } : {});
@@ -110,6 +117,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
       fetch: io.fetch ?? globalThis.fetch, tty: io.tty ?? Boolean(process.stdin.isTTY),
       read: io.read ?? readerOf(hide), dryRun: Boolean(flags['dry-run']),
       writeJsonAtomic: io.fs ? undefined : writeJsonAtomic };
+    deps.accountsConfig = user;
     deps.pathSetup = true;
     deps.noPath = Boolean(flags['no-path']);
     deps.bin = await chooseLinkDirectory(deps);
@@ -241,9 +249,29 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
       if (command !== 'install') deps.config = installConfig({ ...current.settings, command: config.command, ...user?.install });
       deps.clientRoot = io.clientRoot ?? clientRoot(current.client, deps);
     }
+    // Accounts (D116): the payload is shared, the registration is made in the folder of each account. Without an account
+    // in play none of this runs and the single-account path is exactly what it always was.
+    const requested = requestedAccount(flags, user, flags.client);
+    let target = null;
+    if (involvesAccounts(current, user, flags.client, requested)) {
+      deps.injectedRoot = io.clientRoot;
+      target = targetOf(deps, user, requested ?? accountsOf(user, flags.client)[0]);
+      deps.registered = registeredTargets(current, user, deps);
+      deps.accountRoots = deps.registered.map(({ root }) => root);
+      Object.assign(deps, depsFor(deps, target));
+    }
+    if (!requested && hasExtras(user, flags.client)) {
+      deps.accountNote = ui.text('accountsListed', { client: label, accounts: accountIds(user, flags.client) });
+    }
+    /** The dependencies of one registered account (the run's own when no account is in play). */
+    const scoped = (account) => (account ? depsFor(deps, account) : deps);
     if (command === 'uninstall') {
       if (!current) throw new UsageError('No installation record found');
       if (flags.purge && !flags.yes) throw new UsageError('--purge requires --yes');
+      // The other registrations come first: --purge cannot take the payload while an account still uses it, whichever account is named.
+      const standing = target ? deps.registered.filter(({ id }) => id !== target.id) : [];
+      if (flags.purge && standing.length && !deps.dryRun) throw new UsageError(ui.text('purgeAccounts', { accounts: standing.map(({ id }) => id).join(', ') }));
+      if (target && !deps.registered.some(({ id }) => id === target.id)) throw new UsageError('That account is not registered.');
       started = !deps.dryRun;
       return await uninstall(current, flags, deps);
     }
@@ -251,11 +279,34 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
       if (!current?.previous) throw new UsageError('No previous version retained');
       if (current.previous.client !== current.client) throw new UsageError('Previous version belongs to another client');
       started = !deps.dryRun;
-      return await rollback(current, deps);
+      return await rollback(current, deps, target ? deps.registered.map((account) => ({ deps: scoped(account), action: 'update' })) : null);
     }
     if (command === 'update' && !current) throw new UsageError('No installation record found');
     const client = flags.client;
-    deps.clientRoot = io.clientRoot ?? clientRoot(client, deps);
+    deps.clientRoot = target?.root ?? io.clientRoot ?? clientRoot(client, deps);
+    // The accounts this run registers: an install acts on the one it names (and follows the payload in the others); an
+    // update moves every registered account.
+    const registered = deps.registered ?? [];
+    const named = command !== 'update' && target && !registered.some(({ id }) => id === target.id);
+    const moving = !target ? [] : command === 'update' ? registered : [...registered.filter(({ id }) => id !== target.id), target];
+    // Where the MCP entry and the status bar are looked after: the named account, or every registered one on an update.
+    const acting = !target ? [null] : command === 'update' ? registered : [target];
+    /** Registers the payload where the named account has not been yet, and notes it in the record. */
+    const registerNamed = async (record) => {
+      const done = await register(record, scoped(target), 'install');
+      markRegistered(record, target);
+      await saveRecord(deps.destination, pruneAccounts(record, [...registered, target]), deps);
+      return done;
+    };
+    /** The status bar in the settings of each acting account; the row of the step tells the first result. */
+    const statusbar = async (record) => {
+      let first = null;
+      for (const account of acting) {
+        const result = await registerStatusline(record, flags, scoped(account));
+        if (!first) first = result;
+      }
+      return first;
+    };
     const pkg = io.pkg ?? JSON.parse(await fs.readFile(join(packageDirectory, 'package.json'), 'utf8'));
     const release = { ...DEFAULT_CONFIG.release, ...user.release,
       publish: { ...DEFAULT_CONFIG.release.publish, ...user.release?.publish },
@@ -272,23 +323,33 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
         prerelease: Boolean(flags.prerelease || current?.prerelease), fetch: deps.fetch });
     deps.stage(null);
     const quota = appliesStatusline({ client }, flags, deps);
-    ui.header(headerValues(deps, selected.version, client));
+    header(ui, deps, headerValues(deps, selected.version, client));
     // An installation whose payload is not whole (the server of the MCP server was deleted) is not the installation
     // of that version: it is written again, so the fix the doctor advertises really repairs.
     const whole = current && await payloadComplete(current, deps.config, deps.fs);
     if (current?.version === selected.version && current.client === client && whole) {
       // The same steps in a dry run as in the run itself: the command link is planned, not skipped.
       const link = !flags.check && Boolean(current.link);
-      const next = ui.sequence(planSteps({ upToDate: true, quota, link }), { client: label });
+      const next = ui.sequence(planSteps({ upToDate: true, quota, link, register: Boolean(named) && !flags.check }), { client: label });
       ui.row(ui.text('upToDate'), 'ok', selected.version);
+      // An account that is not registered yet gets the payload that is already here registered in its folder.
+      if (named && deps.dryRun) {
+        registrationPlan(current, deps, 'install').forEach((item) => ui.detail([item.command, ...item.args].join(' ')));
+        next('register').plan();
+      } else if (named && !flags.check) {
+        deps.stage('register');
+        finish(next('register'), await registerNamed(current));
+      }
       // The MCP entry of this installation is read again: an installation whose first add failed is fixed by this one.
       if (deps.dryRun) mcpPlan(current, deps, 'install')?.steps.forEach((words) => ui.detail(shown(words, deps.platform)));
-      else if (!flags.check) {
-        const mcp = await ensureMcp(current, deps);
-        for (const note of mcpNotes(mcp, deps, 'install')) ui.note(note);
+      else if (!flags.check && !named) {
+        for (const account of acting) {
+          const mcp = await ensureMcp(current, scoped(account));
+          for (const note of mcpNotes(mcp, deps, 'install')) ui.note(note);
+        }
       }
       deps.stage('quota');
-      const recorded = await registerStatusline(current, flags, deps);
+      const recorded = await statusbar(current);
       if (recorded) finish(next('quota'), recorded);
       deps.stage('link');
       if (link && deps.dryRun) finishLink(ui, next('link'), null, { dryRun: true, command: deps.config.command, bin: deps.bin });
@@ -298,7 +359,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
     }
     if (flags.check) {
       const next = ui.sequence(quota ? ['quota'] : [], { client: label });
-      const recorded = await registerStatusline(current, flags, deps);
+      const recorded = await statusbar(current);
       ui.row(ui.text('newVersion'), 'info', selected.version);
       if (recorded) finish(next('quota'), recorded);
       return exitCodeFor('ok');
@@ -325,7 +386,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
       next('files').plan(planned.path);
       next('register').plan();
       finishLink(ui, next('link'), null, { dryRun: !flags['no-link'], command: deps.config.command, bin: deps.bin });
-      const recorded = await registerStatusline(current ?? planned, flags, deps);
+      const recorded = await statusbar(current ?? planned);
       if (recorded) finish(next('quota'), recorded);
       if (refreshing) next('smoke').plan();
       return exitCodeFor('ok');
@@ -346,15 +407,24 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
       const { record } = await place(selected, downloaded, { client, system, arch, repo, bin,
         link: deps.sharedLink || (!flags['no-link'] && (current?.link ?? true)), linkDirectory: deps.bin,
         autostart: Boolean(flags.autostart || current?.autostart || deps.sharedAutostart), wasRunning,
-        prerelease: Boolean(flags.prerelease), settings: deps.config }, deps);
+        prerelease: Boolean(flags.prerelease), settings: deps.config,
+        // A first install for an extra account leaves the default account unregistered.
+        ...(target && !target.isDefault && !current ? { defaultRegistered: false } : {}) }, deps);
       next('files').ok(record.path);
-      const done = await activate(record, current, deps, refreshing ? 'update' : 'install', deps.stage);
+      const action = refreshing ? 'update' : 'install';
+      const done = await activate(record, current, deps, action, deps.stage,
+        target ? moving.map((account) => ({ deps: scoped(account), action })) : null);
       finish(next('register'), done.registered);
       finishLink(ui, next('link'), done.linked);
       deps.hints.push(done.linked?.hint ?? null);
       if (current?.statusline) record.statusline = current.statusline;
+      if (target) {
+        // The payload is shared: the record notes which accounts hold a registration of it.
+        if (moving.some(({ id }) => id === target.id)) markRegistered(record, target);
+        await saveRecord(deps.destination, pruneAccounts(record, moving), deps);
+      }
       deps.stage('quota');
-      const recorded = await registerStatusline(record, flags, deps);
+      const recorded = await statusbar(record);
       if (recorded) finish(next('quota'), recorded);
       if (refreshing) {
         deps.stage('smoke');

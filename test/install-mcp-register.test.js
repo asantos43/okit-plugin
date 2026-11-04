@@ -1525,7 +1525,9 @@ test('no place joins the argv of an MCP command by hand: every printed MCP comma
     });
   }
   // The allow-list holds these lines and no other: a new place has to be added here on purpose.
-  assert.equal(joined.length, 6, joined.join(' / '));
+  // 7: the sixth is the dry-run plan of the registration of an account that joins a payload already installed
+  // (`registrationPlan(current, ...)` in index.js), a registration command of the client like the others.
+  assert.equal(joined.length, 7, joined.join(' / '));
 });
 
 test('the uninstall with the client missing warns with the command quoted for the shell', async (t) => {

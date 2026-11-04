@@ -1,10 +1,11 @@
 import { UsageError } from './exit.js';
 import { resolvedRecord } from './where.js';
-import { readRecords, removeRecord } from './place.js';
+import { readRecords, removeRecord, saveRecord } from './place.js';
 import { register, registrationPlan } from './register.js';
 import { mcpPlan, shown } from './mcp-register.js';
 import { applyLink } from './link.js';
-import { undoStatusline } from './statusline.js';
+import { statuslineOf, undoStatusline } from './statusline.js';
+import { header, markUnregistered } from './account-scope.js';
 import { presenterOf, headerValues, clientLabel, finish } from './present.js';
 
 export async function uninstall(record, flags, deps) {
@@ -14,10 +15,16 @@ export async function uninstall(record, flags, deps) {
   const remaining = Object.values(records).filter((item) => item.client !== record.client)
     .map((item) => resolvedRecord(item, deps.destination));
   if (flags.purge && remaining.length && !deps.dryRun) throw new UsageError('--purge requires no remaining clients');
+  // The account being removed, and the registrations that stay: while any stays, the payload and the record stay too.
+  const scope = deps.accountScope;
+  const others = scope ? (deps.registered ?? []).filter(({ id }) => id !== scope.id) : [];
+  if (flags.purge && others.length && !deps.dryRun) throw new UsageError('--purge requires no remaining accounts');
   const ui = presenterOf(deps);
-  const next = ui.sequence([...(record.statusline ? ['quotaUndo'] : []), 'unregister', ...(record.link ? ['unlink'] : []), 'remove'],
-    { client: clientLabel(record.client) });
-  ui.header(headerValues(deps, record.version, record.client));
+  const bar = statuslineOf(record, deps);
+  const next = ui.sequence(others.length ? [...(bar ? ['quotaUndo'] : []), 'unregister', 'remove']
+    : [...(bar ? ['quotaUndo'] : []), 'unregister', ...(record.link ? ['unlink'] : []), 'remove'],
+  { client: clientLabel(record.client) });
+  header(ui, deps, headerValues(deps, record.version, record.client));
   // A real run prints each command as it runs it (register); only a dry run shows the plan.
   if (deps.dryRun) {
     registrationPlan(record, deps, 'uninstall').forEach((item) => ui.detail([item.command, ...item.args].join(' ')));
@@ -26,6 +33,18 @@ export async function uninstall(record, flags, deps) {
   deps.stage?.('quotaUndo');
   const quota = await undoStatusline(record, deps);
   if (quota) finish(next('quotaUndo'), quota);
+  if (others.length) {
+    const kept = ui.text('accountsKept', { path: record.path, accounts: others.map(({ id }) => id).join(', ') });
+    if (deps.dryRun) { next('unregister').plan(); next('remove').plan(kept); return 0; }
+    deps.stage?.('unregister');
+    finish(next('unregister'), await register(record, deps, 'uninstall'));
+    // Only this account's registration goes out of the record; the payload, the link and the other accounts stay.
+    markUnregistered(record, scope);
+    if (scope.isDefault) delete record.statusline;
+    await saveRecord(deps.destination, record, deps);
+    next('remove').ok(kept);
+    return 0;
+  }
   const removed = ui.text(flags.purge ? 'removePurge' : 'removeKeep', { path: record.path });
   if (deps.dryRun) {
     next('unregister').plan();

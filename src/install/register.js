@@ -87,7 +87,8 @@ export async function register(record, deps, action = 'install') {
   if (action === 'uninstall') notes.push(...await mcpStep(record, deps, action));
   for (const command of commands) {
     ui.detail([command.command, ...command.args].join(' '));
-    await deps.run(command);
+    // An account other than the one the environment names runs the client's program with its own folder variable.
+    await deps.run(deps.cliEnv ? { ...command, env: deps.cliEnv } : command);
   }
   // The MCP entry is written after the client's own registration, which succeeded.
   if (action !== 'uninstall' && settings.strategy !== 'module') notes.push(...await mcpStep(record, deps, action));
