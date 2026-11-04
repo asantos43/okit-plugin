@@ -8,7 +8,16 @@ export function accountRows(rows = []) {
 
 export const accountName = (row) => row.accountLabel ? `${row.client}: ${row.accountLabel}` : row.client;
 
+/** The warnings of a row: every one for an account of a list, only the folder warning for a lone account. */
+export const shownWarnings = (row) => row.account ? row.warnings ?? [] : (row.warnings ?? []).filter(({ code }) => code === 'config-dir-unregistered');
+
 export function warningText(warning, locale) {
-  return locale === 'pt-BR' ? `${warning.variable} sobrepõe o login guardado.`
-    : `${warning.variable} overrides the stored login.`;
+  const pt = locale === 'pt-BR';
+  if (warning.code === 'config-dir-unregistered') {
+    return pt ? `${warning.variable} aponta para uma pasta que não é da conta default nem de uma conta salva de ${warning.client}: nada é coletado nela. `
+      + `Cadastre essa pasta como uma conta ou remova ${warning.variable}.`
+      : `${warning.variable} names a folder that is neither the default account's nor a saved account's of ${warning.client}: nothing is collected for it. `
+      + `Register that folder as an account or unset ${warning.variable}.`;
+  }
+  return pt ? `${warning.variable} sobrepõe o login guardado.` : `${warning.variable} overrides the stored login.`;
 }

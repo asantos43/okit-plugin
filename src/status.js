@@ -6,7 +6,7 @@
 import { configOf } from './profiles.js';
 import { CLIENTS } from './spawn-process.js';
 import { environmentSnapshot } from './env/snapshot.js';
-import { accountRows, accountName, warningText } from './env/account-rows.js';
+import { accountRows, accountName, shownWarnings, warningText } from './env/account-rows.js';
 import { labelsOf, clientsOf, rowOf, readingOf } from './env/quota.js';
 export { CLIENT_ENV_MARKERS, detectClient, LABELS, labelsOf, ageOf, quotaOrigin, clientsOf, adapterQuotaReader } from './env/quota.js';
 import { projectName, withDemandRef } from './demand-ref.js';
@@ -74,7 +74,7 @@ export async function statusTable(root, deps = {}) {
   const capacity = observations.filter((row) => row.installed !== false).map((row) => labels.cap(accountName(row),
     row.slotEvidence.running, row.slots.total, labels.capSource[row.slotEvidence.source], row.slots.available)).join('; ');
   const warnings = (deps.limits?.warnings ?? config.limitWarnings).map(labels.warning);
-  warnings.push(...observations.flatMap((row) => row.account ? row.warnings.map((warning) => `${accountName(row)}: ${warningText(warning, deps.locale)}`) : []));
+  warnings.push(...observations.flatMap((row) => shownWarnings(row).map((warning) => `${accountName(row)}: ${warningText(warning, deps.locale)}`)));
   const name = deps.demands?.length === 0 ? null : await projectName(root);
   const demands = (deps.demands ?? await inboxList(root)).map((item) => withDemandRef(item, name));
   const demandTable = demands.length === 0 ? '' : `\n\n${markdownOf(

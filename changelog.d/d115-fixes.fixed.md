@@ -18,3 +18,4 @@ Double every PowerShell string delimiter (the typographic quotes too) in the pat
 Never let the status bar collector write a configuration folder that names no account into the file of another account.
 Give each configured model entry the account it belongs to, so the environment report tells the accounts apart.
 Read the login of the default account in the folder of the install options of the person, and recognize the folder of the default account in the status bar collector, so the reading of the default is never lost.
+Once a client has saved accounts, take the folder of the default account from one place everywhere (the login, the environment report, the collector and the Codex sessions), and warn `config-dir-unregistered` when the folder variable names neither the default nor a saved account.

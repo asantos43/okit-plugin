@@ -12,7 +12,7 @@ import { join, resolve } from 'node:path';
 import { collectorCommandIndex } from '../install/statusline.js';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { installConfig, installPaths, clientRoot, homeOf } from '../install/config.js';
+import { installConfig, installPaths, clientRoot, defaultFolderOf, homeOf } from '../install/config.js';
 import { binInPath } from './path.js';
 import { readRecords } from '../install/place.js';
 import { paths } from '../store.js';
@@ -190,14 +190,15 @@ export async function environmentSnapshot(deps = {}) {
   // clients: what `missing` and `configured` collect never depends on which read of a file answered first.
   const logins = new Map();
   await Promise.all(clients.flatMap((client) => accountsOfClient(client).map(async (account) => {
-    logins.set(account.key, await loginState({ ...deps, client, account, install: config.install }));
+    logins.set(account.key, await loginState({ ...deps, client, account, install: config.install, config }));
   })));
   const rows = clients.map((client) => {
     const accounts = accountsOfClient(client);
     const accountRows = accounts.map((account) => {
     const target = { client, ...account.isDefault ? {} : { account: account.id } };
     const login = logins.get(account.key);
-    const warnings = accountWarnings(client, deps.env);
+    const warnings = accountWarnings(client, deps.env, { config, platform: deps.platform,
+      home: deps.home ?? homeOf(deps.env, deps.platform) ?? homedir() });
     const reading = account.isDefault ? detected.clients.find((entry) => entry.client === client) : observations.get(account.key);
     const installed = (account.isDefault ? deps.versions?.[client]?.installed : undefined) ?? reading?.installed ?? null;
     // Saved setup choices belong to the default; extras need their own confirmed listing.
@@ -242,7 +243,9 @@ export async function environmentSnapshot(deps = {}) {
       ? accountEnv(client, account, deps.env ?? process.env) : deps.env ?? process.env,
       home: deps.home ?? homeOf(deps.env, deps.platform) ?? homedir() };
     return { ...account, account: account.id, login, warnings, client, inUse: client === inUse, installed, candidates, sizeCoverage,
-      configPath: known.includes(client) ? clientRoot(client, location) : null,
+      configPath: !known.includes(client) ? null : account.isDefault && ['claude-code', 'codex'].includes(client)
+        ? defaultFolderOf(client, { config, env: location.env, platform: deps.platform, home: location.home })
+        : clientRoot(client, location),
       evidence: { models: reading?.source ?? 'unknown', reason: reading?.reason ?? null,
         error: reading?.error ?? null },
       version: (account.isDefault ? deps.versions?.[client]?.version : reading?.version) ?? null, models,
@@ -254,9 +257,12 @@ export async function environmentSnapshot(deps = {}) {
       slotEvidence: { running: deps.limits?.byClient?.[account.key] ?? 0, source } };
     });
     const { id: _id, key: _key, label: _label, isDefault: _default, configDir: _dir, account: _account,
-      login: _login, warnings: _warnings, ...row } = accountRows[0];
-    // One account is the row as it always was; the list of accounts appears only when there are several.
-    return accountRows.length > 1 ? { ...row, accounts: accountRows } : row;
+      login: _login, warnings, ...row } = accountRows[0];
+    // One account is the row as it always was; the list of accounts appears only when there are several. The one
+    // warning a single account can need is a folder variable that names no saved account.
+    const unregistered = warnings.filter(({ code }) => code === 'config-dir-unregistered');
+    if (accountRows.length > 1) return { ...row, accounts: accountRows };
+    return unregistered.length ? { ...row, warnings: unregistered } : row;
   });
   // `record: false` takes the snapshot read-only (the doctor): the telemetry of the quota check is not written.
   if (deps.root && deps.record !== false) {

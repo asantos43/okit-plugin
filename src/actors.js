@@ -2,7 +2,7 @@
 import { configOf } from './profiles.js';
 import { ageOf, labelsOf, quotaOrigin } from './env/quota.js';
 import { environmentSnapshot } from './env/snapshot.js';
-import { accountRows, accountName, warningText } from './env/account-rows.js';
+import { accountRows, accountName, shownWarnings, warningText } from './env/account-rows.js';
 
 const fill = (text, values) => text.replace(/\{(\w+)\}/g, (_, key) => values[key]);
 const cell = (value) => String(value).replaceAll('|', '\\|').replace(/[\r\n]+/g, ' ');
@@ -38,7 +38,7 @@ export async function listActors(deps = {}) {
       }),
     }) + (['automatic', 'manual'].includes(quota.source) ? `; ${origin}` : '');
     const client = accountName(observation);
-    for (const warning of observation.account ? observation.warnings : []) notes.push(`${client}: ${warningText(warning, deps.locale)}`);
+    for (const warning of shownWarnings(observation)) notes.push(`${client}: ${warningText(warning, deps.locale)}`);
     const freeSlots = observation.slots.available;
     const pairs = new Map(observation.candidates.map((candidate) => {
       const reasons = candidate.restrictions.map((reason) => messages[reason] ?? ({

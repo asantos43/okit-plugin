@@ -4,7 +4,7 @@ import { loginState } from './accounts-login.js';
 import { configOf } from './profiles.js';
 import { paths } from './store.js';
 import { readJson, withLock, writeJsonAtomic, settingsError } from './state.js';
-import { clientRoot, installConfig, homeOf } from './install/config.js';
+import { defaultFolderOf, homeOf } from './install/config.js';
 import { OperationalError, exitCodeFor } from './install/exit.js';
 import { presentAccount, accountInstructions, accountChanged } from './cli-present.js';
 import { isReadableConfig } from './setup/setup.js';
@@ -32,12 +32,13 @@ export async function accountCommand(ctx, action, args) {
     configOf(raw);
     return raw;
   };
-  const describe = async (account, install) => ({ client: account.client, id: account.id, label: account.label,
-    configDir: account.configDir, login: await loginState({ ...ctx, client: account.client, account, install }) });
+  const describe = async (account, settings) => ({ client: account.client, id: account.id, label: account.label,
+    configDir: account.configDir,
+    login: await loginState({ ...ctx, client: account.client, account, install: settings.install, config: settings }) });
   if (action === 'list') {
     const raw = await load();
     const rows = await Promise.all((client ? [client] : CLIENTS).flatMap((id) => accountsOf(raw, id))
-      .map((account) => describe(account, raw.install)));
+      .map((account) => describe(account, raw)));
     if (json) ctx.out(JSON.stringify(rows));
     else rows.forEach((row) => ctx.out(presentAccount(row)));
     return exitCodeFor('ok');
@@ -48,7 +49,7 @@ export async function accountCommand(ctx, action, args) {
       const raw = await load();
       const selected = accountsOf(raw, client).find((account) => account.id === name)
         ?? accountsOf(raw, client).find((account) => account.label === name);
-      const defaultDir = clientRoot(client, { config: installConfig(raw.install), env: ctx.env,
+      const defaultDir = defaultFolderOf(client, { config: raw, env: ctx.env, platform: ctx.platform,
         home: ctx.home ?? homeOf(ctx.env, ctx.platform) ?? '' });
       const next = action === 'add' ? withAccountAdded(raw, client, name, directory, { env: ctx.env, defaultDir })
         : action === 'remove' ? withAccountRemoved(raw, client, name)
@@ -57,7 +58,7 @@ export async function accountCommand(ctx, action, args) {
       await (ctx.writeConfig ?? ctx.write ?? writeJsonAtomic)(target.config, next);
       if (action === 'add') {
         const account = accountsOf(next, client).at(-1);
-        const row = await describe(account, raw.install);
+        const row = await describe(account, next);
         ctx.out(presentAccount(row));
         accountInstructions(row, ctx).forEach(ctx.out);
       } else ctx.out(accountChanged(action, ctx.locale));

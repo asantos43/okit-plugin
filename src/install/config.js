@@ -85,3 +85,23 @@ export function clientDefaultRoot(client, { install, env = {}, platform = proces
   if (clientSettings.configEnv) delete clean[clientSettings.configEnv];
   return clientRoot(client, { config: settings, env: clean, home: home ?? homeOf(env, platform) ?? '' });
 }
+
+/**
+ * The folder of the default account of a client: one value everywhere.
+ *
+ * With saved accounts for the client the default is the folder the client uses with no override (the variable then
+ * names an account, the default's or an extra's, or nobody). With none the variable is honored, as the single
+ * account always did.
+ *
+ * @param {string} client the client
+ * @param {{config?: object, env?: object, platform?: string, home?: string}} deps the settings (`accounts`,
+ *   `install`), the environment, the platform and the home
+ * @returns {string|null} the folder, or null when the client has no settings
+ */
+export function defaultFolderOf(client, { config, env = {}, platform = process.platform, home } = {}) {
+  const base = home ?? homeOf(env, platform) ?? '';
+  if (Object.hasOwn(config?.accounts ?? {}, client)) return clientDefaultRoot(client, { install: config?.install, env, platform, home: base });
+  let settings;
+  try { settings = installConfig(config?.install); } catch { settings = installConfig(); }
+  return settings.clients?.[client] ? clientRoot(client, { config: settings, env, home: base }) : null;
+}

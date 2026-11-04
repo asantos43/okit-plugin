@@ -7,7 +7,7 @@ import { acquireSlot, canSpawn, limitsStatus } from '../src/limits.js';
 import { environmentSnapshot } from '../src/env/snapshot.js';
 import { readiness } from '../src/env/ready.js';
 import { quotaSet, quotaShow } from '../src/core/quota.js';
-import { loginState } from '../src/accounts-login.js';
+import { loginState, accountWarnings } from '../src/accounts-login.js';
 import { homeOf } from '../src/install/config.js';
 import { main } from '../src/cli.js';
 import { TOOLS } from '../src/mcp/tools.js';
@@ -887,4 +887,100 @@ test('round 6: the Codex sessions of the default account follow the install opti
   // The folder the person configured wins over the folder of the install options.
   const configured = { ...config, codexQuota: { sessionsDirectory: join(root, 'elsewhere/sessions') } };
   assert.equal((await readCodexSessionQuota({ config: configured, env: { HOME: root }, now: () => at }))?.remainingPct, 50);
+});
+
+// | Round 7 | Must pass | Must refuse |
+// | Saved accounts, variable names an unregistered folder | the default folder with no override, one warning | the folder of the variable |
+// | Variable names the default's own folder or an extra | no warning | a warning |
+// | No saved accounts | the variable honored, no warning, row as it was | a warning or another folder |
+
+const round7Warnings = (snapshot) => snapshot.clients[0].accounts?.[0].warnings ?? snapshot.clients[0].warnings ?? [];
+
+test('round 7: saved accounts and a variable naming an unregistered folder keep ONE folder for the default', async (t) => {
+  const root = await temporary(t);
+  const config = round6Config(root), unknown = join(root, 'unknown');
+  await fs.mkdir(join(root, 'claude-custom'), { recursive: true });
+  await fs.writeFile(join(root, 'claude-custom', '.credentials.json'), '{}');
+  const env = { HOME: root, CLAUDE_CONFIG_DIR: unknown };
+  assert.equal(await loginState({ client: 'claude-code', install: config.install, config, env, platform: 'linux', home: root }),
+    'logged-in');
+  const snapshot = await environmentSnapshot({ ...round6Deps(config, root), env });
+  const [personal] = snapshot.clients[0].accounts;
+  assert.equal(personal.configPath, join(root, 'claude-custom'));
+  assert.equal(personal.login, 'logged-in');
+  assert.deepEqual(round7Warnings(snapshot), [{ code: 'config-dir-unregistered', client: 'claude-code', variable: 'CLAUDE_CONFIG_DIR' }]);
+  for (const locale of ['en', 'pt-BR']) {
+    const doctor = readinessRows({ snapshot, ui: { locale }, program: 'okit-plugin' });
+    const row = doctor.rows.find((entry) => entry.id === 'config-dir-unregistered' && entry.account === 'default');
+    assert.ok(row, locale);
+    assert.match(row.detail, /CLAUDE_CONFIG_DIR/);
+    assert.match(row.detail, locale === 'en' ? /Register that folder as an account/ : /Cadastre essa pasta como uma conta/);
+    assert.equal(row.detail.includes(unknown), false);
+    assert.match(row.detail, locale === 'en' ? /neither the default account's nor a saved account's/ : /não é da conta default nem de uma conta salva/);
+    assert.match(formatEnvironmentReport(snapshot, locale), /CLAUDE_CONFIG_DIR/);
+  }
+});
+
+test('round 7: a variable naming the default folder or a saved extra gives no warning', async (t) => {
+  const root = await temporary(t);
+  const config = round6Config(root);
+  for (const folder of [join(root, 'claude-custom'), join(root, 'work')]) {
+    const snapshot = await environmentSnapshot({ ...round6Deps(config, root), env: { HOME: root, CLAUDE_CONFIG_DIR: folder } });
+    assert.deepEqual(round7Warnings(snapshot), [], folder);
+    assert.equal(readinessRows({ snapshot, ui: { locale: 'en' }, program: 'okit-plugin' })
+      .rows.some((row) => row.id === 'config-dir-unregistered'), false, folder);
+    assert.equal(snapshot.clients[0].accounts[0].configPath, join(root, 'claude-custom'), folder);
+  }
+});
+
+test('round 7: with no saved accounts the variable is honored and nothing is reported', async (t) => {
+  const root = await temporary(t);
+  const config = { install: round6Config(root).install, profiles: round6Config(root).profiles };
+  const unknown = join(root, 'unknown'), env = { HOME: root, CLAUDE_CONFIG_DIR: unknown };
+  await fs.mkdir(unknown, { recursive: true });
+  await fs.writeFile(join(unknown, '.credentials.json'), '{}');
+  assert.equal(await loginState({ client: 'claude-code', install: config.install, config, env, platform: 'linux', home: root }),
+    'logged-in');
+  const snapshot = await environmentSnapshot({ ...round6Deps(config, root), env });
+  assert.equal(snapshot.clients[0].configPath, unknown);
+  assert.equal('warnings' in snapshot.clients[0], false);
+  assert.equal(readinessRows({ snapshot, ui: { locale: 'en' }, program: 'okit-plugin' })
+    .rows.some((row) => row.id === 'config-dir-unregistered'), false);
+});
+
+test('round 7: renaming the default (which creates the section) with the variable set reports it and keeps one folder', async (t) => {
+  const root = await temporary(t);
+  const base = { install: round6Config(root).install, profiles: round6Config(root).profiles };
+  const renamed = withAccountRenamed(base, 'claude-code', 'default', 'Main', { env: {} });
+  const unknown = join(root, 'unknown');
+  const snapshot = await environmentSnapshot({ ...round6Deps(renamed, root), env: { HOME: root, CLAUDE_CONFIG_DIR: unknown } });
+  assert.equal(snapshot.clients[0].configPath, join(root, 'claude-custom'));
+  assert.equal(snapshot.clients[0].accounts, undefined);
+  assert.deepEqual(round7Warnings(snapshot).map((warning) => warning.code), ['config-dir-unregistered']);
+  const doctor = readinessRows({ snapshot, ui: { locale: 'pt-BR' }, program: 'okit-plugin' });
+  assert.ok(doctor.rows.some((row) => row.id === 'config-dir-unregistered' && /CLAUDE_CONFIG_DIR/.test(row.detail)));
+  assert.match((await statusTable('', { snapshot, all: true, demands: [] })).capacityLine, /CLAUDE_CONFIG_DIR/);
+});
+
+test('round 7: Codex warns by CODEX_HOME and the sessions of the default ignore an unregistered variable', async (t) => {
+  const root = await temporary(t), at = Date.now();
+  const write = async (directory, used) => {
+    await fs.mkdir(directory, { recursive: true });
+    await fs.writeFile(join(directory, 'rollout-test.jsonl'), JSON.stringify({
+      timestamp: new Date(at).toISOString(), type: 'event_msg',
+      payload: { type: 'token_count', rate_limits: { primary: {
+        used_percent: used, window_minutes: 300, resets_at: Math.floor(at / 1000) + 3600 } } },
+    }) + '\n');
+  };
+  await write(join(root, '.codex/sessions'), 10);
+  await write(join(root, 'unknown/sessions'), 50);
+  const env = { HOME: root, CODEX_HOME: join(root, 'unknown') };
+  const saved = { accounts: { codex: [{ id: 'spare', label: 'Spare', configDir: join(root, 'spare') }] } };
+  assert.equal((await readCodexSessionQuota({ config: saved, env, now: () => at }))?.remainingPct, 90);
+  assert.equal((await readCodexSessionQuota({ config: {}, env, now: () => at }))?.remainingPct, 50);
+  assert.deepEqual(accountWarnings('codex', env, { config: saved, platform: 'linux', home: root }),
+    [{ code: 'config-dir-unregistered', client: 'codex', variable: 'CODEX_HOME' }]);
+  assert.deepEqual(accountWarnings('codex', env, { config: {}, platform: 'linux', home: root }), []);
+  assert.deepEqual(accountWarnings('codex', { HOME: root, CODEX_HOME: join(root, 'spare') },
+    { config: saved, platform: 'linux', home: root }), []);
 });

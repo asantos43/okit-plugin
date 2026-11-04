@@ -1,5 +1,5 @@
 import { readiness } from '../env/ready.js';
-import { accountRows, warningText } from '../env/account-rows.js';
+import { accountRows, shownWarnings, warningText } from '../env/account-rows.js';
 
 // The rows of the doctor that answer "can the executors be launched?": the models and the quota of each client that is
 // installed, the status bar collector and the kit. They are told from the environment snapshot, which the doctor takes
@@ -53,9 +53,9 @@ export function readinessRows({ snapshot, kit, ui, program }) {
       rows.push({ id: 'login', client: row.client, ...account, label: 'Login',
         status: row.login === 'logged-out' ? 'warn' : row.login === 'unknown' ? 'skipped' : 'ok',
         detail: ui.locale === 'pt-BR' ? ({ 'logged-in': 'conectada', 'logged-out': 'deslogada', unknown: 'desconhecido' })[row.login] : row.login });
-      for (const warning of row.warnings) rows.push({ id: warning.code, client: row.client, ...account,
-        label: ui.locale === 'pt-BR' ? 'Aviso' : 'Warning', status: 'warn', detail: warningText(warning, ui.locale) });
     }
+    for (const warning of shownWarnings(row)) rows.push({ id: warning.code, client: row.client, ...account,
+      label: ui.locale === 'pt-BR' ? 'Aviso' : 'Warning', status: 'warn', detail: warningText(warning, ui.locale) });
     const models = row.models ?? [];
     rows.push({ id: 'models', client: row.client, ...account, label: words.models,
       ...models.length ? { status: 'ok', detail: words.modelsOk(models.join(', ')) }
