@@ -436,6 +436,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/templates.js', arg: /^file$/, excluded: STATE_OF_OTHER_COMMANDS },
   { file: 'src/todo/', arg: /^(path\.file|paths\(root\)\.inbox)$/, excluded: 'the project TODO the tool of the assistant reads (a command outside this inventory), and the orchestration inbox' },
   { file: 'src/trajectory/', arg: /^(file|input|line|new URL\('\.\.\/\.\.\/package\.json', import\.meta\.url\))$/, excluded: 'the recordings okit wrote and the package.json of this program (the tool of the assistant is outside this inventory)' },
+  { file: 'src/trajectory/schema.js', arg: /^value$/, excluded: 'the arguments of a tool call as the client transcript wrote them (a JSON string or any value): parsed only to tell an object from plain input, and a failure keeps it as plain input; it is never configuration' },
   // The maintainers' commands.
   { file: 'src/release/', arg: /./, excluded: 'the maintainers\' release commands (build, checksums, notes, publish): they read the repository of the package being released, not an input of an installation' },
   { file: 'src/smoke/', arg: /./, excluded: 'the maintainers\' smoke runner (a demand of its own; its flags are in OUT_OF_SCOPE_FLAGS)' },

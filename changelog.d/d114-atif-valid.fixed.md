@@ -1,0 +1,1 @@
+Write normalized ATIF-v1.4 trajectories with strict checks, results attached to their call steps and legacy reading; add Harbor 0.22.0 validation scripts. / Grava trajetórias ATIF-v1.4 normalizadas com validação estrita, resultados nos passos das chamadas e leitura legada; adiciona scripts de validação Harbor 0.22.0.

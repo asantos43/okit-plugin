@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { readJson, writeJsonAtomic, withLock } from '../state.js';
 import { settings } from './config.js';
 import { redact } from './redact.js';
-import { validate } from './schema.js';
+import { normalize, validate } from './schema.js';
 
 const prefix = 'okit-plugin-';
 const bytes = value => Buffer.byteLength(`${JSON.stringify(value, null, 2)}\n`);
@@ -28,10 +28,14 @@ export function capped(data, config) {
   if (bytes(data) <= limit) return data;
   const marker = config.truncationMarker;
   for (const item of [...data.steps].reverse()) {
+    item.source = 'system';
     item.message = marker;
+    delete item.model_name;
+    delete item.reasoning_effort;
+    delete item.metrics;
     delete item.reasoning_content;
-    item.tool_calls = [];
-    item.observation = { results: [] };
+    delete item.tool_calls;
+    delete item.observation;
     if (bytes(data) <= limit) return data;
   }
   while (data.steps.length > 1 && bytes(data) > limit) data.steps.pop();
@@ -44,8 +48,8 @@ export function capped(data, config) {
 export async function save(root, data) {
   const config = await settings(root);
   if (config.enabled !== true) return false;
-  if (!validate(data) || !safeId(data.session_id)) throw new Error('Invalid saved run / Execução salva inválida');
-  const safe = capped(redact(structuredClone(data), config), config);
+  if (!safeId(data.session_id)) throw new Error('Invalid saved run / Execução salva inválida');
+  const safe = capped(normalize(redact(structuredClone(data), config)), config);
   if (!validate(safe)) throw new Error('Invalid saved run / Execução salva inválida');
   await mkdir(config.dir, { recursive: true });
   await withLock(join(config.dir, 'okit-plugin-retention'), async () => {

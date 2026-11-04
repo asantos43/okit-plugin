@@ -5,7 +5,7 @@ import { readTrajectory as opencode } from '../../adapters/opencode/trajectory.j
 import { readJson } from '../state.js';
 import { settings } from './config.js';
 import { save } from './store.js';
-import { step, totals } from './schema.js';
+import { step, normalize } from './schema.js';
 const readers = { 'claude-code': claude, codex, opencode };
 
 export async function capture(root, context, { transcript, file, message, outcome, usage } = {}) {
@@ -28,8 +28,6 @@ export async function capture(root, context, { transcript, file, message, outcom
     if (outcome != null) data.steps.push(step({ source: 'system', message: outcome,
       metrics: usage }));
     if (shortened) data.steps.push(step({ source: 'system', message: config.truncationMarker }));
-    data.steps.forEach((item, index) => { item.step_id = index + 1; });
-    data.final_metrics = totals(data.steps);
-    return await save(root, data);
+    return await save(root, normalize(data));
   } catch { return false; } // Optional local recording never interrupts work.
 }
