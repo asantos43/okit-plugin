@@ -8,6 +8,7 @@ import { after, test } from 'node:test';
 import { createServer } from '../src/mcp/server.js';
 import { makeContext, TOOLS } from '../src/mcp/tools.js';
 import { environmentReport, formatEnvironmentReport } from '../src/env/report.js';
+import { readiness } from '../src/env/ready.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 
 const NAMES = [
@@ -75,7 +76,9 @@ test('env_report shares core readings and bilingual text for each client', async
       const frame = await server.call('env_report', { client, locale });
       assert.equal(frame.result.isError, false);
       const { text, ...report } = server.data(frame);
-      assert.deepEqual(report, await environmentReport({ ...ctx, client }));
+      // The readiness (`ready`, `gaps`) is told from the same report.
+      const expected = await environmentReport({ ...ctx, client });
+      assert.deepEqual(report, { ...expected, ...readiness(expected) });
       assert.equal(text, formatEnvironmentReport(report, locale));
       assert.deepEqual(report.clients.map((row) => row.client), [client]);
     }

@@ -40,6 +40,7 @@ export async function listActors(deps = {}) {
     const freeSlots = observation.slots.available;
     const pairs = new Map(observation.candidates.map((candidate) => {
       const reasons = candidate.restrictions.map((reason) => messages[reason] ?? ({
+        'unknown-install': deps.locale === 'pt-BR' ? 'Instalação não confirmada. Rode setup.' : 'Installation unconfirmed. Run setup.',
         unconfirmed: deps.locale === 'pt-BR' ? 'Modelo não confirmado. Rode setup.' : 'Model unconfirmed. Run setup.',
         'unknown-quota': labelsOf(deps.locale).noQuota(client),
         'expired-quota': deps.locale === 'pt-BR' ? 'Cota expirada.' : 'Quota expired.',

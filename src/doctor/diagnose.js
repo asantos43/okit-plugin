@@ -12,6 +12,10 @@ import { checkLabel, selfCheck } from '../install/selfcheck.js';
 import { extraText } from '../install/texts.js';
 import { programWords, resolvedRecord } from '../install/where.js';
 import { callControl, findServers } from '../mcp/control-client.js';
+import { environmentSnapshot } from '../env/snapshot.js';
+import { detectKit } from '../install/kit.js';
+import { limitsStatus } from '../limits.js';
+import { readinessRows } from './ready-rows.js';
 import { configOf, DEFAULT_CONFIG, LOCALES } from '../profiles.js';
 import { isReadableConfig } from '../setup/setup.js';
 import { paths } from '../store.js';
@@ -49,6 +53,9 @@ function defaultReaders({ fs, run, timeoutMs }) {
     autostartPresent: (plan) => autostartPresent(plan, { fs, run, timeoutMs }),
     selfCheck: (record, expected, deps) => selfCheck(record, expected, deps),
     mcpEntry: (record, deps) => mcpStatus(record, deps),
+    snapshot: (deps) => environmentSnapshot(deps),
+    limits: (root, config) => limitsStatus(root, config),
+    kit: (deps) => detectKit(deps),
   };
 }
 
@@ -133,7 +140,7 @@ function unreadableRow({ id, label, error, ui, command, root, path, platform }) 
     id,
     status: 'failed',
     label,
-    detail: ui.text('doctorStateUnreadable', { reason: redact(reasonOf(error)) }),
+    detail: ui.text('doctorStateUnreadable', { reason: localizeReason(redact(reasonOf(error)), ui.locale) }),
     fix: ui.text('doctorFixState', { path: quotedWord(pathOf(error, path ?? root), platform), command }),
   };
 }
@@ -212,18 +219,23 @@ export async function diagnose(input) {
   // the configuration says what it holds.
   const stored = await readThrough(readers, paths(root).config);
   let storedValue;
+  // The row of the configuration already says a file that cannot be read: the readiness is not asked from it again.
+  let configUnusable = false;
   if (stored.text !== undefined) {
-    try { storedValue = JSON.parse(stored.text); } catch { storedValue = undefined; }
+    try { storedValue = JSON.parse(stored.text); } catch { storedValue = undefined; configUnusable = true; }
   }
   let statuslineConfig = DEFAULT_CONFIG.statuslineRegistration;
   let collectorConfig = DEFAULT_CONFIG.statuslineCollector;
+  let snapshotConfig;
   if (storedValue !== undefined) {
     try {
       const whole = configOf(storedValue);
+      snapshotConfig = storedValue;
       statuslineConfig = whole.statuslineRegistration;
       collectorConfig = whole.statuslineCollector;
     } catch {
       // A configuration that cannot be read keeps the defaults: the row of the configuration says so.
+      configUnusable = true;
     }
   }
 
@@ -291,9 +303,25 @@ export async function diagnose(input) {
   // 8. The daemon: it runs, or it should (the autostart is there) and does not.
   rows.push(await daemonRow({ readers, root, ui, command: program, autostart, platform }));
 
+  // 9. The readiness: the models and the quota of each installed client, the collector and the kit, from a snapshot taken
+  // read-only (`record: false`: the check of the quota is not written to the telemetry) and the answer they come to.
+  // The live runs count against the slots, as in `env_report`: a doctor that ignored them would say yes where it says no.
+  const snapshot = configUnusable ? {} : await attempt(async () => readers.snapshot({ root, config: snapshotConfig, env, home, fs, run, now, platform,
+    command: program, client: input.client, record: false, limits: await readers.limits?.(root, snapshotConfig) }));
+  const kit = await attempt(() => readers.kit({ config: settings, fs, platform, env, run }));
+  const ready = readinessRows({ snapshot: snapshot.value ?? null, kit: kit.value ?? null, ui, program });
+  if (snapshot.error !== undefined && !configUnusable) {
+    // The reason is not told: it comes from the readers in one language, and the rows above say what is wrong with the files.
+    const pt = ui.locale === 'pt-BR';
+    ready.rows.unshift({ id: 'readiness', status: 'warn', label: pt ? 'Prontidão' : 'Readiness',
+      detail: pt ? 'não foi possível ler os modelos e a cota' : 'the models and the quota could not be read',
+      fix: pt ? `Corrija o que as linhas acima apontam e rode: ${program} doctor` : `Fix what the rows above point to, then run: ${program} doctor` });
+  }
+  rows.push(...ready.rows);
+
   const failed = rows.filter((row) => row.status === 'failed').length;
   const warnings = rows.filter((row) => row.status === 'warn').length;
-  return { rows, failed, warnings };
+  return { rows, failed, warnings, ready: ready.ready, gaps: ready.gaps };
 }
 
 /** The package of this program: its `engines.node` says the minimum Node it runs on. */
@@ -367,7 +395,7 @@ async function registrationRow(record, { deps, readers, settings, platform, comm
       fix: ui.text('doctorFixRegistration', { command, name: client, client: quotedWord(record.client, platform) }) };
   }
   if (state?.state === 'unreadable') {
-    return { ...base, status: 'warn', detail: ui.text('doctorRegistrationUnreadable', { client, reason: state.reason ?? '' }) };
+    return { ...base, status: 'warn', detail: ui.text('doctorRegistrationUnreadable', { client, reason: localizeReason(state.reason ?? '', ui.locale) }) };
   }
   return { ...base, status: 'skipped', detail: ui.text('doctorRegistrationNone') };
 }
@@ -412,7 +440,7 @@ async function stateRows({ readers, root, ui, command, stored, language, platfor
     if (read.text === undefined) {
       // The disk refused the file: the reason is said, and the Fix names the file.
       rows.push({ id: entry.id, status: 'failed', label,
-        detail: ui.text('doctorStateUnreadable', { reason: redact(reasonOf(read.error)) }),
+        detail: ui.text('doctorStateUnreadable', { reason: localizeReason(redact(reasonOf(read.error)), ui.locale) }),
         fix: ui.text('doctorFixState', { path: quotedWord(entry.file, platform), command }) });
       continue;
     }

@@ -192,11 +192,13 @@ export async function environmentSnapshot(deps = {}) {
     quota.provider = raw?.provider ?? null;
     quota.observedAt = quotas.get(client).at;
     const free = Math.max(0, cap - (deps.limits?.byClient?.[client] ?? 0));
+    const expired = Boolean(raw?.expired || (raw?.expiresAt && Date.parse(raw.expiresAt) <= now)
+      || (quota.ageMinutes !== null && quota.ageMinutes > config.staleMinutes));
     const candidates = (installed === false ? [] : actorPairs(config, client)).map((actor) => {
       const confirmed = available.some((pair) => pair.model === actor.model && pair.effort === actor.effort);
-      const restrictions = [!confirmed && 'unconfirmed', quota.status === 'off' && 'unknown-quota',
-        (raw?.expired || (raw?.expiresAt && Date.parse(raw.expiresAt) <= now)
-          || (quota.ageMinutes !== null && quota.ageMinutes > config.staleMinutes)) && 'expired-quota',
+      // An installation nobody could confirm is not a client to launch from: the readiness says the same.
+      const restrictions = [installed === null && 'unknown-install', !confirmed && 'unconfirmed', quota.status === 'off' && 'unknown-quota',
+        expired && 'expired-quota',
         quota.status === 'red' && 'low', free === 0 && 'busy'].filter(Boolean);
       return { ...actor, confirmed, restrictions, canLaunch: restrictions.length === 0 };
     });
@@ -220,7 +222,8 @@ export async function environmentSnapshot(deps = {}) {
       slots: { total: cap, available: Math.max(0, cap - (deps.limits?.byClient?.[client] ?? 0)) },
       slotEvidence: { running: deps.limits?.byClient?.[client] ?? 0, source } };
   });
-  if (deps.root) {
+  // `record: false` takes the snapshot read-only (the doctor): the telemetry of the quota check is not written.
+  if (deps.root && deps.record !== false) {
     const { record } = await import('../telemetry/index.js');
     for (const row of rows) await record(deps.root, 'quota.check', { client: row.client, state: row.quota.status });
   }

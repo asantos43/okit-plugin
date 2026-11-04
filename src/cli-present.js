@@ -5,6 +5,7 @@ import { createPresenter as basePresenter, TEXTS as BASE_TEXTS, clientLabel as b
 import { quotedWord, shown as shownCommand } from './install/mcp-register.js';
 import { EPHEMERAL, isEphemeral, programWords } from './install/where.js';
 import { flagsOf } from './install/flags.js';
+import { readyLine } from './env/ready.js';
 import { commandToken, hasCommand, resolveTokens } from './install/command-token.js';
 export * from './install/present.js';
 
@@ -293,7 +294,10 @@ export function createInstallerView({ operation, command, locale, write, verbose
     }
     renderSteps(say);
     const changed = ids.filter((id) => !stateOf(id)?.current);
-    say(operation === 'install' ? `${pt ? 'Próximo' : 'Next'}: ${type(['setup'], { later: true })}`
+    // Not ready to launch executors yet (the models are not confirmed): the next step names the doctor, which tells the gaps.
+    const notReady = !modelsConfirmed && !custom;
+    say(operation === 'install' ? `${pt ? 'Próximo' : 'Next'}: ${type(['setup'], { later: true })}${notReady
+      ? (pt ? `; depois rode ${check} para ver se está pronto para lançar executores` : `; then run ${check} to see if you are ready to launch executors`) : ''}`
       : (pt ? `Próximo: reinicie ${names(changed)} e rode: ${check}` : `Next: restart ${names(changed)}, then run: ${check}`));
     // The doctor reads the folder of the settings and takes no folder of its own: for an install into a custom folder
     // the output says where the installation is instead of a check that would look somewhere else.
@@ -369,6 +373,7 @@ export function presentDiagnosis(result, { ui, command, client, clients, verbose
     ? 'MCP é a conexão usada pelo assistente para chamar ferramentas do plugin.'
     : 'MCP is the connection your assistant uses to call plugin tools.');
   if (!fixes.length) out(`${pt ? 'Verifique novamente quando precisar' : 'Check again when needed'}: ${check}`);
+  if (result.gaps) out(readyLine(result, ui.locale));
 }
 export async function askNumberedModel({ ask, locale, client, className, candidates, attempts, out }) {
   const pt = locale === 'pt-BR';

@@ -13,6 +13,7 @@ import { installConfig } from '../src/install/config.js';
 import { createPresenter, TEXTS } from '../src/install/present.js';
 import { writeRecord } from '../src/mcp/control-endpoint.js';
 import { paths } from '../src/store.js';
+import { readySnapshot } from './helpers/ready-snapshot.js';
 
 // The doctor: it looks at the whole installation and answers a list of rows. It only reads.
 //
@@ -65,6 +66,8 @@ async function world({ records = [RECORD], files = {}, readers = {}, locale = 'e
     autostartPresent: async () => true,
     selfCheck: async () => [{ id: 'version', status: 'pass', reason: '1.0.0' }],
     mcpEntry: async () => ({ state: 'registered' }),
+    snapshot: async () => readySnapshot(),
+    kit: async () => ({ state: 'absent' }),
   };
   const input = {
     root: '/state',
@@ -78,12 +81,15 @@ async function world({ records = [RECORD], files = {}, readers = {}, locale = 'e
     fs: { stat: (file) => ['/proven-bin/okit-plugin', '/proven-bin/node'].includes(file) ? Promise.resolve({ isFile: () => true }) : fs.stat(file), readFile: async (file, ...rest) => fs.readFile(file, ...rest), access: async (file, mode) => ['/proven-bin/okit-plugin', '/proven-bin/node'].includes(file) ? undefined : fs.access(file, mode) },
     run: async () => ({ code: 0, stdout: '' }),
     now: () => Date.now(),
-    readers: defaults ? { readText, ...readers } : { ...fake, ...readers },
+    readers: defaults ? { readText, snapshot: fake.snapshot, kit: fake.kit, ...readers } : { ...fake, ...readers },
   };
   return { input, lines, files: all };
 }
 
 const rowOf = (result, id) => result.rows.find((row) => row.id === id);
+/** The rows of the installation: the readiness rows (models, quota, collector, kit) are told by their own tests. */
+const READINESS = new Set(['clients', 'models', 'quota', 'statusline', 'kit', 'readiness']);
+const installationRows = (result) => result.rows.filter((row) => !READINESS.has(row.id));
 
 // ---------------------------------------------------------------------------------------------------------------
 // D109 step 6a: the doctor proves the autostart, it does not guess it. The file of the plan has to hold the content
@@ -240,7 +246,7 @@ test('an installation that works has no failed row and no warning', async () => 
     assert.ok(row.label.length > 0, `${row.id}: no label`);
     assert.ok(row.detail.length > 0, `${row.id}: no detail`);
   }
-  assert.deepEqual(result.rows.map((row) => row.id),
+  assert.deepEqual(installationRows(result).map((row) => row.id),
     ['node', 'install', 'registration', 'version', 'config', 'inbox', 'orders', 'session', 'autostart', 'daemon']);
 });
 
@@ -270,8 +276,8 @@ test('no installation record is one failed row, and no row of a client follows',
   const row = rowOf(result, 'install');
   assert.equal(row.status, 'failed');
   assert.match(row.fix, /okit-plugin install/);
-  assert.deepEqual(result.rows.filter((each) => each.client), []);
-  assert.deepEqual(result.rows.map((each) => each.id), ['node', 'install', 'config', 'inbox', 'orders', 'session', 'daemon']);
+  assert.deepEqual(installationRows(result).filter((each) => each.client), []);
+  assert.deepEqual(installationRows(result).map((each) => each.id), ['node', 'install', 'config', 'inbox', 'orders', 'session', 'daemon']);
 });
 
 test('an MCP server that is not registered is a failed row with the command to register it', async () => {
@@ -558,14 +564,14 @@ test('a state file the disk refuses to read says the reason of the refusal', asy
 test('the rows of the clients follow the order of the records', async () => {
   const { input } = await world({ records: [RECORD, CODEX] });
   const result = await diagnose(input);
-  const clients = result.rows.filter((row) => row.client).map((row) => row.client);
+  const clients = installationRows(result).filter((row) => row.client).map((row) => row.client);
   assert.deepEqual(clients, ['claude-code', 'claude-code', 'codex', 'codex']);
 });
 
 test('the client of the input is the only one that is looked at', async () => {
   const { input } = await world({ records: [RECORD, CODEX] });
   const result = await diagnose({ ...input, client: 'codex' });
-  const clients = [...new Set(result.rows.filter((row) => row.client).map((row) => row.client))];
+  const clients = [...new Set(installationRows(result).filter((row) => row.client).map((row) => row.client))];
   assert.deepEqual(clients, ['codex']);
 });
 

@@ -37,7 +37,8 @@ Everything else is asked of the assistant, which uses the [MCP tools](mcp-tools.
 <a id="effects"></a>
 ## Effects and results
 
-Install/update/uninstall change managed files and registration; setup saves configuration after confirmation. Doctor reads only. The daemon can launch processes and spend allowance.
+Install/update/uninstall change managed files and registration; setup saves configuration after confirmation. Doctor reads only: it takes its snapshot with `record: false`, so it writes no file and no telemetry event. The daemon can launch processes and spend allowance.
+Doctor ends with `Ready to launch executors: yes` or `no; gaps: …`. Ready means every size class (S, M, L) has an actor that can launch on an installed client; clients that are not installed are optional. Rows: models confirmed and quota recorded per installed client, the status bar collector (with the command to enable it) and the optional kit.
 Exit 0 indicates success; 1 indicates failure; invalid usage normally returns 2.
 Offline smoke checks are internal test code: tests and update run them; maintainers use `npm run smoke` (`scripts/smoke.js`).
 
