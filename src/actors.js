@@ -2,6 +2,7 @@
 import { configOf } from './profiles.js';
 import { ageOf, labelsOf, quotaOrigin } from './env/quota.js';
 import { environmentSnapshot } from './env/snapshot.js';
+import { accountRows, accountName, warningText } from './env/account-rows.js';
 
 const fill = (text, values) => text.replace(/\{(\w+)\}/g, (_, key) => values[key]);
 const cell = (value) => String(value).replaceAll('|', '\\|').replace(/[\r\n]+/g, ' ');
@@ -21,7 +22,7 @@ export async function listActors(deps = {}) {
   const actors = [];
   const notes = [];
   if (!deps.client && !deps.all && !snapshot.inUse) notes.push(labelsOf(deps.locale).unknownClient);
-  for (const observation of snapshot.clients) {
+  for (const observation of accountRows(snapshot.clients)) {
     if (observation.installed === false) {
       notes.push(`${observation.client}: ${labelsOf(deps.locale).optional}.`);
       continue;
@@ -36,7 +37,8 @@ export async function listActors(deps = {}) {
         age: (seconds) => fill(messages.age, { seconds }),
       }),
     }) + (['automatic', 'manual'].includes(quota.source) ? `; ${origin}` : '');
-    const client = quota.client;
+    const client = accountName(observation);
+    for (const warning of observation.account ? observation.warnings : []) notes.push(`${client}: ${warningText(warning, deps.locale)}`);
     const freeSlots = observation.slots.available;
     const pairs = new Map(observation.candidates.map((candidate) => {
       const reasons = candidate.restrictions.map((reason) => messages[reason] ?? ({
@@ -44,6 +46,7 @@ export async function listActors(deps = {}) {
         unconfirmed: deps.locale === 'pt-BR' ? 'Modelo não confirmado. Rode setup.' : 'Model unconfirmed. Run setup.',
         'unknown-quota': labelsOf(deps.locale).noQuota(client),
         'expired-quota': deps.locale === 'pt-BR' ? 'Cota expirada.' : 'Quota expired.',
+        'not-logged-in': deps.locale === 'pt-BR' ? 'Conta deslogada.' : 'Account logged out.',
       })[reason]);
       return [JSON.stringify([candidate.model, candidate.effort]),
         { ...candidate, freeSlots, quota, origin, reasons }];

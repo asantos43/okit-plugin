@@ -321,7 +321,7 @@ export async function diagnose(input) {
 
   const failed = rows.filter((row) => row.status === 'failed').length;
   const warnings = rows.filter((row) => row.status === 'warn').length;
-  return { rows, failed, warnings, ready: ready.ready, gaps: ready.gaps };
+  return { rows, failed, warnings, ready: ready.ready, gaps: ready.gaps, ...ready.accounts ? { accounts: ready.accounts } : {} };
 }
 
 /** The package of this program: its `engines.node` says the minimum Node it runs on. */

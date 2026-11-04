@@ -1,4 +1,5 @@
 import { readiness } from '../env/ready.js';
+import { accountRows, warningText } from '../env/account-rows.js';
 
 // The rows of the doctor that answer "can the executors be launched?": the models and the quota of each client that is
 // installed, the status bar collector and the kit. They are told from the environment snapshot, which the doctor takes
@@ -46,14 +47,22 @@ export function readinessRows({ snapshot, kit, ui, program }) {
   if (snapshot && !installed.length) {
     rows.push({ id: 'clients', status: 'warn', label: words.clients, detail: words.noClients, fix: words.fixClients(program) });
   }
-  for (const row of installed) {
+  for (const row of accountRows(installed)) {
+    const account = row.account ? { account: row.account, accountLabel: row.accountLabel } : {};
+    if (row.account) {
+      rows.push({ id: 'login', client: row.client, ...account, label: 'Login',
+        status: row.login === 'logged-out' ? 'warn' : row.login === 'unknown' ? 'skipped' : 'ok',
+        detail: ui.locale === 'pt-BR' ? ({ 'logged-in': 'conectada', 'logged-out': 'deslogada', unknown: 'desconhecido' })[row.login] : row.login });
+      for (const warning of row.warnings) rows.push({ id: warning.code, client: row.client, ...account,
+        label: ui.locale === 'pt-BR' ? 'Aviso' : 'Warning', status: 'warn', detail: warningText(warning, ui.locale) });
+    }
     const models = row.models ?? [];
-    rows.push({ id: 'models', client: row.client, label: words.models,
+    rows.push({ id: 'models', client: row.client, ...account, label: words.models,
       ...models.length ? { status: 'ok', detail: words.modelsOk(models.join(', ')) }
         : { status: 'warn', detail: words.modelsNone, fix: words.fixModels(program) } });
     const expired = row.candidates.some((actor) => actor.restrictions.includes('expired-quota'));
     const state = row.quota.status === 'off' ? 'quotaOff' : expired ? 'quotaExpired' : 'quotaOk';
-    rows.push({ id: 'quota', client: row.client, label: words.quota, status: state === 'quotaOk' ? 'ok' : 'warn',
+    rows.push({ id: 'quota', client: row.client, ...account, label: words.quota, status: state === 'quotaOk' ? 'ok' : 'warn',
       detail: words[state], ...state === 'quotaOk' ? {} : { fix: words.fixQuota } });
   }
   const line = snapshot?.plugin?.statusline;

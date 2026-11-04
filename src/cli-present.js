@@ -349,7 +349,7 @@ export function presentDiagnosis(result, { ui, command, client, clients, verbose
   // is in the same column.
   const labels = shown.map((row) => row.id === 'registration'
     ? (pt ? `Conexão com ${clientLabel(row.client)}` : `${clientLabel(row.client)} connection`)
-    : (row.client ? `${clientLabel(row.client)}: ${row.label}` : row.label));
+    : (row.client ? `${clientLabel(row.client)}: ${row.accountLabel ? `${row.accountLabel}: ` : ''}${row.label}` : row.label));
   out(pt ? '| Verificação | Resultado |' : '| Check | Result |');
   out('| --- | --- |');
   const cell = (value) => String(value).replaceAll('|', '\\|').replaceAll('\n', ' ');

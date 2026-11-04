@@ -1,6 +1,7 @@
 import { LABELS, quotaOrigin } from './quota.js';
 import { environmentSnapshot } from './snapshot.js';
 import { readiness, readyLine } from './ready.js';
+import { accountRows, accountName, warningText } from './account-rows.js';
 export { environmentReadings } from './snapshot.js';
 export const environmentReport = environmentSnapshot;
 
@@ -46,8 +47,9 @@ export function formatEnvironmentReport(report, locale = 'en') {
   const labels = LABELS[locale] ?? LABELS.en;
   if (report.unknownClient) return words.unknownClient;
   const lines = [];
-  for (const row of report.clients) {
-    lines.push(`${row.client}${row.inUse ? ` (${words.inUse})` : ''}: ${row.installed === null ? words.unknown : row.installed ? words.installed : words.absent}; ${words.version}: ${row.version ?? words.unknown}.`);
+  for (const row of accountRows(report.clients)) {
+    lines.push(`${accountName(row)}${row.inUse ? ` (${words.inUse})` : ''}: ${row.installed === null ? words.unknown : row.installed ? words.installed : words.absent}; ${words.version}: ${row.version ?? words.unknown}.`);
+    for (const warning of row.account ? row.warnings : []) lines.push(warningText(warning, locale));
     if (row.installed === false) continue;
     lines.push(`${words.models}: ${row.models.join(', ') || words.none}.`);
     lines.push(`${words.actors}: ${row.actors.map((actor) => `${actor.model} (${actor.effort ?? words.unknown}; ${words.sizes}: ${actor.sizes.join(', ') || words.none}${actor.critic ? `; ${words.critic}` : ''})`).join('; ') || words.none}.`);
