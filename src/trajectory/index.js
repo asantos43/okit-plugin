@@ -26,7 +26,9 @@ export async function exportTrajectory(root, id) {
   if ((await stat(file)).size > config.maxFileBytes) throw new Error('Saved run exceeds limit / Execução salva excede o limite');
   const data = await readJson(file, null);
   if (!readable(data)) throw new Error('Cannot read saved run / Não foi possível ler a execução salva');
-  return validate({ ...data, schema_version: 'ATIF-v1.4' }) ? data : normalize(data);
+  if (validate({ ...data, schema_version: 'ATIF-v1.4' })) return data;
+  const normalized = normalize(data);
+  return { ...normalized, final_metrics: { ...normalized.final_metrics, ...data.final_metrics } };
 }
 export async function list(root) {
   const config = await settings(root), result = [];
@@ -51,9 +53,11 @@ export async function show(root, id) {
     lines.push(`${item.step_id}. ${item.source}: ${item.message || missing}`);
     if (item.reasoning_content) lines.push(item.reasoning_content);
     for (const call of item.tool_calls ?? []) lines.push(`Tool / Ferramenta: ${call.function_name} ${JSON.stringify(call.arguments)}`);
-    for (const result of item.observation?.results ?? []) {
+    for (const [index, result] of (item.observation?.results ?? []).entries()) {
       const call = data.steps.flatMap(step => step.tool_calls ?? []).find(call => call.tool_call_id === result.source_call_id);
-      lines.push(`${(item.extra?.failed_calls?.includes(result.source_call_id) || result.content?.is_error) ? 'Failed tool / Ferramenta que falhou' : 'Result / Resultado'}: ${call?.function_name ?? missing}: ${JSON.stringify(result.content)}`);
+      const failed = (result.source_call_id !== null && item.extra?.failed_calls?.includes(result.source_call_id))
+        || item.extra?.failed_results?.includes(index) || result.content?.is_error;
+      lines.push(`${failed ? 'Failed tool / Ferramenta que falhou' : 'Result / Resultado'}: ${call?.function_name ?? missing}: ${JSON.stringify(result.content)}`);
     }
     lines.push(`Tokens in / entrada: ${item.metrics?.prompt_tokens ?? missing}; out / saída: ${item.metrics?.completion_tokens ?? missing}; cached / em cache: ${item.metrics?.cached_tokens ?? missing}`);
   }

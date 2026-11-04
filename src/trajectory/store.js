@@ -36,6 +36,11 @@ export function capped(data, config) {
     delete item.reasoning_content;
     delete item.tool_calls;
     delete item.observation;
+    if (item.extra) {
+      delete item.extra.failed_calls;
+      delete item.extra.failed_results;
+      if (!Object.keys(item.extra).length) delete item.extra;
+    }
     if (bytes(data) <= limit) return data;
   }
   while (data.steps.length > 1 && bytes(data) > limit) data.steps.pop();

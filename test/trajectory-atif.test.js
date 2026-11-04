@@ -8,6 +8,7 @@ import { save, list, exportTrajectory } from '../src/trajectory/index.js';
 import { capture } from '../src/trajectory/capture.js';
 import { TOOLS } from '../src/mcp/tools.js';
 import { samples } from './helpers/trajectory-samples.js';
+import { codexFixture } from './helpers/trajectory-samples.js';
 const context = { session_id: 'atif', model: 'example-model' };
 // | Corpus | Must pass | Must refuse |
 // | writer | agent fields, string messages/results, object arguments, extra, local result IDs | rules 1–6 violations |
@@ -72,13 +73,16 @@ for (const [client, reader, fixture] of samples) {
     assert.equal(fixed.steps.find(item => item.observation).observation.results[0].source_call_id, null);
   });
 }
-test('later results and failure IDs move together, preserving usage and other extra fields', () => {
+test('case 6: later results move while extra.note and usage survive', () => {
   for (const source of ['user', 'agent', 'system']) {
     const data = trajectory(context, [{ source: 'agent', message: 'Call',
       tool_calls: [{ tool_call_id: 'one', function_name: 'read', arguments: {} }], metrics: { prompt_tokens: 3 } },
     { source, message: '', extra: { failed_calls: ['one'], note: 'kept' }, metrics: { completion_tokens: 2 },
       observation: { results: [{ source_call_id: 'one', content: 'Failed' }] } }]);
-    assert.equal(data.steps.length, 1); assert.equal(data.final_metrics.total_steps, 1);
+    assert.equal(data.steps.length, 2); assert.equal(data.final_metrics.total_steps, 2);
+    assert.equal(data.steps[1].source, 'agent');
+    assert.equal(data.steps[1].message, '');
+    assert.deepEqual(data.steps[1].extra, { note: 'kept' });
     assert.equal(data.final_metrics.total_prompt_tokens, 3);
     assert.equal(data.final_metrics.total_completion_tokens, 2);
     assert.deepEqual(data.steps[0].extra.failed_calls, ['one']);
@@ -100,7 +104,8 @@ test('unmatched results get null IDs and cannot reference future calls', () => {
     { source_call_id: null, content: 'Unknown call' }] } },
   { tool_calls: [{ tool_call_id: 'future', function_name: 'read', arguments: {} }] }]);
   assert.deepEqual(data.steps[0].observation.results.map(result => result.source_call_id), [null, null]);
-  assert.deepEqual(data.steps[0].extra.failed_calls, [null]);
+  assert.equal(data.steps[0].extra.failed_calls, undefined);
+  assert.deepEqual(data.steps[0].extra.failed_results, [0]);
   assert.equal(data.steps[0].source, 'agent'); assertLocalResults(data); assert.ok(validate(data));
 });
 test('non-agent usage folds backwards, preserves totals, and handles usage before agents', () => {
@@ -121,6 +126,33 @@ async function rootOf(t) {
   await writeFile(join(root, 'config.json'), JSON.stringify({ trajectory: { enabled: true } }));
   return root;
 }
+test('case 1: empty capture writes one valid system step', async t => {
+  const root = await rootOf(t);
+  assert.equal(await capture(root, { ...context, client: 'codex' }, { transcript: [] }), true);
+  const data = await exportTrajectory(root, context.session_id);
+  assert.deepEqual(data.steps, [{ step_id: 1, timestamp: null, source: 'system', message: '' }]);
+  assert.ok(validate(data));
+  assert.equal(validate({ ...data, steps: [], final_metrics: totals([]) }), false);
+});
+test('case 2: Codex missing call IDs become unique strings without binding null results', () => {
+  const [, codex] = samples.find(([client]) => client === 'codex');
+  const fixture = structuredClone(codexFixture);
+  delete fixture.find(row => row.payload?.type === 'function_call').payload.call_id;
+  fixture.find(row => row.payload?.type === 'function_call_output').payload.call_id = null;
+  const data = codex(fixture, context);
+  const callStep = data.steps.find(item => item.tool_calls);
+  assert.equal(callStep.tool_calls[0].tool_call_id, `call-${callStep.step_id}-1`);
+  assert.equal(data.steps.find(item => item.observation).observation.results[0].source_call_id, null);
+  const collision = normalize({ ...data, steps: [...data.steps, { source: 'agent', timestamp: null, message: '',
+    tool_calls: [{ tool_call_id: null, function_name: 'read', arguments: {} },
+      { tool_call_id: `call-${data.steps.length + 1}-1`, function_name: 'read', arguments: {} }] }] });
+  const ids = collision.steps.flatMap(item => item.tool_calls ?? []).map(call => call.tool_call_id);
+  assert.equal(new Set(ids).size, ids.length); assert.ok(validate(collision));
+  for (const id of [null, '', 7]) {
+    const bad = structuredClone(data); bad.steps.find(item => item.tool_calls).tool_calls[0].tool_call_id = id;
+    assert.equal(validate(bad), false);
+  }
+});
 // Saved legacy steps stay literal so normalization cannot silently update the reader corpus.
 const oldSteps = [
   { step_id: 1, timestamp: null, source: 'user', message: null, model_name: null, tool_calls: [],
@@ -132,6 +164,68 @@ const oldSteps = [
     tool_calls: [{ tool_call_id: 'call-1', function_name: 'read_file', arguments: null }],
     metrics: { prompt_tokens: null, completion_tokens: null, cached_tokens: null, cost_usd: null } },
 ];
+test('case 3: legacy capped export preserves stored totals of 30 with retained usage of 10', async t => {
+  const root = await rootOf(t); await mkdir(join(root, 'trajectory'));
+  const data = { ...trajectory(context), steps: [{ step_id: 1, timestamp: null, source: 'agent', message: 'Kept',
+    model_name: null, tool_calls: [], metrics: { prompt_tokens: 10, completion_tokens: null, cached_tokens: null, cost_usd: null } }],
+  final_metrics: { total_steps: 1, total_prompt_tokens: 30, total_completion_tokens: null, total_cached_tokens: null, total_cost_usd: 0.5 } };
+  await writeFile(join(root, 'trajectory', 'okit-plugin-atif.json'), JSON.stringify(data));
+  const exported = await exportTrajectory(root, 'atif');
+  assert.deepEqual(exported.final_metrics, data.final_metrics);
+  assert.equal(exported.steps[0].metrics.prompt_tokens, 10); assert.ok(validate(exported));
+  delete data.final_metrics.total_cached_tokens;
+  await writeFile(join(root, 'trajectory', 'okit-plugin-atif.json'), JSON.stringify(data));
+  const filled = await exportTrajectory(root, 'atif');
+  assert.equal(filled.final_metrics.total_cached_tokens, null);
+  assert.equal(filled.final_metrics.total_prompt_tokens, 30);
+});
+test('case 4: capped failed tools leave no dangling failure IDs', async t => {
+  const root = await rootOf(t);
+  await writeFile(join(root, 'config.json'), JSON.stringify({ trajectory: { enabled: true, maxFileBytes: 1600 } }));
+  const data = trajectory(context, [{ message: 'Large '.repeat(4000),
+    tool_calls: [{ tool_call_id: 'failed', function_name: 'read', arguments: {} }],
+    observation: { results: [{ source_call_id: 'failed', content: { output: 'Oops', is_error: true } }] } }]);
+  assert.equal(await save(root, data), true);
+  const saved = JSON.parse(await readFile(join(root, 'trajectory', 'okit-plugin-atif.json')));
+  assert.ok(validate(saved)); assert.equal(saved.steps[0].extra?.failed_calls, undefined);
+  assert.equal(saved.steps[0].extra?.failed_results, undefined);
+});
+test('case 5: orphan failure indices distinguish failed and successful null results in trajectory_show', async t => {
+  const root = await rootOf(t);
+  const data = trajectory(context, [{ observation: { results: [
+    { source_call_id: null, content: { output: 'Failed orphan', is_error: true } },
+    { source_call_id: null, content: { output: 'Successful orphan', is_error: false } }] } }]);
+  assert.equal(data.steps[0].extra.failed_calls, undefined);
+  assert.deepEqual(data.steps[0].extra.failed_results, [0]);
+  assert.ok(validate(data)); assert.deepEqual(normalize(data), data);
+  await save(root, data);
+  const tool = TOOLS.find(item => item.name === 'trajectory_show');
+  const shown = JSON.parse(await tool.handler({ run: 'atif' }, { root }));
+  const outputs = shown.split('\n').filter(line => /orphan/.test(line));
+  assert.match(outputs[0], /^Failed tool/); assert.match(outputs[1], /^Result/);
+  for (const failed_calls of [[null], ['missing'], [7], 'bad']) {
+    const bad = structuredClone(data); bad.steps[0].extra.failed_calls = failed_calls;
+    assert.equal(validate(bad), false);
+  }
+  for (const failed_results of [[-1], [2], [0.5], [null], 'bad']) {
+    const bad = structuredClone(data); bad.steps[0].extra.failed_results = failed_results;
+    assert.equal(validate(bad), false);
+  }
+  const malformed = structuredClone(data); malformed.steps[0].observation.results[0] = null;
+  assert.equal(validate(malformed), false);
+  assert.equal(readable({ ...data, steps: [null] }), false);
+});
+test('normalizer repairs odd step shapes or refuses an invalid envelope before save', async t => {
+  const base = trajectory(context);
+  for (const steps of [null, {}, [null, 5, 'text', []], [{ source: 'odd', timestamp: 5, message: { text: 'json' },
+    tool_calls: [null, { tool_call_id: 7, arguments: [] }], observation: { results: [null, { source_call_id: 7, content: 9 }] },
+    extra: { failed_calls: [null, 7], failed_results: [99] } }], [{ tool_calls: 'odd', observation: { results: 'odd' } }]]) {
+    const normalized = normalize({ ...base, steps });
+    assert.ok(validate(normalized)); assert.deepEqual(normalize(normalized), normalized);
+  }
+  const root = await rootOf(t), bad = { ...base, agent: { ...base.agent, name: 7 } };
+  assert.throws(() => normalize(bad)); await assert.rejects(save(root, bad));
+});
 test('old saved files remain listed and shown by trajectory_show', async t => {
   const root = await rootOf(t); await mkdir(join(root, 'trajectory'));
   for (const [index, steps] of oldSteps.entries()) {
