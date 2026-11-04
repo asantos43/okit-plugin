@@ -46,6 +46,44 @@ for (const [client, reader] of samples) test(`review 14: ${client} cheap JSONL s
     assert.ok(performance.now() - start < 2000);
   }
 });
+// | Review 15 | Must pass | Must refuse / skip |
+// | empty steps | no-content rows of every client dropped, <1s | step with only a timestamp or model |
+// | data kept | text, call, result, usage or unknown field still a step | dropping a row that carries data |
+const emptyRows = { 'claude-code': ['{"message":{"content":[]}}', '{"message":{"content":""}}', '{"content":[]}'],
+  codex: ['{"type":"message"}', '{"type":"reasoning"}', '{"payload":{"type":"agent_message"}}'],
+  opencode: ['{"x":0}', '{"type":"unknown"}', '{"info":{}}', '{"parts":[]}', '{"info":{"role":"user"},"parts":[{"type":"step-start"}]}'] };
+const keptRows = { 'claude-code': ['{"message":{"role":"user","content":"hi"}}', '{"message":{"usage":{"input_tokens":3},"content":[]}}',
+  '{"message":{"content":[{"type":"tool_use","id":"a","name":"read","input":{}}]}}'],
+  codex: ['{"type":"message","role":"user","content":"hi"}', '{"type":"function_call","call_id":"a","name":"read"}', '{"type":"turn.completed","usage":{"input_tokens":3}}'],
+  opencode: ['{"info":{"role":"user"},"parts":[{"type":"text","text":"hi"}]}', '{"info":{"tokens":{"input":3}}}',
+    '{"parts":[{"type":"tool","callID":"a","tool":"read","state":{"status":"completed","output":"ok"}}]}'] };
+for (const [client, reader] of samples) test(`review 15: ${client} rows with nothing in them make no steps and stay cheap`, async t => {
+  const root = await rootOf(t);
+  const measure = async (line, n) => {
+    const input = (line + '\n').repeat(n), start = performance.now();
+    const data = normalize(reader(input, context));
+    assert.equal(await save(root, data), true);
+    const elapsed = performance.now() - start;
+    assert.equal(data.steps.length, 1); assert.equal(data.steps[0].message, '');
+    assert.equal(data.final_metrics.total_steps, data.steps.length);
+    const saved = JSON.parse(await readFile(join(root, 'trajectory', 'okit-plugin-atif.json'), 'utf8'));
+    assert.equal(saved.final_metrics.total_steps, saved.steps.length); return elapsed;
+  };
+  for (const line of emptyRows[client]) {
+    await measure(line, 3000);
+    const small = await measure(line, 30000), large = await measure(line, 240000);
+    const full = await measure(line, 131062);
+    assert.ok(full < 2000, `${client} ${line}: ${full} ms`);
+    assert.ok(large < Math.max(small, 1) * 12, `${client} ${line}: ${small} / ${large} ms`);
+  }
+  const mixed = emptyRows[client][0] + '\n' + keptRows[client].join('\n') + '\n' + emptyRows[client][1];
+  const data = reader(mixed, context);
+  assert.ok(data.steps.length >= 2 && data.steps.length <= 3); assert.ok(validate(data)); // Codex folds usage rows.
+  assert.equal(data.final_metrics.total_steps, data.steps.length); assert.equal(data.steps[0].step_id, 1);
+  assert.equal(data.final_metrics.total_prompt_tokens, 3);
+  assert.ok(data.steps.some(item => item.message === 'hi' || item.observation?.results.length));
+  assert.ok(data.steps.some(item => item.tool_calls?.length || item.observation?.results.length));
+});
 // | Review 13 | Must pass | Must refuse / repair |
 for (const [client, reader] of samples) test(`review 14: ${client} BOM transcripts preserve messages and file capture`, async t => {
   const root = await rootOf(t), file = join(root, 'transcript.jsonl');
@@ -959,7 +997,7 @@ test('fuzz: the seeded odd trajectories all satisfy validate()', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'atif-fuzz-')); t.after(() => rm(dir, { recursive: true, force: true }));
   const { files, failures } = await fuzz(dir, { n: 100, stressSizes: { length: 2000, depth: 120, width: 150,
     userLines: 200, readerLines: 200, timestampLength: 2000, pemMarkers: 200 } });
-  assert.deepEqual(failures, []); assert.equal(files.length, 120);
+  assert.deepEqual(failures, []); assert.equal(files.length, 124);
   for (const file of files) assert.ok(validate(JSON.parse(await readFile(file, 'utf8'))), file);
   const users = JSON.parse(await readFile(files[104], 'utf8'));
   assert.equal(users.steps.length, 200); assert.ok(users.steps.every(item => item.source === 'user'));

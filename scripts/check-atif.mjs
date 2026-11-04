@@ -196,6 +196,9 @@ export function stress(seed = 114, { length = 1200000, depth = 3000, width = 500
   const captures = samples.map(([client, , transcript]) => ({ client, transcript, message: 'Start', outcome: 'Done',
     usage: { prompt_tokens: 2, completion_tokens: 1, cached_tokens: 1, cost_usd: 0.25 } }));
   const emptyRows = samples.map(([client]) => ({ client, transcript: '{}\n'.repeat(readerLines) }));
+  const bare = { 'claude-code': '{"message":{"content":[]}}', codex: '{"type":"message"}', opencode: '{"x":0}' };
+  for (const [client] of samples) emptyRows.push({ client, transcript: (bare[client] + '\n').repeat(readerLines) });
+  emptyRows.push({ client: 'opencode', transcript: '{"info":{}}\n{"parts":[]}\n{"type":"unknown"}\n'.repeat(readerLines / 3) });
   return [long, deep, counts, wide, users, repeated, proto, ...lines, hostile, pem, ...captures, ...emptyRows];
 }
 // (a) soundness, (b) totality, (c) valid output, (d) strict identity.

@@ -49,7 +49,26 @@ export function step(value = {}) {
     source: value.source ?? 'agent', message: value.message ?? null,
     model_name: value.model_name ?? null, ...value, metrics: { ...(object(value.metrics) ? value.metrics : {}), ...metrics(value.metrics) } };
 }
+const bareFields = ['step_id', 'timestamp', 'source', 'model_name'];
+// A row that carried no text, reasoning, call, result, usage or other field is not a step.
+function carries(value) {
+  if (value === null || typeof value !== 'object') return value != null && value !== '';
+  for (const key in value) {
+    if (!Object.hasOwn(value, key) || bareFields.includes(key)) continue;
+    const field = value[key];
+    if (field === null || field === undefined || field === '') continue;
+    if (key === 'tool_calls') { if (!Array.isArray(field) || field.length) return true; continue; }
+    if (key === 'observation') { if (!object(field) || !Array.isArray(field.results) || field.results.length) return true; continue; }
+    if (key === 'metrics' && object(field)) {
+      for (const name in field) if (Object.hasOwn(field, name) && field[name] != null) return true;
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
 export function trajectory(context = {}, steps = []) {
+  steps = steps.filter(carries);
   return normalize({ schema_version: SCHEMA_VERSION, session_id: context.session_id ?? null,
     agent: { name: 'okit-plugin', version: context.version ?? 'unknown', model_name: context.model ?? null,
       extra: { role: context.role ?? 'executor', client: context.client ?? null,
