@@ -9,10 +9,48 @@ import { capture } from '../src/trajectory/capture.js';
 import { TOOLS } from '../src/mcp/tools.js';
 import { samples } from './helpers/trajectory-samples.js';
 import { codexFixture } from './helpers/trajectory-samples.js';
-import { fuzz, diff } from '../scripts/check-atif.mjs';
+import { fuzz, diff, conservation, conservationCases } from '../scripts/check-atif.mjs';
 import { redact } from '../src/trajectory/redact.js';
 import { settings } from '../src/trajectory/config.js';
 const context = { session_id: 'atif', model: 'example-model' };
+// | Review 13 | Must pass | Must refuse / repair |
+// | conservation | usage moved once; metadata kept | restored usage; discarded receipts |
+test('review 13 finding 1: orphan result does not restore folded prompt tokens', () => {
+  const input = { steps: [{ source: 'agent', message: 'A', metrics: { prompt_tokens: 10 } },
+    { source: 'system', message: 'B', metrics: { prompt_tokens: 2 }, observation: { results: [{ content: 'ok' }] } }] };
+  const output = normalize(input);
+  assert.equal(output.final_metrics.total_prompt_tokens, 12);
+  assert.deepEqual(conservation(input, output), []);
+});
+test('review 13 finding 2: null usage retains the system metrics receipt', () => {
+  const input = { steps: [{ source: 'system', message: 'B', metrics: { prompt_tokens: null,
+    completion_tokens: null, cached_tokens: null, cost_usd: null, extra: { receipt: 'keep-me' } } }] };
+  const output = normalize(input);
+  assert.deepEqual(conservation(input, output), []);
+  assert.equal(output.steps[0].extra.metrics.extra.receipt, 'keep-me');
+});
+test('review 13: conservation oracle covers fixtures and 300 seeded multi-step legacy files', async () => {
+  for (const folder of ['atif-diff', 'atif-valid']) {
+    const dir = new URL(`./fixtures/${folder}/`, import.meta.url);
+    for (const name of (await readdir(dir)).filter(name => name.endsWith('.json') && name !== 'verdicts.json')) {
+      const input = JSON.parse(await readFile(new URL(name, dir)));
+      assert.deepEqual(conservation(input, normalize(input)), [], `${folder}/${name}`);
+    }
+  }
+  for (const [index, input] of [...conservationCases(300)].entries()) {
+    const output = normalize(input); assert.ok(validate(output));
+    assert.deepEqual(conservation(input, output), [], `generated case ${index}`);
+  }
+});
+test('review 13: conservation oracle rejects duplicated usage and lost metadata', () => {
+  const input = [...conservationCases(1)][0], output = normalize(input);
+  const duplicate = structuredClone(output); duplicate.steps[0].metrics.completion_tokens++;
+  assert.ok(conservation(input, duplicate).some(reason => reason.includes('completion_tokens changed')));
+  const lost = structuredClone(output); delete lost.steps[0].extra;
+  assert.ok(conservation(input, lost).some(reason => reason.includes('metadata')));
+  const stale = structuredClone(output); stale.final_metrics.total_cached_tokens++;
+  assert.ok(conservation(input, stale).some(reason => reason.includes('total_cached_tokens')));
+});
 // | Review 12 | Must pass | Must refuse / repair |
 // | timestamps | bounded ISO dates | long digits, plus runs, line terminators |
 // | capture | exact step/usage totals | stale reader totals, duplicate usage |

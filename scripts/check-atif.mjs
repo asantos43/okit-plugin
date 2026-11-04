@@ -84,6 +84,82 @@ function generator(seed) {
 }
 
 const kinds = ['steps', 'raw', 'capped', 'legacy', 'capture', 'valid'];
+const counters = ['prompt_tokens', 'completion_tokens', 'cached_tokens', 'cost_usd'];
+const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+// The only lossy usage repairs: null/invalid counters and invalid token arrays.
+const usable = (key, value) => typeof value === 'number' && Number.isFinite(value) && value >= 0
+  && (key === 'cost_usd' ? value <= Number.MAX_SAFE_INTEGER : Number.isSafeInteger(value));
+export function conservation(input, output) {
+  const failures = [], before = Array.isArray(input?.steps) ? input.steps : [], after = output.steps;
+  const identity = validate(input);
+  for (const key of counters) {
+    const sum = steps => steps.reduce((n, step) => usable(key, step?.metrics?.[key])
+      ? n + (key === 'cost_usd' ? step.metrics[key] : BigInt(step.metrics[key])) : n, key === 'cost_usd' ? 0 : 0n);
+    const a = sum(before), b = sum(after);
+    const equal = (x, y) => key === 'cost_usd' ? Math.abs(x - y) <= Number.EPSILON * Math.max(1, Math.abs(x), Math.abs(y)) * (before.length + 1) : x === y;
+    if (!equal(a, b)) failures.push(`conservation: ${key} changed`);
+    const total = output.final_metrics?.[`total_${key}`], stored = input?.final_metrics?.[`total_${key}`];
+    // Strict identity includes independently recorded totals; stored totals can outlive capped steps.
+    if (identity || usable(key, stored)) {
+      if (total !== stored) failures.push(`conservation: stored total_${key} changed`);
+    } else if (output.final_metrics) {
+      const present = after.some(step => usable(key, step?.metrics?.[key]));
+      const expected = !present || b > Number.MAX_SAFE_INTEGER ? null : Number(b);
+      if (expected === null ? total !== null : typeof total !== 'number'
+        || !equal(key === 'cost_usd' ? total : BigInt(total), b)) failures.push(`conservation: total_${key} differs from steps`);
+    }
+  }
+  return [...failures, ...metadataConservation(before, after)];
+}
+function metadataConservation(before, after) {
+  const fields = new Set(['step_id', 'timestamp', 'source', 'message', 'extra', 'metrics', 'observation',
+    'model_name', 'reasoning_effort', 'reasoning_content', 'tool_calls', 'is_copied_context', 'llm_call_count']);
+  const bags = new Map(), failures = [];
+  const signature = (key, value) => JSON.stringify([key, value]);
+  for (const step of after) {
+    const id = JSON.stringify(step.message ?? ''), bag = bags.get(id) ?? new Set(); bags.set(id, bag);
+    const pending = [step.extra, step.metrics];
+    while (pending.length) {
+      const value = pending.pop(); if (!record(value)) continue;
+      for (const [key, child] of Object.entries(value)) {
+        bag.add(signature(key, child)); if (record(child)) pending.push(child);
+      }
+    }
+  }
+  for (const step of before) {
+    const message = step?.message ?? '';
+    const bag = bags.get(JSON.stringify(message)) ?? bags.get(JSON.stringify(JSON.stringify(message))) ?? new Set();
+    const entries = [...Object.entries(record(step?.extra) ? step.extra : {}),
+      ...Object.entries(record(step?.metrics) ? step.metrics : {}).filter(([key]) => !counters.includes(key) && key !== 'extra'),
+      ...Object.entries(record(step?.metrics?.extra) ? step.metrics.extra : {}),
+      ...Object.entries(record(step) ? step : {}).filter(([key]) => !fields.has(key))];
+    for (const [key, value] of entries) {
+      if (value == null || ['failed_calls', 'failed_results'].includes(key)) continue; // Rebound reference bookkeeping.
+      if (['prompt_token_ids', 'completion_token_ids', 'logprobs'].includes(key)
+        && (!Array.isArray(value) || !value.every(n => typeof n === 'number' && Number.isFinite(n)
+          && (key === 'logprobs' || Number.isSafeInteger(n))))) continue;
+      if (!bag.has(signature(key, value))) failures.push(`conservation: metadata ${key} lost from ${step?.message ?? ''}`);
+    }
+  }
+  return failures;
+}
+export function* conservationCases(n = 300, seed = 114) {
+  const rand = random(seed), pick = values => values[Math.floor(rand() * values.length)];
+  for (let index = 0; index < n; index++) {
+    const steps = Array.from({ length: 4 + Math.floor(rand() * 8) }, (_, i) => ({
+      step_id: i + 1, source: i % 3 === 0 ? 'agent' : pick(['system', 'user']), message: `case-${index}-${i}`,
+      metrics: { prompt_tokens: pick([null, 2, 10, Number.MAX_SAFE_INTEGER, -1, '2']),
+        completion_tokens: pick([null, 0, 4]), cached_tokens: pick([null, 1, 3]), cost_usd: pick([null, 0.25, 0.5]),
+        extra: { receipt: `receipt-${i}` }, vendor: { index: i },
+        ...(i % 2 ? { prompt_token_ids: [i], logprobs: [-0.5] } : {}) },
+      extra: { receipt: `step-${i}`, ...(index % 3 === 0 ? { vendor: `original-${i}` } : {}) }, vendor: `unknown-${i}`,
+      ...(i % 3 === 0 ? { tool_calls: [{ tool_call_id: `call-${i}`, function_name: 'read', arguments: '{}' }] } : {}),
+      ...(i % 2 ? { observation: { results: [{ content: 'ok', ...(i % 4 === 1 ? { source_call_id: `call-${i - 1}` } : {}) }] } } : {}),
+    }));
+    if (index % 2) steps.push({ source: 'system', message: '', metrics: { prompt_tokens: 2 } });
+    yield { agent: { name: 'legacy', version: null }, steps };
+  }
+}
 export function stress(seed = 114, { length = 1200000, depth = 3000, width = 50000, userLines = 20000, readerLines = 24000,
   timestampLength = 64000, pemMarkers = 16000 } = {}) {
   const rand = random(seed), base = () => ({ agent: { name: 'stress', version: '1' }, steps: [{ source: 'agent', message: 'Root' }] });
@@ -146,6 +222,7 @@ export async function diff(dir) {
         } catch (error) { fail(`a: validate threw: ${error.message}`); }
       }
       const pure = normalize(input), output = normalize(input, { dir: join(dir, 'out') });
+      for (const reason of conservation(input, pure)) fail(reason);
       await writeFile(join(dir, 'out', name), `${JSON.stringify(output, null, 2)}\n`);
       if (!validate(pure) || !validate(output)) fail('c: normalize output is invalid');
       if (!skipIdentity && oracle?.strict && !isDeepStrictEqual(input, pure)) fail('d: normalize changed strict Harbor input');
@@ -163,6 +240,13 @@ export async function fuzz(dir, { n = 200, seed = 114, stressSizes } = {}) {
   const configure = (extra = {}) => writeFile(join(root, 'config.json'),
     JSON.stringify({ trajectory: { enabled: true, dir: out, maxBytes: 1000000000, ...extra } }));
   try {
+    for (const [index, input] of [...conservationCases(n, seed)].entries()) {
+      try {
+        const output = normalize(input), problems = conservation(input, output);
+        if (problems.length) throw new Error(problems.join('; '));
+        await writeFile(join(out, `conservation-${seed}-${index}.json`), JSON.stringify(output));
+      } catch (error) { failures.push({ index, kind: 'conservation', error: error.message }); }
+    }
     for (let index = 0; index < n; index++) {
       const kind = kinds[index % kinds.length], id = `fuzz-${seed}-${index}`, file = join(out, `okit-plugin-${id}.json`);
       try {

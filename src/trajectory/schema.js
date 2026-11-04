@@ -79,12 +79,15 @@ function confine(value, allowed) {
   const entries = Object.entries(object(value) ? value : {}), strays = entries.filter(([key]) => !allowed.includes(key));
   const kept = Object.fromEntries(entries.filter(([key]) => allowed.includes(key)));
   if (!optional(kept.extra, object)) delete kept.extra;
-  if (strays.length) kept.extra = { ...kept.extra, ...Object.fromEntries(strays) };
+  if (strays.length) kept.extra = {
+    ...(strays.some(([key]) => Object.hasOwn(kept.extra ?? {}, key)) ? { extra: kept.extra } : kept.extra),
+    ...Object.fromEntries(strays) };
   return kept;
 }
 function usageOf(value) {
   const kept = confine(value, [...usageKeys, ...tokenArrays, 'extra']);
-  for (const key of usageKeys) if (kept[key] == null || !(key === 'cost_usd' ? real : integer)(kept[key])) delete kept[key];
+  // Null/invalid usage is the only lossy repair; metadata is retained independently.
+  for (const key of usageKeys) if (amount(key, kept[key]) === null) delete kept[key];
   for (const key of tokenArrays) if (!numberList(kept[key], key !== 'logprobs')) delete kept[key];
   return kept;
 }
@@ -107,7 +110,7 @@ function argumentsObject(value) {
 }
 function normalizeStep(value) {
   const input = boundedClone(object(value) ? value : { message: value });
-  const item = { source: 'agent', message: '', ...input };
+  let item = { source: 'agent', message: '', ...input };
   item.metrics = usageOf(input.metrics);
   if (!['agent', 'user', 'system'].includes(item.source)) item.source = 'agent';
   if (!optional(item.extra, object)) delete item.extra;
@@ -123,9 +126,7 @@ function normalizeStep(value) {
     && (Object.keys(item.metrics).length || item.reasoning_content != null)) delete item.llm_call_count;
   if (!optional(item.reasoning_content, text)) delete item.reasoning_content;
   item.message = item.message == null ? '' : content(item.message) ? item.message : JSON.stringify(item.message);
-  for (const key of Object.keys(item).filter(key => !stepFields.includes(key))) {
-    item.extra ??= {}; ownData(item.extra, key, item[key]); delete item[key];
-  }
+  item = confine(item, stepFields);
   item.tool_calls = (Array.isArray(item.tool_calls) ? item.tool_calls : []).map(value => {
     const call = confine(value, callFields);
     return {
@@ -198,12 +199,13 @@ function assignCallIds(steps) {
 }
 // Stored totals outlive capped steps; only restructuring permits recomputation.
 function finalMetrics(steps, stored, oldLength, restructured) {
-  if (stored === undefined) return totals(steps);
+  if (stored === undefined || stored !== null && !object(stored)) return totals(steps);
   if (stored === null) return null;
   const kept = confine(stored, finalFields), computed = totals(steps);
   for (const key of finalFields.filter(key => key !== 'extra')) {
     const check = key === 'total_cost_usd' ? real : integer;
-    if (Object.hasOwn(kept, key) && !optional(kept[key], check)) kept[key] = computed[key];
+    if (key !== 'total_steps' ? amount(key.slice(6), kept[key]) === null
+      : Object.hasOwn(kept, key) && !optional(kept[key], check)) kept[key] = computed[key];
     if (restructured && key !== 'total_steps' && computed[key] != null
       && (kept[key] ?? 0) < computed[key]) kept[key] = computed[key];
     if (restructured && computed[key] === null && steps.some(item => amount(key.slice(6), item.metrics?.[key.slice(6)]) !== null)) kept[key] = null;
@@ -263,23 +265,36 @@ export function normalize(data = {}, { producer = false, dir } = {}) {
     let { extra: usageExtra, ...usage } = item.metrics;
     let movedUsage = false;
     const empty = !item.message && !item.tool_calls.length && !item.observation?.results?.length && !item.reasoning_content;
-    const keepExtra = Object.keys(item.extra ?? {}).some(key => !['failed_calls', 'failed_results'].includes(key));
+    let keepExtra = Object.keys(item.extra ?? {}).some(key => !['failed_calls', 'failed_results'].includes(key));
     if (item.source !== 'agent' && Object.keys(usage).length) {
       const canFold = previous && Object.entries(usage).every(([key, n]) => tokenArrays.includes(key)
-        || amount(key, (previous.metrics?.[key] ?? 0) + n) !== null);
+        || amount(key, previous.metrics?.[key] ?? 0) !== null
+          && (previous.metrics?.[key] ?? 0) + n <= Number.MAX_SAFE_INTEGER
+          && amount(key, (previous.metrics?.[key] ?? 0) + n) !== null);
       if (canFold) {
         previous.metrics ??= {};
         for (const [key, n] of Object.entries(usage)) {
-          if (tokenArrays.includes(key)) {
-            previous.metrics[key] ??= [];
-            for (const token of n) previous.metrics[key].push(token);
-          } else previous.metrics[key] = (previous.metrics[key] ?? 0) + n;
+          if (!tokenArrays.includes(key)) previous.metrics[key] = (previous.metrics[key] ?? 0) + n;
         }
-        if (usageExtra) for (const [key, value] of Object.entries(usageExtra)) ownData(previous.metrics.extra ??= {}, key, value);
-        usage = {}; usageExtra = undefined;
+        if (usageExtra) for (const [key, value] of Object.entries(usageExtra)) {
+          if (!Object.hasOwn(previous.metrics.extra ?? {}, key)) ownData(previous.metrics.extra ??= {}, key, value);
+        }
+        // Counters move once. Metadata stays with its origin even when arrays are folded.
+        usage = {};
         restructured = true; movedUsage = true;
       }
       else item.source = 'agent';
+    }
+    if (item.source !== 'agent' || movedUsage) {
+      const metadata = Object.fromEntries(Object.entries(item.metrics).filter(([key]) => !usageKeys.includes(key)));
+      if (Object.keys(metadata).length) {
+        if (Object.hasOwn(item.extra ?? {}, 'metrics')) {
+          item.source = 'agent'; usage = metadata;
+        } else {
+          item.extra ??= {}; ownData(item.extra, 'metrics', metadata); keepExtra = true;
+          usageExtra = undefined;
+        }
+      }
     }
     if (item.tool_calls.length || item.observation?.results?.length || item.reasoning_content || (empty && keepExtra)) item.source = 'agent';
     if (item.source !== 'agent') for (const key of agentFields) {
@@ -288,7 +303,7 @@ export function normalize(data = {}, { producer = false, dir } = {}) {
     else {
       const kept = { ...usage, ...(usageExtra ? { extra: usageExtra } : {}) };
       if (Object.keys(kept).length) item.metrics = kept; else delete item.metrics;
-      if (!producer && (item.observation?.results?.length ?? 0) === resultCount
+      if (!producer && !movedUsage && (item.observation?.results?.length ?? 0) === resultCount
         && Object.hasOwn(value ?? {}, 'metrics') && optional(value.metrics, validUsage)) item.metrics = boundedClone(value.metrics);
       if (!item.tool_calls.length) {
         if (!producer && (value?.tool_calls === null || Array.isArray(value?.tool_calls) && !value.tool_calls.length)) item.tool_calls = value.tool_calls;
