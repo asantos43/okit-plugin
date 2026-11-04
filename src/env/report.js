@@ -17,7 +17,7 @@ const WORDS = {
     unreadableRecord: 'Installation record ignored (not a JSON object)',
     configured: 'Configured', missing: 'Missing', setup: 'model choices',
     askUser: (command) => `Ask the user to run \`${command}\``,
-    callTool: (tool, client) => `Call \`${tool}\` with the client ${client} and the percentage that is left`,
+    callTool: (tool, client, account) => `Call \`${tool}\` with the client ${client}${account ? ` and the account ${account}` : ''} and the percentage that is left`,
     missingSetup: 'model choices have not been saved', missingPath: 'the command is not in PATH',
     missingModels: (client) => `no active model confirmed for ${client}`,
     missingQuota: (client) => `no remaining allowance recorded for ${client}`,
@@ -34,7 +34,7 @@ const WORDS = {
     unreadableRecord: 'Registro de instalação ignorado (não é um objeto JSON)',
     configured: 'Configurado', missing: 'Falta', setup: 'escolha de modelos',
     askUser: (command) => `Peça ao usuário para rodar \`${command}\``,
-    callTool: (tool, client) => `Chame \`${tool}\` com o cliente ${client} e a porcentagem que resta`,
+    callTool: (tool, client, account) => `Chame \`${tool}\` com o cliente ${client}${account ? ` e a conta ${account}` : ''} e a porcentagem que resta`,
     missingSetup: 'a escolha de modelos ainda não foi salva', missingPath: 'o comando não está no PATH',
     missingModels: (client) => `nenhum modelo ativo confirmado para ${client}`,
     missingQuota: (client) => `nenhuma cota restante registrada para ${client}`,
@@ -69,11 +69,12 @@ export function formatEnvironmentReport(report, locale = 'en') {
   const itemText = (entry) => `${words[entry.item ?? entry]}${entry.client ? ` (${entry.client})` : ''}${entry.sizes ? `: ${entry.sizes.join(', ')}` : ''}`;
   lines.push(`${words.configured}: ${plugin.configured.map(itemText).join(', ') || words.none}.`);
   for (const entry of plugin.missing) {
-    const text = entry.item === 'models' ? words.missingModels(entry.client)
-      : entry.item === 'quota' ? words.missingQuota(entry.client)
-      : entry.item === 'sizes' ? words.missingSizes(entry.client, entry.sizes)
+    const target = entry.account ? `${entry.client} (${locale === 'pt-BR' ? 'conta' : 'account'} ${entry.account})` : entry.client;
+    const text = entry.item === 'models' ? words.missingModels(target)
+      : entry.item === 'quota' ? words.missingQuota(target)
+      : entry.item === 'sizes' ? words.missingSizes(target, entry.sizes)
         : entry.item === 'path' ? words.missingPath : words.missingSetup;
-    lines.push(`${words.missing}: ${text}. ${entry.tool ? words.callTool(entry.tool, entry.client) : words.askUser(entry.command)}.`);
+    lines.push(`${words.missing}: ${text}. ${entry.tool ? words.callTool(entry.tool, entry.client, entry.account) : words.askUser(entry.command)}.`);
   }
   lines.push(readyLine(readiness(report), locale));
   return lines.join('\n');

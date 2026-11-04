@@ -195,6 +195,7 @@ export async function environmentSnapshot(deps = {}) {
   const rows = clients.map((client) => {
     const accounts = accountsOfClient(client);
     const accountRows = accounts.map((account) => {
+    const target = { client, ...account.isDefault ? {} : { account: account.id } };
     const login = logins.get(account.key);
     const warnings = accountWarnings(client, deps.env);
     const reading = account.isDefault ? detected.clients.find((entry) => entry.client === client) : observations.get(account.key);
@@ -204,16 +205,16 @@ export async function environmentSnapshot(deps = {}) {
     const models = confirmedModels(config, client, catalog, installed);
     const available = actorPairs(config, client).filter((actor) => confirmedActor(config, client, catalog, installed, actor));
     const { cap, source } = capOf(normalizeLimits(deps.limits?.limits ?? config.limits), client);
-    if (installed !== false && !available.length) missing.push({ item: 'models', client,
+    if (installed !== false && !available.length) missing.push({ item: 'models', ...target,
       command: `${command} setup${setupPending(config) ? '' : ' --again'}` });
     else if (available.length) configured.push({ item: 'models', client });
     const sizes = Object.keys(config.actors.sizeClasses).filter((size) => !available.some((actor) => actor.sizes.includes(size)));
-    if (available.length && sizes.length) missing.push({ item: 'sizes', client, sizes, command: `${command} setup` });
+    if (available.length && sizes.length) missing.push({ item: 'sizes', ...target, sizes, command: `${command} setup` });
     const quota = rowOf(client, readingOf(quotas.get(account.key).reading), quotas.get(account.key).at,
-      config, labelsOf(), now, deps.orders);
+      config, labelsOf(), now, deps.orders, target);
     // The item whose remedy is a tool carries the tool and no command: the model reads this object, so a command of
     // the kit in it would be a command the model is told to run.
-    if (installed !== false && quota.status === 'off') missing.push({ item: 'quota', client, tool: 'quota_set' });
+    if (installed !== false && quota.status === 'off') missing.push({ item: 'quota', ...target, tool: 'quota_set' });
     const raw = quotas.get(account.key).reading;
     const recorded = Date.parse(raw?.recordedAt);
     quota.ageMinutes = Number.isFinite(recorded) ? Math.max(0, now - recorded) / 60_000 : raw?.ageMinutes ?? null;

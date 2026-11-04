@@ -63,10 +63,10 @@ export async function statusTable(root, deps = {}) {
   const observations = accountRows(snapshot.clients.filter((row) => clients.includes(row.client)));
   const remedies = snapshot.plugin.missing
     .filter((entry) => entry.item === 'models' && clients.includes(entry.client))
-    .map((entry) => labels.modelsMissing(entry.client, entry.command));
+    .map((entry) => labels.modelsMissing(entry.client, entry.command, entry.account));
   const rows = observations.map((row) => ({ ...row.quota,
     ...rowOf(accountName(row), readingOf(row.reading), row.quotaReadAt, snapshot.config,
-      labels, snapshot.now, deps.orders), models: row.models, actors: row.actors, slots: row.slots,
+      labels, snapshot.now, deps.orders, { client: row.client, account: row.account }), models: row.models, actors: row.actors, slots: row.slots,
     ...(row.installed === false ? { cells: [row.client, '-', '-', '-', labels.optional, '-'] } : {}) }));
   const capacity = observations.filter((row) => row.installed !== false).map((row) => labels.cap(accountName(row),
     row.slotEvidence.running, row.slots.total, labels.capSource[row.slotEvidence.source], row.slots.available)).join('; ');

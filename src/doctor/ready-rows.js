@@ -63,7 +63,9 @@ export function readinessRows({ snapshot, kit, ui, program }) {
     const expired = row.candidates.some((actor) => actor.restrictions.includes('expired-quota'));
     const state = row.quota.status === 'off' ? 'quotaOff' : expired ? 'quotaExpired' : 'quotaOk';
     rows.push({ id: 'quota', client: row.client, ...account, label: words.quota, status: state === 'quotaOk' ? 'ok' : 'warn',
-      detail: words[state], ...state === 'quotaOk' ? {} : { fix: words.fixQuota } });
+      detail: words[state], ...state === 'quotaOk' ? {} : { fix: words.fixQuota + (row.account && row.account !== 'default'
+        ? (ui.locale === 'pt-BR' ? ` com o cliente ${row.client} e a conta ${row.account}`
+          : ` with the client ${row.client} and the account ${row.account}`) : '') } });
   }
   const line = snapshot?.plugin?.statusline;
   if (line) {

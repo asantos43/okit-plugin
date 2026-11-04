@@ -32,12 +32,115 @@ import { redact } from '../src/telemetry/catalog.js';
 import childProcess from 'node:child_process';
 import { daemonOperation } from '../src/core/daemon.js';
 import { inboxAdd } from '../src/inbox.js';
+import { callTool, respond } from '../src/mcp/server.js';
+import { labelsOf } from '../src/env/quota.js';
+
+// | Round 4 | Must pass | Must refuse |
+// | Guidance | bare client and stable extra id; unchanged default | display label as client |
+// | MCP errors | saved/request language and every account reason | raw English in pt-BR |
+test('round 4: MCP localizes unknown and invalid accounts for every account tool', async t => {
+  const root = await temporary(t);
+  for (const name of ['quota_show', 'quota_set', 'acquire_slot', 'limits_status']) {
+    for (const [account, expected] of [['ghost', 'Conta desconhecida.'], ['../bad', 'Id de conta inválido.']]) {
+      const args = { client: 'codex', account, ...(name === 'quota_set' ? { pct: 50 } : {}),
+        ...(name === 'acquire_slot' ? { runId: 'round4' } : {}) };
+      const response = await respond({ jsonrpc: '2.0', id: 4, method: 'tools/call',
+        params: { name, arguments: args } }, { tools: TOOLS, ctx: { root, config: { language: 'pt-BR' } } });
+      assert.equal(response.result.isError, true, name);
+      assert.equal(response.result.content[0].text, expected, name);
+    }
+  }
+});
+
+test('round 4: every account refusal uses the CLI localizer at the MCP boundary', async t => {
+  const root = await temporary(t);
+  const reasons = [
+    ['Unknown account.', 'Conta desconhecida.'],
+    ['Invalid account id.', 'Id de conta inválido.'],
+    ['Unsupported account client.', 'Cliente de conta não suportado.'],
+    ['Account folder must be absolute on this system.', 'A pasta da conta deve ser absoluta neste sistema.'],
+    ['Account folders must be unique within the client.', 'As pastas das contas devem ser únicas no cliente.'],
+    ['Account label must be non-empty text of at most 40 characters without controls.', 'O nome da conta deve ser um texto não vazio de até 40 caracteres sem controles.'],
+    ['Account labels must be unique within the client.', 'Os nomes das contas devem ser únicos no cliente.'],
+    ['Use unique account ids, valid labels and absolute config directories; default has no directory.', 'Utilize ids de conta únicos, nomes válidos e pastas de configuração absolutas; default não tem pasta.'],
+    ['The default account cannot be removed.', 'A conta default não pode ser removida.'],
+    ['Account configuration must be an object with readable profiles.', 'A configuração de contas deve ser um objeto com perfis legíveis.'],
+    ['Cannot update settings (EACCES).', 'Não foi possível atualizar os ajustes (EACCES).'],
+    ['Cannot update settings (ENOSPC).', 'Não foi possível atualizar os ajustes (ENOSPC).'],
+    ['Settings could not be read. Inspect them: MCP config_get {}', 'Não foi possível ler os ajustes. Confira: MCP config_get {}'],
+  ];
+  for (const [en, pt] of reasons) {
+    const tools = [{ name: 'refusal', handler: async () => { throw new Error(en); } }];
+    for (const [config, args, expected] of [
+      [{ language: 'pt-BR' }, {}, pt], [{ language: 'en' }, { locale: 'pt-BR' }, pt],
+      [{ language: 'pt-BR' }, { locale: 'en' }, en], [{}, {}, en],
+    ]) {
+      assert.equal((await callTool(tools, { root, config }, 'refusal', args)).text, expected, en);
+    }
+    assert.equal(localizeReason(en, 'pt-BR'), pt);
+    assert.equal((await callTool([{ name: 'refusal', handler: () => { throw new Error(pt); } }],
+      { root, config: { language: 'pt-BR' } }, 'refusal', {})).text, pt);
+    await fs.writeFile(join(root, 'config.json'), JSON.stringify({ language: 'pt-BR' }));
+    assert.equal((await callTool(tools, { root }, 'refusal', {})).text, pt);
+  }
+});
 
 const client = 'claude-code';
 const accounts = { [client]: [{ id: 'work', label: 'Work', configDir: '/work' }] };
 const round3Accounts = { accounts: Object.fromEntries(['codex', 'claude-code'].map(name =>
   [name, [{ id: 'work', label: 'Renamed label', configDir: `/accounts/${name}/work` }]])) };
 const childStub = () => Object.assign(new EventEmitter(), { pid: 123, unref() {} });
+test('round 4: account guidance targets stable ids and can be followed without changing default quota', async t => {
+  const root = await temporary(t);
+  const config = { accounts: { codex: [{ id: 'work', label: 'Production', configDir: '/work' }] },
+    profiles: { codex: { simple: { model: 'm' }, normal: { model: 'm' }, hard: { model: 'm' } } } };
+  const deps = { ...observation(config), root, client: 'codex',
+    versions: { codex: { installed: true } },
+    readQuota: async (_client, account) => account ? null : { remainingPct: 80, source: 'manual' },
+    detectClients: async () => ({ clients: [{ client: 'codex', installed: true, models: ['m'], source: 'listing' }] }) };
+  const snapshot = await environmentSnapshot(deps);
+  const guidance = snapshot.plugin.missing.find(entry => entry.item === 'quota');
+  assert.deepEqual(guidance, { item: 'quota', client: 'codex', account: 'work', tool: 'quota_set' });
+  for (const entry of [...snapshot.plugin.missing, ...snapshot.plugin.configured].filter(entry => entry?.client)) {
+    assert.equal(entry.client, 'codex');
+    assert.ok(entry.account === undefined || entry.account === 'work');
+  }
+  for (const locale of ['en', 'pt-BR']) {
+    const target = locale === 'en' ? 'with the client codex and the account work' : 'com o cliente codex e a conta work';
+    assert.ok(formatEnvironmentReport(snapshot, locale).includes(target));
+    const status = await statusTable(root, { snapshot, locale, all: true, demands: [] });
+    const actors = await listActors({ snapshot, locale, all: true });
+    for (const text of [status.markdown, actors.markdown]) {
+      assert.match(text, /(?:client|cliente) "codex" (?:and the account|e a conta) work/);
+      assert.doesNotMatch(text, /(?:client|cliente) "codex: Production/);
+    }
+    const doctor = readinessRows({ snapshot, ui: { locale }, program: 'okit-plugin' });
+    assert.ok(doctor.rows.find(row => row.id === 'quota' && row.account === 'work').fix.includes(target));
+    assert.equal(labelsOf(locale).noQuota('codex', 'default'), labelsOf(locale).noQuota('codex'));
+    assert.equal(labelsOf(locale).noQuotaAsk('codex', 'default'), labelsOf(locale).noQuotaAsk('codex'));
+    assert.match(labelsOf(locale).noQuotaAsk('codex', 'work'), /(?:and the account|e a conta) work/);
+  }
+  await quotaSet(root, { client: 'codex', pct: 80 }, { config });
+  const { tool, item: _item, ...args } = guidance;
+  assert.equal((await callTool(TOOLS, { root, config }, tool, { ...args, pct: 55 })).isError, false);
+  assert.equal((await readJson(join(root, 'quota/codex.json'))).remainingPct, 80);
+  assert.equal((await readJson(join(root, 'quota/codex.work.json'))).remainingPct, 55);
+  const noReading = await environmentSnapshot({ ...deps, cache: new Map(), readQuota: async () => null });
+  assert.deepEqual(noReading.plugin.missing.filter(entry => entry.item === 'quota'), [
+    { item: 'quota', client: 'codex', tool: 'quota_set' }, guidance,
+  ]);
+  const noModels = await environmentSnapshot({ ...deps, cache: new Map(),
+    detectClients: async () => ({ clients: [{ client: 'codex', installed: true, models: [], source: 'listing' }] }) });
+  assert.ok(noModels.plugin.missing.some(entry => entry.item === 'models' && entry.account === 'work' && entry.client === 'codex'));
+  for (const locale of ['en', 'pt-BR']) {
+    const text = (await statusTable(root, { snapshot: noModels, locale, demands: [] })).markdown;
+    assert.match(text, /codex \((?:account|conta) work\)/);
+    assert.match(formatEnvironmentReport(noModels, locale), /codex \((?:account|conta) work\)/);
+  }
+  const partial = await environmentSnapshot({ ...deps, cache: new Map(), config: { ...config,
+    profiles: { codex: { simple: { model: 'm' }, normal: { model: 'absent' }, hard: { model: 'absent' } } } } });
+  assert.ok(partial.plugin.missing.some(entry => entry.item === 'sizes' && entry.account === 'work' && entry.client === 'codex'));
+});
 test('round 3: daemon process spawning honors the supplied client environment', async t => {
   const root = await temporary(t), calls = [];
   const env = { HOME: root, CODEX_HOME: join(root, 'custom-default') };

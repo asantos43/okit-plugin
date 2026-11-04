@@ -11,3 +11,5 @@ Localize account mutation and config_set filesystem failures using only a fixed 
 Use the selected account environment before spawning clients or listing models, refusing unknown accounts before launch.
 Retain non-default stable account ids in run history, native captures, trajectory reports and execution telemetry.
 Read Codex sessions under CODEX_HOME before the home fallback, preserving explicit session overrides.
+Keep bare clients and stable account ids in per-account quota and setup guidance across environment, status, actors and doctor reports.
+Localize all MCP account refusals through the CLI reason translator using the request locale or saved language.
