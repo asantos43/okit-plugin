@@ -165,7 +165,7 @@ async function install(defaults, present, hide) {
   if (!Object.hasOwn(clients, client)) fail(t(`Invalid client; choose: ${Object.keys(clients).join(', ')}`, `Cliente inválido; escolha: ${Object.keys(clients).join(', ')}`));
   const temporary = await fs.mkdtemp(join(tmpdir(), 'okit-bootstrap-'));
   const ps = (code, values) => {
-    const literal = (value) => "'" + String(value).replace(/'/g, "''") + "'";
+    const literal = (value) => present.powershellLiteral(value);
     const encoded = Buffer.from(`${code} ${values.map(literal).join(' ')}`, 'utf16le').toString('base64');
     return run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded]);
   };

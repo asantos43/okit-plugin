@@ -49,7 +49,8 @@ export async function listActors(deps = {}) {
         'not-logged-in': deps.locale === 'pt-BR' ? 'Conta deslogada.' : 'Account logged out.',
       })[reason]);
       return [JSON.stringify([candidate.model, candidate.effort]),
-        { ...candidate, freeSlots, quota, origin, reasons }];
+        // The actor names the client and the account; the display text is only in the table.
+        { ...candidate, ...(observation.account ? { account: observation.account } : {}), freeSlots, quota, origin, reasons }];
     }));
     if (!pairs.size) {
       notes.push(fill(messages.empty, { client }));

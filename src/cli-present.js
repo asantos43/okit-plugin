@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 // Human CLI views are kept separate from the presenter embedded in release scripts.
 import { createPresenter as basePresenter, TEXTS as BASE_TEXTS, clientLabel as baseClientLabel,
-  redactingWriter, localizeReason } from './install/present.js';
+  redactingWriter, localizeReason, powershellLiteral } from './install/present.js';
 import { quotedWord, shown as shownCommand } from './install/mcp-register.js';
 import { EPHEMERAL, isEphemeral, programWords } from './install/where.js';
 import { flagsOf } from './install/flags.js';
@@ -19,7 +19,7 @@ export function accountInstructions(row, { locale, platform, command, root }) {
   const variable = row.client === 'claude-code' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
   const executable = row.client === 'claude-code' ? 'claude' : 'codex';
   const assignment = (key, value, shell) => shell === 'win32'
-    ? `$env:${key}='${value.replaceAll("'", "''")}'; ` : `${key}=${quotedWord(value, 'linux')} `;
+    ? `$env:${key}=${powershellLiteral(value)}; ` : `${key}=${quotedWord(value, 'linux')} `;
   const lines = [];
   if (row.login !== 'logged-in') lines.push(`${pt ? 'O login é manual. Execute' : 'Login is manual. Run'}: ${assignment(variable, row.configDir, platform)}${executable}`);
   if (row.client === 'claude-code') {

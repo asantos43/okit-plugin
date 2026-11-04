@@ -207,7 +207,7 @@ export async function environmentSnapshot(deps = {}) {
     const { cap, source } = capOf(normalizeLimits(deps.limits?.limits ?? config.limits), client);
     if (installed !== false && !available.length) missing.push({ item: 'models', ...target,
       command: `${command} setup${setupPending(config) ? '' : ' --again'}` });
-    else if (available.length) configured.push({ item: 'models', client });
+    else if (available.length) configured.push({ item: 'models', ...target });
     const sizes = Object.keys(config.actors.sizeClasses).filter((size) => !available.some((actor) => actor.sizes.includes(size)));
     if (available.length && sizes.length) missing.push({ item: 'sizes', ...target, sizes, command: `${command} setup` });
     const quota = rowOf(client, readingOf(quotas.get(account.key).reading), quotas.get(account.key).at,
@@ -241,7 +241,7 @@ export async function environmentSnapshot(deps = {}) {
     const location = { config: installConfig(config.install), env: ['claude-code', 'codex'].includes(client)
       ? accountEnv(client, account, deps.env ?? process.env) : deps.env ?? process.env,
       home: deps.home ?? homeOf(deps.env, deps.platform) ?? homedir() };
-    return { ...account, login, warnings, client, inUse: client === inUse, installed, candidates, sizeCoverage,
+    return { ...account, account: account.id, login, warnings, client, inUse: client === inUse, installed, candidates, sizeCoverage,
       configPath: known.includes(client) ? clientRoot(client, location) : null,
       evidence: { models: reading?.source ?? 'unknown', reason: reading?.reason ?? null,
         error: reading?.error ?? null },
@@ -253,7 +253,7 @@ export async function environmentSnapshot(deps = {}) {
       slots: { total: cap, available: free },
       slotEvidence: { running: deps.limits?.byClient?.[account.key] ?? 0, source } };
     });
-    const { id: _id, key: _key, label: _label, isDefault: _default, configDir: _dir,
+    const { id: _id, key: _key, label: _label, isDefault: _default, configDir: _dir, account: _account,
       login: _login, warnings: _warnings, ...row } = accountRows[0];
     // One account is the row as it always was; the list of accounts appears only when there are several.
     return accountRows.length > 1 ? { ...row, accounts: accountRows } : row;

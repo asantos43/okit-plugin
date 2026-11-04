@@ -13,3 +13,7 @@ Retain non-default stable account ids in run history, native captures, trajector
 Read Codex sessions under CODEX_HOME before the home fallback, preserving explicit session overrides.
 Keep bare clients and stable account ids in per-account quota and setup guidance across environment, status, actors and doctor reports.
 Localize all MCP account refusals through the CLI reason translator using the request locale or saved language.
+Name the pure client and the stable account id in every account row of the JSON payloads (status, actors, environment, quota and doctor), keeping the display text in the table only.
+Double every PowerShell string delimiter (the typographic quotes too) in the paths of the login line, the collector command and the installers.
+Never let the status bar collector write a configuration folder that names no account into the file of another account.
+Give each configured model entry the account it belongs to, so the environment report tells the accounts apart.

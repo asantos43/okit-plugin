@@ -72,12 +72,29 @@ export function accountEnv(client, account, env, configEnv = CLIENT_ENV[client])
     ? env : { ...env, [configEnv]: account.configDir };
 }
 
-/** Compare lexical paths using the requested platform, without following links. */
+/**
+ * The account a folder names, or null when the folder names no saved account.
+ *
+ * The folder of an extra account is the one saved with it. The folder of the default is the one the client
+ * uses when no account overrides it: with no environment of its own, or with a client that never had accounts,
+ * the folder is the default's. A folder that names no saved account (the folder of an account that was removed,
+ * or one that was never saved) belongs to nobody: the caller must write nothing for it, or the reading of one
+ * account would overwrite the reading of another.
+ *
+ * @param {{client: string, config: object, env?: object, platform?: string}} input
+ * @returns {object|null} the account of the folder, or null when the folder names none
+ */
 export function accountOfConfigDir({ client, config, env = {}, platform = process.platform }) {
   const accounts = accountsOf(config, client);
   const dir = env[CLIENT_ENV[client]];
-  return (dir && accounts.find((account) => account.configDir
-    && normalizedDir(account.configDir, platform) === normalizedDir(dir, platform))) || accounts[0];
+  if (!dir) return accounts[0];
+  const named = accounts.find((account) => account.configDir
+    && normalizedDir(account.configDir, platform) === normalizedDir(dir, platform));
+  if (named) return named;
+  // The configuration knows the accounts of this client (even when every one of them was removed: the folder of
+  // a removed account stays and its collector still runs), so the folder names no account and belongs to nobody.
+  if (Object.hasOwn(config?.accounts ?? {}, client)) return null;
+  return accounts[0];
 }
 
 /** Generate a bounded slug once, reserving default and resolving collisions. */

@@ -15,12 +15,16 @@ import { readJson } from '../src/state.js';
 import { makeSpawner } from '../src/spawn-process.js';
 import { statusTable } from '../src/status.js';
 import { detectClients } from '../src/env/models.js';
-import { accountsProblem, withAccountAdded, withAccountRenamed } from '../src/accounts.js';
+import { accountsProblem, accountOfConfigDir, withAccountAdded, withAccountRenamed } from '../src/accounts.js';
 import { readinessRows } from '../src/doctor/ready-rows.js';
 import { formatEnvironmentReport } from '../src/env/report.js';
 import { listActors } from '../src/actors.js';
 import { configSet } from '../src/core/config.js';
-import { localizeReason } from '../src/install/present.js';
+import { localizeReason, powershellLiteral } from '../src/install/present.js';
+import { accountInstructions } from '../src/cli-present.js';
+import { quotedWord } from '../src/install/mcp-register.js';
+import { collectStatusline } from '../src/quota/statusline-collector.js';
+import { paths } from '../src/store.js';
 import { EventEmitter } from 'node:events';
 import { setTimeout as sleep } from 'node:timers/promises';
 import * as codex from '../adapters/codex/index.js';
@@ -659,4 +663,143 @@ test('round 2: config_set sanitizes writer and lock-directory errors', async (t)
   const blocked = await temporary(t);
   await fs.writeFile(join(blocked, 'locks'), 'file');
   await assert.rejects(configSet(blocked, { key: 'language', value: 'en' }), /Cannot update settings \(EEXIST\)/);
+});
+
+// | Round 5 | Must pass | Must refuse |
+// | Rows | pure client and stable account id in every account payload | the display text as the client |
+// | Quotes | every PowerShell delimiter doubled | a bare quote inside the string |
+// | Collector | an unregistered folder writes nothing | the reading of the default overwritten |
+// | Configured | one entry per account, with its id | the same entry twice |
+
+const accountPairs = (rows) => [...new Set(rows.map((row) => `${row.client}/${row.account}`))].sort();
+
+test('round 5: every account row of the JSON payloads names the pure client and the stable account id', async t => {
+  const root = await temporary(t);
+  const config = { accounts: { 'claude-code': [{ id: 'work', label: 'Producer', configDir: '/work' }] },
+    profiles: { 'claude-code': { simple: { model: 'm' }, normal: { model: 'm' }, hard: { model: 'm' } } } };
+  const deps = { ...observation(config), root };
+  const snapshot = await environmentSnapshot(deps);
+  const status = await statusTable(root, { snapshot, all: true, demands: [] });
+  assert.deepEqual(accountPairs(status.rows), ['claude-code/default', 'claude-code/work']);
+  for (const row of status.rows) {
+    assert.match(row.cells[0], /^claude-code: /, 'the table keeps the display text');
+    assert.equal(Object.hasOwn(row, 'label'), false, 'the label is not a field of the row');
+  }
+  const actors = await listActors({ snapshot, all: true });
+  assert.deepEqual(accountPairs(actors.actors), ['claude-code/default', 'claude-code/work']);
+  assert.deepEqual(accountPairs(snapshot.clients[0].accounts), ['claude-code/default', 'claude-code/work']);
+  const doctor = readinessRows({ snapshot, ui: { locale: 'en' }, program: 'okit-plugin' });
+  assert.deepEqual(accountPairs(doctor.rows.filter((row) => row.client)), ['claude-code/default', 'claude-code/work']);
+  const shown = await quotaShow(root, { client: 'claude-code' }, { ...deps, config, cache: new Map() });
+  assert.deepEqual(shown.clients.map((row) => [row.client, row.account]), [['claude-code', 'default']]);
+  // The caps are counted under the pure client and the stable id, never under the label.
+  await acquireSlot(root, 'row-check', { client, account: 'work', config });
+  const limits = await limitsStatus(root, config);
+  assert.deepEqual(Object.keys(limits.byClient).sort(), ['claude-code:work']);
+  assert.ok(limits.caps['claude-code'] && limits.caps['claude-code:work']);
+  const renamedLimits = await limitsStatus(root, { ...config,
+    accounts: { 'claude-code': [{ id: 'work', label: 'Renamed', configDir: '/work' }] } });
+  assert.deepEqual(Object.keys(renamedLimits.byClient).sort(), Object.keys(limits.byClient).sort());
+  const renamed = await environmentSnapshot({ ...deps, cache: new Map(),
+    config: { ...config, accounts: { 'claude-code': [{ id: 'work', label: 'Renamed', configDir: '/work' }] } } });
+  const renamedStatus = await statusTable(root, { snapshot: renamed, all: true, demands: [] });
+  assert.deepEqual(renamedStatus.rows.map((row) => [row.client, row.account]),
+    status.rows.map((row) => [row.client, row.account]));
+  assert.notDeepEqual(renamedStatus.rows.map((row) => row.cells[0]), status.rows.map((row) => row.cells[0]));
+});
+
+test('round 5: a client with one account keeps the JSON it always had', async t => {
+  const root = await temporary(t);
+  const snapshot = await environmentSnapshot({ ...observation({}), root, cache: new Map() });
+  const status = await statusTable(root, { snapshot, all: true, demands: [] });
+  assert.deepEqual(status.rows.map((row) => row.client), ['claude-code']);
+  assert.equal(Object.hasOwn(status.rows[0], 'account'), false);
+  const actors = await listActors({ snapshot, all: true });
+  assert.equal(Object.hasOwn(actors.actors[0], 'account'), false);
+  assert.equal(Object.hasOwn(actors.actors[0], 'label'), false);
+  const shown = await quotaShow(root, { client: 'claude-code' }, { snapshot, config: {}, cache: new Map() });
+  assert.equal(Object.hasOwn(shown.clients[0], 'account'), false);
+});
+
+test('round 5: every PowerShell quoting doubles every delimiter of a string', async () => {
+  const directory = 'C:\\Users\\O’Brien\\acc';
+  const doubled = 'C:\\Users\\O’’Brien\\acc';
+  assert.equal(powershellLiteral(directory), `'${doubled}'`);
+  assert.equal(quotedWord(directory, 'win32'), `'${doubled}'`);
+  const instructions = accountInstructions({ client: 'codex', configDir: directory, login: 'logged-out' },
+    { locale: 'en', platform: 'win32', command: 'okit-plugin', root: 'C:\\state' });
+  assert.ok(instructions.some((line) => line.includes(`$env:CODEX_HOME='${doubled}'`)), instructions.join('\n'));
+  for (const quote of ['‘', '’', '‚', '‛']) {
+    assert.equal(powershellLiteral(`a${quote}b`), `'a${quote}${quote}b'`);
+  }
+});
+
+test('round 5: no source file quotes a path for PowerShell by hand', async () => {
+  const offenders = [];
+  const walk = async (folder) => {
+    for (const entry of await fs.readdir(folder, { withFileTypes: true })) {
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) await walk(path);
+      else if (entry.name.endsWith('.js')) {
+        const text = await fs.readFile(path, 'utf8');
+        // A string literal that is exactly two ASCII quotes is a hand-made doubling of a quote.
+        if (/(['"])''\1/.test(text)) offenders.push(path);
+      }
+    }
+  };
+  await walk('src');
+  assert.deepEqual(offenders, []);
+});
+
+const statuslineInput = (used) => Buffer.from(JSON.stringify({
+  rate_limits: { five_hour: { used_percentage: used, resets_at: 1800000000 } },
+}));
+
+test('round 5: the collector never writes a folder that names no account into the file of another account', async t => {
+  const root = await temporary(t);
+  const quota = paths(root).quota;
+  const config = { accounts: { 'claude-code': [{ id: 'work', label: 'Work', configDir: '/work' }] } };
+  const defaultFile = join(quota, 'claude-code-statusline.json');
+  await fs.mkdir(quota, { recursive: true });
+  await fs.writeFile(defaultFile, 'the reading of the default');
+  await collectStatusline({ stateRoot: root, config, now: () => 1800000000000,
+    input: statuslineInput(50), env: { CLAUDE_CONFIG_DIR: '/unknown' } });
+  assert.equal(await fs.readFile(defaultFile, 'utf8'), 'the reading of the default');
+  assert.equal(await fs.readFile(join(quota, 'claude-code-statusline.work.json'), 'utf8').catch(() => null), null);
+  await collectStatusline({ stateRoot: root, config, now: () => 1800000000000,
+    input: statuslineInput(50), env: { CLAUDE_CONFIG_DIR: '/work' } });
+  assert.match(await fs.readFile(join(quota, 'claude-code-statusline.work.json'), 'utf8'), /rate_limits/);
+  await collectStatusline({ stateRoot: root, config, now: () => 1800000000000, input: statuslineInput(50), env: {} });
+  assert.match(await fs.readFile(defaultFile, 'utf8'), /rate_limits/);
+  assert.equal(accountOfConfigDir({ client: 'codex', config: { accounts: { codex: [{ id: 'work', label: 'Work', configDir: '/work' }] } },
+    env: { CODEX_HOME: '/unknown' } }), null);
+});
+
+test('round 5: a client that never had accounts keeps the reading of the default it always had', async t => {
+  const root = await temporary(t);
+  const quota = paths(root).quota;
+  await fs.mkdir(quota, { recursive: true });
+  await collectStatusline({ stateRoot: root, config: {}, now: () => 1800000000000,
+    input: statuslineInput(50), env: { CLAUDE_CONFIG_DIR: '/unknown' } });
+  assert.match(await fs.readFile(join(quota, 'claude-code-statusline.json'), 'utf8'), /rate_limits/);
+  assert.equal(accountOfConfigDir({ client: 'claude-code', config: {}, env: { CLAUDE_CONFIG_DIR: '/unknown' } }).id, 'default');
+});
+
+test('round 5: the configured entries of the environment name the account of each one', async t => {
+  const root = await temporary(t);
+  const config = { accounts: { 'claude-code': [{ id: 'work', label: 'Producer', configDir: '/work' }] },
+    profiles: { 'claude-code': { simple: { model: 'm' }, normal: { model: 'm' }, hard: { model: 'm' } } } };
+  const snapshot = await environmentSnapshot({ ...observation(config), root });
+  const models = snapshot.plugin.configured.filter((entry) => entry?.item === 'models');
+  assert.deepEqual(models.map((entry) => [entry.client, entry.account]),
+    [['claude-code', undefined], ['claude-code', 'work']]);
+  for (const locale of ['en', 'pt-BR']) {
+    const text = formatEnvironmentReport(snapshot, locale);
+    const [item, account] = locale === 'pt-BR' ? ['Modelos ativos', 'conta work'] : ['Active models', 'account work'];
+    assert.match(text, new RegExp(`${item} \\(claude-code, ${account}\\)`), text);
+    assert.equal(text.split(`${item} (claude-code)`).length - 1, 1, 'the default is listed once');
+  }
+  const single = await environmentSnapshot({ ...observation({ profiles: config.profiles }), root, cache: new Map() });
+  assert.deepEqual(single.plugin.configured.filter((entry) => entry?.item === 'models'),
+    [{ item: 'models', client: 'claude-code' }]);
 });

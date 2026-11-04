@@ -166,8 +166,11 @@ export async function collectStatusline({ input, previous, stateRoot, run = runP
       // The collector stores what the client sent and nothing more: the percentages are read by the core.
       if (plain(value) && plain(value[settings.fields.rateLimits])) {
         const account = accountOfConfigDir({ client: 'claude-code', config, env, platform });
-        await writeJsonAtomic(join(paths(stateRoot).quota, accountFiles(account.client, account.id).statusline),
-          { receivedAt: new Date(now()).toISOString(), input: value });
+        // A folder that names no account writes nothing: the reading of one account never overwrites another's.
+        if (account) {
+          await writeJsonAtomic(join(paths(stateRoot).quota, accountFiles(account.client, account.id).statusline),
+            { receivedAt: new Date(now()).toISOString(), input: value });
+        }
       }
     }
   } catch { /* An optional reading must not break the bar. */ }

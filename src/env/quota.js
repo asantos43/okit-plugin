@@ -243,7 +243,8 @@ function rowOf(client, reading, readAt, config, labels, now, orders, target = { 
     order,
     // The cells are strings as well, so a caller never formats the table twice.
     cells: [
-      client,
+      // The table shows the display text of the account; the row itself keeps the pure client name.
+      target.display ?? client,
       cell(fiveHour?.remainingPct),
       cell(week?.remainingPct),
       typeof resets === 'number' ? labels.resets(resets) : labels.missing,

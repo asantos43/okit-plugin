@@ -66,7 +66,13 @@ export function formatEnvironmentReport(report, locale = 'en') {
   lines.push(`${words.plugin}: ${plugin.path ?? words.unknown}.`, `${words.state}: ${plugin.statePath ?? words.unknown}.`);
   for (const path of plugin.unreadableRecords ?? []) lines.push(`${words.unreadableRecord}: ${path}.`);
   lines.push(`${words.path}: ${plugin.onPath === undefined ? words.unknown : plugin.onPath ? words.yes : words.no}.`);
-  const itemText = (entry) => `${words[entry.item ?? entry]}${entry.client ? ` (${entry.client})` : ''}${entry.sizes ? `: ${entry.sizes.join(', ')}` : ''}`;
+  const itemText = (entry) => {
+    const item = words[entry.item ?? entry];
+    const client = entry.client
+      ? ` (${[entry.client, entry.account ? `${locale === 'pt-BR' ? 'conta' : 'account'} ${entry.account}` : null].filter(Boolean).join(', ')})`
+      : '';
+    return `${item}${client}${entry.sizes ? `: ${entry.sizes.join(', ')}` : ''}`;
+  };
   lines.push(`${words.configured}: ${plugin.configured.map(itemText).join(', ') || words.none}.`);
   for (const entry of plugin.missing) {
     const target = entry.account ? `${entry.client} (${locale === 'pt-BR' ? 'conta' : 'account'} ${entry.account})` : entry.client;

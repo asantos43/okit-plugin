@@ -94,8 +94,9 @@ export async function quotaShow(root, args = {}, deps = {}) {
   const snapshot = await environmentSnapshot({ ...deps, root, config, view: 'selected', all: true,
     clients: client === undefined ? known : [client], readQuota: readers, cache: deps.quotaCache ?? new Map() });
   return {
+    // The row names the client and the account: the default of a client with several accounts is named too.
     clients: snapshot.clients.map((row) => ({ client: row.client,
-      ...account === undefined ? {} : { account },
+      ...account === undefined ? (row.accounts?.length > 1 ? { account: 'default' } : {}) : { account },
       reading: account === undefined || account === 'default' ? row.reading
         : row.accounts.find((entry) => entry.id === account).reading })),
     now: snapshot.now,

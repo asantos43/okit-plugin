@@ -93,18 +93,19 @@ test('account files and environments preserve default names and values', () => {
   assert.equal(accountEnv('codex', { id: 'x', configDir: '/tmp/x' }, env, 'CUSTOM').CUSTOM, '/tmp/x');
 });
 
-test('config directory matching is platform-injected and unknown paths use default', () => {
+test('config directory matching is platform-injected and unknown paths name no account', () => {
   for (const [platform, configDir, matching] of [
     ['win32', 'C:\\Accounts\\Work', 'c:\\ACCOUNTS\\Work\\'],
     ['linux', '/tmp/accounts/work', '/tmp/accounts/./work/'],
     ['darwin', '/tmp/accounts/work', '/tmp/accounts/work/'],
   ]) {
     const config = { accounts: { 'claude-code': [{ id: 'work', label: 'Work', configDir }] } };
-    const select = (env) => accountOfConfigDir({ client: 'claude-code', config, env, platform }).id;
-    assert.equal(select({ CLAUDE_CONFIG_DIR: matching }), 'work');
-    assert.equal(select({ CLAUDE_CONFIG_DIR: '/unknown' }), 'default');
-    assert.equal(select({}), 'default');
-    if (platform !== 'win32') assert.equal(select({ CLAUDE_CONFIG_DIR: matching.toUpperCase() }), 'default');
+    const select = (env) => accountOfConfigDir({ client: 'claude-code', config, env, platform });
+    assert.equal(select({ CLAUDE_CONFIG_DIR: matching }).id, 'work');
+    // A folder that names no saved account belongs to nobody: the collector writes nothing for it.
+    assert.equal(select({ CLAUDE_CONFIG_DIR: '/unknown' }), null);
+    assert.equal(select({}).id, 'default');
+    if (platform !== 'win32') assert.equal(select({ CLAUDE_CONFIG_DIR: matching.toUpperCase() }), null);
   }
 });
 
@@ -127,16 +128,18 @@ test('legacy config preserves normalized output, default bytes, paths and readin
   assert.deepEqual(await codexQuota({ stateRoot: root, config, now, env: { HOME: '', USERPROFILE: '' } }), { source: 'manual' });
 });
 
-test('collector command routes Windows config dirs and unknown paths never create extra files', async (t) => {
+test('collector command routes Windows config dirs and unknown paths write no file of any account', async (t) => {
   const root = await rootFor(t);
   const config = { accounts: { 'claude-code': [{ id: 'work', label: 'Work', configDir: 'C:\\Accounts\\Work' }] } };
   await writeJsonAtomic(paths(root).config, config);
   await statuslineCommand([], { root, env: { HOME: '', CLAUDE_CONFIG_DIR: 'c:\\ACCOUNTS\\WORK\\' },
     platform: 'win32', now, stdin: Readable.from([sample(30)]), stdout: () => {} });
   await collectStatusline({ stateRoot: root, config, now, input: sample(90), env: { CLAUDE_CONFIG_DIR: 'C:\\Unknown' }, platform: 'win32' });
-  assert.deepEqual((await readdir(paths(root).quota)).sort(), ['claude-code-statusline.json', 'claude-code-statusline.work.json']);
+  // The folder of an account that was removed (or of one that was never saved) writes nothing: the reading of
+  // the default is never overwritten with the limits of another account.
+  assert.deepEqual((await readdir(paths(root).quota)).sort(), ['claude-code-statusline.work.json']);
   assert.equal((await claudeQuota({ stateRoot: root, now, config, account: 'work' })).remainingPct, 70);
-  assert.equal((await claudeQuota({ stateRoot: root, now, config })).remainingPct, 10);
+  assert.equal((await claudeQuota({ stateRoot: root, now, config })).remainingPct, undefined);
 });
 
 test('Claude manual and automatic readings are isolated per account; removal preserves files', async (t) => {

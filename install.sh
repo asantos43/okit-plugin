@@ -69,6 +69,14 @@ const RULE_REASONS = Object.freeze(Object.values(RULES).map(({ en, pt, example }
 function homeOf(env = process.env, platform = process.platform) {
   return platform === 'win32' ? env.USERPROFILE ?? env.HOME : env.HOME;
 }
+// The quotes PowerShell reads as the delimiters of a string: the ASCII quote and the typographic ones.
+const POWERSHELL_QUOTES = /[\u0027\u2018\u2019\u201a\u201b]/g;
+/**
+ * A value as a PowerShell string: every delimiter of a string is doubled, so the string ends
+ * where it should. PowerShell reads the typographic quotes (' ' ' ') as delimiters too, so a path
+ * that holds one of them (`C:\Users\O'Brien\acc`) would close the string early without this.
+ */
+const powershellLiteral = (value) => `'${String(value).replace(POWERSHELL_QUOTES, (quote) => quote + quote)}'`;
 // The exit-code policy travels with the presenter, so the standalone scripts (which embed this file) have it too.
 
 const SYSTEMS = { win32: 'Windows', linux: 'Linux', darwin: 'macOS' };
@@ -774,7 +782,7 @@ function kindOf(error) {
   return error?.kind === 'usage' || error?.kind === 'language' ? error.kind : 'operational';
 }
 
-return { homeOf, createPresenter, clientLabel, systemLabel, redact, redactingWriter, redactingStream, resolveLocale, localizeReason, planSteps, exitCodeFor, kindOf };
+return { homeOf, powershellLiteral, createPresenter, clientLabel, systemLabel, redact, redactingWriter, redactingStream, resolveLocale, localizeReason, planSteps, exitCodeFor, kindOf };
 })();
 // Embedded into the standalone release scripts by the build; no repo imports.
 // `present` is the installer's presenter (src/install/present.js), embedded by the same build.
@@ -943,7 +951,7 @@ async function install(defaults, present, hide) {
   if (!Object.hasOwn(clients, client)) fail(t(`Invalid client; choose: ${Object.keys(clients).join(', ')}`, `Cliente inválido; escolha: ${Object.keys(clients).join(', ')}`));
   const temporary = await fs.mkdtemp(join(tmpdir(), 'okit-bootstrap-'));
   const ps = (code, values) => {
-    const literal = (value) => "'" + String(value).replace(/'/g, "''") + "'";
+    const literal = (value) => present.powershellLiteral(value);
     const encoded = Buffer.from(`${code} ${values.map(literal).join(' ')}`, 'utf16le').toString('base64');
     return run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded]);
   };

@@ -8,7 +8,7 @@ import { collectorArgsValid } from '../quota/statusline-collector.js';
 import { cliScript, hookScript, hookNode, isAnotherNode, isOurHook } from './register.js';
 import { mcpPlan, quotedWord, shown } from './mcp-register.js';
 import { clientRoot } from './config.js';
-import { presenterOf, clientLabel, redact, controlReason } from './present.js';
+import { presenterOf, clientLabel, powershellLiteral, redact, controlReason } from './present.js';
 import { extraText } from './texts.js';
 import { installationOf, isEphemeral, missingFile, programWords } from './where.js';
 
@@ -39,7 +39,7 @@ export function checkLabel(check, ui) {
 
 const QUOTE = {
   posix: quote,
-  powershell: (value) => `'${value.replaceAll("'", "''")}'`,
+  powershell: powershellLiteral,
   none: (value) => value,
 };
 

@@ -8,6 +8,14 @@ import { RULE_REASONS } from './rules.js';
 export function homeOf(env = process.env, platform = process.platform) {
   return platform === 'win32' ? env.USERPROFILE ?? env.HOME : env.HOME;
 }
+// The quotes PowerShell reads as the delimiters of a string: the ASCII quote and the typographic ones.
+const POWERSHELL_QUOTES = /[\u0027\u2018\u2019\u201a\u201b]/g;
+/**
+ * A value as a PowerShell string: every delimiter of a string is doubled, so the string ends
+ * where it should. PowerShell reads the typographic quotes (' ' ' ') as delimiters too, so a path
+ * that holds one of them (`C:\Users\O'Brien\acc`) would close the string early without this.
+ */
+export const powershellLiteral = (value) => `'${String(value).replace(POWERSHELL_QUOTES, (quote) => quote + quote)}'`;
 // The exit-code policy travels with the presenter, so the standalone scripts (which embed this file) have it too.
 export { exitCodeFor, kindOf } from './exit.js';
 
