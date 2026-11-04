@@ -174,7 +174,7 @@ export async function environmentSnapshot(deps = {}) {
   const observations = new Map();
   for (const client of clients) for (const account of accountsOfClient(client).slice(1)) {
     const env = accountEnv(client, account, deps.env ?? process.env);
-    const result = await (deps.detectClients ?? detectClients)({ ...deps, config, env, onlyClient: client });
+    const result = await (deps.detectClients ?? detectClients)({ ...deps, config, env, onlyClient: client, account: account.id });
     const record = result.clients.find((entry) => entry.client === client);
     const versions = deps.detectClients ? {} : await environmentVersions({ ...deps, client, env }, installConfig(config.install));
     observations.set(account.key, record ? { ...normalizeClientObservation(record, client),

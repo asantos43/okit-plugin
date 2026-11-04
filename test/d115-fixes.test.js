@@ -1297,3 +1297,22 @@ test('round 13: a client name carrying an account key is refused by the slots, n
   await assert.rejects(acquireSlot(root, 'r1', { client: 'claude-code:work', config }), /Unsupported account client/);
   assert.equal((await acquireSlot(root, 'r2', { client: 'claude-code', account: 'work', config })).ok, true);
 });
+
+test('round 15: the real listing of an extra account runs with that account folder, the default without it', async () => {
+  const { detectClients } = await import('../src/env/models.js');
+  const seen = [];
+  const run = async ({ env }) => { seen.push(env.CODEX_HOME ?? null); return { code: 0, stdout: '[]' }; };
+  const config = { accounts: { codex: [{ id: 'work', label: 'Work', configDir: '/accounts/codex/work' }] },
+    setup: { detect: { codex: { command: 'lister', args: [], timeoutMs: 1000, parse: 'lines' } } } };
+  const env = { HOME: '/default', CODEX_HOME: '/accounts/codex/work' };
+  await detectClients({ config, env, run, onlyClient: 'codex' });
+  await detectClients({ config, env, run, onlyClient: 'codex', account: 'work' });
+  assert.deepEqual(seen, [null, '/accounts/codex/work']);
+});
+
+test('round 15: the snapshot hands each extra account to the listing', async () => {
+  const accountsSeen = [];
+  const detect = async ({ account, env }) => { accountsSeen.push([account, env.CLAUDE_CONFIG_DIR]); return { clients: [{ client, installed: true, models: ['m'], source: 'listing' }] }; };
+  await environmentSnapshot({ ...observation(), env: { HOME: '/default' }, detectClients: detect });
+  assert.ok(accountsSeen.some(([account, folder]) => account === 'work' && folder === '/work'), JSON.stringify(accountsSeen));
+});

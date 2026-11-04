@@ -72,15 +72,15 @@ export function requireAccount(config, client, id = DEFAULT_ACCOUNT_ID) {
 const pathOf = (platform) => platform === 'win32' ? path.win32 : path.posix;
 function normalizedDir(value, platform) {
   const resolved = pathOf(platform).resolve(value).replace(/[\\/]+$/, '');
-  return platform === 'win32' ? resolved.toLowerCase() : resolved;
+  // Windows and macOS volumes are case-insensitive by default: two spellings of one folder are one folder.
+  return platform === 'win32' || platform === 'darwin' ? resolved.toLowerCase() : resolved;
 }
 
 function duplicateDir(accounts, client, { platform = process.platform, env = process.env, defaultDir } = {}) {
   const dirs = new Set();
   for (const dir of [defaultDir ?? env[CLIENT_ENV[client]], ...accounts.map((entry) => entry.configDir)]) {
     if (!dir || !pathOf(platform).isAbsolute(dir)) continue;
-    // macOS volumes are case-insensitive by default: two spellings of one folder are one folder when accounts are added.
-    const key = platform === 'darwin' ? normalizedDir(dir, platform).toLowerCase() : normalizedDir(dir, platform);
+    const key = normalizedDir(dir, platform);
     if (dirs.has(key)) return true;
     dirs.add(key);
   }

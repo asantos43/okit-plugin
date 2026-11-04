@@ -61,12 +61,12 @@ export function normalizeClientObservation(result, client) {
   };
 }
 
-export async function detectClients({ config, env = process.env, run, adapters, onlyClient } = {}) {
+export async function detectClients({ config, env = process.env, run, adapters, onlyClient, account } = {}) {
   const records = adapterRecords(adapters).filter(({ client }) => onlyClient === undefined || client === onlyClient);
   const clients = await Promise.all(records.map(async ({ adapter, client }) => {
     try {
       if (typeof adapter?.listModels !== 'function') throw new TypeError('listModels is not a function');
-      const result = await adapter.listModels({ config, env, run });
+      const result = await adapter.listModels({ config, env, run, ...(account === undefined ? {} : { account }) });
       return { ...normalizeClientObservation(result, client), ...result?.version === undefined ? {} : { version: result.version } };
     } catch (error) {
       return fallback(client, error);

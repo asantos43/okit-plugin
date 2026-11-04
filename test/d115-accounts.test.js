@@ -105,7 +105,8 @@ test('config directory matching is platform-injected and unknown paths name no a
     // A folder that names no saved account belongs to nobody: the collector writes nothing for it.
     assert.equal(select({ CLAUDE_CONFIG_DIR: '/unknown' }), null);
     assert.equal(select({}).id, 'default');
-    if (platform !== 'win32') assert.equal(select({ CLAUDE_CONFIG_DIR: matching.toUpperCase() }), null);
+    if (platform === 'linux') assert.equal(select({ CLAUDE_CONFIG_DIR: matching.toUpperCase() }), null);
+    else assert.equal(select({ CLAUDE_CONFIG_DIR: matching.toUpperCase() }).id, 'work');
   }
 });
 
