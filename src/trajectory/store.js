@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { readJson, writeJsonAtomic, withLock } from '../state.js';
 import { settings } from './config.js';
 import { redact } from './redact.js';
-import { boundedClone, normalize, validate, totals } from './schema.js';
+import { boundedClone, normalize, validate, totals, ownData } from './schema.js';
 
 const prefix = 'okit-plugin-';
 const bytes = value => Buffer.byteLength(`${JSON.stringify(value, null, 2)}\n`);
@@ -52,7 +52,7 @@ export function capped(data, config) {
         && (payload || ['message', 'content', 'text', 'reasoning_content', 'notes'].includes(key))) {
         const saved = bytes(child) - bytes(marker);
         if (saved <= 0) continue;
-        value[key] = marker; size -= saved;
+        ownData(value, key, marker); size -= saved;
         if (fits()) return data;
       }
     }
@@ -88,7 +88,7 @@ export function capped(data, config) {
     const replacement = key === 'tool_definitions' ? [] : { truncated: marker };
     const saved = bytes(parent[key]) - bytes(replacement);
     if (saved <= 0) continue;
-    parent[key] = replacement; size -= saved;
+    ownData(parent, key, replacement); size -= saved;
     if (fits()) return data;
   }
   size = bytes(data);

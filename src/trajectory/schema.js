@@ -3,6 +3,9 @@ import { resolve } from 'node:path';
 export const SCHEMA_VERSION = 'ATIF-v1.4';
 export const unavailable = null;
 export const MAX_DEPTH = 100;
+export function ownData(target, key, value) {
+  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+}
 const depthMarker = '[truncated: too deep]';
 // Walk JSON iteratively: neither cloning nor the depth check uses the JS stack.
 export function boundedClone(value, limit = MAX_DEPTH) {
@@ -17,7 +20,7 @@ export function boundedClone(value, limit = MAX_DEPTH) {
         next = depth + 1 > limit ? depthMarker : Array.isArray(child) ? [] : {};
         if (next !== depthMarker) pending.push({ value: child, copy: next, depth: depth + 1 });
       }
-      Object.defineProperty(copy, key, { value: next, enumerable: true, writable: true, configurable: true });
+      ownData(copy, key, next);
     }
   }
   return root;
@@ -121,18 +124,24 @@ function normalizeStep(value) {
   if (!optional(item.reasoning_content, text)) delete item.reasoning_content;
   item.message = item.message == null ? '' : content(item.message) ? item.message : JSON.stringify(item.message);
   for (const key of Object.keys(item).filter(key => !stepFields.includes(key))) {
-    item.extra ??= {}; item.extra[key] = item[key]; delete item[key];
+    item.extra ??= {}; ownData(item.extra, key, item[key]); delete item[key];
   }
-  item.tool_calls = (Array.isArray(item.tool_calls) ? item.tool_calls : []).map(call => ({
-    ...(Object.hasOwn(call ?? {}, 'extra') && optional(call.extra, object) ? { extra: call.extra } : {}),
-    tool_call_id: call?.tool_call_id, function_name: text(call?.function_name) ? call.function_name : 'unknown',
-    arguments: argumentsObject(call?.arguments) }));
+  item.tool_calls = (Array.isArray(item.tool_calls) ? item.tool_calls : []).map(value => {
+    const call = confine(value, callFields);
+    return {
+      ...(Object.hasOwn(call, 'extra') && optional(call.extra, object) ? { extra: call.extra } : {}),
+      tool_call_id: call.tool_call_id, function_name: text(call.function_name) ? call.function_name : 'unknown',
+      arguments: argumentsObject(call.arguments) };
+  });
   const results = Array.isArray(item.observation?.results) ? item.observation.results : [];
-  item.observation = { results: results.map(result => ({
-    ...(Object.hasOwn(result ?? {}, 'extra') && optional(result.extra, object) ? { extra: result.extra } : {}),
-    ...(Array.isArray(result?.subagent_trajectory_ref) ? { subagent_trajectory_ref: result.subagent_trajectory_ref.filter(validRef) } : {}),
-    ...(Object.hasOwn(result ?? {}, 'source_call_id') ? { source_call_id: result.source_call_id } : {}),
-    ...(Object.hasOwn(result ?? {}, 'content') ? { content: result.content } : {}) })) };
+  item.observation = { results: results.map(value => {
+    const result = confine(value, resultFields);
+    return {
+      ...(Object.hasOwn(result, 'extra') && optional(result.extra, object) ? { extra: result.extra } : {}),
+      ...(Array.isArray(result.subagent_trajectory_ref) ? { subagent_trajectory_ref: result.subagent_trajectory_ref.filter(validRef) } : {}),
+      ...(Object.hasOwn(result, 'source_call_id') ? { source_call_id: result.source_call_id } : {}),
+      ...(Object.hasOwn(result, 'content') ? { content: result.content } : {}) };
+  }) };
   const failed = new Set(Array.isArray(item.extra?.failed_results) ? item.extra.failed_results : []);
   for (const [index, result] of item.observation.results.entries()) {
     if (result.content?.is_error) failed.add(index);
@@ -266,7 +275,7 @@ export function normalize(data = {}, { producer = false, dir } = {}) {
             for (const token of n) previous.metrics[key].push(token);
           } else previous.metrics[key] = (previous.metrics[key] ?? 0) + n;
         }
-        if (usageExtra) Object.assign(previous.metrics.extra ??= {}, usageExtra);
+        if (usageExtra) for (const [key, value] of Object.entries(usageExtra)) ownData(previous.metrics.extra ??= {}, key, value);
         usage = {}; usageExtra = undefined;
         restructured = true; movedUsage = true;
       }

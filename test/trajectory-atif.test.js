@@ -11,6 +11,73 @@ import { samples } from './helpers/trajectory-samples.js';
 import { codexFixture } from './helpers/trajectory-samples.js';
 import { fuzz, diff } from '../scripts/check-atif.mjs';
 const context = { session_id: 'atif', model: 'example-model' };
+// | Review 11 | Must pass | Must refuse |
+// | readers / keys | linear repeats; own JSON keys retained | inherited dispatch; prototype mutation |
+const repeatedInputs = [
+  ['claude-code', 'results', '{"type":"result","result":"done"}'],
+  ['claude-code', 'users', '{"type":"user","message":{"content":"u"}}'],
+  ['claude-code', 'tools', '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"same","name":"read","input":{}}]}}\n{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"same","content":"ok"}]}}'],
+  ['codex', 'tools', '{"type":"function_call","call_id":"same","name":"read","arguments":"{}"}\n{"type":"function_call_output","call_id":"same","output":"ok"}'],
+  ['opencode', 'parts', '{"info":{"role":"assistant"},"parts":[{"type":"tool","callID":"same","tool":"read","state":{"input":{},"status":"completed","output":"ok"}}]}'],
+  ['opencode', 'single-message parts', '{"info":{"role":"assistant"},"parts":[{"type":"tool","callID":"same","tool":"read","state":{"input":{},"status":"completed","output":"ok"}}]}'],
+];
+for (const [client, shape, line] of repeatedInputs) test(`review 11: ${client} repeated ${shape} runs in linear time`, () => {
+  const reader = samples.find(([name]) => name === client)[1];
+  const inputOf = n => shape === 'single-message parts'
+    ? JSON.stringify({ info: { role: 'assistant' }, parts: Array(n).fill(JSON.parse(line).parts[0]) })
+    : Array(n).fill(line).join('\n');
+  // Count predicate visits too: elapsed ratios can hide quadratic scans under parser overhead.
+  const some = Array.prototype.some; let visits = 0;
+  try {
+    Array.prototype.some = function (predicate, receiver) {
+      return some.call(this, (value, index, array) => {
+        visits++; return predicate.call(receiver, value, index, array);
+      });
+    };
+    reader(inputOf(3000), context);
+  } finally { Array.prototype.some = some; }
+  assert.ok(visits < 300000, `${client}/${shape}: ${visits} predicate visits for 3k repeats`);
+  const measure = n => {
+    const input = inputOf(n); let best = Infinity;
+    for (let i = 0; i < 2; i++) {
+      const start = performance.now(), data = reader(input, context);
+      best = Math.min(best, performance.now() - start);
+      assert.equal(data.steps.length, shape === 'single-message parts' ? 1 : n); assert.ok(validate(data));
+    }
+    return best;
+  };
+  measure(1000);
+  const small = measure(3000), large = measure(24000);
+  assert.ok(large < 20 * small + 100, `3k: ${small} ms; 24k: ${large} ms`);
+  assert.ok(large < 5000, `24k: ${large} ms`);
+});
+const prototypeKeys = JSON.parse('{"__proto__":{"payload":"kept"},"constructor":{"payload":"kept"},"prototype":{"payload":"kept"},"toString":{"payload":"kept"},"hasOwnProperty":{"payload":"kept"}}');
+test('review 11: raw JSON prototype keys survive normalize and save at every level', async t => {
+  const root = await rootOf(t);
+  const input = JSON.parse(JSON.stringify({ ...prototypeKeys, session_id: 'atif', extra: { nested: prototypeKeys },
+    agent: { name: 'a', version: '1', ...prototypeKeys },
+    steps: [{ source: 'agent', message: '', ...prototypeKeys,
+      tool_calls: [{ tool_call_id: 'same', function_name: 'read', arguments: prototypeKeys, ...prototypeKeys }],
+      observation: { results: [{ source_call_id: 'same', content: 'ok', ...prototypeKeys }] },
+      metrics: { prompt_tokens: 1 } },
+    { source: 'system', message: '', metrics: { completion_tokens: 1, extra: prototypeKeys } }] }));
+  assert.equal(validate(input), false);
+  const output = normalize(input); assert.ok(validate(output));
+  const check = data => {
+    const item = data.steps[0], call = item.tool_calls[0], result = item.observation.results[0];
+    for (const value of [data.extra, data.extra.nested, data.agent.extra, item.extra, call.extra, call.arguments, result.extra, item.metrics.extra]) {
+      for (const key of Object.keys(prototypeKeys)) {
+        assert.ok(Object.hasOwn(value, key), key); assert.deepEqual(value[key], { payload: 'kept' });
+      }
+      assert.equal(Object.getPrototypeOf(value), Object.prototype);
+    }
+    assert.equal(({}).payload, undefined);
+  };
+  check(output); assert.deepEqual(normalize(output), output);
+  assert.equal(await save(root, input), true);
+  const saved = JSON.parse(await readFile(join(root, 'trajectory', 'okit-plugin-atif.json'), 'utf8'));
+  check(saved); assert.ok(validate(saved)); assert.deepEqual(saved, output);
+});
 // | Review 10 | Must pass | Must refuse |
 // | cost / scope | linear user runs, same-step repeated IDs | cross-step result binding |
 test('review 10: 20k Codex user lines normalize in linear time', () => {
@@ -697,9 +764,9 @@ test('finding 3: agent.version is always a string', () => {
 test('finding 4: unknown fields move into extra where Harbor has one, else disappear', () => {
   const base = trajectory(context, [{ message: 'Hi', tool_calls: [{ tool_call_id: 't', function_name: 'read', arguments: {}, custom: 1 }],
     metrics: { prompt_tokens: 1, custom: 2 }, observation: { custom: 4, results: [{ source_call_id: 't', content: 'ok', custom: 3 }] } }]);
-  assert.deepEqual(Object.keys(base.steps[0].tool_calls[0]).sort(), ['arguments', 'function_name', 'tool_call_id']);
+  assert.deepEqual(base.steps[0].tool_calls[0].extra, { custom: 1 });
   assert.deepEqual(Object.keys(base.steps[0].observation), ['results']);
-  assert.deepEqual(Object.keys(base.steps[0].observation.results[0]).sort(), ['content', 'source_call_id']);
+  assert.deepEqual(base.steps[0].observation.results[0].extra, { custom: 3 });
   assert.deepEqual(base.steps[0].metrics, { prompt_tokens: 1, extra: { custom: 2 } });
   const messy = { ...base, custom: 'top', agent: { ...base.agent, custom: 'agent' }, final_metrics: { ...base.final_metrics, custom: 'final' } };
   assert.equal(validate(messy), false);
@@ -748,12 +815,24 @@ test('duplicate call IDs are renamed only within their step', () => {
 });
 test('fuzz: the seeded odd trajectories all satisfy validate()', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'atif-fuzz-')); t.after(() => rm(dir, { recursive: true, force: true }));
-  const { files, failures } = await fuzz(dir, { n: 100, stressSizes: { length: 2000, depth: 120, width: 150, userLines: 200 } });
-  assert.deepEqual(failures, []); assert.equal(files.length, 106);
+  const { files, failures } = await fuzz(dir, { n: 100, stressSizes: { length: 2000, depth: 120, width: 150, userLines: 200, readerLines: 200 } });
+  assert.deepEqual(failures, []); assert.equal(files.length, 112);
   for (const file of files) assert.ok(validate(JSON.parse(await readFile(file, 'utf8'))), file);
-  const users = JSON.parse(await readFile(files.at(-2), 'utf8'));
+  const users = JSON.parse(await readFile(files[104], 'utf8'));
   assert.equal(users.steps.length, 200); assert.ok(users.steps.every(item => item.source === 'user'));
-  const repeated = JSON.parse(await readFile(files.at(-1), 'utf8'));
+  const repeated = JSON.parse(await readFile(files[105], 'utf8'));
   assert.deepEqual(repeated.steps.map(item => item.tool_calls[0].tool_call_id), ['same', 'same']);
   assert.deepEqual(repeated.steps[1].extra.failed_calls, ['same']);
+  const proto = JSON.parse(await readFile(files[106], 'utf8')), item = proto.steps[0];
+  for (const extra of [proto.extra, proto.agent.extra, item.extra, item.metrics.extra,
+    item.tool_calls[0].arguments, item.tool_calls[0].extra, item.observation.results[0].extra]) {
+    for (const key of Object.keys(prototypeKeys)) {
+      assert.ok(Object.hasOwn(extra, key)); assert.equal(extra[key].payload, 'kept');
+    }
+  }
+  for (const file of files.slice(107)) {
+    const data = JSON.parse(await readFile(file, 'utf8'));
+    assert.equal(data.steps.length, 200); assert.ok(validate(data));
+  }
+  assert.equal(({}).payload, undefined);
 });

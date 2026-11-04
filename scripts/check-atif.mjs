@@ -82,7 +82,7 @@ function generator(seed) {
 }
 
 const kinds = ['steps', 'raw', 'capped', 'legacy', 'capture', 'valid'];
-export function stress(seed = 114, { length = 1200000, depth = 3000, width = 50000, userLines = 20000 } = {}) {
+export function stress(seed = 114, { length = 1200000, depth = 3000, width = 50000, userLines = 20000, readerLines = 24000 } = {}) {
   const rand = random(seed), base = () => ({ agent: { name: 'stress', version: '1' }, steps: [{ source: 'agent', message: 'Root' }] });
   const long = base(), deep = base(), wide = base(), counts = base();
   long.extra = { child: { ...base(), steps: [{ source: 'agent', message: 'x'.repeat(Math.floor(length * (0.92 + rand() * 0.08))) }] } };
@@ -98,7 +98,19 @@ export function stress(seed = 114, { length = 1200000, depth = 3000, width = 500
     tool_calls: [{ tool_call_id: 'same', function_name: name, arguments: {} }],
     observation: { results: [{ source_call_id: 'same', content: name }] },
     ...(i ? { extra: { failed_calls: ['same'] } } : {}) }));
-  return [long, deep, counts, wide, users, repeated];
+  const keys = '"__proto__":{"payload":"kept"},"constructor":{"payload":"kept"},"prototype":{"payload":"kept"},"toString":{"payload":"kept"},"hasOwnProperty":{"payload":"kept"}';
+  const proto = JSON.parse(`{${keys},"extra":{${keys}},"agent":{"name":"stress","version":"1",${keys}},
+    "steps":[{"source":"agent","message":"",${keys},"metrics":{"prompt_tokens":1,${keys}},
+    "tool_calls":[{"tool_call_id":"same","function_name":"read","arguments":{${keys}},${keys}}],
+    "observation":{"results":[{"source_call_id":"same","content":"ok",${keys}}]}}]}`);
+  const lines = [
+    ['claude-code', '{"type":"result","result":"done"}'],
+    ['claude-code', '{"type":"user","message":{"content":"u"}}'],
+    ['claude-code', '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"same","name":"read","input":{}}]}}\n{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"same","content":"ok"}]}}'],
+    ['codex', '{"type":"function_call","call_id":"same","name":"read","arguments":"{}"}\n{"type":"function_call_output","call_id":"same","output":"ok"}'],
+    ['opencode', '{"info":{"role":"assistant"},"parts":[{"type":"tool","callID":"same","tool":"read","state":{"input":{},"status":"completed","output":"ok"}}]}'],
+  ].map(([client, line]) => ({ client, transcript: Array(readerLines).fill(line).join('\n') }));
+  return [long, deep, counts, wide, users, repeated, proto, ...lines];
 }
 // (a) soundness, (b) totality, (c) valid output, (d) strict identity.
 // Match whole JSON strings/numbers so digits inside strings, fractions and exponents do not count.
@@ -188,7 +200,9 @@ export async function fuzz(dir, { n = 200, seed = 114, stressSizes } = {}) {
       const id = `stress-${seed}-${index}`, file = join(out, `okit-plugin-${id}.json`);
       try {
         await configure({ maxFileBytes: 1048576 });
-        const saved = index === 4
+        const saved = Object.hasOwn(input, 'transcript')
+          ? await capture(root, { session_id: id, client: input.client }, { transcript: input.transcript })
+          : index === 4
           ? await capture(root, { session_id: id, client: 'codex' }, { transcript: input.steps
             .map(item => JSON.stringify({ type: 'message', role: item.source, text: item.message })).join('\n') })
           : await save(root, { ...input, session_id: id });

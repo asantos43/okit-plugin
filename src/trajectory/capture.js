@@ -6,7 +6,7 @@ import { readJson } from '../state.js';
 import { settings } from './config.js';
 import { save } from './store.js';
 import { step, normalize } from './schema.js';
-const readers = { 'claude-code': claude, codex, opencode };
+const readers = new Map([['claude-code', claude], ['codex', codex], ['opencode', opencode]]);
 
 export async function capture(root, context, { transcript, file, message, outcome, usage } = {}) {
   try {
@@ -23,7 +23,7 @@ export async function capture(root, context, { transcript, file, message, outcom
       } finally { await handle.close(); }
     }
     const version = (await readJson(new URL('../../package.json', import.meta.url), {})).version ?? null;
-    const data = readers[context.client](transcript, { ...context, version });
+    const data = readers.get(context.client)(transcript, { ...context, version });
     if (message != null) data.steps.unshift(step({ source: 'user', message }));
     if (outcome != null) data.steps.push(step({ source: 'system', message: outcome,
       metrics: usage }));
