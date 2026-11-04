@@ -10,6 +10,7 @@
 
 import { listActors } from '../actors.js';
 import { environmentReport, formatEnvironmentReport } from '../env/report.js';
+import { readiness } from '../env/ready.js';
 import { limitsStatus } from '../limits.js';
 import { orderList } from '../orders.js';
 import { DEFAULT_CONFIG, LOCALES } from '../profiles.js';
@@ -97,5 +98,5 @@ export async function envReportOperation(root, args, deps) {
   const report = await environmentReport({ ...ctx, config, env, client, locale,
     readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: root, env }),
     cache: ctx.quotaCache, limits: ctx.limits ?? (ctx.snapshot ? undefined : await limitsStatus(root, config)) });
-  return { ...report, text: formatEnvironmentReport(report, locale) };
+  return { ...report, ...readiness(report), text: formatEnvironmentReport(report, locale) };
 }

@@ -1,5 +1,6 @@
 import { LABELS, quotaOrigin } from './quota.js';
 import { environmentSnapshot } from './snapshot.js';
+import { readiness, readyLine } from './ready.js';
 export { environmentReadings } from './snapshot.js';
 export const environmentReport = environmentSnapshot;
 
@@ -72,5 +73,6 @@ export function formatEnvironmentReport(report, locale = 'en') {
         : entry.item === 'path' ? words.missingPath : words.missingSetup;
     lines.push(`${words.missing}: ${text}. ${entry.tool ? words.callTool(entry.tool, entry.client) : words.askUser(entry.command)}.`);
   }
+  lines.push(readyLine(readiness(report), locale));
   return lines.join('\n');
 }

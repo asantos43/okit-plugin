@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
+import { readySnapshot } from './helpers/ready-snapshot.js';
 import { diagnose } from '../src/doctor/diagnose.js';
 import { installConfig } from '../src/install/config.js';
 import { createPresenter } from '../src/install/present.js';
@@ -105,6 +106,8 @@ async function world({ records = [], files = {}, readers = {}, command = 'okit-p
     autostartPresent: async () => true,
     selfCheck: async () => [],
     mcpEntry: async () => ({ state: 'registered' }),
+    snapshot: async () => readySnapshot(),
+    kit: async () => ({ state: 'absent' }),
   };
   return {
     input: {

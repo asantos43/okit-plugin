@@ -373,12 +373,14 @@ function installLines(locale, platform) {
     '1. Download and verify: complete', '2. Install files: complete', '3. Connect Claude Code: complete',
     `4. Command and PATH: complete — okit-plugin  (${path})`,
     '5. Quota recording: off. To turn it on: okit-plugin install --client claude-code --statusline',
-    'Next: okit-plugin setup', 'Check the installation: okit-plugin doctor --client claude-code']
+    'Next: okit-plugin setup; then run okit-plugin doctor --client claude-code to see if you are ready to launch executors',
+    'Check the installation: okit-plugin doctor --client claude-code']
     : ['okit-plugin — Instalação', 'Instalado para Claude Code. Falta confirmar os modelos.',
       '1. Baixar e verificar: concluído', '2. Instalar arquivos: concluído', '3. Conectar Claude Code: concluído',
       `4. Comando e PATH: concluído — okit-plugin  (${path})`,
       '5. Registro de cota: desligado. Para ligar: okit-plugin install --client claude-code --statusline',
-      'Próximo: okit-plugin setup', 'Verifique a instalação: okit-plugin doctor --client claude-code'];
+      'Próximo: okit-plugin setup; depois rode okit-plugin doctor --client claude-code para ver se está pronto para lançar executores',
+      'Verifique a instalação: okit-plugin doctor --client claude-code'];
 }
 
 function updateLines(locale, platform) {

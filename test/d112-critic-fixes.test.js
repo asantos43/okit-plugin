@@ -204,7 +204,8 @@ for (const locale of LOCALES) test(`D112 round 2, 4: without the command link ev
   const f = await fixture(t, 'linux');
   f.io.env.OKIT_LANGUAGE = locale;
   assert.equal(await main(['install', '--client', 'claude-code', '--no-link'], f.io), 0, f.output.join('\n'));
-  assert.ok(f.output.includes(`${pt ? 'Próximo' : 'Next'}: ${RUNNING} setup`), f.output.join('\n'));
+  // Not ready yet (the models are not confirmed): the line also names the doctor, by the running program too.
+  assert.ok(f.output.some((line) => line.startsWith(`${pt ? 'Próximo' : 'Next'}: ${RUNNING} setup; `) && line.includes(`${RUNNING} doctor --client claude-code`)), f.output.join('\n'));
   const check = lineOf(f.output, `${pt ? 'Verifique a instalação' : 'Check the installation'}: `);
   assert.equal(check, `${pt ? 'Verifique a instalação' : 'Check the installation'}: ${RUNNING} doctor --client claude-code`, f.output.join('\n'));
   f.clear();
@@ -567,7 +568,9 @@ test('D112 round 7, 1b: an install with --no-path names the program that runs, n
   f.io.env.PATH = '/usr/bin';
   assert.equal(await main(['install', '--client', 'codex', '--no-path'], f.io), 0, f.output.join('\n'));
   const next = f.output.find((line) => line.startsWith('Next: ') && line.includes('setup'));
-  assert.equal(next, `Next: ${RUNNING} setup`, f.output.join('\n'));
+  // Not ready yet (the models are not confirmed): the same line names the doctor, which tells the gaps.
+  assert.ok(next.startsWith(`Next: ${RUNNING} setup; then run `), f.output.join('\n'));
+  assert.ok(next.endsWith('doctor --client codex to see if you are ready to launch executors'), f.output.join('\n'));
 });
 
 for (const locale of LOCALES) test(`D112 round 7, 2: when no program is left the kept installations are put back by the installer of the release: ${locale}`, () => {

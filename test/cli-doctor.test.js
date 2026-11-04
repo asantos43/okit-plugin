@@ -15,6 +15,7 @@ import { createPresenter } from '../src/install/present.js';
 import { writeRecord } from '../src/mcp/control-endpoint.js';
 import { paths } from '../src/store.js';
 import { fixture } from './helpers/install-fixture.js';
+import { readySnapshot } from './helpers/ready-snapshot.js';
 
 // The doctor of the command line: it looks at the whole installation and answers one row per thing it looked at.
 //
@@ -129,8 +130,8 @@ test('warnings only: exit 0, the mark of a warning, and the summary counting the
     const code = await main(['doctor', '--locale', locale], f.io);
     const text = f.output.join('\n');
     assert.equal(code, exitCodeFor('ok'), text);
-    assert.match(summaryOf(text), locale === 'en' ? /^Needs attention: 3 warnings; other checks passed\.$/
-      : /^Precisa de atenção: 3 avisos; as demais passaram\.$/);
+    assert.match(summaryOf(text), locale === 'en' ? /^Needs attention: \d+ warnings; other checks passed\.$/
+      : /^Precisa de atenção: \d+ avisos; as demais passaram\.$/);
     assert.ok(f.output.some((line) => line.startsWith('| ')));
   }
 });
@@ -168,7 +169,7 @@ test('--locale pt-BR prints the whole run in Portuguese', async (t) => {
   assert.equal(code, exitCodeFor('ok'), text);
   assert.match(text, /— Verificação da instalação/, text);
   assert.match(text, /aviso/, text);
-  assert.match(text, /Precisa de atenção: 3 avisos;/, text);
+  assert.match(text, /Precisa de atenção: \d+ avisos;/, text);
   assert.doesNotMatch(text, /to look at|Fix:/, text);
 });
 
@@ -252,10 +253,11 @@ test('the summary uses the failed mark for failures and the warn mark for warnin
       const f = await world(t, failed ? { inbox: 'not json' } : {});
       assert.equal(await main(['doctor', '--locale', locale], f.io), failed ? 1 : 0, f.output.join('\n'));
       const summary = summaryOf(f.output.join('\n'));
+      // The readiness rows (models, quota, collector) add warnings of their own, so the count is not fixed here.
       const detail = locale === 'en'
-        ? `Needs attention: ${failed ? '1 failed check; ' : ''}3 warnings; other checks passed.`
-        : `Precisa de atenção: ${failed ? '1 verificação falhou; ' : ''}3 avisos; as demais passaram.`;
-      assert.equal(summary, detail);
+        ? new RegExp(`^Needs attention: ${failed ? '1 failed check; ' : ''}\\d+ warnings; other checks passed\\.$`)
+        : new RegExp(`^Precisa de atenção: ${failed ? '1 verificação falhou; ' : ''}\\d+ avisos; as demais passaram\\.$`);
+      assert.match(summary, detail);
     }
   }
 });
@@ -278,13 +280,18 @@ test('an all-ok summary counts every row including quiet rows, and ok/skipped fi
       { id: 'version', status: 'pass', reason: 'version is right', fix: 'DO NOT PRINT OK FIX' },
       { id: 'hook', status: 'skip', reason: 'quiet hook', quiet: true, fix: 'DO NOT PRINT SKIPPED FIX' },
     ],
+    // The readiness rows: one client that can launch every size, an active collector and no kit (optional).
+    snapshot: async () => readySnapshot(),
+    kit: async () => ({ state: 'absent' }),
   };
   for (const locale of LOCALES) {
     const result = await diagnose({ ...f.io, records: [record], readers,
       ui: createPresenter({ locale, write: () => {} }) });
     assert.equal(result.failed, 0);
     assert.equal(result.warnings, 0);
-    assert.equal(result.rows.length, 11);
+    // 11 rows of the installation, plus models, quota, collector and kit.
+    assert.equal(result.rows.length, 15);
+    assert.equal(result.ready, true);
     assert.equal(result.rows.filter((row) => row.quiet).length, 1);
     assert.equal(result.rows.find((row) => row.id === 'version').fix, 'DO NOT PRINT OK FIX');
     assert.equal(result.rows.find((row) => row.id === 'hook').fix, 'DO NOT PRINT SKIPPED FIX');
