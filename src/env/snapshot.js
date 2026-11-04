@@ -1,5 +1,5 @@
 import { capOf } from '../limits.js';
-import { accountsOf } from '../accounts.js';
+import { accountsOf, accountEnv } from '../accounts.js';
 import { loginState, accountWarnings } from '../accounts-login.js';
 import { configOf, DEFAULT_CONFIG, normalizeLimits } from '../profiles.js';
 import { setupPending } from './configuration.js';
@@ -12,7 +12,7 @@ import { join, resolve } from 'node:path';
 import { collectorCommandIndex } from '../install/statusline.js';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { installConfig, installPaths, clientRoot } from '../install/config.js';
+import { installConfig, installPaths, clientRoot, homeOf } from '../install/config.js';
 import { binInPath } from './path.js';
 import { readRecords } from '../install/place.js';
 import { paths } from '../store.js';
@@ -31,7 +31,7 @@ async function readingReceived(deps) {
 async function statuslineState(deps, config, command) {
   const settings = config.statuslineRegistration;
   const location = { config: installConfig(config.install), env: deps.env ?? process.env,
-    home: deps.home ?? deps.env?.HOME ?? deps.env?.USERPROFILE ?? homedir() };
+    home: deps.home ?? homeOf(deps.env, deps.platform) ?? homedir() };
   const path = join(clientRoot(settings.client, location), settings.settingsFile);
   let active = null;
   try {
@@ -104,7 +104,7 @@ export async function environmentReadings(deps) {
   const config = installConfig(deps.config.install);
   const env = deps.env ?? process.env;
   const platform = deps.platform ?? process.platform;
-  const home = deps.home ?? env.HOME ?? env.USERPROFILE ?? homedir();
+  const home = deps.home ?? homeOf(env, platform) ?? homedir();
   const location = { ...deps, env, platform, fs: deps.fs ?? filesystem, config, home,
     ...installPaths(config, { ...deps, env, platform, home }) };
   const unreadable = [];
@@ -136,7 +136,7 @@ export async function environmentSnapshot(deps = {}) {
     ...await exec(command, args, { timeout: timeoutMs ?? timeout, env, cwd }), code: 0,
   }));
   deps = { ...deps, run: (request) => {
-    const key = JSON.stringify([request.command, request.args, request.cwd]);
+    const key = JSON.stringify([request.command, request.args, request.cwd, request.env]);
     if (!probes.has(key)) probes.set(key, Promise.resolve().then(() => run(request)));
     return probes.get(key);
   } };
@@ -162,6 +162,16 @@ export async function environmentSnapshot(deps = {}) {
   const accountsOfClient = (client) => (client === 'claude-code' || client === 'codex'
     ? accountsOf(config, client)
     : [{ id: 'default', key: client, label: 'default', isDefault: true, configDir: null }]);
+  const observations = new Map();
+  for (const client of clients) for (const account of accountsOfClient(client).slice(1)) {
+    const env = accountEnv(client, account, deps.env ?? process.env);
+    const result = await (deps.detectClients ?? detectClients)({ ...deps, config, env, onlyClient: client });
+    const record = result.clients.find((entry) => entry.client === client);
+    const versions = deps.detectClients ? {} : await environmentVersions({ ...deps, client, env }, installConfig(config.install));
+    observations.set(account.key, record ? { ...normalizeClientObservation(record, client),
+      installed: versions[client]?.installed ?? record.installed ?? null,
+      version: versions[client]?.version ?? record.version } : null);
+  }
   for (const client of clients) {
     for (const account of accountsOfClient(client)) {
       const { reading, at } = await readingWithAge(deps.cache ?? (deps.view === 'selected' ? READING_CACHE : new Map()), deps.root, account.key,
@@ -187,10 +197,12 @@ export async function environmentSnapshot(deps = {}) {
     const accountRows = accounts.map((account) => {
     const login = logins.get(account.key);
     const warnings = accountWarnings(client, deps.env);
-    const reading = detected.clients.find((entry) => entry.client === client);
-    const installed = deps.versions?.[client]?.installed ?? reading?.installed ?? null;
-    const models = confirmedModels(config, client, reading, installed);
-    const available = actorPairs(config, client).filter((actor) => confirmedActor(config, client, reading, installed, actor));
+    const reading = account.isDefault ? detected.clients.find((entry) => entry.client === client) : observations.get(account.key);
+    const installed = (account.isDefault ? deps.versions?.[client]?.installed : undefined) ?? reading?.installed ?? null;
+    // Saved setup choices belong to the default; extras need their own confirmed listing.
+    const catalog = account.isDefault || reading?.source === 'listing' ? reading : { ...reading, source: 'listing', models: [] };
+    const models = confirmedModels(config, client, catalog, installed);
+    const available = actorPairs(config, client).filter((actor) => confirmedActor(config, client, catalog, installed, actor));
     const { cap, source } = capOf(normalizeLimits(deps.limits?.limits ?? config.limits), client);
     if (installed !== false && !available.length) missing.push({ item: 'models', client,
       command: `${command} setup${setupPending(config) ? '' : ' --again'}` });
@@ -225,13 +237,14 @@ export async function environmentSnapshot(deps = {}) {
       size, alternative: [...launchable].sort((a, b) => Math.abs(sizeOrder.indexOf(a) - sizeOrder.indexOf(size))
         - Math.abs(sizeOrder.indexOf(b) - sizeOrder.indexOf(size)))[0] ?? null,
     })) };
-    const location = { config: installConfig(config.install), env: deps.env ?? process.env,
-      home: deps.home ?? deps.env?.HOME ?? deps.env?.USERPROFILE ?? homedir() };
+    const location = { config: installConfig(config.install), env: ['claude-code', 'codex'].includes(client)
+      ? accountEnv(client, account, deps.env ?? process.env) : deps.env ?? process.env,
+      home: deps.home ?? homeOf(deps.env, deps.platform) ?? homedir() };
     return { ...account, login, warnings, client, inUse: client === inUse, installed, candidates, sizeCoverage,
       configPath: known.includes(client) ? clientRoot(client, location) : null,
       evidence: { models: reading?.source ?? 'unknown', reason: reading?.reason ?? null,
         error: reading?.error ?? null },
-      version: deps.versions?.[client]?.version ?? null, models,
+      version: (account.isDefault ? deps.versions?.[client]?.version : reading?.version) ?? null, models,
       actors: candidates.filter((actor) => actor.confirmed),
       quota,
       quotaReadAt: quotas.get(account.key).at,

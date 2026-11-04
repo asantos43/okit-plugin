@@ -2,6 +2,7 @@ import { open, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import process from 'node:process';
 import { configOf } from '../../src/profiles.js';
+import { homeOf } from '../../src/install/config.js';
 
 async function sessionFiles(directory, settings) {
   const files = [];
@@ -63,13 +64,14 @@ async function readTail(path, settings, openFile) {
 }
 
 /** Read-only, bounded tail reads. Missing, stale or unreadable data means no reading. */
-export async function readCodexSessionQuota({ config, env = process.env, now = Date.now,
+export async function readCodexSessionQuota({ config, env = process.env, platform = process.platform, now = Date.now,
   openFile = open } = {}) {
   try {
     const settings = configOf(config).codexQuota;
     const configured = env?.[settings.sessionsEnv] || settings.sessionsDirectory;
+    const home = homeOf(env, platform) || env?.HOME || env?.USERPROFILE;
     const directory = configured.startsWith('~/')
-      ? (env?.HOME || env?.USERPROFILE ? join(env.HOME || env.USERPROFILE, configured.slice(2)) : null)
+      ? (home ? join(home, configured.slice(2)) : null)
       : configured;
     if (!directory) return null;
     const files = (await sessionFiles(directory, settings))

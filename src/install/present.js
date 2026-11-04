@@ -4,6 +4,10 @@
 // every system: only paths and the PATH hint differ.
 import { LOCALES, CONFIG_MESSAGES } from '../profiles.js';
 import { RULE_REASONS } from './rules.js';
+/** Shared with the standalone installer: prefer the native Windows home. */
+export function homeOf(env = process.env, platform = process.platform) {
+  return platform === 'win32' ? env.USERPROFILE ?? env.HOME : env.HOME;
+}
 // The exit-code policy travels with the presenter, so the standalone scripts (which embed this file) have it too.
 export { exitCodeFor, kindOf } from './exit.js';
 
@@ -371,7 +375,8 @@ export const REASONS = [
   [/^Unknown account\.$/, 'Conta desconhecida.', 'Unknown account.'],
   // The state files (src/state.js, src/limits.js): the path and what the system said stay as they are.
   [/^Cannot read (.+?): ([^]*)$/, 'Não foi possível ler $1: $2', 'Cannot read /state/config.json: unreadable'],
-  [/^Invalid JSON in (.+?): ([^]*)$/, 'JSON inválido em $1: $2', 'Invalid JSON in /state/config.json: Unexpected token'],
+  [/^Invalid JSON in (.+)$/, 'JSON inválido em $1', 'Invalid JSON in /state/config.json'],
+  [/^Settings could not be read\. Inspect them: MCP config_get \{\}$/, 'Não foi possível ler os ajustes. Confira: MCP config_get {}', 'Settings could not be read. Inspect them: MCP config_get {}'],
   [/^Cannot write the owner of (.+?): ([^]*)$/, 'Não foi possível gravar o dono de $1: $2', 'Cannot write the owner of /state/lock: denied'],
   [/^Cannot write (.+?): ([^]*)$/, 'Não foi possível gravar $1: $2', 'Cannot write /state/config.json: denied'],
   [/^Lock (.+?) is held by (.+) after (.+?) ms([^]*)$/, 'O bloqueio $1 está com $2 depois de $3 ms$4', 'Lock /state/lock is held by pid 1 after 5000 ms'],

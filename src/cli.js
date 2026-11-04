@@ -8,6 +8,7 @@
 // a client, a daemon or a `systemctl`.
 
 import { spawn } from 'node:child_process';
+import { homeOf } from './install/config.js';
 import { realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import * as filesystem from 'node:fs/promises';
@@ -228,7 +229,7 @@ async function presentInstaller(group, flags, ctx, io, stored) {
   let config, before, destination, bin;
   try {
     config = installConfig(stored?.install, options.dest ? { destination: options.dest } : {});
-    ({ destination, bin } = installPaths(config, { ...ctx, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE }));
+    ({ destination, bin } = installPaths(config, { ...ctx, home: io.home ?? homeOf(ctx.env, ctx.platform) }));
     const found = await discoverRecords(destination, { fs: ctx.fs, config, lenient: group === 'install', explicitDestination: Boolean(options.dest) });
     destination = found.destination;
     before = found.records;
@@ -237,7 +238,7 @@ async function presentInstaller(group, flags, ctx, io, stored) {
   const program = await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs }).catch(() => config.command);
   // A new terminal finds the command only when its folder is on the PATH or the installer put it there.
   // The folder of the link is the one an installation recorded (as the installer and the doctor read it), else the configured one.
-  const reachable = (manages, records, present) => commandReachable({ config, env: ctx.env, platform: ctx.platform, fs: ctx.fs, destination, manages, present, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE,
+  const reachable = (manages, records, present) => commandReachable({ config, env: ctx.env, platform: ctx.platform, fs: ctx.fs, destination, manages, present, home: io.home ?? homeOf(ctx.env, ctx.platform),
     bin: Object.values(records).find((record) => record?.linkDirectory)?.linkDirectory ?? bin }).catch(() => false);
   const manages = group === 'install' && !flags.includes('--no-path');
   const linked = (group === 'install' ? !options['no-link'] : Object.values(before).some((record) => record?.link)) && await reachable(manages, before, group !== 'install');
@@ -379,7 +380,7 @@ async function installationAutostartPlan(ctx, io, record, verify = true) {
   const script = await installationScript(record, { readText: (path) => ctx.fs.readFile(path, 'utf8'), command: ctx.command, verify });
   if (!script) return null;
   return autostartPlan(detectAutostart(ctx.platform), {
-    root: ctx.root, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE,
+    root: ctx.root, home: io.home ?? homeOf(ctx.env, ctx.platform),
     node: await usableNode(record.settings?.node, ctx.platform, (path, mode) => ctx.fs.access(path, mode), (path) => ctx.fs.stat(path)), script, command: ctx.command,
   });
 }

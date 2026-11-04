@@ -31,4 +31,8 @@ List mostra default primeiro em cada cliente; o JSON contém `client`, `id`, `la
 
 Quota, slots e escolhas de modelos são por conta. `ANTHROPIC_API_KEY` e `CLAUDE_CODE_OAUTH_TOKEN` prevalecem sobre um login Claude guardado. Confira o ambiente antes de interpretar a quota de uma conta.
 
+Para cota manual, chame `quota_set` com `client: "claude-code"`, `account: "work"` e `pct: 80`; consulte com `quota_show` usando cliente e conta iguais. Utilize o id estável; o cliente continua sendo `claude-code`. Sem `account`, o arquivo continua `quota/claude-code.json`; a extra usa `quota/claude-code.work.json`. Contas inexistentes são recusadas.
+
+`acquire_slot` aceita o mesmo id opcional. O teto do cliente vale separadamente para cada conta; `limits_status` conta em `claude-code` e `claude-code:work`, e `live` soma todas as execuções. Seus campos opcionais `client` e `account` selecionam uma conta. Modelos, evidências e pasta de cada extra são observados com o ambiente dela; o catálogo salvo da default não confirma uma extra. No Windows, a casa prioriza `USERPROFILE` sobre `HOME`.
+
 [Guia](README.pt-BR.md) · [Modelos e quota](models-and-quota.pt-BR.md) · [English](accounts.md)

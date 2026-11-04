@@ -242,8 +242,13 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
     };
 
     try {
+      const reserved = await readJson(file, null).catch((error) => {
+        if (error.cause?.code === 'EISDIR') return null; // Let the writer report its historical refusal.
+        throw error;
+      });
       await writeJsonAtomic(file, {
         runId, client: options.client, pid: child.pid ?? null, mode: 'PROCESS', status: 'live', startedAt,
+        ...reserved?.account && reserved.account !== 'default' ? { account: reserved.account } : {},
       });
     } catch (error) {
       reportRunFile(error);

@@ -31,4 +31,8 @@ List shows the default first for each client; JSON contains `client`, `id`, `lab
 
 Quota, slots and model choices are per account. `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` override a stored Claude login. Check the environment before interpreting an account's allowance.
 
+For manual quota, call `quota_set` with `client: "claude-code"`, `account: "work"` and `pct: 80`; read it with `quota_show` using the same client and account. Use the stable id, never `claude-code:work` as the client. Omitting `account` keeps the default file `quota/claude-code.json`; the extra uses `quota/claude-code.work.json`. Unknown accounts are refused.
+
+`acquire_slot` accepts the same optional account id. The client cap applies separately to each account; `limits_status` counts them under `claude-code` and `claude-code:work`, and `live` sums all runs. Its optional `client` and `account` select one account. Each extra's models, evidence and config path are observed with its own configuration environment; the default's saved catalog cannot confirm an extra. On Windows, home discovery prefers `USERPROFILE` over `HOME`.
+
 [Guide](README.md) · [Models and quota](models-and-quota.md) · [Português](accounts.pt-BR.md)

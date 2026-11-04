@@ -105,7 +105,7 @@ export async function readJson(file, fallback) {
   try {
     return JSON.parse(raw);
   } catch (error) {
-    throw new Error(`Invalid JSON in ${file}: ${error.message}`, { cause: error });
+    throw new Error(`Invalid JSON in ${file}`, { cause: error });
   }
 }
 

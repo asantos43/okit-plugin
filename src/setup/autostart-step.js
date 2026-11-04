@@ -1,4 +1,5 @@
 import { homedir } from 'node:os';
+import { homeOf } from '../install/config.js';
 import { applyAutostart, autostartExists, autostartPresent } from '../autostart.js';
 import { resolvedRecord } from '../install/where.js';
 import { installPaths } from '../install/config.js';
@@ -39,7 +40,7 @@ async function existedOnMachine(ctx, selected) {
 export async function setupAutostart(ctx, { config, locale, ask, plan }) {
   const text = (key, values = {}) => fill(pick(TEXTS[key], locale), { command: ctx.command, ...values });
   try {
-    const home = ctx.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir();
+    const home = ctx.home ?? homeOf(ctx.env, ctx.platform) ?? homedir();
     const { destination: configuredDestination } = installPaths(config, { ...ctx, home });
     const discovered = await discoverRecords(configuredDestination, { fs: ctx.fs, config });
     const { destination } = discovered;

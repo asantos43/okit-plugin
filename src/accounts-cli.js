@@ -24,7 +24,9 @@ export async function accountCommand(ctx, action, args) {
   if (action !== 'list' && !client) return ctx.unknown();
   const target = paths(ctx.root);
   const load = async () => {
-    const raw = await readJson(target.config, {});
+    let raw;
+    try { raw = await readJson(target.config, {}); }
+    catch { throw new OperationalError('Settings could not be read. Inspect them: MCP config_get {}'); }
     if (!isReadableConfig(raw)) throw new OperationalError('Account configuration must be an object with readable profiles.');
     configOf(raw);
     return raw;

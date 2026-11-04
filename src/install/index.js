@@ -6,7 +6,7 @@ import { createInterface } from 'node:readline/promises';
 import { DEFAULT_CONFIG, configOf } from '../profiles.js';
 import { createPresenter, planSteps, fill, localizeReason, pick, TEXTS, redactingStream, redactingWriter, resolveLocale, supportsUnicode, headerValues, clientLabel, finish, finishLink } from './present.js';
 import { writeJsonAtomic } from '../state.js';
-import { installConfig, installPaths, clientRoot } from './config.js';
+import { installConfig, installPaths, clientRoot, homeOf } from './config.js';
 import { flagsOf } from './flags.js';
 import { chooseClient } from './menu.js';
 import { latestRelease } from './release.js';
@@ -102,10 +102,10 @@ export async function installerCommand(command, args, ctx, io = {}) {
     ui = io.ui ?? createPresenter({ locale: chosen.locale, verbose: Boolean(flags.verbose), write: ctx.out,
       unicode: supportsUnicode({ tty: io.outTty ?? Boolean(process.stdout.isTTY), env: ctx.env, platform: ctx.platform }), hide });
     const config = installConfig(user?.install, flags.dest ? { destination: flags.dest } : {});
-    const locations = installPaths(config, { env: ctx.env, platform: ctx.platform, home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir() });
+    const locations = installPaths(config, { env: ctx.env, platform: ctx.platform, home: io.home ?? homeOf(ctx.env, ctx.platform) ?? homedir() });
     const deps = { ...ctx, ...io, fs, config, ...locations, out: ctx.out, err: ctx.err, ui, hints: [], pathNotes: [],
       statuslineConfig: configOf(user).statuslineRegistration, collectorConfig: configOf(user).statuslineCollector,
-      home: io.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir(),
+      home: io.home ?? homeOf(ctx.env, ctx.platform) ?? homedir(),
       temporary: io.tmpdir ?? tmpdir(), now: ctx.now, platform: ctx.platform, env: ctx.env,
       fetch: io.fetch ?? globalThis.fetch, tty: io.tty ?? Boolean(process.stdin.isTTY),
       read: io.read ?? readerOf(hide), dryRun: Boolean(flags['dry-run']),

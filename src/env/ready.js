@@ -36,7 +36,8 @@ export function readiness(snapshot) {
     .filter((size) => !rows.some((row) => (row.candidates ?? []).some((actor) => actor.canLaunch && actor.sizes.includes(size))))
     .map((size) => ({ size, reason: reasonOf(rows, size) }));
   const accounts = (snapshot?.clients ?? []).filter((row) => row.accounts?.length > 1).map((row) => ({
-    client: row.client, ready: row.installed === true ? row.accounts.filter((account) => account.candidates.some((actor) => actor.canLaunch)).length : 0,
+    client: row.client, ready: row.accounts.filter((account) => account.installed === true
+      && account.candidates.some((actor) => actor.canLaunch)).length,
     total: row.accounts.length,
   }));
   return { ready: sizes.length > 0 && gaps.length === 0, gaps, ...accounts.length ? { accounts } : {} };

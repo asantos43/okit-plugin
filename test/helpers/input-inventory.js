@@ -297,10 +297,10 @@ export const FILE_RULES = Object.freeze([
     note: 'only to say whether the status bar is registered: a missing file is inactive, a file that cannot be read or parsed leaves the state unknown; status never fails for it' },
   { file: 'quota/<client>.json (the manual reading)', readBy: 'adapters/{claude-code,codex,opencode}/index.js (readQuota, by `status`)', unreadable: 1, wrongType: 0,
     proof: 'test/input-inventory.test.js#the quota file of a client (quota/<client>.json)',
-    note: 'not JSON, empty or a folder cannot be read (1); valid JSON of another type, or a field of the wrong type, is no reading: status goes on and says no value is recorded' },
+    note: 'not JSON, empty or a folder cannot be read (1); valid JSON of another type, or a field of the wrong type, is no reading: status goes on and says no value is recorded; accountFiles selects <client>.<account>.json for extras, quota_set/quota_show validate the stable id and membership (test/d115-fixes.test.js)' },
   { file: 'quota/claude-code-statusline.json (the sample of the collector)', readBy: 'adapters/claude-code/index.js (readQuota, by `status`)', unreadable: 0, wrongType: 0,
     proof: 'test/adapter-claude-code.test.js#the sample of the collector is read defensively',
-    note: 'the file the collector writes with the JSON of the client; one that cannot be read, one that is not JSON and one that holds no window are no automatic reading: the manual one is used and status goes on' },
+    note: 'the file the collector writes with the JSON of the client; extras use claude-code-statusline.<account>.json via accountFiles; one that cannot be read, one that is not JSON and one that holds no window are no automatic reading: the manual one is used and status goes on' },
 ]);
 
 // ---------------------------------------------------------------------------------------------------------------

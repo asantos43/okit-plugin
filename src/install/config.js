@@ -5,6 +5,8 @@ import { join, resolve } from 'node:path';
 
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
+export { homeOf } from './present.js';
+
 // The defaults under what the user wrote, key by key down to the first list or value: a key the user did not write is
 // the default, at any depth (a list, a text or a number written by the user replaces the default whole).
 function merge(base, user) {

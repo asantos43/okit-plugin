@@ -124,6 +124,8 @@ test('two accounts and implicit default: doctor, actors, status, env_report and 
 test('MCP golden for two accounts, kept separate from the existing contract', async () => {
   const snapshot = await environmentSnapshot(deps());
   const actual = {};
+  actual.accountTools = TOOLS.filter((tool) => ['quota_set', 'quota_show', 'acquire_slot', 'limits_status'].includes(tool.name))
+    .map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
   for (const locale of ['en', 'pt-BR']) for (const name of ['status', 'actors_list', 'env_report']) {
     const frame = await respond({ jsonrpc: '2.0', id: 1, method: 'tools/call',
       params: { name, arguments: { locale, client: 'claude-code' } } },

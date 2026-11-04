@@ -1,4 +1,5 @@
 import { homedir, tmpdir } from 'node:os';
+import { homeOf } from '../install/config.js';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as filesystem from 'node:fs/promises';
@@ -193,7 +194,7 @@ export async function diagnose(input) {
   // Every command the doctor advertises is written for the shell of the platform: a command with a space or a quote
   // in it is runnable as it is shown.
   const env = input.env ?? {};
-  const home = input.home ?? env.HOME ?? env.USERPROFILE ?? homedir();
+  const home = input.home ?? homeOf(env, platform) ?? homedir();
   const root = input.root;
   const records = Array.isArray(input.records) ? input.records : [];
   const fs = input.fs ?? filesystem;

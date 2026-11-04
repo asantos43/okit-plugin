@@ -2,6 +2,7 @@
 // instead of trusting the client to hold the cap.
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { accountKey, accountsOf } from './accounts.js';
 
 import { DEFAULT_CONFIG, configOf } from './profiles.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
@@ -47,10 +48,17 @@ async function readLiveRuns(root, staleMinutes) {
   return runs;
 }
 
+// A hand-edited run file may carry a client or account the model refuses: it still counts, under its bare client.
+function keyOfRun(run) {
+  const client = run.client ?? 'unknown';
+  if (run.account === undefined) return client;
+  try { return accountKey(run.client, run.account); } catch { return client; }
+}
+
 function tally(runs) {
   const byClient = {};
   for (const run of runs) {
-    const client = run.client ?? 'unknown';
+    const client = keyOfRun(run);
     byClient[client] = (byClient[client] ?? 0) + 1;
   }
   return { global: runs.length, byClient };
@@ -94,12 +102,13 @@ function checkCaps(counts, limits, client) {
  * Reports whether one more run fits under this client's effective cap.
  *
  * @param {string} root state root
- * @param {{client: string, config?: object}} input
+ * @param {{client: string, account?: string, config?: object}} input
  * @returns {Promise<{ok: boolean, reason?: string, global: number, perClient: number}>}
  */
-export async function canSpawn(root, { client, config } = {}) {
+export async function canSpawn(root, { client, account, config } = {}) {
   const { limits } = await settingsOf(root, config);
-  return checkCaps(await liveCounts(root, client, config), limits, client);
+  const key = account === undefined ? client : accountKey(client, account);
+  return checkCaps(await liveCounts(root, key, config), limits, client);
 }
 /**
  * Reserves a slot for `runId` and writes its run file, or reports `busy`.
@@ -108,23 +117,25 @@ export async function canSpawn(root, { client, config } = {}) {
  *
  * @param {string} root state root
  * @param {string} runId
- * @param {{client: string, config?: object, waitMs?: number}} input
+ * @param {{client: string, account?: string, config?: object, waitMs?: number}} input
  * @returns {Promise<{ok: boolean, reason?: string, runId?: string, client?: string, global?: number, perClient?: number}>}
  */
-export async function acquireSlot(root, runId, { client, config, waitMs = 0 } = {}) {
+export async function acquireSlot(root, runId, { client, account, config, waitMs = 0 } = {}) {
+  const key = account === undefined ? client : accountKey(client, account);
+  const identity = account === undefined || account === 'default' ? {} : { account };
   const deadline = Date.now() + Math.max(0, waitMs);
 
   for (;;) {
     // The lock is released before sleeping, so a waiter never blocks a release.
     const result = await withLock(runsDir(root), async () => {
       const { limits } = await settingsOf(root, config);
-      const counts = await liveCounts(root, client, config);
+      const counts = await liveCounts(root, key, config);
       const room = checkCaps(counts, limits, client);
       if (!room.ok) return room;
       await writeJsonAtomic(runFile(root, runId), {
-        runId, client, status: 'live', startedAt: Date.now(),
+        runId, client, ...identity, status: 'live', startedAt: Date.now(),
       });
-      return { ok: true, runId, client };
+      return { ok: true, runId, client, ...identity };
     });
 
     if (result.ok || Date.now() >= deadline) return result;
@@ -157,14 +168,21 @@ export async function releaseSlot(root, runId) {
  * @param {object} [config]
  * @returns {Promise<{limits: object, live: number, byClient: object, caps: object, warnings: string[]}>}
  */
-export async function limitsStatus(root, config) {
-  const { limits, staleMinutes, limitWarnings } = await settingsOf(root, config);
+export async function limitsStatus(root, config, { client, account } = {}) {
+  const key = account === undefined ? client : accountKey(client, account);
+  const settings = await settingsOf(root, config);
+  const { limits, staleMinutes, limitWarnings } = settings;
   const runs = await readLiveRuns(root, staleMinutes);
   const { global, byClient } = tally(runs);
   const clients = new Set([
     ...Object.keys(DEFAULT_CONFIG.release.adapters), ...Object.keys(limits.clients),
     ...Object.keys(config?.profiles ?? {}), ...Object.keys(byClient),
+    ...Object.keys(settings.accounts ?? {}).flatMap((client) => accountsOf(settings, client).map((account) => account.key)),
   ]);
-  const caps = Object.fromEntries([...clients].map((client) => [client, capOf(limits, client)]));
+  if (key !== undefined) clients.add(key);
+  const caps = Object.fromEntries([...clients].map((client) => [client, capOf(limits, client.split(':')[0])]));
+  if (key !== undefined) {
+    return { limits, live: global, byClient: { [key]: byClient[key] ?? 0 }, caps: { [key]: caps[key] }, warnings: limitWarnings };
+  }
   return { limits, live: global, byClient, caps, warnings: limitWarnings };
 }

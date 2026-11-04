@@ -60,6 +60,10 @@ const RULE_REASONS = Object.freeze(Object.values(RULES).map(({ en, pt, example }
   return [new RegExp(`^${source}$`), pt.replace(/%(\d)/g, '$$$1'), example];
 }));
 
+/** Shared with the standalone installer: prefer the native Windows home. */
+function homeOf(env = process.env, platform = process.platform) {
+  return platform === 'win32' ? env.USERPROFILE ?? env.HOME : env.HOME;
+}
 // The exit-code policy travels with the presenter, so the standalone scripts (which embed this file) have it too.
 
 const SYSTEMS = { win32: 'Windows', linux: 'Linux', darwin: 'macOS' };
@@ -426,7 +430,8 @@ const REASONS = [
   [/^Unknown account\.$/, 'Conta desconhecida.', 'Unknown account.'],
   // The state files (src/state.js, src/limits.js): the path and what the system said stay as they are.
   [/^Cannot read (.+?): ([^]*)$/, 'Não foi possível ler $1: $2', 'Cannot read /state/config.json: unreadable'],
-  [/^Invalid JSON in (.+?): ([^]*)$/, 'JSON inválido em $1: $2', 'Invalid JSON in /state/config.json: Unexpected token'],
+  [/^Invalid JSON in (.+)$/, 'JSON inválido em $1', 'Invalid JSON in /state/config.json'],
+  [/^Settings could not be read\. Inspect them: MCP config_get \{\}$/, 'Não foi possível ler os ajustes. Confira: MCP config_get {}', 'Settings could not be read. Inspect them: MCP config_get {}'],
   [/^Cannot write the owner of (.+?): ([^]*)$/, 'Não foi possível gravar o dono de $1: $2', 'Cannot write the owner of /state/lock: denied'],
   [/^Cannot write (.+?): ([^]*)$/, 'Não foi possível gravar $1: $2', 'Cannot write /state/config.json: denied'],
   [/^Lock (.+?) is held by (.+) after (.+?) ms([^]*)$/, 'O bloqueio $1 está com $2 depois de $3 ms$4', 'Lock /state/lock is held by pid 1 after 5000 ms'],
@@ -761,7 +766,7 @@ function kindOf(error) {
   return error?.kind === 'usage' || error?.kind === 'language' ? error.kind : 'operational';
 }
 
-return { createPresenter, clientLabel, systemLabel, redact, redactingWriter, redactingStream, resolveLocale, localizeReason, planSteps, exitCodeFor, kindOf };
+return { homeOf, createPresenter, clientLabel, systemLabel, redact, redactingWriter, redactingStream, resolveLocale, localizeReason, planSteps, exitCodeFor, kindOf };
 })();
 // Embedded into the standalone release scripts by the build; no repo imports.
 // `present` is the installer's presenter (src/install/present.js), embedded by the same build.
@@ -873,7 +878,7 @@ async function install(defaults, present, hide) {
   if (!system || !arch) fail(t(`No package for system/architecture: ${rawSystem}/${rawArch}. Supported: ${supported}`, `Não há pacote para este sistema/arquitetura: ${rawSystem}/${rawArch}. Com suporte: ${supported}`));
   const roots = settings.DATA_ROOTS[platform];
   if (!roots) fail(t(`Unsupported platform: ${platform}`, `Sistema sem suporte: ${platform}`));
-  const destination = resolve(flags['--dest'] || config.DEST || join(env[roots[0]] || join(env.HOME || env.USERPROFILE || homedir(), ...roots.slice(1)), config.DIRECTORY));
+  const destination = resolve(flags['--dest'] || config.DEST || join(env[roots[0]] || join(present.homeOf(env, process.platform) ?? homedir(), ...roots.slice(1)), config.DIRECTORY));
   const recordFile = join(destination, 'install.json');
   const records = [];
   // A record that is not JSON cannot be read (exit 1); one whose client or path is not text is a refusal of usage (exit 2).

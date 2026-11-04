@@ -1,11 +1,11 @@
 import * as filesystem from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { clientRoot, installConfig } from './install/config.js';
+import { clientRoot, installConfig, homeOf } from './install/config.js';
 
 /** Detect credential markers without opening credentials. Unreadable state is unknown. */
 export async function loginState({ client, account, env = process.env, platform = process.platform,
-  fs = filesystem, home = env.HOME ?? env.USERPROFILE ?? homedir() }) {
+  fs = filesystem, home = homeOf(env, platform) ?? homedir() }) {
   if (!['claude-code', 'codex'].includes(client)) return 'unknown';
   if (client === 'claude-code' && platform === 'darwin') return 'unknown';
   const root = account?.configDir || clientRoot(client, { config: installConfig(), env, home });
