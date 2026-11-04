@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { readJson, writeJsonAtomic, withLock } from '../state.js';
 import { settings } from './config.js';
 import { redact } from './redact.js';
-import { normalize, validate, totals } from './schema.js';
+import { boundedClone, normalize, validate, totals } from './schema.js';
 
 const prefix = 'okit-plugin-';
 const bytes = value => Buffer.byteLength(`${JSON.stringify(value, null, 2)}\n`);
@@ -25,27 +25,67 @@ export async function pruneFiles(config, now = Date.now()) {
 }
 export function capped(data, config) {
   const limit = Math.min(config.maxFileBytes, config.maxBytes);
-  if (bytes(data) <= limit) return data;
+  let size = bytes(data);
+  if (size <= limit) return data;
   data.final_metrics ??= totals(data.steps);
   const marker = config.truncationMarker;
-  for (const item of [...data.steps].reverse()) {
-    item.source = 'system';
-    item.message = marker;
-    delete item.model_name;
-    delete item.reasoning_effort;
-    delete item.metrics;
-    delete item.reasoning_content;
-    delete item.tool_calls;
-    delete item.observation;
-    if (item.extra) {
-      delete item.extra.failed_calls;
-      delete item.extra.failed_results;
-      if (!Object.keys(item.extra).length) delete item.extra;
+  const rootSteps = new Set(data.steps);
+  // Include embedded children and free-form payloads, without recursive walking.
+  const pending = [{ value: data, free: false }], payloads = [], runs = [];
+  while (pending.length) {
+    const { value, free } = pending.pop();
+    if (Array.isArray(value.steps) && validate(value)) runs.push(value);
+    for (const [key, child] of Object.entries(value)) {
+      const payload = free || ['extra', 'arguments', 'tool_definitions'].includes(key);
+      if (child && typeof child === 'object') {
+        pending.push({ value: child, free: payload });
+        if (['extra', 'arguments', 'tool_definitions'].includes(key)) payloads.push([value, key]);
+      } else if (typeof child === 'string' && !(key === 'message' && rootSteps.has(value))
+        && (payload || ['message', 'content', 'text', 'reasoning_content', 'notes'].includes(key))) {
+        const saved = bytes(child) - bytes(marker);
+        if (saved <= 0) continue;
+        value[key] = marker; size -= saved;
+        if (size <= limit && bytes(data) <= limit) return data;
+      }
     }
+  }
+  size = bytes(data);
+  if (size <= limit) return data;
+  for (const run of runs.reverse()) {
+    run.final_metrics ??= totals(run.steps);
+    for (const item of [...run.steps].reverse()) {
+      const before = bytes(item);
+      item.source = 'system';
+      item.message = marker;
+      delete item.model_name;
+      delete item.reasoning_effort;
+      delete item.metrics;
+      delete item.reasoning_content;
+      delete item.tool_calls;
+      delete item.observation;
+      if (item.extra) {
+        delete item.extra.failed_calls;
+        delete item.extra.failed_results;
+        if (!Object.keys(item.extra).length) delete item.extra;
+      }
+      size -= before - bytes(item);
+      if (size <= limit && bytes(data) <= limit) return data;
+    }
+  }
+  size = bytes(data);
+  for (const [parent, key] of payloads.reverse()) {
+    const replacement = key === 'tool_definitions' ? [] : { truncated: marker };
+    const saved = bytes(parent[key]) - bytes(replacement);
+    if (saved <= 0) continue;
+    parent[key] = replacement; size -= saved;
+    if (size <= limit && bytes(data) <= limit) return data;
+  }
+  // Halve wide step arrays instead of serializing the entire run per removed step.
+  for (const run of runs) {
+    while (run.steps.length > 1 && bytes(data) > limit) run.steps.length = Math.ceil(run.steps.length / 2);
+    run.final_metrics.total_steps = run.steps.length;
     if (bytes(data) <= limit) return data;
   }
-  while (data.steps.length > 1 && bytes(data) > limit) data.steps.pop();
-  data.final_metrics.total_steps = data.steps.length;
   if (!data.steps.length || bytes(data) > limit) {
     throw new Error('Recording limit is too small / Limite de gravação pequeno demais');
   }
@@ -55,7 +95,7 @@ export async function save(root, data) {
   const config = await settings(root);
   if (config.enabled !== true) return false;
   if (!safeId(data?.session_id)) return false;
-  const safe = capped(normalize(redact(structuredClone(data), config), { dir: config.dir }), config);
+  const safe = capped(normalize(redact(boundedClone(data), config), { dir: config.dir }), config);
   if (!validate(safe)) throw new Error('Invalid saved run / Execução salva inválida');
   await mkdir(config.dir, { recursive: true });
   await withLock(join(config.dir, 'okit-plugin-retention'), async () => {

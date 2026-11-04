@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdtemp, mkdir, writeFile, rm, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { trajectory, normalize, validate, readable, totals } from '../src/trajectory/schema.js';
+import { trajectory, normalize, validate, readable, totals, MAX_DEPTH } from '../src/trajectory/schema.js';
 import { save, list, exportTrajectory, show } from '../src/trajectory/index.js';
 import { capture } from '../src/trajectory/capture.js';
 import { TOOLS } from '../src/mcp/tools.js';
@@ -11,7 +11,57 @@ import { samples } from './helpers/trajectory-samples.js';
 import { codexFixture } from './helpers/trajectory-samples.js';
 import { fuzz, diff } from '../scripts/check-atif.mjs';
 const context = { session_id: 'atif', model: 'example-model' };
+// | Review 9 | Must pass | Must refuse |
+// | bounds | nested truncation, bounded JSON, separate safe counters | depth > 100, unsafe summed counters |
+test('review 9: save caps nested child messages and result content', async t => {
+  const root = await rootOf(t);
+  await writeFile(join(root, 'config.json'), JSON.stringify({ trajectory: { enabled: true, maxFileBytes: 1048576 } }));
+  for (const placement of ['embedded', 'extra', 'ref', 'wide-child']) {
+    const data = trajectory(context, [{ message: 'Root' }]);
+    const child = trajectory({ ...context, session_id: 'child' }, [{ message: 'x'.repeat(1100000) }]);
+    child.trajectory_id = 'child';
+    if (placement === 'wide-child') {
+      child.steps = Array.from({ length: 500 }, (_, index) => ({ step_id: index + 1, source: 'agent', message: 'small' }));
+      data.subagent_trajectories = [child];
+      await writeFile(join(root, 'config.json'), JSON.stringify({ trajectory: { enabled: true, maxFileBytes: 3000 } }));
+    }
+    else if (placement === 'embedded') data.subagent_trajectories = [child];
+    else if (placement === 'extra') data.extra = { child: { extra: { child } } };
+    else data.steps[0].observation = { results: [{ subagent_trajectory_ref: [{ trajectory_id: 'child', extra: { child } }] }] };
+    assert.equal(await save(root, data), true);
+    const raw = await readFile(join(root, 'trajectory', 'okit-plugin-atif.json'));
+    assert.ok(raw.length <= (placement === 'wide-child' ? 3000 : 1048576)); assert.ok(validate(JSON.parse(raw)));
+    assert.match(raw.toString(), /[Tt]runc|[Ss]horten|[Cc]ort|[Rr]eduz/);
+  }
+});
+test('review 9: depth is refused and normalized without recursive cloning', async t => {
+  const root = await rootOf(t), data = trajectory(context, [{ message: 'Root' }]);
+  data.extra = {}; let child = data.extra;
+  for (let i = 0; i < 3000; i++) { child.child = {}; child = child.child; }
+  assert.equal(validate(data), false);
+  const safe = normalize(data); assert.ok(validate(safe));
+  assert.match(JSON.stringify(safe), /truncated: too deep/);
+  assert.equal(await save(root, data), true);
+  assert.match(await show(root, 'atif'), /Root/);
+  const boundary = trajectory(context, [{ message: 'Boundary' }]); boundary.extra = {};
+  let edge = boundary.extra;
+  for (let i = 1; i < MAX_DEPTH; i++) { edge.child = {}; edge = edge.child; }
+  assert.ok(validate(boundary)); assert.deepEqual(normalize(boundary), boundary);
+  edge.child = {}; assert.equal(validate(boundary), false); assert.ok(validate(normalize(boundary)));
+});
 // | Harbor corpus | Must pass | Must refuse |
+test('review 9: overflowing folds preserve both counters and omit unsafe totals', () => {
+  for (const key of ['prompt_tokens', 'completion_tokens', 'cached_tokens', 'cost_usd']) {
+    const large = key === 'cost_usd' ? Number.MAX_VALUE : Number.MAX_SAFE_INTEGER;
+    const output = trajectory(context, [{ message: 'Agent', metrics: { [key]: large } },
+      { source: 'system', message: 'Usage', metrics: { [key]: key === 'cost_usd' ? large : 1 } }]);
+    assert.equal(output.steps.length, 2);
+    assert.equal(output.steps[0].metrics[key], large);
+    assert.equal(output.steps[1].metrics[key], key === 'cost_usd' ? large : 1);
+    assert.equal(output.final_metrics[`total_${key}`], null);
+    assert.ok(validate(output));
+  }
+});
 // | models | all optional fields, nulls, empty collections, multimodal, recursive children | unknown fields, bad content/ref shapes, zero-call metrics |
 const fixtureDir = new URL('./fixtures/atif-valid/', import.meta.url);
 // | Review 8 | Must pass | Must refuse |
@@ -665,7 +715,7 @@ test('duplicate call IDs are renamed with their results', () => {
 });
 test('fuzz: the seeded odd trajectories all satisfy validate()', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'atif-fuzz-')); t.after(() => rm(dir, { recursive: true, force: true }));
-  const { files, failures } = await fuzz(dir, { n: 100 });
-  assert.deepEqual(failures, []); assert.equal(files.length, 100);
+  const { files, failures } = await fuzz(dir, { n: 100, stressSizes: { length: 2000, depth: 120, width: 150 } });
+  assert.deepEqual(failures, []); assert.equal(files.length, 104);
   for (const file of files) assert.ok(validate(JSON.parse(await readFile(file, 'utf8'))), file);
 });

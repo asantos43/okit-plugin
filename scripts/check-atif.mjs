@@ -82,6 +82,18 @@ function generator(seed) {
 }
 
 const kinds = ['steps', 'raw', 'capped', 'legacy', 'capture', 'valid'];
+export function stress(seed = 114, { length = 1200000, depth = 3000, width = 50000 } = {}) {
+  const rand = random(seed), base = () => ({ agent: { name: 'stress', version: '1' }, steps: [{ source: 'agent', message: 'Root' }] });
+  const long = base(), deep = base(), wide = base(), counts = base();
+  long.extra = { child: { ...base(), steps: [{ source: 'agent', message: 'x'.repeat(Math.floor(length * (0.92 + rand() * 0.08))) }] } };
+  long.steps[0].observation = { results: [{ content: 'y'.repeat(length) }] };
+  deep.extra = {}; let child = deep.extra;
+  for (let i = 0; i < depth; i++) { child.child = {}; child = child.child; }
+  wide.steps = Array.from({ length: width }, () => ({ source: 'agent', message: 'small' }));
+  counts.steps = [Number.MAX_SAFE_INTEGER - 1, 1, 1, Number.MAX_SAFE_INTEGER + 1].map((n, i) => ({
+    source: i ? 'system' : 'agent', message: 'Usage', metrics: { prompt_tokens: n } }));
+  return [long, deep, counts, wide];
+}
 // (a) soundness, (b) totality, (c) valid output, (d) strict identity.
 // Match whole JSON strings/numbers so digits inside strings, fractions and exponents do not count.
 function unsafeIntegerLiteral(raw) {
@@ -116,7 +128,7 @@ export async function diff(dir) {
   return { files, failures, skipped };
 }
 // Pushes N odd trajectories through trajectory → normalize → save (old files through exportTrajectory) and writes them to `dir`.
-export async function fuzz(dir, { n = 200, seed = 114 } = {}) {
+export async function fuzz(dir, { n = 200, seed = 114, stressSizes } = {}) {
   const out = resolve(dir), root = await mkdtemp(join(tmpdir(), 'fuzz-atif-')), staging = join(root, 'legacy');
   const random = generator(seed), files = [], failures = [];
   const maximal = JSON.parse(await readFile(new URL('../test/fixtures/atif-valid/maximal-v1.7.json', import.meta.url)));
@@ -165,6 +177,16 @@ export async function fuzz(dir, { n = 200, seed = 114 } = {}) {
         if (!validate(data)) throw new Error('validate() rejects the saved file');
         files.push(file);
       } catch (error) { failures.push({ index, kind, id, error: error.message }); }
+    }
+    for (const [index, input] of stress(seed, stressSizes).entries()) {
+      const id = `stress-${seed}-${index}`, file = join(out, `okit-plugin-${id}.json`);
+      try {
+        await configure({ maxFileBytes: 1048576 });
+        if (!await save(root, { ...input, session_id: id })) throw new Error('save returned false');
+        const raw = await readFile(file);
+        if (raw.length > 1048576 || !validate(JSON.parse(raw))) throw new Error('invalid stress output or exceeded cap');
+        files.push(file);
+      } catch (error) { failures.push({ index, kind: 'stress', id, error: error.message }); }
     }
   } finally { await rm(root, { recursive: true, force: true }); }
   return { files, failures };

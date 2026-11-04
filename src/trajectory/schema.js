@@ -2,6 +2,36 @@ import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 export const SCHEMA_VERSION = 'ATIF-v1.4';
 export const unavailable = null;
+export const MAX_DEPTH = 100;
+const depthMarker = '[truncated: too deep]';
+// Walk JSON iteratively: neither cloning nor the depth check uses the JS stack.
+export function boundedClone(value, limit = MAX_DEPTH) {
+  if (value === null || typeof value !== 'object') return value;
+  const root = Array.isArray(value) ? [] : {};
+  const pending = [{ value, copy: root, depth: 0 }];
+  while (pending.length) {
+    const { value: source, copy, depth } = pending.pop();
+    for (const [key, child] of Object.entries(source)) {
+      let next = child;
+      if (child !== null && typeof child === 'object') {
+        next = depth + 1 > limit ? depthMarker : Array.isArray(child) ? [] : {};
+        if (next !== depthMarker) pending.push({ value: child, copy: next, depth: depth + 1 });
+      }
+      Object.defineProperty(copy, key, { value: next, enumerable: true, writable: true, configurable: true });
+    }
+  }
+  return root;
+}
+function bounded(value) {
+  const pending = [[value, 0]];
+  while (pending.length) {
+    const [item, depth] = pending.pop();
+    if (item === null || typeof item !== 'object') continue;
+    if (depth > MAX_DEPTH) return false;
+    for (const child of Object.values(item)) pending.push([child, depth + 1]);
+  }
+  return true;
+}
 const numeric = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 const usageKeys = ['prompt_tokens', 'completion_tokens', 'cached_tokens', 'cost_usd'];
 // Harbor: token counters are non-negative integers; only the cost may be fractional.
@@ -68,12 +98,12 @@ function isoTime(value) {
 function argumentsObject(value) {
   if (value == null) return {};
   if (typeof value === 'string') {
-    try { const parsed = JSON.parse(value); if (object(parsed)) return parsed; } catch { /* Plain input. */ }
+    try { const parsed = JSON.parse(value); if (object(parsed)) return boundedClone(parsed, 80); } catch { /* Plain input. */ }
   }
   return object(value) ? value : { input: value };
 }
 function normalizeStep(value) {
-  const input = structuredClone(object(value) ? value : { message: value });
+  const input = boundedClone(object(value) ? value : { message: value });
   const item = { source: 'agent', message: '', ...input };
   item.metrics = usageOf(input.metrics);
   if (!['agent', 'user', 'system'].includes(item.source)) item.source = 'agent';
@@ -169,6 +199,7 @@ function finalMetrics(steps, stored, oldLength, restructured) {
     if (Object.hasOwn(kept, key) && !optional(kept[key], check)) kept[key] = computed[key];
     if (restructured && key !== 'total_steps' && computed[key] != null
       && (kept[key] ?? 0) < computed[key]) kept[key] = computed[key];
+    if (restructured && computed[key] === null && steps.some(item => amount(key.slice(6), item.metrics?.[key.slice(6)]) !== null)) kept[key] = null;
   }
   const delta = steps.length - oldLength;
   if (delta && integer(stored?.total_steps)) {
@@ -179,9 +210,12 @@ function finalMetrics(steps, stored, oldLength, restructured) {
   return kept;
 }
 export function normalize(data = {}, { producer = false, dir } = {}) {
-  if (dir !== undefined) { data = structuredClone(data); repairImages(data, dir); }
+  const alreadyValid = validate(data);
+  // Leave room for wrappers introduced while repairing malformed schema fields.
+  data = boundedClone(data, alreadyValid ? MAX_DEPTH : 80);
+  if (dir !== undefined) repairImages(data, dir);
   // Harbor-valid input is already canonical for storage; never rewrite its optional fields.
-  if (!producer && validate(data)) return structuredClone(data);
+  if (!producer && validate(data)) return data;
   data = object(data) ? data : {};
   const steps = [], result = confine(data, topFields);
   let restructured = false;
@@ -207,7 +241,7 @@ export function normalize(data = {}, { producer = false, dir } = {}) {
   if (!optional(result.notes, text)) delete result.notes;
   for (const value of Array.isArray(data?.steps) ? data.steps : []) {
     if (!producer && integer(value?.step_id) && validStep(value, value.step_id - 1)) {
-      steps.push(structuredClone(value)); continue;
+      steps.push(boundedClone(value)); continue;
     }
     const item = normalizeStep(value);
     const resultCount = item.observation?.results?.length ?? 0;
@@ -219,7 +253,9 @@ export function normalize(data = {}, { producer = false, dir } = {}) {
     const empty = !item.message && !item.tool_calls.length && !item.observation?.results?.length && !item.reasoning_content;
     const keepExtra = Object.keys(item.extra ?? {}).some(key => !['failed_calls', 'failed_results'].includes(key));
     if (item.source !== 'agent' && Object.keys(usage).length) {
-      if (previous) {
+      const canFold = previous && Object.entries(usage).every(([key, n]) => tokenArrays.includes(key)
+        || amount(key, (previous.metrics?.[key] ?? 0) + n) !== null);
+      if (canFold) {
         for (const [key, n] of Object.entries(usage)) previous.metrics = { ...previous.metrics,
           [key]: tokenArrays.includes(key) ? [...(previous.metrics?.[key] ?? []), ...n] : (previous.metrics?.[key] ?? 0) + n };
         if (usageExtra) previous.metrics = { ...previous.metrics, extra: { ...previous.metrics?.extra, ...usageExtra } };
@@ -237,7 +273,7 @@ export function normalize(data = {}, { producer = false, dir } = {}) {
       const kept = { ...usage, ...(usageExtra ? { extra: usageExtra } : {}) };
       if (Object.keys(kept).length) item.metrics = kept; else delete item.metrics;
       if (!producer && (item.observation?.results?.length ?? 0) === resultCount
-        && Object.hasOwn(value ?? {}, 'metrics') && optional(value.metrics, validUsage)) item.metrics = structuredClone(value.metrics);
+        && Object.hasOwn(value ?? {}, 'metrics') && optional(value.metrics, validUsage)) item.metrics = boundedClone(value.metrics);
       if (!item.tool_calls.length) {
         if (!producer && (value?.tool_calls === null || Array.isArray(value?.tool_calls) && !value.tool_calls.length)) item.tool_calls = value.tool_calls;
         else delete item.tool_calls;
@@ -260,8 +296,9 @@ export function normalize(data = {}, { producer = false, dir } = {}) {
   if (Object.hasOwn(data, 'final_metrics') || producer || restructured) {
     result.final_metrics = finalMetrics(result.steps, data?.final_metrics, Array.isArray(data.steps) ? data.steps.length : 0, restructured);
   }
-  if (!validate(result)) throw new Error('Invalid saved run / Execução salva inválida');
-  return result;
+  const output = boundedClone(result);
+  if (!validate(output)) throw new Error('Invalid saved run / Execução salva inválida');
+  return output;
 }
 // Harbor's _is_url deliberately checks only for ://, without parsing a URL.
 function repairImages(data, dir) {
@@ -327,7 +364,7 @@ function validStep(item, index) {
         && optional(result.subagent_trajectory_ref, refs => Array.isArray(refs) && refs.every(validRef))));
 }
 export function validate(data) {
-  if (!hasOnly(data, topFields) || !knownVersion(data.schema_version === undefined ? 'ATIF-v1.7' : data.schema_version)
+  if (!bounded(data) || !hasOnly(data, topFields) || !knownVersion(data.schema_version === undefined ? 'ATIF-v1.7' : data.schema_version)
     || !metadata(data) || !['session_id', 'trajectory_id', 'notes', 'continued_trajectory_ref'].every(key => optional(data[key], text))
     || !hasOnly(data.agent, agentKeys) || !text(data.agent.name) || !text(data.agent.version) || !metadata(data.agent)
     || !optional(data.agent.model_name, text)
