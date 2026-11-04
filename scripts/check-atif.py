@@ -1,0 +1,209 @@
+"""Validate a folder using Harbor 0.22.0, independently of npm test."""
+import argparse
+import json
+import copy
+import random
+import subprocess
+from typing import get_args
+from pathlib import Path
+from harbor.models.trajectories.agent import Agent
+from harbor.models.trajectories.content import ContentPart, ImageSource
+from harbor.models.trajectories.final_metrics import FinalMetrics
+from harbor.models.trajectories.metrics import Metrics
+from harbor.models.trajectories.observation import Observation
+from harbor.models.trajectories.observation_result import ObservationResult
+from harbor.models.trajectories.step import Step
+from harbor.models.trajectories.subagent_trajectory_ref import SubagentTrajectoryRef
+from harbor.models.trajectories.tool_call import ToolCall
+from harbor.models.trajectories.trajectory import Trajectory
+from harbor.utils.trajectory_validator import TrajectoryValidator
+
+def maximal(version):
+    """Populate every optional model field; recursion ends in one minimal child."""
+    image = ContentPart(type="image", source=ImageSource(media_type="image/png", path="https://example.test/a.png"))
+    child = Trajectory(trajectory_id="child", agent=Agent(name="child", version="1"),
+                       steps=[Step(step_id=1, source="system", message="child")])
+    ref = SubagentTrajectoryRef(trajectory_id="child", session_id="maximal", trajectory_path="child.json", extra={"note": "ref"})
+    result = ObservationResult(source_call_id="t", content=[image], subagent_trajectory_ref=[ref], extra={"note": "result"})
+    call = ToolCall(tool_call_id="t", function_name="read", arguments={"path": "a"}, extra={"timeout": 30})
+    metrics = Metrics(prompt_tokens=3, completion_tokens=1, cached_tokens=0, cost_usd=0.1,
+                      prompt_token_ids=[1, 2], completion_token_ids=[3], logprobs=[-0.5], extra={"request_id": "r"})
+    turn = Step(step_id=1, timestamp="2026-11-03T10:00:00Z", source="agent", model_name="m",
+                reasoning_effort=0.5, reasoning_content="think", is_copied_context=True, llm_call_count=1,
+                message=[ContentPart(type="text", text="look"), image], tool_calls=[call],
+                observation=Observation(results=[result]), metrics=metrics, extra={"note": "step"})
+    dispatch = Step(step_id=2, source="agent", message="", is_copied_context=False, llm_call_count=0)
+    model = Trajectory(schema_version=version, session_id="maximal", trajectory_id="parent",
+        agent=Agent(name="fixture", version="1", model_name="m",
+                    tool_definitions=[{"type": "function", "function": {"name": "read"}}], extra={"note": "agent"}),
+        steps=[turn, dispatch], notes="All optional fields; deterministic dispatch uses a separate step.",
+        continued_trajectory_ref="next.json", extra={"note": "root"}, subagent_trajectories=[child],
+        final_metrics=FinalMetrics(total_steps=2, total_prompt_tokens=3, total_completion_tokens=1,
+                                   total_cached_tokens=0, total_cost_usd=0.1, extra={"note": "final"}))
+    # Guard the oracle against omissions when Harbor adds another optional field.
+    instances = [model, model.agent, turn, dispatch, metrics, model.final_metrics,
+                 turn.observation, result, ref, call, image, image.source, turn.message[0]]
+    for cls in {type(item) for item in instances}:
+        covered = set().union(*(item.model_dump(exclude_none=True).keys() for item in instances if type(item) is cls))
+        assert covered == set(cls.model_fields), f"Unpopulated {cls.__name__} fields: {set(cls.model_fields) - covered}"
+    return model
+
+def paths(value, prefix=()):
+    """Every JSON value, including containers and the root, is mutable."""
+    yield prefix
+    if isinstance(value, (dict, list)):
+        for key, child in (value.items() if isinstance(value, dict) else enumerate(value)):
+            yield from paths(child, (*prefix, key))
+
+def optional_paths(model, prefix=()):
+    """Include absent optionals using Harbor's fields, including nested lists."""
+    if hasattr(type(model), "model_fields"):
+        for key, field in type(model).model_fields.items():
+            if not field.is_required():
+                yield (*prefix, key)
+            yield from optional_paths(getattr(model, key), (*prefix, key))
+    elif isinstance(model, list):
+        for index, child in enumerate(model):
+            yield from optional_paths(child, (*prefix, index))
+
+def parent_at(value, path):
+    try:
+        for key in path[:-1]:
+            value = value[key]
+        return value
+    except (KeyError, IndexError, TypeError):
+        return None
+
+def special_mutation(value, kind, rng, optionals):
+    if not isinstance(value, dict):
+        return
+    if kind in (6, 7):
+        candidates = [(parent_at(value, path), path[-1]) for path in optionals]
+        candidates = [(parent, key) for parent, key in candidates if isinstance(parent, dict)]
+        if candidates:
+            parent, key = rng.choice(candidates)
+            if kind == 6:
+                parent[key] = None
+            else:
+                parent.pop(key, None)
+    elif kind == 8 and isinstance(value.get("steps"), list):
+        value["steps"].append({"step_id": len(value["steps"]) + 1, "source": "agent",
+                               "message": "", "is_copied_context": False, "llm_call_count": 0})
+    elif kind == 9:
+        if not isinstance(value.get("final_metrics"), dict):
+            value["final_metrics"] = {}
+        value["final_metrics"]["total_steps"] = rng.choice([10**100, "9" * 4300, "9" * 4301, "9" * 4400, "1_000_000"])
+    elif kind == 10:
+        numeric = {"step_id", "llm_call_count", "prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd",
+                   "total_steps", "total_prompt_tokens", "total_completion_tokens", "total_cached_tokens", "total_cost_usd"}
+        candidates = [path for path in paths(value) if path and (path[-1] in numeric
+                      or len(path) > 1 and path[-2] in ("prompt_token_ids", "completion_token_ids", "logprobs"))]
+        if candidates:
+            path = rng.choice(candidates)
+            parent_at(value, path)[path[-1]] = rng.choice(["1_0", " +1_000 ", "-1_0", "1.00", "1e3", ".5",
+                                                         "inf", "1_0.5", "1__0", "9" * 4300, "9" * 4301, "9" * 4400])
+    elif kind == 11:
+        steps = [step for step in value.get("steps", []) if isinstance(step, dict)] if isinstance(value.get("steps"), list) else []
+        if not steps:
+            return
+        step = rng.choice(steps)
+        image = {"type": "image", "source": {"media_type": "image/png", "path": rng.choice([
+            "missing.png", "x" * 8192, "/__atif_missing__/image.png", "https://example.test/a.png",
+            "s3://bucket/image.png", "odd :// path", "data:image/png;base64,a", ""])}}
+        if rng.choice([True, False]):
+            step["message"] = [image]
+        else:
+            step["observation"] = {"results": [{"content": [image]}]}
+
+def mutate(folder, n, seed):
+    folder.mkdir(parents=True, exist_ok=True)
+    repo = Path(__file__).resolve().parent.parent
+    subprocess.run(["node", str(repo / "scripts/check-atif.mjs"), str(folder.resolve())], check=True)
+    sources = sorted((repo / "test/fixtures/atif-valid").glob("*.json"))
+    sources += sorted(folder.glob("okit-plugin-*.json"))
+    bases = [json.loads(file.read_text()) for file in sources]
+    rng, verdicts = random.Random(seed), {}
+    optionals = list(optional_paths(maximal("ATIF-v1.7")))
+    garbage = [None, [], {}, "", "Z", -1, 1.5, "1e999", "x" * 8192, True,
+               "1", "1.0", "1.", "1e2", "1_0", " 1 ", "nan", "inf", "-Infinity",
+               0, 1, 2**63, "9" * 4400, "yes", "off", ["ATIF-v1.7"], [None],
+               "2026-11-03Z10:00:00", "2026-11-03T10:00:00Z", "2026-W53-7",
+               "2026-11-03T10:00:00+00:60", "2026-11-03T10.5", "2026-W45-2Z10:00:00"]
+    for index in range(n):
+        value = copy.deepcopy(bases[index % len(bases)])
+        for _ in range(rng.randint(1, 3)):
+            path = rng.choice(list(paths(value)))
+            parent = value
+            for key in path[:-1]:
+                parent = parent[key]
+            operation = rng.randrange(12)
+            if operation >= 6:
+                special_mutation(value, operation, rng, optionals)
+            elif operation == 0 and isinstance(value, dict) and isinstance(value.get("steps"), list) and value["steps"]:
+                steps = value["steps"]
+                if len(steps) > 1 and rng.choice([True, False]):
+                    a, b = rng.sample(range(len(steps)), 2)
+                    if isinstance(steps[a], dict) and isinstance(steps[b], dict):
+                        steps[a]["step_id"], steps[b]["step_id"] = steps[b].get("step_id"), steps[a].get("step_id")
+                else:
+                    del steps[rng.randrange(len(steps))]
+            elif operation == 1 and isinstance(parent, dict):
+                parent["unknown_mutation"] = copy.deepcopy(rng.choice(garbage))
+            elif operation == 2 and path:
+                del parent[path[-1]]
+            else:
+                replacement = copy.deepcopy(rng.choice(garbage))
+                if path:
+                    parent[path[-1]] = replacement
+                else:
+                    value = replacement
+        name = f"m-{index}.json"
+        (folder / name).write_text(json.dumps(value, ensure_ascii=True, allow_nan=False) + "\n")
+        try:
+            Trajectory.model_validate(value)
+            verdicts[name] = {"valid": True}
+        except Exception as error:
+            verdicts[name] = {"valid": False, "error": str(error)}
+        try:
+            Trajectory.model_validate(value, strict=True)
+            verdicts[name]["strict"] = True
+        except Exception:
+            verdicts[name]["strict"] = False
+    (folder / "verdicts.json").write_text(json.dumps(verdicts, indent=2) + "\n")
+    print(f"Wrote {n} mutations with Harbor verdicts (seed {seed}) to {folder}")
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("folder", type=Path, nargs="?")
+parser.add_argument("--emit", type=Path, help="Build maximal fixtures with Harbor's own models")
+parser.add_argument("--mutate", type=Path, help="Write seeded mutations and Harbor model verdicts")
+parser.add_argument("--n", type=int, default=2000)
+parser.add_argument("--seed", type=int, default=1)
+args = parser.parse_args()
+if args.mutate:
+    mutate(args.mutate, args.n, args.seed)
+    raise SystemExit(0)
+if args.emit:
+    args.emit.mkdir(parents=True, exist_ok=True)
+    for version in get_args(Trajectory.model_fields["schema_version"].annotation):
+        model = maximal(version)
+        file = args.emit / f"maximal-{version.removeprefix('ATIF-')}.json"
+        file.write_text(json.dumps(model.model_dump(exclude_none=True, mode="json"), indent=2) + "\n")
+folder = args.emit or args.folder
+if folder is None:
+    parser.error("provide a folder or --emit <folder>")
+files = sorted(file for file in folder.glob("*.json") if file.name != "verdicts.json")
+if not files:
+    parser.error("folder contains no *.json files")
+failed = False
+for file in files:
+    validator = TrajectoryValidator()
+    try:
+        valid = validator.validate(file)
+        errors = validator.errors
+    except Exception as error:
+        valid, errors = False, [str(error)]
+    print(f"{file}: {'VALID' if valid else 'INVALID'}")
+    for error in errors:
+        print(f"  {error}")
+    failed |= not valid
+raise SystemExit(1 if failed else 0)

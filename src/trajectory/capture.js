@@ -5,8 +5,8 @@ import { readTrajectory as opencode } from '../../adapters/opencode/trajectory.j
 import { readJson } from '../state.js';
 import { settings } from './config.js';
 import { save } from './store.js';
-import { step, totals } from './schema.js';
-const readers = { 'claude-code': claude, codex, opencode };
+import { step, normalize } from './schema.js';
+const readers = new Map([['claude-code', claude], ['codex', codex], ['opencode', opencode]]);
 
 export async function capture(root, context, { transcript, file, message, outcome, usage } = {}) {
   try {
@@ -23,13 +23,12 @@ export async function capture(root, context, { transcript, file, message, outcom
       } finally { await handle.close(); }
     }
     const version = (await readJson(new URL('../../package.json', import.meta.url), {})).version ?? null;
-    const data = readers[context.client](transcript, { ...context, version });
+    const data = readers.get(context.client)(transcript, { ...context, version });
     if (message != null) data.steps.unshift(step({ source: 'user', message }));
     if (outcome != null) data.steps.push(step({ source: 'system', message: outcome,
       metrics: usage }));
     if (shortened) data.steps.push(step({ source: 'system', message: config.truncationMarker }));
-    data.steps.forEach((item, index) => { item.step_id = index + 1; });
-    data.final_metrics = totals(data.steps);
-    return await save(root, data);
+    data.final_metrics.total_steps = data.steps.length;
+    return await save(root, normalize(data));
   } catch { return false; } // Optional local recording never interrupts work.
 }

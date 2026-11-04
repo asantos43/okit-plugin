@@ -23,27 +23,7 @@ async function rootOf(t, config) {
   if (config) await writeFile(join(root, 'config.json'), JSON.stringify({ trajectory: { enabled: true, ...config } }));
   return root;
 }
-const instant = '2026-10-27T10:00:00.000Z';
-const claudeFixture = [
-  { type: 'assistant', timestamp: instant, effort: 'high', message: { role: 'assistant', model: 'example-model',
-    content: [{ type: 'text', text: 'Read the file' }, { type: 'thinking', thinking: 'Check first' },
-      { type: 'tool_use', id: 'call-1', name: 'read_file', input: { path: 'sample.txt' } }],
-    usage: { input_tokens: 12, output_tokens: 4, cache_read_input_tokens: 3 } } },
-  { type: 'user', timestamp: instant, message: { role: 'user', content: [
-    { type: 'tool_result', tool_use_id: 'call-1', content: 'File missing', is_error: true }] } },
-];
-const codexFixture = [
-  { type: 'turn_context', payload: { model: 'example-model', effort: 'high' } },
-  { type: 'response_item', timestamp: instant, payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Read the file' }] } },
-  { type: 'response_item', timestamp: instant, payload: { type: 'function_call', call_id: 'call-1', name: 'read_file', arguments: '{"path":"sample.txt"}' } },
-  { type: 'response_item', timestamp: instant, payload: { type: 'function_call_output', call_id: 'call-1', output: 'File missing' } },
-  { type: 'event_msg', timestamp: instant, payload: { type: 'token_count', info: {
-    last_token_usage: { input_tokens: 12, output_tokens: 4, cached_input_tokens: 3 } } } },
-];
-const opencodeFixture = { messages: [{ info: { role: 'assistant', modelID: 'example-model', variant: 'high',
-  time: { created: Date.parse(instant) }, tokens: { input: 12, output: 4, cache: { read: 3 } } },
-parts: [{ type: 'text', text: 'Read the file' }, { type: 'tool', tool: 'read_file', callID: 'call-1',
-  state: { input: { path: 'sample.txt' }, status: 'error', error: 'File missing' } }] }] };
+import { instant, claudeFixture, codexFixture, opencodeFixture } from './helpers/trajectory-samples.js';
 for (const [client, reader, fixture] of [['claude-code', claude, claudeFixture],
   ['codex', codex, codexFixture.map(row => JSON.stringify(row)).join('\n')], ['opencode', opencode, opencodeFixture]]) {
   test(`${client} keeps available model, effort, role, steps, tool calls, observations and tokens`, () => {
@@ -91,7 +71,7 @@ test('redacts secrets in messages, thoughts, tool inputs and results; keeps ordi
   data.steps[0].message = `Safe prose ${secret} Bearer bearerValue123 password=hiddenPass`;
   data.steps[0].reasoning_content = '-----BEGIN PRIVATE KEY-----\nprivateMaterial\n-----END PRIVATE KEY-----';
   data.steps[0].tool_calls[0].arguments = { api_key: 'hiddenKey', path: 'sample.txt' };
-  data.steps[1].observation.results[0].content = { token: 'hiddenToken', text: 'File missing' };
+  data.steps[0].observation.results[0].content = { token: 'hiddenToken', text: 'File missing' };
   assert.equal(await save(root, data), true);
   const output = JSON.stringify(await exportTrajectory(root, context.session_id));
   assert.doesNotMatch(output, /privateExample|bearerValue|hiddenPass|privateMaterial|hiddenKey|hiddenToken/);
@@ -113,6 +93,8 @@ test('size cap keeps valid JSON below the limit and a configured visible marker'
   assert.ok(file.length <= 1700);
   assert.match(file.toString(), /\[shortened here\]/);
   assert.equal(validate(JSON.parse(file)), true);
+  assert.ok(JSON.parse(file).steps.filter(item => item.message === '[shortened here]')
+    .every(item => item.source === 'system'));
   assert.equal(JSON.parse(file).agent.extra.effort, 'high');
 });
 test('file capture marks only transcripts larger than the read limit', async t => {
@@ -157,21 +139,21 @@ test('retention prunes expired records while preserving fresh ones independently
   assert.deepEqual(await prune(root), { removed: 1 });
 });
 test('total storage cap removes older runs', async t => {
-  const root = await rootOf(t, { maxBytes: 2300 });
+  const root = await rootOf(t, { maxBytes: 1600 });
   await save(root, trajectory(context, [{ message: 'first' }]));
   await utimes(join(root, 'trajectory', 'okit-plugin-attempt-1.json'), new Date(Date.now() - 1000), new Date(Date.now() - 1000));
   await save(root, trajectory({ ...context, session_id: 'second' }, [{ message: 'second' }]));
   await save(root, trajectory({ ...context, session_id: 'third' }, [{ message: 'third' }]));
   const names = await readdir(join(root, 'trajectory'));
   const buffers = await Promise.all(names.filter(name => name.endsWith('.json')).map(name => readFile(join(root, 'trajectory', name))));
-  assert.ok(buffers.reduce((sum, buffer) => sum + buffer.length, 0) <= 2300);
+  assert.ok(buffers.reduce((sum, buffer) => sum + buffer.length, 0) <= 1600);
   assert.ok(!names.includes('okit-plugin-attempt-1.json'));
 });
 test('show and export through the core and the MCP retain step details and explain failed tools', async t => {
   const root = await rootOf(t, {});
   await save(root, claude(claudeFixture, context));
   const summary = await show(root, 'attempt-1');
-  assert.match(summary, /Stopped at step \/ Parou no passo: 2/);
+  assert.match(summary, /Stopped at step \/ Parou no passo: 1/);
   assert.match(summary, /Failed tool \/ Ferramenta que falhou: read_file/);
   assert.match(summary, /Tokens in \/ entrada: 12/);
   const listed = await list(root);
@@ -188,44 +170,43 @@ test('show and export through the core and the MCP retain step details and expla
   await assert.rejects(exportTrajectory(root, '../config'));
   await assert.rejects(exportTrajectory(root, 'absent'));
 });
-test('schema accepts null unknowns and refuses invalid version, roles and token values', () => {
+test('schema accepts arbitrary agent metadata and refuses invalid versions and fractional tokens', () => {
   const valid = trajectory({ session_id: 'empty' });
   assert.equal(validate(valid), true);
   for (const mutate of [data => { data.schema_version = 'unknown'; },
-    data => { delete data.agent.extra.role; }, data => { delete data.agent.extra.effort; },
-    data => { data.steps[0].metrics.prompt_tokens = -1; }]) {
+    data => { data.steps[0].metrics.prompt_tokens = 1.5; }]) {
     const data = claude(claudeFixture, context); mutate(data); assert.equal(validate(data), false);
   }
 });
 test('save refuses unsafe session names before creating any recording file', async t => {
   const root = await rootOf(t, {});
   const before = await readdir(root, { recursive: true });
-  for (const session_id of ['../fora', 'a/b', '..']) {
+  for (const session_id of ['../fora', 'a/b', '..', null, undefined]) {
     const data = claude(claudeFixture, { ...context, session_id });
     assert.equal(validate(data), true, 'the session name must be rejected by save');
-    await assert.rejects(save(root, data), /^Error: Invalid saved run \/ Execução salva inválida$/);
+    assert.equal(await save(root, data), false);
     assert.deepEqual(await readdir(root, { recursive: true }), before);
   }
 });
-test('validate and save refuse out-of-order and repeated step numbers', async t => {
+test('validate refuses bad step numbers and save normalizes them', async t => {
   const root = await rootOf(t, {});
   for (const numbers of [[2, 1], [1, 1], [1, 3]]) {
-    const data = claude(claudeFixture, context);
+    const data = trajectory(context, [...claude(claudeFixture, context).steps, { message: 'Another step' }]);
     data.steps.forEach((item, index) => { item.step_id = numbers[index]; });
     assert.equal(validate(data), false);
-    await assert.rejects(save(root, data), /^Error: Invalid saved run \/ Execução salva inválida$/);
+    assert.equal(await save(root, data), true);
+    assert.equal(validate(await exportTrajectory(root, context.session_id)), true);
   }
-  assert.deepEqual(await readdir(root), ['config.json']);
 });
-test('a critic must carry the critic_of key even when the reference is unknown', async t => {
+test('producer adds critic_of while Harbor readers permit omitted agent metadata', async t => {
   const root = await rootOf(t, {});
   const data = claude(claudeFixture, { ...context, role: 'critic' });
   assert.equal(data.agent.extra.critic_of, null);
   assert.equal(validate(data), true);
   delete data.agent.extra.critic_of;
-  assert.equal(validate(data), false);
-  await assert.rejects(save(root, data), /^Error: Invalid saved run \/ Execução salva inválida$/);
-  assert.deepEqual(await readdir(root), ['config.json']);
+  assert.equal(validate(data), true);
+  assert.equal(await save(root, data), true);
+  assert.deepEqual(await exportTrajectory(root, data.session_id), data);
 });
 test('Codex command results distinguish failure from success by exit code', () => {
   for (const [exit_code, failed] of [[1, true], [0, false]]) {
@@ -234,7 +215,8 @@ test('Codex command results distinguish failure from success by exit code', () =
       aggregated_output: 'Command output', exit_code } }], context);
     assert.equal(validate(data), true);
     assert.deepEqual(data.steps[0].observation.results, [{ source_call_id: 'command-1',
-      content: { output: 'Command output', is_error: failed } }]);
+      content: JSON.stringify({ output: 'Command output', is_error: failed }) }]);
+    assert.deepEqual(data.steps[0].extra?.failed_calls ?? [], failed ? ['command-1'] : []);
   }
 });
 test('export and show refuse oversized saved files even when their JSON is valid', async t => {

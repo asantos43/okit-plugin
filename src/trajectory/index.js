@@ -4,7 +4,7 @@ import { readJson, writeJsonAtomic, withLock } from '../state.js';
 import { paths } from '../store.js';
 import { settings } from './config.js';
 import { files, safeId, pruneFiles } from './store.js';
-import { validate } from './schema.js';
+import { normalize, readable } from './schema.js';
 export { save } from './store.js';
 export const explanation = 'Saves messages, thoughts when available, tool inputs and results on this computer only. Nothing is sent. Secrets matching your settings are hidden. / Salva mensagens, raciocínio quando disponível, entradas e resultados de ferramentas somente neste computador. Nada é enviado. Segredos que correspondem aos seus ajustes são ocultados.';
 export async function configure(root, enabled) {
@@ -25,8 +25,8 @@ export async function exportTrajectory(root, id) {
   const config = await settings(root), file = join(config.dir, `okit-plugin-${id}.json`);
   if ((await stat(file)).size > config.maxFileBytes) throw new Error('Saved run exceeds limit / Execução salva excede o limite');
   const data = await readJson(file, null);
-  if (!validate(data)) throw new Error('Cannot read saved run / Não foi possível ler a execução salva');
-  return data;
+  if (!readable(data)) throw new Error('Cannot read saved run / Não foi possível ler a execução salva');
+  return normalize(data);
 }
 export async function list(root) {
   const config = await settings(root), result = [];
@@ -42,20 +42,33 @@ export async function prune(root) {
   if (!(await files(config)).length) return { removed: 0 };
   return withLock(join(config.dir, 'okit-plugin-retention'), () => pruneFiles(config));
 }
+function displayContent(value) {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(part => part.type === 'text'
+    ? part.text : `[image: ${part.source.path}]`).join('\n');
+  return '';
+}
 export async function show(root, id) {
   const data = await exportTrajectory(root, id), missing = 'not available / não disponível';
-  const lines = [`${data.agent.extra.role === 'critic' ? 'Reviewer / Crítico' : 'Helper / Ajudante'}: ${data.agent.model_name ?? missing}`, 
-    `Effort / Esforço: ${data.agent.extra.effort ?? missing}`,
+  const lines = [`${data.agent.extra?.role === 'critic' ? 'Reviewer / Crítico' : 'Helper / Ajudante'}: ${data.agent.model_name ?? missing}`,
+    `Effort / Esforço: ${data.agent.extra?.effort ?? missing}`,
     `Stopped at step / Parou no passo: ${data.steps.at(-1)?.step_id ?? missing}`];
   for (const item of data.steps) {
-    lines.push(`${item.step_id}. ${item.source}: ${item.message ?? missing}`);
+    const calls = new Map((item.tool_calls ?? []).map(call => [call.tool_call_id, call]));
+    const failedCalls = new Set(Array.isArray(item.extra?.failed_calls) ? item.extra.failed_calls : []);
+    const failedResults = new Set(Array.isArray(item.extra?.failed_results) ? item.extra.failed_results : []);
+    lines.push(`${item.step_id}. ${item.source}: ${displayContent(item.message) || missing}`);
     if (item.reasoning_content) lines.push(item.reasoning_content);
     for (const call of item.tool_calls ?? []) lines.push(`Tool / Ferramenta: ${call.function_name} ${JSON.stringify(call.arguments)}`);
-    for (const result of item.observation?.results ?? []) {
-      const call = data.steps.flatMap(step => step.tool_calls ?? []).find(call => call.tool_call_id === result.source_call_id);
-      lines.push(`${result.content?.is_error ? 'Failed tool / Ferramenta que falhou' : 'Result / Resultado'}: ${call?.function_name ?? missing}: ${JSON.stringify(result.content)}`);
+    for (const [index, result] of (item.observation?.results ?? []).entries()) {
+      const call = calls.get(result.source_call_id);
+      const failed = (result.source_call_id != null && failedCalls.has(result.source_call_id))
+        || failedResults.has(index) || result.content?.is_error;
+      const refs = (result.subagent_trajectory_ref ?? []).map(ref => `→ ${ref.trajectory_path ?? ref.session_id ?? ref.trajectory_id}`);
+      const output = [displayContent(result.content), ...refs].filter(Boolean).join('\n');
+      lines.push(`${failed ? 'Failed tool / Ferramenta que falhou' : 'Result / Resultado'}: ${call?.function_name ?? missing}: ${output || missing}`);
     }
-    lines.push(`Tokens in / entrada: ${item.metrics.prompt_tokens ?? missing}; out / saída: ${item.metrics.completion_tokens ?? missing}; cached / em cache: ${item.metrics.cached_tokens ?? missing}`);
+    lines.push(`Tokens in / entrada: ${item.metrics?.prompt_tokens ?? missing}; out / saída: ${item.metrics?.completion_tokens ?? missing}; cached / em cache: ${item.metrics?.cached_tokens ?? missing}`);
   }
   return lines.join('\n');
 }

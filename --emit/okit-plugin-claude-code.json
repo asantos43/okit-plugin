@@ -1,0 +1,75 @@
+{
+  "schema_version": "ATIF-v1.4",
+  "session_id": "claude-code",
+  "agent": {
+    "name": "okit-plugin",
+    "version": "0.3.0",
+    "model_name": "example-model",
+    "extra": {
+      "role": "executor",
+      "client": "claude-code",
+      "effort": "high",
+      "demand": null,
+      "step": null
+    }
+  },
+  "steps": [
+    {
+      "source": "user",
+      "message": "Read sample.txt",
+      "step_id": 1,
+      "timestamp": null,
+      "model_name": null
+    },
+    {
+      "source": "agent",
+      "message": "Read the file",
+      "step_id": 2,
+      "timestamp": "2026-10-27T10:00:00.000Z",
+      "model_name": "example-model",
+      "reasoning_content": "Check first",
+      "tool_calls": [
+        {
+          "tool_call_id": "call-1",
+          "function_name": "read_file",
+          "arguments": {
+            "path": "sample.txt"
+          }
+        }
+      ],
+      "metrics": {
+        "prompt_tokens": 12,
+        "completion_tokens": 4,
+        "cached_tokens": 3,
+        "cost_usd": 0.01
+      },
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "call-1",
+            "content": "{\"output\":\"File missing\",\"is_error\":true}"
+          }
+        ]
+      },
+      "extra": {
+        "failed_calls": [
+          "call-1"
+        ]
+      }
+    },
+    {
+      "source": "system",
+      "message": "Done",
+      "step_id": 3,
+      "timestamp": null,
+      "model_name": null
+    }
+  ],
+  "final_metrics": {
+    "total_steps": 3,
+    "total_prompt_tokens": 12,
+    "total_completion_tokens": 4,
+    "total_cached_tokens": 3,
+    "total_cost_usd": 0.01
+  }
+}

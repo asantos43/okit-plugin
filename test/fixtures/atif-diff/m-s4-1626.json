@@ -1,0 +1,1 @@
+{"schema_version": "ATIF-v1.0", "agent": {"name": "", "version": 1.5}, "steps": [{"step_id": "1.", "source": "system", "message": ""}, {"step_id": 2, "source": "agent", "message": "", "is_copied_context": false, "llm_call_count": 0}]}

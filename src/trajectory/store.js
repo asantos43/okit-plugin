@@ -3,11 +3,37 @@ import { join } from 'node:path';
 import { readJson, writeJsonAtomic, withLock } from '../state.js';
 import { settings } from './config.js';
 import { redact } from './redact.js';
-import { validate } from './schema.js';
+import { boundedClone, normalize, validate, totals, ownData } from './schema.js';
 
 const prefix = 'okit-plugin-';
 const bytes = value => Buffer.byteLength(`${JSON.stringify(value, null, 2)}\n`);
-export const safeId = id => typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) && !id.includes('..');
+// Pretty JSON size without allocating a serialized step; cache until it changes.
+function stepBytes(value) {
+  let size = 1;
+  const pending = [[value, 0]];
+  while (pending.length) {
+    const [item, depth] = pending.pop();
+    if (item === null || typeof item !== 'object') {
+      size += Buffer.byteLength(JSON.stringify(item)); continue;
+    }
+    const array = Array.isArray(item); let count = 0;
+    size += 2;
+    for (const key in item) {
+      if (!Object.hasOwn(item, key)) continue;
+      if (item[key] === undefined) {
+        if (array) { count++; size += 2 * (depth + 1) + 4; }
+        continue;
+      }
+      count++; size += 2 * (depth + 1);
+      if (!array) size += Buffer.byteLength(JSON.stringify(key)) + 2;
+      pending.push([item[key], depth + 1]);
+    }
+    if (count) size += 2 * count + 2 * depth;
+  }
+  return size;
+}
+export const safeId = id => typeof id === 'string' && id.length <= 255
+  && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) && !id.includes('..');
 export async function files(config) {
   try { return (await readdir(config.dir)).filter(name => name.startsWith(prefix) && name.endsWith('.json')); }
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
@@ -25,17 +51,89 @@ export async function pruneFiles(config, now = Date.now()) {
 }
 export function capped(data, config) {
   const limit = Math.min(config.maxFileBytes, config.maxBytes);
-  if (bytes(data) <= limit) return data;
+  let size = bytes(data);
+  if (size <= limit) return data;
+  // Approximate deltas can miss indentation. Bound full-file confirmations per phase.
+  let confirmations = 3;
+  const fits = () => {
+    if (size > limit || confirmations === 0) return false;
+    confirmations--;
+    size = bytes(data);
+    return size <= limit;
+  };
+  data.final_metrics ??= totals(data.steps);
   const marker = config.truncationMarker;
-  for (const item of [...data.steps].reverse()) {
-    item.message = marker;
-    delete item.reasoning_content;
-    item.tool_calls = [];
-    item.observation = { results: [] };
-    if (bytes(data) <= limit) return data;
+  const rootSteps = new Set(data.steps);
+  let stepSizes = new WeakMap();
+  const measured = item => {
+    if (!stepSizes.has(item)) stepSizes.set(item, stepBytes(item));
+    return stepSizes.get(item);
+  };
+  // Include embedded children and free-form payloads, without recursive walking.
+  const pending = [{ value: data, free: false }], payloads = [], runs = [];
+  while (pending.length) {
+    const { value, free } = pending.pop();
+    if (Array.isArray(value.steps) && validate(value)) runs.push(value);
+    for (const [key, child] of Object.entries(value)) {
+      const payload = free || ['extra', 'arguments', 'tool_definitions'].includes(key);
+      if (child && typeof child === 'object') {
+        pending.push({ value: child, free: payload });
+        if (['extra', 'arguments', 'tool_definitions'].includes(key)) payloads.push([value, key]);
+      } else if (typeof child === 'string' && !(key === 'message' && rootSteps.has(value))
+        && (payload || ['message', 'content', 'text', 'reasoning_content', 'notes'].includes(key))) {
+        const saved = bytes(child) - bytes(marker);
+        if (saved <= 0) continue;
+        ownData(value, key, marker); size -= saved;
+        if (fits()) return data;
+      }
+    }
   }
-  while (data.steps.length > 1 && bytes(data) > limit) data.steps.pop();
-  data.final_metrics.total_steps = data.steps.length;
+  size = bytes(data);
+  if (size <= limit) return data;
+  confirmations = 3;
+  for (const run of runs.reverse()) {
+    run.final_metrics ??= totals(run.steps);
+    for (let index = run.steps.length - 1; index >= 0; index--) {
+      const item = run.steps[index], before = measured(item);
+      item.source = 'system';
+      item.message = marker;
+      delete item.model_name;
+      delete item.reasoning_effort;
+      delete item.metrics;
+      delete item.reasoning_content;
+      delete item.tool_calls;
+      delete item.observation;
+      if (item.extra) {
+        delete item.extra.failed_calls;
+        delete item.extra.failed_results;
+        let empty = true;
+        for (const key in item.extra) if (Object.hasOwn(item.extra, key)) { empty = false; break; }
+        if (empty) delete item.extra;
+      }
+      stepSizes.set(item, stepBytes(item));
+      size -= before - measured(item);
+      if (fits()) return data;
+    }
+  }
+  size = bytes(data);
+  if (size <= limit) return data;
+  confirmations = 3;
+  for (const [parent, key] of payloads.reverse()) {
+    const replacement = key === 'tool_definitions' ? [] : { truncated: marker };
+    const saved = bytes(parent[key]) - bytes(replacement);
+    if (saved <= 0) continue;
+    ownData(parent, key, replacement); size -= saved;
+    if (fits()) return data;
+  }
+  size = bytes(data);
+  if (size <= limit) return data;
+  // Each removed step is measured once; confirm the file once after all removals.
+  // Standalone pretty sizes undercount indentation, so this estimate is conservative.
+  stepSizes = new WeakMap(); // Payload replacements may have changed retained extras.
+  for (const run of runs) {
+    while (run.steps.length > 1 && size > limit) size -= measured(run.steps.pop());
+    run.final_metrics.total_steps = run.steps.length;
+  }
   if (!data.steps.length || bytes(data) > limit) {
     throw new Error('Recording limit is too small / Limite de gravação pequeno demais');
   }
@@ -44,8 +142,8 @@ export function capped(data, config) {
 export async function save(root, data) {
   const config = await settings(root);
   if (config.enabled !== true) return false;
-  if (!validate(data) || !safeId(data.session_id)) throw new Error('Invalid saved run / Execução salva inválida');
-  const safe = capped(redact(structuredClone(data), config), config);
+  if (!safeId(data?.session_id)) return false;
+  const safe = capped(normalize(redact(boundedClone(data), config), { dir: config.dir }), config);
   if (!validate(safe)) throw new Error('Invalid saved run / Execução salva inválida');
   await mkdir(config.dir, { recursive: true });
   await withLock(join(config.dir, 'okit-plugin-retention'), async () => {
