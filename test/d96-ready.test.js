@@ -10,6 +10,7 @@ import { createPresenter } from '../src/install/present.js';
 import { formatEnvironmentReport } from '../src/env/report.js';
 import { readiness, readyLine } from '../src/env/ready.js';
 import { environmentSnapshot } from '../src/env/snapshot.js';
+import { limitsStatus } from '../src/limits.js';
 import { main } from '../src/cli.js';
 import { envReportOperation } from '../src/core/status-operations.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
@@ -73,8 +74,8 @@ for (const [name, options, ready, gaps] of CASES) {
 }
 
 // The doctor of an empty installation, with the readers that need a process or a session replaced and the snapshot given.
-function readersOf(snapshot, kit = { state: 'absent' }) {
-  return { nodeVersion: () => 'v99.0.0', readText: (file) => fs.readFile(file, 'utf8'), servers: async () => [],
+function readersOf(snapshot, kit = { state: 'absent' }, extra = {}) {
+  return { ...extra, nodeVersion: () => 'v99.0.0', readText: (file) => fs.readFile(file, 'utf8'), servers: async () => [],
     callRead: async () => ({ ok: true }), daemon: async () => ({ running: false }), snapshot, kit: async () => kit };
 }
 
@@ -195,4 +196,36 @@ test('readiness: the line in both languages', () => {
   assert.equal(readyLine({ ready: true, gaps: [] }, 'pt-BR'), 'Pronto para lançar executores: sim.');
   assert.equal(readyLine(half), 'Ready to launch executors: no; gaps: L (quota expired), S (no model confirmed).');
   assert.equal(readyLine(half, 'pt-BR'), 'Pronto para lançar executores: não; faltas: L (cota expirada), S (nenhum modelo confirmado).');
+});
+
+test('the doctor counts the live runs as env_report does: no free slot is a gap, not a yes', async (t) => {
+  const f = await fixture(t);
+  await fs.mkdir(join(f.root, 'runs'), { recursive: true });
+  for (const client of CLIENTS) for (let index = 0; index < 3; index += 1) {
+    await fs.writeFile(join(f.root, 'runs', `${client}-${index}.json`), JSON.stringify({ status: 'live', client, startedAt: Date.now() }));
+  }
+  const snapshot = async (deps) => environmentSnapshot({ ...readings(), root: f.root, record: false, limits: deps.limits });
+  const result = await diagnose({ ...f.io, root: f.root, records: [], ui: createPresenter({ locale: 'en', write: () => {} }),
+    readers: readersOf(snapshot, { state: 'absent' }, { limits: (root, config) => limitsStatus(root, config) }) });
+  const report = await envReportOperation(f.root, {}, readings());
+  assert.equal(report.ready, false);
+  assert.deepEqual(report.gaps, everySize('busy'));
+  assert.equal(result.ready, false);
+  assert.deepEqual(result.gaps, report.gaps);
+});
+
+test('a client whose installation is not known is not counted as installed', () => {
+  assert.deepEqual(readiness(readySnapshot({ clients: [{ installed: null }] })), { ready: false, gaps: everySize('no-client') });
+  assert.deepEqual(readiness(readySnapshot({ clients: [{ installed: null }, {}] })), { ready: true, gaps: [] });
+});
+
+test('a broken kit row tells no reason of the kit in another language', async (t) => {
+  const { output } = await doctorTail(t, 'pt-BR', async () => readySnapshot(), {});
+  assert.ok(output.some((line) => line.startsWith('| Kit |')));
+  const f = await fixture(t);
+  f.clear();
+  const readers = readersOf(async () => readySnapshot(), { state: 'broken', path: '/kit', reason: 'invalid version output' });
+  await doctorCommand(f.io, { locale: 'pt-BR', config: f.io.config, readers });
+  const kit = f.output.find((line) => line.startsWith('| Kit |'));
+  assert.equal(kit, '| Kit | encontrado, mas com defeito (opcional) |');
 });

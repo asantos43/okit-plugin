@@ -11,7 +11,7 @@ const WORDS = {
     modelsOk: (list) => `confirmed: ${list}`, modelsNone: 'no model confirmed',
     quotaOk: 'recorded', quotaOff: 'not recorded', quotaExpired: 'expired',
     collectorOn: 'active', collectorNoReading: 'active; no reading received yet', collectorOff: 'inactive', collectorUnknown: 'cannot be told',
-    kitOk: (path, version) => `${path} (${version})`, kitAbsent: 'not found (optional)', kitBroken: (reason) => `found but broken (optional): ${reason}`,
+    kitOk: (path, version) => `${path} (${version})`, kitAbsent: 'not found (optional)', kitBroken: 'found but broken (optional)',
     noClients: 'no client is installed',
     fixModels: (program) => `Choose the models: ${program} setup`,
     fixQuota: 'Enable the status bar collector below, or ask your assistant to call `quota_set` with the percentage that is left',
@@ -23,7 +23,7 @@ const WORDS = {
     modelsOk: (list) => `confirmados: ${list}`, modelsNone: 'nenhum modelo confirmado',
     quotaOk: 'registrada', quotaOff: 'não registrada', quotaExpired: 'expirada',
     collectorOn: 'ativo', collectorNoReading: 'ativo; nenhuma leitura recebida ainda', collectorOff: 'inativo', collectorUnknown: 'não foi possível saber',
-    kitOk: (path, version) => `${path} (${version})`, kitAbsent: 'não encontrado (opcional)', kitBroken: (reason) => `encontrado, mas com defeito (opcional): ${reason}`,
+    kitOk: (path, version) => `${path} (${version})`, kitAbsent: 'não encontrado (opcional)', kitBroken: 'encontrado, mas com defeito (opcional)',
     noClients: 'nenhum cliente está instalado',
     fixModels: (program) => `Escolha os modelos: ${program} setup`,
     fixQuota: 'Ative o coletor da barra de status abaixo, ou peça ao seu assistente para chamar `quota_set` com a porcentagem que resta',
@@ -42,7 +42,7 @@ export function readinessRows({ snapshot, kit, ui, program }) {
   const words = WORDS[ui.locale] ?? WORDS.en;
   const answer = readiness(snapshot);
   const rows = [];
-  const installed = (snapshot?.clients ?? []).filter((row) => row.installed !== false);
+  const installed = (snapshot?.clients ?? []).filter((row) => row.installed === true);
   if (snapshot && !installed.length) {
     rows.push({ id: 'clients', status: 'warn', label: words.clients, detail: words.noClients, fix: words.fixClients(program) });
   }
@@ -67,7 +67,7 @@ export function readinessRows({ snapshot, kit, ui, program }) {
   if (kit) {
     rows.push({ id: 'kit', label: words.kit, status: kit.state === 'installed' ? 'ok' : 'skipped',
       detail: kit.state === 'installed' ? words.kitOk(kit.path, kit.version)
-        : kit.state === 'broken' ? words.kitBroken(kit.reason) : words.kitAbsent });
+        : kit.state === 'broken' ? words.kitBroken : words.kitAbsent });
   }
   return { rows, ...answer };
 }

@@ -28,7 +28,8 @@ function reasonOf(rows, size) {
  */
 export function readiness(snapshot) {
   const sizes = Object.keys(snapshot?.config?.actors?.sizeClasses ?? {});
-  const rows = (snapshot?.clients ?? []).filter((row) => row.installed !== false);
+  // A client whose installation is not known (`null`) is not installed as far as the answer goes: ready is never a guess.
+  const rows = (snapshot?.clients ?? []).filter((row) => row.installed === true);
   const gaps = sizes
     .filter((size) => !rows.some((row) => (row.candidates ?? []).some((actor) => actor.canLaunch && actor.sizes.includes(size))))
     .map((size) => ({ size, reason: reasonOf(rows, size) }));

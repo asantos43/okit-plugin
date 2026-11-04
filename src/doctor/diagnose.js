@@ -14,6 +14,7 @@ import { programWords, resolvedRecord } from '../install/where.js';
 import { callControl, findServers } from '../mcp/control-client.js';
 import { environmentSnapshot } from '../env/snapshot.js';
 import { detectKit } from '../install/kit.js';
+import { limitsStatus } from '../limits.js';
 import { readinessRows } from './ready-rows.js';
 import { configOf, DEFAULT_CONFIG, LOCALES } from '../profiles.js';
 import { isReadableConfig } from '../setup/setup.js';
@@ -53,6 +54,7 @@ function defaultReaders({ fs, run, timeoutMs }) {
     selfCheck: (record, expected, deps) => selfCheck(record, expected, deps),
     mcpEntry: (record, deps) => mcpStatus(record, deps),
     snapshot: (deps) => environmentSnapshot(deps),
+    limits: (root, config) => limitsStatus(root, config),
     kit: (deps) => detectKit(deps),
   };
 }
@@ -303,8 +305,9 @@ export async function diagnose(input) {
 
   // 9. The readiness: the models and the quota of each installed client, the collector and the kit, from a snapshot taken
   // read-only (`record: false`: the check of the quota is not written to the telemetry) and the answer they come to.
-  const snapshot = configUnusable ? {} : await attempt(() => readers.snapshot({ root, config: snapshotConfig, env, home, fs, run, now, platform,
-    command: program, client: input.client, record: false }));
+  // The live runs count against the slots, as in `env_report`: a doctor that ignored them would say yes where it says no.
+  const snapshot = configUnusable ? {} : await attempt(async () => readers.snapshot({ root, config: snapshotConfig, env, home, fs, run, now, platform,
+    command: program, client: input.client, record: false, limits: await readers.limits?.(root, snapshotConfig) }));
   const kit = await attempt(() => readers.kit({ config: settings, fs, platform, env, run }));
   const ready = readinessRows({ snapshot: snapshot.value ?? null, kit: kit.value ?? null, ui, program });
   if (snapshot.error !== undefined && !configUnusable) {
