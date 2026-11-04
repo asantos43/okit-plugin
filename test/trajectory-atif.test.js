@@ -10,7 +10,59 @@ import { TOOLS } from '../src/mcp/tools.js';
 import { samples } from './helpers/trajectory-samples.js';
 import { codexFixture } from './helpers/trajectory-samples.js';
 import { fuzz, diff } from '../scripts/check-atif.mjs';
+import { redact } from '../src/trajectory/redact.js';
+import { settings } from '../src/trajectory/config.js';
 const context = { session_id: 'atif', model: 'example-model' };
+// | Review 12 | Must pass | Must refuse / repair |
+// | timestamps | bounded ISO dates | long digits, plus runs, line terminators |
+// | capture | exact step/usage totals | stale reader totals, duplicate usage |
+// | redaction | complete PEM golden; linear incomplete markers | unbounded pattern input |
+test('review 12: hostile timestamp text never throws and is repaired quickly', async t => {
+  const root = await rootOf(t);
+  const stamps = ['\n', '\r', '\u2028'].map(end => '2026-11-04T12:00:00' + '+'.repeat(64000) + end + '!');
+  stamps.push('9'.repeat(64000) + '-11-04T12:00:00', '2026-11-04T12:00:00+\n!');
+  for (const timestamp of stamps) {
+    const data = trajectory(context, [{ message: 'Hello' }]); data.steps[0].timestamp = timestamp;
+    let start = performance.now(); assert.equal(validate(data), false);
+    assert.ok(performance.now() - start < 1000);
+    start = performance.now(); const fixed = normalize(data);
+    assert.ok(performance.now() - start < 1000); assert.ok(validate(fixed));
+    assert.equal(fixed.steps[0].timestamp, null);
+    start = performance.now(); assert.equal(await save(root, data), true);
+    assert.ok(performance.now() - start < 1000);
+    assert.ok(validate(JSON.parse(await readFile(join(root, 'trajectory', 'okit-plugin-atif.json'), 'utf8'))));
+  }
+});
+for (const [client, , transcript] of samples) test(`review 12: ${client} capture counts added steps and usage once`, async t => {
+  const root = await rootOf(t);
+  assert.equal(await capture(root, { ...context, client }, { transcript, message: 'Start', outcome: 'Done',
+    usage: { prompt_tokens: 2, completion_tokens: 1, cached_tokens: 1, cost_usd: 0.25 } }), true);
+  const data = JSON.parse(await readFile(join(root, 'trajectory', 'okit-plugin-atif.json'), 'utf8'));
+  assert.ok(validate(data)); assert.equal(data.final_metrics.total_steps, data.steps.length);
+  for (const [key, expected] of Object.entries({ prompt_tokens: 14, completion_tokens: 5, cached_tokens: 4, cost_usd: 0.25 })) {
+    assert.equal(data.final_metrics[`total_${key}`], expected);
+    assert.equal(data.steps.reduce((sum, item) => sum + (item.metrics?.[key] ?? 0), 0), expected);
+  }
+});
+test('review 12: incomplete PEM markers redact and save linearly; complete blocks keep golden output', async t => {
+  const root = await rootOf(t), config = await settings(root);
+  const begin = '-----BEGIN PRIVATE KEY-----\n';
+  const golden = 'before -----BEGIN RSA PRIVATE KEY-----\nsecret\n-----END EC PRIVATE KEY----- after';
+  assert.equal(redact(golden, config), `before ${config.redactionMarker} after`);
+  redact(begin.repeat(100), config); // Warm up before comparing median timings.
+  const measure = n => {
+    const text = begin.repeat(n), times = [];
+    for (let i = 0; i < 3; i++) {
+      const start = performance.now(); assert.equal(redact(text, config), text); times.push(performance.now() - start);
+    }
+    return times.sort((a, b) => a - b)[1];
+  };
+  const small = measure(8000), large = measure(16000);
+  assert.ok(large < 300, `${large} ms`); assert.ok(large < Math.max(small, 1) * 3.5, `${small} / ${large}`);
+  const start = performance.now(); await save(root, trajectory(context, [{ message: begin.repeat(16000) }]));
+  assert.ok(performance.now() - start < 300);
+  assert.ok(validate(JSON.parse(await readFile(join(root, 'trajectory', 'okit-plugin-atif.json'), 'utf8'))));
+});
 // | Review 11 | Must pass | Must refuse |
 // | readers / keys | linear repeats; own JSON keys retained | inherited dispatch; prototype mutation |
 const repeatedInputs = [
@@ -815,8 +867,9 @@ test('duplicate call IDs are renamed only within their step', () => {
 });
 test('fuzz: the seeded odd trajectories all satisfy validate()', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'atif-fuzz-')); t.after(() => rm(dir, { recursive: true, force: true }));
-  const { files, failures } = await fuzz(dir, { n: 100, stressSizes: { length: 2000, depth: 120, width: 150, userLines: 200, readerLines: 200 } });
-  assert.deepEqual(failures, []); assert.equal(files.length, 112);
+  const { files, failures } = await fuzz(dir, { n: 100, stressSizes: { length: 2000, depth: 120, width: 150,
+    userLines: 200, readerLines: 200, timestampLength: 2000, pemMarkers: 200 } });
+  assert.deepEqual(failures, []); assert.equal(files.length, 117);
   for (const file of files) assert.ok(validate(JSON.parse(await readFile(file, 'utf8'))), file);
   const users = JSON.parse(await readFile(files[104], 'utf8'));
   assert.equal(users.steps.length, 200); assert.ok(users.steps.every(item => item.source === 'user'));
@@ -830,9 +883,18 @@ test('fuzz: the seeded odd trajectories all satisfy validate()', async t => {
       assert.ok(Object.hasOwn(extra, key)); assert.equal(extra[key].payload, 'kept');
     }
   }
-  for (const file of files.slice(107)) {
+  for (const file of files.slice(107, 112)) {
     const data = JSON.parse(await readFile(file, 'utf8'));
     assert.equal(data.steps.length, 200); assert.ok(validate(data));
+  }
+  const clocks = JSON.parse(await readFile(files[112], 'utf8'));
+  assert.ok(clocks.steps.every(item => item.timestamp === null && item.extra.original_timestamp.length > 2000));
+  const pem = JSON.parse(await readFile(files[113], 'utf8'));
+  assert.equal(pem.steps[0].message, '-----BEGIN PRIVATE KEY-----\n'.repeat(200));
+  for (const file of files.slice(114)) {
+    const data = JSON.parse(await readFile(file, 'utf8'));
+    assert.equal(data.final_metrics.total_steps, data.steps.length);
+    assert.equal(data.final_metrics.total_prompt_tokens, 14);
   }
   assert.equal(({}).payload, undefined);
 });

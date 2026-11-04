@@ -25,12 +25,14 @@ function generator(seed) {
   const many = (max, make) => Array.from({ length: Math.floor(rand() * (max + 1)) }, make);
   const stray = (p = 0.3) => chance(p) ? { custom: pick([1, 'x', { a: [1] }]) } : {};
   const stamps = ['2026-11-03T10:00:00.000Z', '2026-11-03T10:00:00+02:00', '2026-11-03T10:00:00.123456', 'November 3, 2026',
-    '2026-11-03', '2026-13-45T00:00:00Z', '2026-02-30T10:00:00Z', '2026-11-03T24:00:00Z', '', ' ', 1762160000000, {}, [], true, null, undefined];
+    '2026-11-03', '2026-13-45T00:00:00Z', '2026-02-30T10:00:00Z', '2026-11-03T24:00:00Z', '', ' ', 1762160000000, {}, [], true, null, undefined,
+    '2026-11-04T12:00:00' + '+'.repeat(8000) + '\n!', '9'.repeat(8000) + '-11-04', '2026-11-04T12:00:00+\r!'];
   const counts = [0, 7, 12, 1000, 1.5, -3, '7', null, undefined, Infinity, 1e300, true, [], {}];
   const costs = [0, 0.01, 2.5, -0.5, '1', null, undefined, NaN, {}];
   const versions = [undefined, null, 7, 1.5, '', '1.2.3', {}, ['x'], true];
   const huge = 'lorem '.repeat(40000);
-  const messages = ['', 'Hello', 'Olá, ação ✓ 日本語', null, undefined, 5, { text: 'json' }, ['a'], true];
+  const messages = ['', 'Hello', 'Olá, ação ✓ 日本語', null, undefined, 5, { text: 'json' }, ['a'], true,
+    '-----BEGIN PRIVATE KEY-----\n'.repeat(500)];
   const ids = ['a', 'b', 'c', 'call-1', 'call-2-1', null, undefined, '', '  ', 7];
   const args = [{ path: 'a' }, '{"x":1}', 'plain', null, undefined, [], 7, '[]', {}];
   const contents = ['ok', '', null, undefined, 5, { output: 'oops', is_error: true }, { is_error: false }, ['a'], true,
@@ -82,7 +84,8 @@ function generator(seed) {
 }
 
 const kinds = ['steps', 'raw', 'capped', 'legacy', 'capture', 'valid'];
-export function stress(seed = 114, { length = 1200000, depth = 3000, width = 50000, userLines = 20000, readerLines = 24000 } = {}) {
+export function stress(seed = 114, { length = 1200000, depth = 3000, width = 50000, userLines = 20000, readerLines = 24000,
+  timestampLength = 64000, pemMarkers = 16000 } = {}) {
   const rand = random(seed), base = () => ({ agent: { name: 'stress', version: '1' }, steps: [{ source: 'agent', message: 'Root' }] });
   const long = base(), deep = base(), wide = base(), counts = base();
   long.extra = { child: { ...base(), steps: [{ source: 'agent', message: 'x'.repeat(Math.floor(length * (0.92 + rand() * 0.08))) }] } };
@@ -110,7 +113,13 @@ export function stress(seed = 114, { length = 1200000, depth = 3000, width = 500
     ['codex', '{"type":"function_call","call_id":"same","name":"read","arguments":"{}"}\n{"type":"function_call_output","call_id":"same","output":"ok"}'],
     ['opencode', '{"info":{"role":"assistant"},"parts":[{"type":"tool","callID":"same","tool":"read","state":{"input":{},"status":"completed","output":"ok"}}]}'],
   ].map(([client, line]) => ({ client, transcript: Array(readerLines).fill(line).join('\n') }));
-  return [long, deep, counts, wide, users, repeated, proto, ...lines];
+  const timestamps = ['\n', '\r', '\u2028'].map(end => '2026-11-04T12:00:00' + '+'.repeat(timestampLength) + end + '!');
+  timestamps.push('9'.repeat(timestampLength) + '-11-04T12:00:00');
+  const hostile = { ...base(), steps: timestamps.map(timestamp => ({ source: 'agent', message: 'Clock', timestamp })) };
+  const pem = { ...base(), steps: [{ source: 'agent', message: '-----BEGIN PRIVATE KEY-----\n'.repeat(pemMarkers) }] };
+  const captures = samples.map(([client, , transcript]) => ({ client, transcript, message: 'Start', outcome: 'Done',
+    usage: { prompt_tokens: 2, completion_tokens: 1, cached_tokens: 1, cost_usd: 0.25 } }));
+  return [long, deep, counts, wide, users, repeated, proto, ...lines, hostile, pem, ...captures];
 }
 // (a) soundness, (b) totality, (c) valid output, (d) strict identity.
 // Match whole JSON strings/numbers so digits inside strings, fractions and exponents do not count.
@@ -201,7 +210,7 @@ export async function fuzz(dir, { n = 200, seed = 114, stressSizes } = {}) {
       try {
         await configure({ maxFileBytes: 1048576 });
         const saved = Object.hasOwn(input, 'transcript')
-          ? await capture(root, { session_id: id, client: input.client }, { transcript: input.transcript })
+          ? await capture(root, { session_id: id, client: input.client }, input)
           : index === 4
           ? await capture(root, { session_id: id, client: 'codex' }, { transcript: input.steps
             .map(item => JSON.stringify({ type: 'message', role: item.source, text: item.message })).join('\n') })
@@ -209,6 +218,9 @@ export async function fuzz(dir, { n = 200, seed = 114, stressSizes } = {}) {
         if (!saved) throw new Error('stress save/capture returned false');
         const raw = await readFile(file);
         if (raw.length > 1048576 || !validate(JSON.parse(raw))) throw new Error('invalid stress output or exceeded cap');
+        const data = JSON.parse(raw);
+        if (input.usage && (data.final_metrics.total_steps !== data.steps.length
+          || data.final_metrics.total_prompt_tokens !== 14)) throw new Error('capture totals differ from steps/usage');
         files.push(file);
       } catch (error) { failures.push({ index, kind: 'stress', id, error: error.message }); }
     }

@@ -7,7 +7,8 @@ import { boundedClone, normalize, validate, totals, ownData } from './schema.js'
 
 const prefix = 'okit-plugin-';
 const bytes = value => Buffer.byteLength(`${JSON.stringify(value, null, 2)}\n`);
-export const safeId = id => typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) && !id.includes('..');
+export const safeId = id => typeof id === 'string' && id.length <= 255
+  && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) && !id.includes('..');
 export async function files(config) {
   try { return (await readdir(config.dir)).filter(name => name.startsWith(prefix) && name.endsWith('.json')); }
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }

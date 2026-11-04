@@ -90,7 +90,7 @@ function usageOf(value) {
 }
 // Harbor wants ISO 8601: a real calendar date and clock time, with an optional offset.
 function isoTime(value) {
-  const parts = typeof value === 'string'
+  const parts = typeof value === 'string' && value.length <= 64
     && /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-](\d{2}):(\d{2}))?$/.exec(value);
   if (!parts) return false;
   const [year, month, day, hour, minute, second, zoneHour = 0, zoneMinute = 0] = parts.slice(1).map(part => (part === undefined ? undefined : Number(part)));
@@ -345,7 +345,7 @@ const numberList = (value, integers = false) => Array.isArray(value)
   && value.every(integers ? integer : real);
 const optional = (value, check) => value == null || check(value);
 const text = value => typeof value === 'string';
-const knownVersion = value => text(value) && /^ATIF-v1\.[0-7]$/.test(value);
+const knownVersion = value => text(value) && value.length === 9 && /^ATIF-v1\.[0-7]$/.test(value);
 const metadata = value => optional(value.extra, object);
 function content(value) {
   return text(value) || (Array.isArray(value) && value.every(part => hasOnly(part, ['type', 'text', 'source'])
@@ -400,7 +400,7 @@ export function validate(data) {
 }
 // datetime.fromisoformat accepts calendar/basic/week dates and fractional clocks/offsets.
 function harborTime(value) {
-  if (!text(value)) return false;
+  if (!text(value) || value.length > 64) return false;
   // Harbor replaces every Z before datetime.fromisoformat, including date/time separators.
   value = value.replaceAll('Z', '+00:00');
   const week = /^(\d{4})(-?)W(\d{2})(?:\2([1-7]))?/.exec(value);
@@ -419,12 +419,15 @@ function harborTime(value) {
   const rest = value.slice(date[0].length);
   if (!rest) return true;
   const clock = Array.from(rest).slice(1).join('');
-  const parts = /^(.*?)(Z|[+-].*)?$/.exec(clock);
-  const readClock = input => /^(\d{2})(?:(:?)(\d{2})(?:\2(\d{2}))?)?(?:[.,](\d+))?$/.exec(input);
-  const time = readClock(parts[1]);
+  const zone = clock.search(/[+-]/);
+  const readClock = input => {
+    const match = /^(\d{2})(?:(:?)(\d{2})(?:\2(\d{2}))?)?(?:[.,](\d{1,64}))?$/.exec(input);
+    return match && match[0].length === input.length ? match : null;
+  };
+  const time = readClock(zone < 0 ? clock : clock.slice(0, zone));
   if (!time || +time[1] > 23 || +(time[3] ?? 0) > 59 || +(time[4] ?? 0) > 59) return false;
-  if (!parts[2] || parts[2] === 'Z') return true;
-  const offset = readClock(parts[2].slice(1));
+  if (zone < 0) return true;
+  const offset = readClock(clock.slice(zone + 1));
   return !!offset && +offset[1] * 3600 + +(offset[3] ?? 0) * 60 + +(offset[4] ?? 0)
     + Number(`0.${offset[5] ?? 0}`) < 86400;
 }

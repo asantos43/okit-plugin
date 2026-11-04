@@ -28,6 +28,7 @@ export async function capture(root, context, { transcript, file, message, outcom
     if (outcome != null) data.steps.push(step({ source: 'system', message: outcome,
       metrics: usage }));
     if (shortened) data.steps.push(step({ source: 'system', message: config.truncationMarker }));
+    data.final_metrics.total_steps = data.steps.length;
     return await save(root, normalize(data));
   } catch { return false; } // Optional local recording never interrupts work.
 }
