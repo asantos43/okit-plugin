@@ -1,19 +1,152 @@
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { samples } from '../test/helpers/trajectory-samples.js';
 import { capture } from '../src/trajectory/capture.js';
+import { trajectory, normalize, validate } from '../src/trajectory/schema.js';
+import { save, exportTrajectory } from '../src/trajectory/index.js';
 
-if (!process.argv[2]) throw new Error('Usage: node scripts/check-atif.mjs <folder>');
-const dir = resolve(process.argv[2]);
-await mkdir(dir, { recursive: true });
-const root = await mkdtemp(join(tmpdir(), 'check-atif-'));
-try {
-  await writeFile(join(root, 'config.json'), JSON.stringify({ trajectory: { enabled: true, dir } }));
-  for (const [client, , transcript] of samples) {
-    const context = { session_id: client, client, model: 'example-model', effort: 'high' };
-    if (!await capture(root, context, { transcript, message: 'Read sample.txt', outcome: 'Done',
-      usage: { cost_usd: 0.01 } })) throw new Error(`Could not save ${client}`);
-    console.log(join(dir, `okit-plugin-${client}.json`));
+// Seeded PRNG (mulberry32): the same seed always produces the same odd trajectories.
+function random(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(state ^ (state >>> 15), state | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function generator(seed) {
+  const rand = random(seed);
+  const chance = p => rand() < p;
+  const pick = list => list[Math.floor(rand() * list.length)];
+  const many = (max, make) => Array.from({ length: Math.floor(rand() * (max + 1)) }, make);
+  const stray = (p = 0.3) => chance(p) ? { custom: pick([1, 'x', { a: [1] }]) } : {};
+  const stamps = ['2026-11-03T10:00:00.000Z', '2026-11-03T10:00:00+02:00', '2026-11-03T10:00:00.123456', 'November 3, 2026',
+    '2026-11-03', '2026-13-45T00:00:00Z', '2026-02-30T10:00:00Z', '2026-11-03T24:00:00Z', '', ' ', 1762160000000, {}, [], true, null, undefined];
+  const counts = [0, 7, 12, 1000, 1.5, -3, '7', null, undefined, Infinity, 1e300, true, [], {}];
+  const costs = [0, 0.01, 2.5, -0.5, '1', null, undefined, NaN, {}];
+  const versions = [undefined, null, 7, 1.5, '', '1.2.3', {}, ['x'], true];
+  const huge = 'lorem '.repeat(40000);
+  const messages = ['', 'Hello', 'Olá, ação ✓ 日本語', null, undefined, 5, { text: 'json' }, ['a'], true];
+  const ids = ['a', 'b', 'c', 'call-1', 'call-2-1', null, undefined, '', '  ', 7];
+  const args = [{ path: 'a' }, '{"x":1}', 'plain', null, undefined, [], 7, '[]', {}];
+  const contents = ['ok', '', null, undefined, 5, { output: 'oops', is_error: true }, { is_error: false }, ['a'], true];
+  const extras = [undefined, { note: 'kept' }, { nested: { a: [1, 2] } }, null, 'text', [1], 5, { original_timestamp: 'kept' },
+    { failed_calls: ['a'] }, { failed_calls: 'bad' }, { failed_results: [0] }, { failed_results: [99] }, { failed_calls: [null, 7, 'b'] }];
+  const call = () => ({ ...(chance(0.9) ? { tool_call_id: pick(ids) } : {}), function_name: pick(['read', 'write', '', 7, null, undefined]),
+    arguments: pick(args), ...stray() });
+  const result = () => ({ source_call_id: pick(ids), content: pick(contents), ...stray() });
+  const metrics = () => chance(0.15) ? pick([null, 'text', [], 5]) : { ...(chance(0.8) ? { prompt_tokens: pick(counts) } : {}),
+    ...(chance(0.8) ? { completion_tokens: pick(counts) } : {}), ...(chance(0.6) ? { cached_tokens: pick(counts) } : {}),
+    ...(chance(0.6) ? { cost_usd: pick([...costs, 0.5]) } : {}), ...(chance(0.2) ? { extra: pick([{ n: 1 }, 'bad', null]) } : {}), ...stray() };
+  const step = () => ({ ...(chance(0.8) ? { source: pick(['agent', 'agent', 'user', 'system', 'odd', null, 7]) } : {}),
+    ...(chance(0.8) ? { timestamp: pick(stamps) } : {}), ...(chance(0.9) ? { message: chance(0.03) ? huge : pick(messages) } : {}),
+    ...(chance(0.4) ? { tool_calls: chance(0.1) ? pick(['odd', {}, null]) : many(3, call) } : {}),
+    ...(chance(0.4) ? { observation: pick([{ results: many(3, result), ...stray(0.2) }, null, 'odd', { results: 'odd' }, {}]) } : {}),
+    ...(chance(0.5) ? { metrics: metrics() } : {}), ...(chance(0.2) ? { reasoning_content: pick(['', 'think', 5, null]) } : {}),
+    ...(chance(0.3) ? { model_name: pick(['m', 7, null]) } : {}), ...(chance(0.2) ? { reasoning_effort: pick(['high', 0.5, null]) } : {}),
+    ...(chance(0.3) ? { extra: pick(extras) } : {}), ...(chance(0.2) ? { step_id: pick([0, 9, 'x', null]) } : {}), ...stray() });
+  const final = () => ({ total_steps: pick([0, 3, -1, 'x', null]), total_prompt_tokens: pick(counts),
+    total_completion_tokens: pick(counts), total_cached_tokens: pick(counts), total_cost_usd: pick(costs),
+    ...(chance(0.2) ? { extra: { n: 1 } } : {}), ...stray() });
+  const agentExtra = () => ({ role: pick(['executor', 'critic']), client: pick([null, 'codex']), effort: pick([null, 'high']),
+    demand: pick([null, 'D1']), step: pick([null, 3]), critic_of: null, ...stray() });
+  const steps = () => many(8, () => chance(0.1) ? pick([null, 5, 'text', []]) : step());
+  return { rand, pick, many, step, steps, versions,
+    envelope: id => ({ schema_version: pick(['ATIF-v1.4', 'ATIF-v1.0', 'ATIF-v1.7', 'unknown', undefined]), session_id: id,
+      agent: { name: 'okit-plugin', ...(chance(0.9) ? { version: pick(versions) } : {}),
+        ...(chance(0.8) ? { model_name: pick([null, 'm', 7]) } : {}), extra: agentExtra(), ...stray(),
+        ...(chance(0.2) ? { tool_definitions: [{ name: 'x' }] } : {}) },
+      steps: chance(0.05) ? pick([null, {}, 'odd']) : steps(),
+      ...(chance(0.3) ? { notes: pick(['n', 5, null]) } : {}), ...(chance(0.7) ? { final_metrics: final() } : {}),
+      ...(chance(0.3) ? { extra: pick([{ n: 1 }, 'x', null]) } : {}), ...stray() }),
+    legacy: id => {
+      const steps = many(3, (_, index) => ({ step_id: index + 1, timestamp: pick([null, '2026-11-03T10:00:00.000Z', 'November 3, 2026']),
+        source: pick(['user', 'system', 'agent']), message: pick(['Hi', '', null]), model_name: pick([null, 'm']),
+        tool_calls: pick([[], [{ tool_call_id: pick(['call-1', 'call-1', null]), function_name: 'read', arguments: pick([null, '{"a":1}', 'plain', { a: 1 }]) }]]),
+        ...(chance(0.5) ? { observation: { results: [{ source_call_id: pick(['call-1', 'zzz', null]), content: pick(['ok', { output: 'bad', is_error: true }]) }] } } : {}),
+        metrics: { prompt_tokens: pick([null, 10, 1.5]), completion_tokens: pick([null, 4]), cached_tokens: null, cost_usd: pick([null, 0.5]) } }));
+      if (!steps.length) steps.push({ step_id: 1, timestamp: null, source: 'agent', message: 'Hi', tool_calls: [],
+        metrics: { prompt_tokens: null, completion_tokens: null, cached_tokens: null, cost_usd: null } });
+      return { schema_version: `ATIF-v1.${Math.floor(rand() * 8)}`, session_id: id,
+        agent: { name: 'okit-plugin', version: pick([null, '0.1.0']), model_name: pick([null, 'm']), extra: agentExtra() }, steps,
+        final_metrics: { total_steps: steps.length, total_prompt_tokens: pick([null, 30, 12.5]), total_completion_tokens: null,
+          total_cached_tokens: null, total_cost_usd: pick([null, 0.5]), ...stray() }, ...stray() };
+    } };
+}
+
+const kinds = ['steps', 'raw', 'capped', 'legacy', 'capture'];
+// Pushes N odd trajectories through trajectory → normalize → save (old files through exportTrajectory) and writes them to `dir`.
+export async function fuzz(dir, { n = 200, seed = 114 } = {}) {
+  const out = resolve(dir), root = await mkdtemp(join(tmpdir(), 'fuzz-atif-')), staging = join(root, 'legacy');
+  const random = generator(seed), files = [], failures = [];
+  await mkdir(out, { recursive: true }); await mkdir(staging);
+  const configure = (extra = {}) => writeFile(join(root, 'config.json'),
+    JSON.stringify({ trajectory: { enabled: true, dir: out, maxBytes: 1000000000, ...extra } }));
+  try {
+    for (let index = 0; index < n; index++) {
+      const kind = kinds[index % kinds.length], id = `fuzz-${seed}-${index}`, file = join(out, `okit-plugin-${id}.json`);
+      try {
+        await configure();
+        if (kind === 'steps') {
+          await save(root, trajectory({ session_id: id, version: random.pick(random.versions), model: random.pick([undefined, 'm', 7]),
+            client: 'codex', effort: 'high', role: random.pick(['executor', 'critic']) }, random.many(8, () => random.step())));
+        } else if (kind === 'raw') {
+          await save(root, normalize(random.envelope(id)));
+        } else if (kind === 'capped') {
+          const data = normalize({ ...random.envelope(id), steps: [{ message: 'filler '.repeat(500), metrics: { prompt_tokens: 5 } }, ...random.steps()] });
+          data.final_metrics.total_prompt_tokens = 30;
+          for (const item of data.steps) delete item.metrics;
+          await configure({ maxFileBytes: 3000 });
+          await save(root, data);
+          await save(root, JSON.parse(await readFile(file, 'utf8')));
+        } else if (kind === 'legacy') {
+          await configure({ dir: staging });
+          await writeFile(join(staging, `okit-plugin-${id}.json`), JSON.stringify(random.legacy(id)));
+          await writeFile(file, `${JSON.stringify(await exportTrajectory(root, id), null, 2)}\n`);
+        } else {
+          const [client, , transcript] = random.pick(samples);
+          const ok = await capture(root, { session_id: id, client, model: 'example-model', effort: 'high' }, { transcript,
+            message: random.pick(['Read sample.txt', '', null]), outcome: random.pick(['Done', '', null]),
+            usage: random.pick([{ cost_usd: 0.01 }, { prompt_tokens: 1.5, cost_usd: -1 }, { prompt_tokens: 2 }, null, 'odd']) });
+          if (!ok) throw new Error('capture returned false');
+        }
+        const data = JSON.parse(await readFile(file, 'utf8'));
+        if (!validate(data)) throw new Error('validate() rejects the saved file');
+        files.push(file);
+      } catch (error) { failures.push({ index, kind, id, error: error.message }); }
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+  return { files, failures };
+}
+
+async function samplesTo(dir) {
+  await mkdir(dir, { recursive: true });
+  const root = await mkdtemp(join(tmpdir(), 'check-atif-'));
+  try {
+    await writeFile(join(root, 'config.json'), JSON.stringify({ trajectory: { enabled: true, dir } }));
+    for (const [client, , transcript] of samples) {
+      const context = { session_id: client, client, model: 'example-model', effort: 'high' };
+      if (!await capture(root, context, { transcript, message: 'Read sample.txt', outcome: 'Done',
+        usage: { cost_usd: 0.01 } })) throw new Error(`Could not save ${client}`);
+      console.log(join(dir, `okit-plugin-${client}.json`));
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const args = process.argv.slice(2), flag = name => args.includes(name) ? args[args.indexOf(name) + 1] : undefined;
+  const usage = 'Usage: node scripts/check-atif.mjs <folder> | --fuzz <folder> [--n 200] [--seed 114]';
+  if (args.includes('--fuzz')) {
+    if (!flag('--fuzz')) throw new Error(usage);
+    const { files, failures } = await fuzz(flag('--fuzz'), { n: Number(flag('--n') ?? 200), seed: Number(flag('--seed') ?? 114) });
+    for (const file of files) console.log(file);
+    for (const failure of failures) console.error(`FAILED ${failure.kind} #${failure.index} (${failure.id}): ${failure.error}`);
+    process.exitCode = failures.length ? 1 : 0;
+  } else {
+    if (!args[0]) throw new Error(usage);
+    await samplesTo(resolve(args[0]));
   }
-} finally { await rm(root, { recursive: true, force: true }); }
+}

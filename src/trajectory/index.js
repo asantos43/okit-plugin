@@ -4,7 +4,7 @@ import { readJson, writeJsonAtomic, withLock } from '../state.js';
 import { paths } from '../store.js';
 import { settings } from './config.js';
 import { files, safeId, pruneFiles } from './store.js';
-import { normalize, readable, validate } from './schema.js';
+import { normalize, readable } from './schema.js';
 export { save } from './store.js';
 export const explanation = 'Saves messages, thoughts when available, tool inputs and results on this computer only. Nothing is sent. Secrets matching your settings are hidden. / Salva mensagens, raciocínio quando disponível, entradas e resultados de ferramentas somente neste computador. Nada é enviado. Segredos que correspondem aos seus ajustes são ocultados.';
 export async function configure(root, enabled) {
@@ -26,9 +26,7 @@ export async function exportTrajectory(root, id) {
   if ((await stat(file)).size > config.maxFileBytes) throw new Error('Saved run exceeds limit / Execução salva excede o limite');
   const data = await readJson(file, null);
   if (!readable(data)) throw new Error('Cannot read saved run / Não foi possível ler a execução salva');
-  if (validate({ ...data, schema_version: 'ATIF-v1.4' })) return data;
-  const normalized = normalize(data);
-  return { ...normalized, final_metrics: { ...normalized.final_metrics, ...data.final_metrics } };
+  return normalize(data);
 }
 export async function list(root) {
   const config = await settings(root), result = [];

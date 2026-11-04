@@ -9,6 +9,7 @@ import { capture } from '../src/trajectory/capture.js';
 import { TOOLS } from '../src/mcp/tools.js';
 import { samples } from './helpers/trajectory-samples.js';
 import { codexFixture } from './helpers/trajectory-samples.js';
+import { fuzz } from '../scripts/check-atif.mjs';
 const context = { session_id: 'atif', model: 'example-model' };
 // | Corpus | Must pass | Must refuse |
 // | writer | agent fields, string messages/results, object arguments, extra, local result IDs | rules 1–6 violations |
@@ -266,4 +267,96 @@ test('capture additions and save guard write strict files with unchanged usage',
     data.steps[0].custom = 'saved'; await save(root, data);
     assert.ok(validate(await exportTrajectory(root, client)));
   }
+});
+// Review 3: the whole Harbor schema, not only Steps. Each test fails on the previous commit.
+test('finding 1: non-ISO timestamps become null and keep their text in extra', async t => {
+  const root = await rootOf(t);
+  for (const text of ['November 3, 2026', '2026-11-03', '2026-02-30T10:00:00Z', '2026-11-03T24:00:00Z']) {
+    const data = trajectory(context, [{ message: 'Hello', timestamp: text }]);
+    assert.equal(data.steps[0].timestamp, null); assert.equal(data.steps[0].extra.original_timestamp, text);
+    assert.ok(validate(data)); assert.deepEqual(normalize(data), data);
+    const bad = structuredClone(data); bad.steps[0].timestamp = text; assert.equal(validate(bad), false);
+    await save(root, data); assert.equal((await exportTrajectory(root, 'atif')).steps[0].timestamp, null);
+  }
+  for (const text of ['2026-11-03T10:00:00.000Z', '2026-11-03T10:00:00+02:00']) {
+    const data = trajectory(context, [{ message: 'Hello', timestamp: text }]);
+    assert.equal(data.steps[0].timestamp, text); assert.equal(data.steps[0].extra, undefined);
+  }
+});
+test('finding 2: token counters must be non-negative integers, cost may be fractional', () => {
+  const data = trajectory(context, [{ message: 'A', metrics: { prompt_tokens: 1.5, completion_tokens: -2, cached_tokens: '3', cost_usd: 0.25 } },
+    { message: 'B', metrics: { prompt_tokens: 4, completion_tokens: 2 ** 60 } }]);
+  assert.deepEqual(data.steps[0].metrics, { cost_usd: 0.25 }); assert.deepEqual(data.steps[1].metrics, { prompt_tokens: 4 });
+  assert.equal(data.final_metrics.total_prompt_tokens, 4); assert.equal(data.final_metrics.total_cost_usd, 0.25);
+  assert.equal(data.final_metrics.total_completion_tokens, null); assert.ok(validate(data));
+  for (const [key, value] of [['prompt_tokens', 1.5], ['cached_tokens', -1], ['completion_tokens', '2']]) {
+    const bad = structuredClone(data); bad.steps[1].metrics[key] = value; assert.equal(validate(bad), false, key);
+  }
+  const bad = structuredClone(data); bad.final_metrics.total_prompt_tokens = 6.5; assert.equal(validate(bad), false);
+  assert.equal(normalize(bad).final_metrics.total_prompt_tokens, 4);
+});
+test('finding 3: agent.version is always a string', () => {
+  assert.equal(trajectory({ session_id: 'x' }).agent.version, 'unknown');
+  const data = trajectory(context);
+  for (const [version, expected] of [[null, 'unknown'], [undefined, 'unknown'], ['', 'unknown'], [{}, 'unknown'], [7, '7'], ['1.2', '1.2']]) {
+    const fixed = normalize({ ...data, agent: { ...data.agent, version } }); assert.equal(fixed.agent.version, expected);
+  }
+  assert.equal(validate({ ...data, agent: { ...data.agent, version: null } }), false);
+});
+test('finding 4: unknown fields move into extra where Harbor has one, else disappear', () => {
+  const base = trajectory(context, [{ message: 'Hi', tool_calls: [{ tool_call_id: 't', function_name: 'read', arguments: {}, custom: 1 }],
+    metrics: { prompt_tokens: 1, custom: 2 }, observation: { custom: 4, results: [{ source_call_id: 't', content: 'ok', custom: 3 }] } }]);
+  assert.deepEqual(Object.keys(base.steps[0].tool_calls[0]).sort(), ['arguments', 'function_name', 'tool_call_id']);
+  assert.deepEqual(Object.keys(base.steps[0].observation), ['results']);
+  assert.deepEqual(Object.keys(base.steps[0].observation.results[0]).sort(), ['content', 'source_call_id']);
+  assert.deepEqual(base.steps[0].metrics, { prompt_tokens: 1, extra: { custom: 2 } });
+  const messy = { ...base, custom: 'top', agent: { ...base.agent, custom: 'agent' }, final_metrics: { ...base.final_metrics, custom: 'final' } };
+  assert.equal(validate(messy), false);
+  const fixed = normalize(messy);
+  assert.equal(fixed.extra.custom, 'top'); assert.equal(fixed.agent.extra.custom, 'agent');
+  assert.equal(fixed.final_metrics.extra.custom, 'final'); assert.equal(fixed.agent.extra.role, 'executor');
+  assert.ok(validate(fixed)); assert.deepEqual(normalize(fixed), fixed);
+  const cases = [data => { data.steps[0].tool_calls[0].custom = 1; }, data => { data.steps[0].observation.custom = 1; },
+    data => { data.steps[0].observation.results[0].custom = 1; }, data => { data.steps[0].metrics.custom = 1; }];
+  for (const mutate of cases) { const bad = structuredClone(base); mutate(bad); assert.equal(validate(bad), false); }
+});
+test('finding 5: totals stored in a capped file survive normalize and save', async t => {
+  const root = await rootOf(t), data = trajectory(context, [{ message: 'Kept' }]);
+  data.final_metrics.total_prompt_tokens = 30; data.final_metrics.total_cost_usd = 0.5;
+  const fixed = normalize(data);
+  assert.equal(fixed.final_metrics.total_prompt_tokens, 30); assert.equal(fixed.final_metrics.total_cost_usd, 0.5);
+  assert.equal(fixed.final_metrics.total_completion_tokens, null);
+  await save(root, data); await save(root, JSON.parse(await readFile(join(root, 'trajectory', 'okit-plugin-atif.json'))));
+  const saved = JSON.parse(await readFile(join(root, 'trajectory', 'okit-plugin-atif.json')));
+  assert.equal(saved.final_metrics.total_prompt_tokens, 30);
+  const stale = trajectory(context, [{ message: 'Used', metrics: { prompt_tokens: 5 } }]);
+  stale.final_metrics.total_prompt_tokens = 2;
+  assert.equal(normalize(stale).final_metrics.total_prompt_tokens, 5);
+});
+test('finding 6: total_steps always equals the number of steps', async t => {
+  const root = await rootOf(t); await mkdir(join(root, 'trajectory'));
+  const legacy = trajectory({ ...context, session_id: 'old-two' });
+  legacy.steps = [oldSteps[2], { ...oldSteps[0], step_id: 2 }]; legacy.final_metrics = totals(legacy.steps);
+  assert.equal(legacy.final_metrics.total_steps, 2);
+  await writeFile(join(root, 'trajectory', 'okit-plugin-old-two.json'), JSON.stringify(legacy));
+  const exported = await exportTrajectory(root, 'old-two');
+  assert.equal(exported.steps.length, 1); assert.equal(exported.final_metrics.total_steps, 1); assert.ok(validate(exported));
+  const data = trajectory(context, [{ message: 'A' }, { message: 'B' }]);
+  data.final_metrics.total_steps = 9; assert.equal(normalize(data).final_metrics.total_steps, 2);
+});
+test('duplicate call IDs are renamed with their results', () => {
+  const data = trajectory(context, [{ tool_calls: [{ tool_call_id: 'same', function_name: 'read', arguments: {} }],
+    observation: { results: [{ source_call_id: 'same', content: 'First' }] } },
+  { tool_calls: [{ tool_call_id: 'same', function_name: 'read', arguments: {} }, { tool_call_id: 'same', function_name: 'read', arguments: {} }],
+    extra: { failed_calls: ['same'] }, observation: { results: [{ source_call_id: 'same', content: 'Second' }] } }]);
+  const ids = data.steps.flatMap(item => item.tool_calls).map(call => call.tool_call_id);
+  assert.equal(new Set(ids).size, 3); assert.equal(data.steps[0].tool_calls[0].tool_call_id, 'same');
+  assert.equal(data.steps[1].observation.results[0].source_call_id, data.steps[1].tool_calls[0].tool_call_id);
+  assert.ok(validate(data)); assertLocalResults(data);
+});
+test('fuzz: the seeded odd trajectories all satisfy validate()', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'atif-fuzz-')); t.after(() => rm(dir, { recursive: true, force: true }));
+  const { files, failures } = await fuzz(dir, { n: 100 });
+  assert.deepEqual(failures, []); assert.equal(files.length, 100);
+  for (const file of files) assert.ok(validate(JSON.parse(await readFile(file, 'utf8'))), file);
 });
