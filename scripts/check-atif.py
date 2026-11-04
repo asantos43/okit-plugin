@@ -1,6 +1,9 @@
 """Validate a folder using Harbor 0.22.0, independently of npm test."""
 import argparse
 import json
+import copy
+import random
+import subprocess
 from typing import get_args
 from pathlib import Path
 from harbor.models.trajectories.agent import Agent
@@ -45,10 +48,72 @@ def maximal(version):
         assert covered == set(cls.model_fields), f"Unpopulated {cls.__name__} fields: {set(cls.model_fields) - covered}"
     return model
 
+def paths(value, prefix=()):
+    """Every JSON value, including containers and the root, is mutable."""
+    yield prefix
+    if isinstance(value, (dict, list)):
+        for key, child in (value.items() if isinstance(value, dict) else enumerate(value)):
+            yield from paths(child, (*prefix, key))
+
+def mutate(folder, n, seed):
+    folder.mkdir(parents=True, exist_ok=True)
+    repo = Path(__file__).resolve().parent.parent
+    subprocess.run(["node", str(repo / "scripts/check-atif.mjs"), str(folder.resolve())], check=True)
+    sources = sorted((repo / "test/fixtures/atif-valid").glob("*.json"))
+    sources += sorted(folder.glob("okit-plugin-*.json"))
+    bases = [json.loads(file.read_text()) for file in sources]
+    rng, verdicts = random.Random(seed), {}
+    garbage = [None, [], {}, "", "Z", -1, 1.5, "1e999", "x" * 8192, True,
+               "1", "1.0", "1.", "1e2", "1_0", " 1 ", "nan", "inf", "-Infinity",
+               0, 1, 2**63, "9" * 4400, "yes", "off", ["ATIF-v1.7"], [None],
+               "2026-11-03Z10:00:00", "2026-11-03T10:00:00Z", "2026-W53-7",
+               "2026-11-03T10:00:00+00:60", "2026-11-03T10.5", "2026-W45-2Z10:00:00"]
+    for index in range(n):
+        value = copy.deepcopy(bases[index % len(bases)])
+        for _ in range(rng.randint(1, 3)):
+            path = rng.choice(list(paths(value)))
+            parent = value
+            for key in path[:-1]:
+                parent = parent[key]
+            operation = rng.randrange(6)
+            if operation == 0 and isinstance(value, dict) and isinstance(value.get("steps"), list) and value["steps"]:
+                steps = value["steps"]
+                if len(steps) > 1 and rng.choice([True, False]):
+                    a, b = rng.sample(range(len(steps)), 2)
+                    if isinstance(steps[a], dict) and isinstance(steps[b], dict):
+                        steps[a]["step_id"], steps[b]["step_id"] = steps[b].get("step_id"), steps[a].get("step_id")
+                else:
+                    del steps[rng.randrange(len(steps))]
+            elif operation == 1 and isinstance(parent, dict):
+                parent["unknown_mutation"] = copy.deepcopy(rng.choice(garbage))
+            elif operation == 2 and path:
+                del parent[path[-1]]
+            else:
+                replacement = copy.deepcopy(rng.choice(garbage))
+                if path:
+                    parent[path[-1]] = replacement
+                else:
+                    value = replacement
+        name = f"m-{index}.json"
+        (folder / name).write_text(json.dumps(value, ensure_ascii=True, allow_nan=False) + "\n")
+        try:
+            Trajectory.model_validate(value)
+            verdicts[name] = {"valid": True}
+        except Exception as error:
+            verdicts[name] = {"valid": False, "error": str(error)}
+    (folder / "verdicts.json").write_text(json.dumps(verdicts, indent=2) + "\n")
+    print(f"Wrote {n} mutations with Harbor verdicts (seed {seed}) to {folder}")
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("folder", type=Path, nargs="?")
 parser.add_argument("--emit", type=Path, help="Build maximal fixtures with Harbor's own models")
+parser.add_argument("--mutate", type=Path, help="Write seeded mutations and Harbor model verdicts")
+parser.add_argument("--n", type=int, default=2000)
+parser.add_argument("--seed", type=int, default=1)
 args = parser.parse_args()
+if args.mutate:
+    mutate(args.mutate, args.n, args.seed)
+    raise SystemExit(0)
 if args.emit:
     args.emit.mkdir(parents=True, exist_ok=True)
     for version in get_args(Trajectory.model_fields["schema_version"].annotation):
@@ -58,7 +123,7 @@ if args.emit:
 folder = args.emit or args.folder
 if folder is None:
     parser.error("provide a folder or --emit <folder>")
-files = sorted(folder.glob("*.json"))
+files = sorted(file for file in folder.glob("*.json") if file.name != "verdicts.json")
 if not files:
     parser.error("folder contains no *.json files")
 failed = False

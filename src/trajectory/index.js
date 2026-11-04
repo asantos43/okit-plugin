@@ -42,20 +42,28 @@ export async function prune(root) {
   if (!(await files(config)).length) return { removed: 0 };
   return withLock(join(config.dir, 'okit-plugin-retention'), () => pruneFiles(config));
 }
+function displayContent(value) {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(part => part.type === 'text'
+    ? part.text : `[image: ${part.source.path}]`).join('\n');
+  return '';
+}
 export async function show(root, id) {
   const data = await exportTrajectory(root, id), missing = 'not available / não disponível';
   const lines = [`${data.agent.extra?.role === 'critic' ? 'Reviewer / Crítico' : 'Helper / Ajudante'}: ${data.agent.model_name ?? missing}`,
     `Effort / Esforço: ${data.agent.extra?.effort ?? missing}`,
     `Stopped at step / Parou no passo: ${data.steps.at(-1)?.step_id ?? missing}`];
   for (const item of data.steps) {
-    lines.push(`${item.step_id}. ${item.source}: ${item.message || missing}`);
+    lines.push(`${item.step_id}. ${item.source}: ${displayContent(item.message) || missing}`);
     if (item.reasoning_content) lines.push(item.reasoning_content);
     for (const call of item.tool_calls ?? []) lines.push(`Tool / Ferramenta: ${call.function_name} ${JSON.stringify(call.arguments)}`);
     for (const [index, result] of (item.observation?.results ?? []).entries()) {
       const call = data.steps.flatMap(step => step.tool_calls ?? []).find(call => call.tool_call_id === result.source_call_id);
       const failed = (result.source_call_id != null && Array.isArray(item.extra?.failed_calls) && item.extra.failed_calls.includes(result.source_call_id))
         || (Array.isArray(item.extra?.failed_results) && item.extra.failed_results.includes(index)) || result.content?.is_error;
-      lines.push(`${failed ? 'Failed tool / Ferramenta que falhou' : 'Result / Resultado'}: ${call?.function_name ?? missing}: ${JSON.stringify(result.content)}`);
+      const refs = (result.subagent_trajectory_ref ?? []).map(ref => `→ ${ref.trajectory_path ?? ref.session_id ?? ref.trajectory_id}`);
+      const output = [displayContent(result.content), ...refs].filter(Boolean).join('\n');
+      lines.push(`${failed ? 'Failed tool / Ferramenta que falhou' : 'Result / Resultado'}: ${call?.function_name ?? missing}: ${output || missing}`);
     }
     lines.push(`Tokens in / entrada: ${item.metrics?.prompt_tokens ?? missing}; out / saída: ${item.metrics?.completion_tokens ?? missing}; cached / em cache: ${item.metrics?.cached_tokens ?? missing}`);
   }

@@ -50,7 +50,7 @@ function confine(value, allowed) {
 function usageOf(value) {
   const kept = confine(value, [...usageKeys, ...tokenArrays, 'extra']);
   for (const key of usageKeys) if (Object.hasOwn(kept, key) && amount(key, kept[key]) === null) delete kept[key];
-  for (const key of tokenArrays) if (kept[key] != null && !numberList(kept[key], key !== 'logprobs')) delete kept[key];
+  for (const key of tokenArrays) if (!numberList(kept[key], key !== 'logprobs')) delete kept[key];
   return kept;
 }
 // Harbor wants ISO 8601: a real calendar date and clock time, with an optional offset.
@@ -128,7 +128,7 @@ function moveResults(item, preceding) {
     if (failed.has(id) || failedResults.has(index)) {
       const key = result.source_call_id === null ? 'failed_results' : 'failed_calls';
       destination.extra = { ...destination.extra,
-        [key]: [...new Set([...(destination.extra?.[key] ?? []), key === 'failed_results' ? resultIndex : result.source_call_id])] };
+        [key]: [...new Set([...(Array.isArray(destination.extra?.[key]) ? destination.extra[key] : []), key === 'failed_results' ? resultIndex : result.source_call_id])] };
     }
   }
   if (item.extra?.failed_calls?.length === 0) delete item.extra.failed_calls;
@@ -151,7 +151,7 @@ function assignCallIds(steps) {
       if (!validId(old) || kept.has(old)) continue;
       kept.add(old);
       for (const result of item.observation?.results ?? []) if (result.source_call_id === old) result.source_call_id = id;
-      if (item.extra?.failed_calls) item.extra.failed_calls = item.extra.failed_calls.map(failed => failed === old ? id : failed);
+      if (Array.isArray(item.extra?.failed_calls)) item.extra.failed_calls = item.extra.failed_calls.map(failed => failed === old ? id : failed);
     }
   }
 }
@@ -167,18 +167,31 @@ function finalMetrics(steps, stored) {
 export function normalize(data = {}, producer = false) {
   // Harbor-valid input is already canonical for storage; never rewrite its optional fields.
   if (!producer && validate(data)) return structuredClone(data);
+  data = object(data) ? data : {};
   const steps = [], result = confine(data, topFields);
-  result.schema_version = /^ATIF-v1\.[0-7]$/.test(data?.schema_version) ? data.schema_version : SCHEMA_VERSION;
+  result.schema_version = knownVersion(data.schema_version) ? data.schema_version : SCHEMA_VERSION;
   result.agent = confine(result.agent, agentKeys);
+  if (!text(result.agent.name)) result.agent.name = 'okit-plugin';
   if (typeof result.agent.version === 'number') result.agent.version = String(result.agent.version);
   if (typeof result.agent.version !== 'string' || !result.agent.version) result.agent.version = 'unknown';
   if (typeof result.agent.model_name !== 'string') result.agent.model_name = null;
+  if (!Array.isArray(result.agent.tool_definitions)) delete result.agent.tool_definitions;
+  else result.agent.tool_definitions = result.agent.tool_definitions.filter(object);
+  for (const key of ['session_id', 'trajectory_id', 'continued_trajectory_ref']) {
+    if (!optional(result[key], text)) delete result[key];
+  }
+  if (!Array.isArray(result.subagent_trajectories)) delete result.subagent_trajectories;
+  else {
+    const ids = new Set();
+    result.subagent_trajectories = result.subagent_trajectories.map(child => normalize(child))
+      .filter(child => child.trajectory_id != null && !ids.has(child.trajectory_id) && !!ids.add(child.trajectory_id));
+  }
   if (Object.hasOwn(result, 'notes') && typeof result.notes !== 'string') delete result.notes;
   for (const value of Array.isArray(data?.steps) ? data.steps : []) {
     const item = normalizeStep(value);
     moveResults(item, steps);
     let { extra: usageExtra, ...usage } = item.metrics;
-    const previous = steps.findLast(candidate => candidate.source === 'agent');
+    const previous = steps.findLast(candidate => candidate.source === 'agent' && candidate.llm_call_count !== 0);
     const empty = !item.message && !item.tool_calls.length && !item.observation?.results?.length && !item.reasoning_content;
     const keepExtra = Object.keys(item.extra ?? {}).some(key => !['failed_calls', 'failed_results'].includes(key));
     if (item.source !== 'agent' && Object.keys(usage).length) {
@@ -221,6 +234,7 @@ const numberList = (value, integers = false) => Array.isArray(value)
   && value.every(integers ? integer : real);
 const optional = (value, check) => value == null || check(value);
 const text = value => typeof value === 'string';
+const knownVersion = value => text(value) && /^ATIF-v1\.[0-7]$/.test(value);
 const metadata = value => optional(value.extra, object);
 function content(value) {
   return text(value) || (Array.isArray(value) && value.every(part => hasOnly(part, ['type', 'text', 'source'])
@@ -259,7 +273,7 @@ function validStep(item, index) {
         && optional(result.subagent_trajectory_ref, refs => Array.isArray(refs) && refs.every(validRef))));
 }
 export function validate(data) {
-  if (!hasOnly(data, topFields) || !/^ATIF-v1\.[0-7]$/.test(data.schema_version === undefined ? 'ATIF-v1.7' : data.schema_version)
+  if (!hasOnly(data, topFields) || !knownVersion(data.schema_version === undefined ? 'ATIF-v1.7' : data.schema_version)
     || !metadata(data) || !['session_id', 'trajectory_id', 'notes', 'continued_trajectory_ref'].every(key => optional(data[key], text))
     || !hasOnly(data.agent, agentKeys) || !text(data.agent.name) || !text(data.agent.version) || !metadata(data.agent)
     || !optional(data.agent.model_name, text)
@@ -275,6 +289,8 @@ export function validate(data) {
 // datetime.fromisoformat accepts calendar/basic/week dates and fractional clocks/offsets.
 function harborTime(value) {
   if (!text(value)) return false;
+  // Harbor replaces every Z before datetime.fromisoformat, including date/time separators.
+  value = value.replaceAll('Z', '+00:00');
   const week = /^(\d{4})(-?)W(\d{2})(?:\2([1-7]))?/.exec(value);
   if (week) {
     const [, year, , number, day = '1'] = week;
@@ -301,12 +317,12 @@ function harborTime(value) {
     + Number(`0.${offset[5] ?? 0}`) < 86400;
 }
 export function readable(data) {
-  return validate(data) || (/^ATIF-v1\.[0-7]$/.test(data?.schema_version)
+  return validate(data) || (knownVersion(data?.schema_version)
     && validateLegacy({ ...data,
       final_metrics: { ...totals(Array.isArray(data.steps) ? data.steps : []), ...data.final_metrics } }));
 }
 function validEnvelope(data) {
-  if (!/^ATIF-v1\.[0-7]$/.test(data?.schema_version) || typeof data.session_id !== 'string'
+  if (!knownVersion(data?.schema_version) || typeof data.session_id !== 'string'
     || !data.session_id || !['executor', 'critic'].includes(data.agent?.extra?.role)
     || !Object.hasOwn(data.agent ?? {}, 'model_name')
     || !Object.hasOwn(data.agent?.extra ?? {}, 'effort') || !Array.isArray(data.steps)

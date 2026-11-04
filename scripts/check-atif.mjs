@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -82,6 +82,30 @@ function generator(seed) {
 }
 
 const kinds = ['steps', 'raw', 'capped', 'legacy', 'capture', 'valid'];
+// Compare both acceptance directions and preserve Harbor-valid input byte-for-value.
+export async function diff(dir) {
+  const verdicts = JSON.parse(await readFile(join(dir, 'verdicts.json'), 'utf8')), failures = [];
+  const files = (await readdir(dir)).filter(name => /^m-.*\.json$/.test(name)).sort();
+  await mkdir(join(dir, 'out'), { recursive: true });
+  for (const name of files) {
+    const fail = reason => failures.push({ file: name, reason });
+    try {
+      const input = JSON.parse(await readFile(join(dir, name), 'utf8')), oracle = verdicts[name];
+      if (typeof oracle?.valid !== 'boolean') fail('missing Harbor verdict');
+      else {
+        try {
+          if (validate(input) !== oracle.valid) fail(`validate disagrees with Harbor (${oracle.valid}): ${oracle.error ?? ''}`);
+        } catch (error) { fail(`validate threw: ${error.message}`); }
+      }
+      const output = normalize(input);
+      await writeFile(join(dir, 'out', name), `${JSON.stringify(output, null, 2)}\n`);
+      if (!validate(output)) fail('normalize output is invalid');
+      if (oracle?.valid && !isDeepStrictEqual(input, output)) fail('normalize changed Harbor-valid input');
+    } catch (error) { fail(`exception: ${error.message}`); }
+  }
+  if (!files.length) failures.push({ file: dir, reason: 'no m-*.json files' });
+  return { files, failures };
+}
 // Pushes N odd trajectories through trajectory → normalize → save (old files through exportTrajectory) and writes them to `dir`.
 export async function fuzz(dir, { n = 200, seed = 114 } = {}) {
   const out = resolve(dir), root = await mkdtemp(join(tmpdir(), 'fuzz-atif-')), staging = join(root, 'legacy');
@@ -153,8 +177,14 @@ async function samplesTo(dir) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2), flag = name => args.includes(name) ? args[args.indexOf(name) + 1] : undefined;
-  const usage = 'Usage: node scripts/check-atif.mjs <folder> | --fuzz <folder> [--n 200] [--seed 114]';
-  if (args.includes('--fuzz')) {
+  const usage = 'Usage: node scripts/check-atif.mjs <folder> | --diff <folder> | --fuzz <folder> [--n 200] [--seed 114]';
+  if (args.includes('--diff')) {
+    if (!flag('--diff')) throw new Error(usage);
+    const { files, failures } = await diff(resolve(flag('--diff')));
+    for (const failure of failures) console.error(`${failure.file}: ${failure.reason}`);
+    console.log(`${files.length} compared; ${failures.length} mismatches`);
+    process.exitCode = failures.length ? 1 : 0;
+  } else if (args.includes('--fuzz')) {
     if (!flag('--fuzz')) throw new Error(usage);
     const { files, failures } = await fuzz(flag('--fuzz'), { n: Number(flag('--n') ?? 200), seed: Number(flag('--seed') ?? 114) });
     for (const file of files) console.log(file);

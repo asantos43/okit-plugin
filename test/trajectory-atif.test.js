@@ -4,16 +4,106 @@ import { mkdtemp, mkdir, writeFile, rm, readFile, readdir } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { trajectory, normalize, validate, readable, totals } from '../src/trajectory/schema.js';
-import { save, list, exportTrajectory } from '../src/trajectory/index.js';
+import { save, list, exportTrajectory, show } from '../src/trajectory/index.js';
 import { capture } from '../src/trajectory/capture.js';
 import { TOOLS } from '../src/mcp/tools.js';
 import { samples } from './helpers/trajectory-samples.js';
 import { codexFixture } from './helpers/trajectory-samples.js';
-import { fuzz } from '../scripts/check-atif.mjs';
+import { fuzz, diff } from '../scripts/check-atif.mjs';
 const context = { session_id: 'atif', model: 'example-model' };
 // | Harbor corpus | Must pass | Must refuse |
 // | models | all optional fields, nulls, empty collections, multimodal, recursive children | unknown fields, bad content/ref shapes, zero-call metrics |
 const fixtureDir = new URL('./fixtures/atif-valid/', import.meta.url);
+test('review 5 finding 1: schema_version is a literal string', () => {
+  const data = trajectory(context, [{ message: 'Hello' }]);
+  for (const schema_version of [['ATIF-v1.7'], {}, 7, null]) {
+    const input = { ...data, schema_version };
+    assert.equal(validate(input), false);
+    assert.equal(normalize(input).schema_version, 'ATIF-v1.4');
+  }
+});
+test('review 5 finding 2: Harbor replaces Z before parsing ISO timestamps', () => {
+  const data = trajectory(context, [{ message: 'Hello' }]);
+  for (const timestamp of ['2026-11-03Z10:00:00', '2026-W45-2Z10:00:00', '20261103Z100000']) {
+    const input = structuredClone(data); input.steps[0].timestamp = timestamp;
+    assert.equal(validate(input), false);
+    const fixed = normalize(input);
+    assert.equal(fixed.steps[0].timestamp, null);
+    assert.equal(fixed.steps[0].extra.original_timestamp, timestamp);
+  }
+});
+test('review 5 finding 3: show renders message and result content parts', async t => {
+  const root = await rootOf(t), data = trajectory(context, [{ message: 'Hello' }]);
+  data.schema_version = 'ATIF-v1.7';
+  const parts = [{ type: 'text', text: 'Look here' },
+    { type: 'image', source: { media_type: 'image/png', path: 'a.png' } }];
+  data.steps[0].message = parts;
+  data.steps[0].observation = { results: [{ content: parts }] };
+  await save(root, data);
+  const shown = await show(root, 'atif');
+  assert.equal(shown.split('Look here\n[image: a.png]').length - 1, 2);
+  assert.doesNotMatch(shown, /\[object Object\]/);
+});
+test('review 5 finding 4: show renders subagent path and session references', async t => {
+  const root = await rootOf(t), data = trajectory(context, [{ message: 'Hello' }]);
+  data.steps[0].observation = { results: [
+    { subagent_trajectory_ref: [{ trajectory_path: 'child.json' }] },
+    { subagent_trajectory_ref: [{ trajectory_id: 'child', session_id: 'child-session' }] }] };
+  await save(root, data);
+  const shown = await show(root, 'atif');
+  assert.match(shown, /→ child.json/); assert.match(shown, /→ child-session/);
+  assert.doesNotMatch(shown, /undefined/);
+});
+test('review 5 finding 5: usage skips deterministic dispatch steps', () => {
+  const data = trajectory(context, [{ message: 'Dispatch', llm_call_count: 0 },
+    { source: 'system', metrics: { prompt_tokens: 3 } }]);
+  assert.ok(validate(data)); assert.equal(data.final_metrics.total_prompt_tokens, 3);
+  assert.equal(data.steps[0].llm_call_count, 0); assert.equal(data.steps[0].metrics, undefined);
+});
+test('review 5 finding 6: optional usage lists ignore null and odd values', () => {
+  for (const key of ['prompt_token_ids', 'completion_token_ids', 'logprobs']) {
+    for (const value of [null, undefined, {}, 3, 'bad', [null]]) {
+      const data = trajectory(context, [{ message: 'Answer' },
+        { source: 'system', metrics: { [key]: value, prompt_tokens: 3 } }]);
+      assert.ok(validate(data)); assert.equal(data.final_metrics.total_prompt_tokens, 3);
+      assert.equal(data.steps[0].metrics[key], undefined);
+    }
+  }
+});
+test('differential repairs root, agent and recursive-list mutations without throwing', () => {
+  const base = trajectory(context, [{ message: 'Hello' }]);
+  const garbage = [null, [], {}, '', 'Z', -1, 1.5, true];
+  for (const value of garbage) {
+    const inputs = [value, { ...base, agent: value }, { ...base, steps: value },
+      { ...base, session_id: value, trajectory_id: value, continued_trajectory_ref: value },
+      { ...base, agent: { ...base.agent, tool_definitions: [value] } },
+      { ...base, subagent_trajectories: [value, value] }];
+    for (const input of inputs) {
+      const output = normalize(input);
+      assert.ok(validate(output), JSON.stringify(input));
+      if (validate(input)) assert.deepEqual(output, input);
+    }
+  }
+});
+// Provisional expectations derived from Harbor-built fixtures and explicit rules;
+// regenerate this corpus with --mutate after the Director can run Harbor.
+// | Corpus | Must pass | Must refuse |
+// | differential | all eight literal versions | array versions, bad dates, scalar types, unknown fields, non-agent metrics, bad IDs |
+test('seeded differential corpus checks both verdict directions and repairs every input', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'atif-diff-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const source = new URL('./fixtures/atif-diff/', import.meta.url);
+  for (const file of await readdir(source)) await writeFile(join(dir, file), await readFile(new URL(file, source)));
+  const result = await diff(dir);
+  assert.equal(result.files.length, 40); assert.deepEqual(result.failures, []);
+  const verdicts = JSON.parse(await readFile(join(dir, 'verdicts.json')));
+  verdicts['m-0.json'].valid = false; verdicts['m-8.json'].valid = true;
+  await writeFile(join(dir, 'verdicts.json'), JSON.stringify(verdicts));
+  const inverted = await diff(dir);
+  assert.ok(inverted.failures.some(item => item.file === 'm-0.json' && /disagrees/.test(item.reason)));
+  assert.ok(inverted.failures.some(item => item.file === 'm-8.json' && /disagrees/.test(item.reason)));
+  assert.ok(inverted.failures.some(item => item.file === 'm-8.json' && /changed/.test(item.reason)));
+});
 const findings = [
   ['metrics.extra request_id on an empty agent', { message: '', metrics: { prompt_tokens: 3, extra: { request_id: 'r' } } }],
   ['observation refs and extra', { observation: { results: [{ subagent_trajectory_ref: [{ trajectory_path: 'child.json' }], extra: { score: 1 } }] } }],
@@ -280,7 +370,7 @@ test('case 5: orphan failure indices distinguish failed and successful null resu
   assert.equal(validate(malformed), false);
   assert.equal(readable({ ...data, steps: [null] }), false);
 });
-test('normalizer repairs odd step shapes or refuses an invalid envelope before save', async t => {
+test('normalizer repairs odd step shapes and invalid envelopes before save', async t => {
   const base = trajectory(context);
   for (const steps of [null, {}, [null, 5, 'text', []], [{ source: 'odd', timestamp: 5, message: { text: 'json' },
     tool_calls: [null, { tool_call_id: 7, arguments: [] }], observation: { results: [null, { source_call_id: 7, content: 9 }] },
@@ -289,7 +379,7 @@ test('normalizer repairs odd step shapes or refuses an invalid envelope before s
     assert.ok(validate(normalized)); assert.deepEqual(normalize(normalized), normalized);
   }
   const root = await rootOf(t), bad = { ...base, agent: { ...base.agent, name: 7 } };
-  assert.throws(() => normalize(bad)); await assert.rejects(save(root, bad));
+  assert.ok(validate(normalize(bad))); assert.equal(await save(root, bad), true);
 });
 test('old saved files remain listed and shown by trajectory_show', async t => {
   const root = await rootOf(t); await mkdir(join(root, 'trajectory'));
