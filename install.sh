@@ -895,7 +895,7 @@ async function install(defaults, present, hide) {
   if (!system || !arch) fail(t(`No package for system/architecture: ${rawSystem}/${rawArch}. Supported: ${supported}`, `Não há pacote para este sistema/arquitetura: ${rawSystem}/${rawArch}. Com suporte: ${supported}`));
   const roots = settings.DATA_ROOTS[platform];
   if (!roots) fail(t(`Unsupported platform: ${platform}`, `Sistema sem suporte: ${platform}`));
-  const destination = resolve(flags['--dest'] || config.DEST || join(env[roots[0]] || join(present.homeOf(env, process.platform) ?? homedir(), ...roots.slice(1)), config.DIRECTORY));
+  const destination = resolve(flags['--dest'] || config.DEST || join(env[roots[0]] || join(present.homeOf(env, process.platform) || homedir(), ...roots.slice(1)), config.DIRECTORY));
   const recordFile = join(destination, 'install.json');
   const records = [];
   // A record that is not JSON cannot be read (exit 1); one whose client or path is not text is a refusal of usage (exit 2).
