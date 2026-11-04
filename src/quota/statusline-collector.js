@@ -2,8 +2,10 @@ import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import process from 'node:process';
 import { configOf } from '../profiles.js';
+import { accountFiles, accountOfConfigDir, accountsWellFormed } from '../accounts.js';
 import { readJson, writeJsonAtomic } from '../state.js';
 import { paths, stateRoot as defaultRoot, SELFCHECK_ENV } from '../store.js';
+import { defaultFolderOf, homeOf } from '../install/config.js';
 
 /** The file the person records the quota in (the `quota_set` tool writes it); the collector never writes it. */
 export const READING_FILE = 'claude-code.json';
@@ -153,7 +155,8 @@ export function runPrevious({ command, args, input, timeoutMs, maxOutputBytes })
 
 /** Collection must never prevent the user's bar from running. Output stays binary. */
 export async function collectStatusline({ input, previous, stateRoot, run = runPrevious,
-  now = Date.now, config } = {}) {
+  now = Date.now, config, unreadable = false, env = process.env, platform = process.platform,
+  home = homeOf(env, platform) ?? '' } = {}) {
   previous ??= Array.isArray(config?.statuslineCollector?.previous)
     ? config.statuslineCollector.previous : undefined;
   let settings;
@@ -164,8 +167,19 @@ export async function collectStatusline({ input, previous, stateRoot, run = runP
       const value = JSON.parse(input.toString());
       // The collector stores what the client sent and nothing more: the percentages are read by the core.
       if (plain(value) && plain(value[settings.fields.rateLimits])) {
-        await writeJsonAtomic(join(paths(stateRoot).quota, STATUSLINE_FILE),
-          { receivedAt: new Date(now()).toISOString(), input: value });
+        // The folder of the default account is the one the client uses with no override: the default has no
+        // folder saved with it, so the folder of the environment that names it is the default's own.
+        // Settings that cannot be read, or that parse but are not a configuration (a root that is not an object,
+        // accounts of the wrong shape), tell nothing about the folder: with the variable set, nothing is written.
+        const trusted = !unreadable && accountsWellFormed(config);
+        const defaultDir = trusted ? defaultFolderOf('claude-code', { config, env, platform, home }) : undefined;
+        const account = !trusted && env.CLAUDE_CONFIG_DIR ? null
+          : accountOfConfigDir({ client: 'claude-code', config: trusted ? config : {}, env, platform, defaultDir });
+        // A folder that names no account writes nothing: the reading of one account never overwrites another's.
+        if (account) {
+          await writeJsonAtomic(join(paths(stateRoot).quota, accountFiles(account.client, account.id).statusline),
+            { receivedAt: new Date(now()).toISOString(), input: value });
+        }
       }
     }
   } catch { /* An optional reading must not break the bar. */ }
@@ -186,7 +200,10 @@ export function collectorArgsValid(argv) {
 export async function statuslineCommand(argv, io = {}) {
   try {
     const root = io.root ?? defaultRoot(io.env);
-    const config = await readJson(paths(root).config, {}).catch(() => ({}));
+    // Only a missing file means "no accounts saved"; a file that cannot be read says nothing about which account
+    // a folder belongs to, so the reading of that folder is not written (the bar itself still runs).
+    let unreadable = false;
+    const config = await readJson(paths(root).config, {}).catch(() => { unreadable = true; return {}; });
     let settings;
     try { settings = configOf(config).statuslineCollector; }
     catch { settings = configOf().statuslineCollector; }
@@ -206,7 +223,7 @@ export async function statuslineCommand(argv, io = {}) {
     }
     if (size > settings.maxInputBytes) return 0;
     const output = await collectStatusline({ input: Buffer.concat(chunks), previous,
-      stateRoot: root, run: io.run, now: io.now, config });
+      stateRoot: root, run: io.run, now: io.now, config, unreadable, env: io.env ?? process.env, platform: io.platform });
     (io.stdout ?? ((bytes) => process.stdout.write(bytes)))(output);
   } catch { /* No diagnostics on a status bar. */ }
   return 0;

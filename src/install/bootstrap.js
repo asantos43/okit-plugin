@@ -108,7 +108,7 @@ async function install(defaults, present, hide) {
   if (!system || !arch) fail(t(`No package for system/architecture: ${rawSystem}/${rawArch}. Supported: ${supported}`, `Não há pacote para este sistema/arquitetura: ${rawSystem}/${rawArch}. Com suporte: ${supported}`));
   const roots = settings.DATA_ROOTS[platform];
   if (!roots) fail(t(`Unsupported platform: ${platform}`, `Sistema sem suporte: ${platform}`));
-  const destination = resolve(flags['--dest'] || config.DEST || join(env[roots[0]] || join(env.HOME || env.USERPROFILE || homedir(), ...roots.slice(1)), config.DIRECTORY));
+  const destination = resolve(flags['--dest'] || config.DEST || join(env[roots[0]] || join(present.homeOf(env, process.platform) || homedir(), ...roots.slice(1)), config.DIRECTORY));
   const recordFile = join(destination, 'install.json');
   const records = [];
   // A record that is not JSON cannot be read (exit 1); one whose client or path is not text is a refusal of usage (exit 2).
@@ -165,7 +165,7 @@ async function install(defaults, present, hide) {
   if (!Object.hasOwn(clients, client)) fail(t(`Invalid client; choose: ${Object.keys(clients).join(', ')}`, `Cliente inválido; escolha: ${Object.keys(clients).join(', ')}`));
   const temporary = await fs.mkdtemp(join(tmpdir(), 'okit-bootstrap-'));
   const ps = (code, values) => {
-    const literal = (value) => "'" + String(value).replace(/'/g, "''") + "'";
+    const literal = (value) => present.powershellLiteral(value);
     const encoded = Buffer.from(`${code} ${values.map(literal).join(' ')}`, 'utf16le').toString('base64');
     return run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded]);
   };

@@ -4,21 +4,21 @@
 
 Todo campo `locale` é opcional e informa o padrão `en`, vindo da configuração inicial de `language`. Chamadas que o omitem usam o idioma salvo em `language`; peça ao assistente para chamar `config_set` com a chave `language` e o valor `pt-BR` e configure português uma vez. Um `locale` explícito (`en` ou `pt-BR`) tem prioridade naquela chamada.
 
-As ferramentas MCP expõem operações validadas do núcleo ao assistente do cliente. A pessoa tem cinco comandos — `okit-plugin install`, `update`, `uninstall`, `setup` e `doctor`; todo o resto é pedido ao assistente, que usa as ferramentas MCP.
+As ferramentas MCP expõem operações validadas do núcleo ao assistente do cliente. A pessoa tem cinco comandos — `okit-plugin install`, `update`, `uninstall`, `setup` e `doctor`; todo o resto é pedido ao assistente, que usa as ferramentas MCP. O campo opcional `account` nas ferramentas de cota e concorrência é um id estável; informe `client` separadamente. Sem ele, vale a default. As ferramentas de cota recusam contas inexistentes e selecionam `quota/<client>.<account>.json`; cada conta tem seu teto do cliente. `limits_status` permite selecionar cliente/conta; `live` sempre soma todas as execuções.
 
 <a id="tools"></a>
 ## Contrato das ferramentas
 
-O servidor expõe 29 ferramentas. Entradas são objetos JSON; ? indica campo opcional. Respostas são texto JSON com resultado ou recusa; argumentos inválidos geram erro. Escrita de estado não lança modelo nem gasta cota por si só. A lista das ferramentas custa 14255 bytes de JSON, cerca de 3564 tokens de contexto, e vinte e quatro delas são geradas do registro de operações (`src/core/operations.js`), então uma função do núcleo é descrita uma vez só.
+O servidor expõe 29 ferramentas. Entradas são objetos JSON; ? indica campo opcional. Respostas são texto JSON com resultado ou recusa; argumentos inválidos geram erro. Escrita de estado não lança modelo nem gasta cota por si só. A lista das ferramentas custa 14494 bytes de JSON, cerca de 3624 tokens de contexto, e vinte e quatro delas são geradas do registro de operações (`src/core/operations.js`), então uma função do núcleo é descrita uma vez só.
 
 | Nome | Propósito e retorno | Entradas | Efeito |
 | :- | :- | :- | :- |
 | `trajectory_show` | Lê execução salva passo a passo, com ferramentas que falharam e tokens | run | lê somente arquivos locais |
 | `telemetry_status` | Consulta medições opcionais; consentimento, pasta, tamanho, última exportação | {} | leitura |
 | `telemetry_export` | Exporta medições salvas a partir de uma data opcional | since? | grava recibo; envia somente contagens se ativado separadamente |
-| `acquire_slot` | Reserva vaga; resultado ou recusa pelo limite | runId, client, waitMs? | escrita |
+| `acquire_slot` | Reserva vaga; resultado ou recusa pelo limite | runId, client, account?, waitMs? | escrita |
 | `release_slot` | Libera vaga; resultado da liberação | runId | escrita |
-| `limits_status` | Consulta limites; limites por cliente e execuções ativas | {} | leitura |
+| `limits_status` | Consulta limites; limites por cliente e execuções ativas | client?, account? | leitura |
 | `status` | Consulta cota; linhas, markdown, capacityLine e showBefore opcional | locale?, all?, client?, size?, slices?, executors? | leitura |
 | `quota_notice` | Transforma o evento de cota liberada do kit em frase simples; available, released e text; sem o evento, diz que o aviso não está disponível | locale?, event? | leitura |
 | `actors_list` | Consulta atores; modelos, esforço, disponibilidade e soluções | locale?, all?, client? | leitura |
@@ -38,8 +38,8 @@ O servidor expõe 29 ferramentas. Entradas são objetos JSON; ? indica campo opc
 | `order_remove` | Revoga instrução; ordem com motivo/histórico preservado | id, reason? | escrita |
 | `config_get` | Lê os ajustes de uma raiz; todas as entradas do esquema, ou uma delas | key? | leitura |
 | `config_set` | Grava um ajuste de uma raiz; o que era e o que passou a ser; sem valor o ajuste é removido | key, value? | escrita |
-| `quota_show` | Lê a cota registrada dos clientes de uma raiz, ou de um cliente | client? | leitura |
-| `quota_set` | Registra a cota de um cliente; a porcentagem que resta e sua janela | client, pct, windowMinutes? | escrita |
+| `quota_show` | Lê a cota registrada dos clientes de uma raiz, ou de um cliente | client?, account? | leitura |
+| `quota_set` | Registra a cota de um cliente; a porcentagem que resta e sua janela | client, account?, pct, windowMinutes? | escrita |
 | `daemon` | Lê o estado do daemon de uma raiz; se roda, se está pausado, a última passagem, ou uma passagem agora | action | leitura; `pause`, `resume` e `run-once` mudam o estado |
 | `kit_detect` | Investiga o kit de orquestração de uma raiz; se está instalado, qual versão tem e por que está com defeito | {} | leitura |
 

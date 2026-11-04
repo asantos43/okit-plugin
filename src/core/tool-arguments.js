@@ -24,10 +24,11 @@ export function isText(value) {
 }
 
 // Arguments arrive as `unknown`, so the object and its keys are checked here.
-export function argsOf(tool, args, allowed) {
+// Optional extensions keep the historical unknown-argument text unchanged.
+export function argsOf(tool, args, allowed, optional = []) {
   const value = args === undefined || args === null ? {} : args;
   if (typeof value !== 'object' || Array.isArray(value)) fail(`${tool}: arguments must be an object`);
-  const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
+  const unknown = Object.keys(value).filter((key) => !allowed.includes(key) && !optional.includes(key));
   if (unknown.length > 0) {
     fail(`${tool}: unknown argument ${unknown.join(', ')}; expected ${allowed.join('|')}`);
   }

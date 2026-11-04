@@ -4,6 +4,18 @@
 // every system: only paths and the PATH hint differ.
 import { LOCALES, CONFIG_MESSAGES } from '../profiles.js';
 import { RULE_REASONS } from './rules.js';
+/** Shared with the standalone installer: prefer the native Windows home. */
+export function homeOf(env = process.env, platform = process.platform) {
+  return (platform === 'win32' ? env.USERPROFILE || env.HOME : env.HOME) || undefined;
+}
+// The quotes PowerShell reads as the delimiters of a string: the ASCII quote and the typographic ones.
+const POWERSHELL_QUOTES = /[\u0027\u2018\u2019\u201a\u201b]/g;
+/**
+ * A value as a PowerShell string: every delimiter of a string is doubled, so the string ends
+ * where it should. PowerShell reads the typographic quotes (' ' ' ') as delimiters too, so a path
+ * that holds one of them (`C:\Users\O'Brien\acc`) would close the string early without this.
+ */
+export const powershellLiteral = (value) => `'${String(value).replace(POWERSHELL_QUOTES, (quote) => quote + quote)}'`;
 // The exit-code policy travels with the presenter, so the standalone scripts (which embed this file) have it too.
 export { exitCodeFor, kindOf } from './exit.js';
 
@@ -360,9 +372,25 @@ export const REASONS = [
   [/^Unsupported platform: (.+)$/, 'Sistema sem suporte: $1', 'Unsupported platform: x'],
   // The rules a setting of install.* is refused by (INSTALL_SCHEMA in config-schema.js), one entry per rule.
   ...RULE_REASONS,
+  // The accounts of a client (src/accounts.js).
+  [/^Account folder must be absolute on this system\.$/, 'A pasta da conta deve ser absoluta neste sistema.', 'Account folder must be absolute on this system.'],
+  [/^The default account follows the folder variable of the client; register that folder as an account before giving the default a label\.$/, 'A conta default segue a variável de pasta do cliente; cadastre essa pasta como uma conta antes de dar um nome à default.', 'The default account follows the folder variable of the client; register that folder as an account before giving the default a label.'],
+  [/^Cannot create the account folder \((E[A-Z0-9]+)\)\.$/, 'Não foi possível criar a pasta da conta ($1).', 'Cannot create the account folder (EEXIST).'],
+  [/^Cannot create the account folder\.$/, 'Não foi possível criar a pasta da conta.', 'Cannot create the account folder.'],
+  [/^Account folders must be unique within the client\.$/, 'As pastas das contas devem ser únicas no cliente.', 'Account folders must be unique within the client.'],
+  [/^Cannot update settings \((E[A-Z0-9]+)\)\.$/, 'Não foi possível atualizar os ajustes ($1).', 'Cannot update settings (ENOTDIR).'],
+  [/^Account configuration must be an object with readable profiles\.$/, 'A configuração de contas deve ser um objeto com perfis legíveis.', 'Account configuration must be an object with readable profiles.'],
+  [/^Unsupported account client\.$/, 'Cliente de conta não suportado.', 'Unsupported account client.'],
+  [/^Invalid account id\.$/, 'Id de conta inválido.', 'Invalid account id.'],
+  [/^Account label must be non-empty text of at most 40 characters without controls\.$/, 'O nome da conta deve ser um texto não vazio de até 40 caracteres sem controles.', 'Account label must be non-empty text of at most 40 characters without controls.'],
+  [/^Account labels must be unique within the client\.$/, 'Os nomes das contas devem ser únicos no cliente.', 'Account labels must be unique within the client.'],
+  [/^Use unique account ids, valid labels and absolute config directories; default has no directory\.$/, 'Utilize ids de conta únicos, nomes válidos e pastas de configuração absolutas; default não tem pasta.', 'Use unique account ids, valid labels and absolute config directories; default has no directory.'],
+  [/^The default account cannot be removed\.$/, 'A conta default não pode ser removida.', 'The default account cannot be removed.'],
+  [/^Unknown account\.$/, 'Conta desconhecida.', 'Unknown account.'],
   // The state files (src/state.js, src/limits.js): the path and what the system said stay as they are.
   [/^Cannot read (.+?): ([^]*)$/, 'Não foi possível ler $1: $2', 'Cannot read /state/config.json: unreadable'],
-  [/^Invalid JSON in (.+?): ([^]*)$/, 'JSON inválido em $1: $2', 'Invalid JSON in /state/config.json: Unexpected token'],
+  [/^Invalid JSON in (.+)$/, 'JSON inválido em $1', 'Invalid JSON in /state/config.json'],
+  [/^Settings could not be read\. Inspect them: MCP config_get \{\}$/, 'Não foi possível ler os ajustes. Confira: MCP config_get {}', 'Settings could not be read. Inspect them: MCP config_get {}'],
   [/^Cannot write the owner of (.+?): ([^]*)$/, 'Não foi possível gravar o dono de $1: $2', 'Cannot write the owner of /state/lock: denied'],
   [/^Cannot write (.+?): ([^]*)$/, 'Não foi possível gravar $1: $2', 'Cannot write /state/config.json: denied'],
   [/^Lock (.+?) is held by (.+) after (.+?) ms([^]*)$/, 'O bloqueio $1 está com $2 depois de $3 ms$4', 'Lock /state/lock is held by pid 1 after 5000 ms'],

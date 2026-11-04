@@ -30,7 +30,7 @@ export async function embeddedPresenter(root) {
   if (!link.test(source) || !reexport.test(source)) throw new Error('src/install/present.js: unexpected imports');
   const body = source.replace(link, () => `const LOCALES = ${JSON.stringify(LOCALES)};\nconst CONFIG_MESSAGES = ${JSON.stringify(CONFIG_MESSAGES)};\n${rules}\n`).replace(reexport, '').replace(/^export /gm, '');
   if (/^(import|export) /m.test(body) || /^import /m.test(rules) || /^(import|export) /m.test(policy.replace(/^export /gm, ''))) throw new Error('src/install/present.js: unexpected imports');
-  return `const present = (() => {\n${body}\n${policy.replace(/^export /gm, '')}\nreturn { createPresenter, clientLabel, systemLabel, redact, redactingWriter, redactingStream, resolveLocale, localizeReason, planSteps, exitCodeFor, kindOf };\n})();`;
+  return `const present = (() => {\n${body}\n${policy.replace(/^export /gm, '')}\nreturn { homeOf, powershellLiteral, createPresenter, clientLabel, systemLabel, redact, redactingWriter, redactingStream, resolveLocale, localizeReason, planSteps, exitCodeFor, kindOf };\n})();`;
 }
 
 // Node may be missing, so the wrappers pick the language of their one refusal themselves: a valid --locale (the last

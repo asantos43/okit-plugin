@@ -13,5 +13,6 @@ Choose a task to get the plugin working and ask your assistant for help.
 4. [Preview a demonstration](smoke-demo.md): see the proposed work before approving anything.
 5. [Update or remove](update-and-remove.md): review changes before applying them.
 6. [Solve a problem](troubleshooting.md): find the repair instruction for a missing item.
+7. [Manage accounts](accounts.md): add a separate client folder, log in manually and keep quota per account.
 
 [Components and configuration](../components/README.md) · [Plugin home](../../README.md) · [Português](README.pt-BR.md)

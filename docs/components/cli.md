@@ -2,7 +2,7 @@
 
 ![okit-plugin: Components](../images/banners/components.svg)
 
-People use five terminal commands to install, maintain and diagnose the plugin.
+People use terminal commands to install, maintain and diagnose the plugin and manage accounts.
 
 `--locale` is optional wherever offered. It uses `language` (default: `en`); ask the assistant to call `config_set` with `key: "language"` and `value: "pt-BR"` to save Portuguese. An explicit `--locale en` or `--locale pt-BR` overrides the saved choice for one command.
 
@@ -18,6 +18,9 @@ People use five terminal commands to install, maintain and diagnose the plugin.
 | `okit-plugin uninstall` | Remove recorded installation; keep state by default | `okit-plugin uninstall --client codex --dry-run` |
 | `okit-plugin setup` | Propose models and save after confirmation | `okit-plugin setup --again` |
 | `okit-plugin doctor` | Diagnose the installation; read only, with a fix per failure | `okit-plugin doctor --client codex` |
+| `okit-plugin account` | Add, list, remove or rename accounts; login stays manual | `okit-plugin account list codex --json` |
+
+See [accounts](../guide/accounts.md) for `add`, `list`, `remove`, `rename` and collector registration. Account changes save configuration; add creates the folder. Remove preserves the folder and login.
 
 ## Internal entry points
 

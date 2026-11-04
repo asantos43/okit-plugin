@@ -1,6 +1,6 @@
 import { join, normalize } from 'node:path';
 import { DEFAULT_CONFIG } from '../profiles.js';
-import { clientLabel, presenterOf } from './present.js';
+import { clientLabel, powershellLiteral, presenterOf } from './present.js';
 import { detect } from './menu.js';
 
 // The MCP server of the plugin, registered in the client with the client's own `mcp` commands: the installer never
@@ -57,7 +57,7 @@ function bareProgram(word, platform) {
 export const quotedWord = (word, platform) => {
   const text = String(word);
   if ((platform === 'win32' ? PLAIN_WIN : PLAIN).test(text)) return text;
-  return platform === 'win32' ? `'${text.replaceAll("'", "''")}'` : `'${text.replaceAll("'", "'\\''")}'`;
+  return platform === 'win32' ? powershellLiteral(text) : `'${text.replaceAll("'", "'\\''")}'`;
 };
 
 /**
@@ -75,7 +75,7 @@ export function shown(words, platform = process.platform) {
   const quoted = words.map((word, index) => {
     const text = String(word);
     if (index === 0 && !bareProgram(text, platform)) {
-      return platform === 'win32' ? `'${text.replaceAll("'", "''")}'` : `'${text.replaceAll("'", "'\\''")}'`;
+      return platform === 'win32' ? powershellLiteral(text) : `'${text.replaceAll("'", "'\\''")}'`;
     }
     return quotedWord(word, platform);
   });

@@ -4,7 +4,7 @@ import { binInPath, commandInPath } from '../env/path.js';
 import { join, delimiter, dirname, resolve, relative, isAbsolute } from 'node:path';
 import { createRequire } from 'node:module';
 import { readRecords } from './place.js';
-import { presenterOf, pick } from './present.js';
+import { presenterOf, pick, powershellLiteral } from './present.js';
 import { constants } from 'node:fs';
 import { basename } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -69,7 +69,7 @@ export function activationCommand(config, shell, profile, bin) {
   const settings = config.path;
   const template = settings.activate?.[shell];
   if (!template || (template.includes('{file}') && !profile)) return null;
-  const literal = shell === settings.windowsShell ? (value) => `'${value.replaceAll("'", "''")}'` : quote;
+  const literal = shell === settings.windowsShell ? powershellLiteral : quote;
   return template.replaceAll('{file}', literal(profile ?? '')).replaceAll('{bin}', literal(bin ?? ''));
 }
 
@@ -235,7 +235,7 @@ export async function chooseLinkDirectory(deps) {
 
 const pkg = createRequire(import.meta.url)('../../package.json');
 async function windowsPath(deps, bin, remove = false) {
-  const literal = (value) => `'${value.replaceAll("'", "''")}'`;
+  const literal = powershellLiteral;
   const variable = literal(deps.config.path.windowsVariable);
   const code = `$ErrorActionPreference='Stop'; $p=[Environment]::GetEnvironmentVariable(${variable},'User'); `
     + `$parts=if ($p) { @($p -split ';') } else { @() }; $bin=${literal(bin)}; `
@@ -370,7 +370,7 @@ export function linkPlan(record, deps) {
 }
 
 // What an earlier version wrote as the .ps1 shim of a record.
-const scriptContent = (record, config) => `& '${config.node.replaceAll("'", "''")}' '${join(record.path, record.bin).replaceAll("'", "''")}' @args\n`;
+const scriptContent = (record, config) => `& ${powershellLiteral(config.node)} ${powershellLiteral(join(record.path, record.bin))} @args\n`;
 
 /** Removes the .ps1 shims this plugin wrote before the Windows command became a .cmd only; a file that is not ours stays. */
 async function removeOwnedScripts(record, previous, deps) {

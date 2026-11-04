@@ -2,7 +2,9 @@
 // `status` never disagree: every size class must have an actor that `canLaunch` on some client that is installed. A
 // client that is not installed is optional and never a gap.
 
-const REASONS = { unconfirmed: 'no-model', 'unknown-quota': 'no-quota', 'expired-quota': 'expired-quota', low: 'low', busy: 'busy' };
+import { accountRows } from './account-rows.js';
+
+const REASONS = { unconfirmed: 'no-model', 'not-logged-in': 'not-logged-in', 'unknown-quota': 'no-quota', 'expired-quota': 'expired-quota', low: 'low', busy: 'busy' };
 
 /**
  * The reason a size class cannot be launched: the first restriction, in the order of what the person fixes first, of
@@ -29,20 +31,25 @@ function reasonOf(rows, size) {
 export function readiness(snapshot) {
   const sizes = Object.keys(snapshot?.config?.actors?.sizeClasses ?? {});
   // A client whose installation is not known (`null`) is not installed as far as the answer goes: ready is never a guess.
-  const rows = (snapshot?.clients ?? []).filter((row) => row.installed === true);
+  const rows = accountRows(snapshot?.clients).filter((row) => row.installed === true);
   const gaps = sizes
     .filter((size) => !rows.some((row) => (row.candidates ?? []).some((actor) => actor.canLaunch && actor.sizes.includes(size))))
     .map((size) => ({ size, reason: reasonOf(rows, size) }));
-  return { ready: sizes.length > 0 && gaps.length === 0, gaps };
+  const accounts = (snapshot?.clients ?? []).filter((row) => row.accounts?.length > 1).map((row) => ({
+    client: row.client, ready: row.accounts.filter((account) => account.installed === true
+      && account.candidates.some((actor) => actor.canLaunch)).length,
+    total: row.accounts.length,
+  }));
+  return { ready: sizes.length > 0 && gaps.length === 0, gaps, ...accounts.length ? { accounts } : {} };
 }
 
 const WORDS = {
   en: { line: 'Ready to launch executors', yes: 'yes', no: 'no', gaps: 'gaps',
     reasons: { 'no-client': 'no client installed', 'no-actor': 'no actor configured', 'no-model': 'no model confirmed',
-      'no-quota': 'quota not recorded', 'expired-quota': 'quota expired', low: 'quota low', busy: 'no free slot' } },
+      'not-logged-in': 'account logged out', 'no-quota': 'quota not recorded', 'expired-quota': 'quota expired', low: 'quota low', busy: 'no free slot' } },
   'pt-BR': { line: 'Pronto para lançar executores', yes: 'sim', no: 'não', gaps: 'faltas',
     reasons: { 'no-client': 'nenhum cliente instalado', 'no-actor': 'nenhum ator configurado', 'no-model': 'nenhum modelo confirmado',
-      'no-quota': 'cota não registrada', 'expired-quota': 'cota expirada', low: 'cota baixa', busy: 'sem vaga livre' } },
+      'not-logged-in': 'conta deslogada', 'no-quota': 'cota não registrada', 'expired-quota': 'cota expirada', low: 'cota baixa', busy: 'sem vaga livre' } },
 };
 
 /**
@@ -52,8 +59,9 @@ const WORDS = {
  * @param {string} [locale] `en` or `pt-BR`
  * @returns {string}
  */
-export function readyLine({ ready, gaps }, locale = 'en') {
+export function readyLine({ ready, gaps, accounts = [] }, locale = 'en') {
   const words = WORDS[locale] ?? WORDS.en;
   const why = gaps.map(({ size, reason }) => `${size} (${words.reasons[reason] ?? reason})`).join(', ');
-  return `${words.line}: ${ready ? words.yes : words.no}${why ? `; ${words.gaps}: ${why}` : ''}.`;
+  const counts = accounts.map(({ client, ready, total }) => `${client}: ${ready}/${total} ${locale === 'pt-BR' ? 'contas prontas' : 'accounts ready'}`).join('; ');
+  return `${words.line}: ${ready ? words.yes : words.no}${why ? `; ${words.gaps}: ${why}` : ''}${counts ? `; ${counts}` : ''}.`;
 }

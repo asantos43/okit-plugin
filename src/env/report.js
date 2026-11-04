@@ -1,6 +1,7 @@
 import { LABELS, quotaOrigin } from './quota.js';
 import { environmentSnapshot } from './snapshot.js';
 import { readiness, readyLine } from './ready.js';
+import { accountRows, accountName, shownWarnings, warningText } from './account-rows.js';
 export { environmentReadings } from './snapshot.js';
 export const environmentReport = environmentSnapshot;
 
@@ -16,7 +17,7 @@ const WORDS = {
     unreadableRecord: 'Installation record ignored (not a JSON object)',
     configured: 'Configured', missing: 'Missing', setup: 'model choices',
     askUser: (command) => `Ask the user to run \`${command}\``,
-    callTool: (tool, client) => `Call \`${tool}\` with the client ${client} and the percentage that is left`,
+    callTool: (tool, client, account) => `Call \`${tool}\` with the client ${client}${account ? ` and the account ${account}` : ''} and the percentage that is left`,
     missingSetup: 'model choices have not been saved', missingPath: 'the command is not in PATH',
     missingModels: (client) => `no active model confirmed for ${client}`,
     missingQuota: (client) => `no remaining allowance recorded for ${client}`,
@@ -33,7 +34,7 @@ const WORDS = {
     unreadableRecord: 'Registro de instalação ignorado (não é um objeto JSON)',
     configured: 'Configurado', missing: 'Falta', setup: 'escolha de modelos',
     askUser: (command) => `Peça ao usuário para rodar \`${command}\``,
-    callTool: (tool, client) => `Chame \`${tool}\` com o cliente ${client} e a porcentagem que resta`,
+    callTool: (tool, client, account) => `Chame \`${tool}\` com o cliente ${client}${account ? ` e a conta ${account}` : ''} e a porcentagem que resta`,
     missingSetup: 'a escolha de modelos ainda não foi salva', missingPath: 'o comando não está no PATH',
     missingModels: (client) => `nenhum modelo ativo confirmado para ${client}`,
     missingQuota: (client) => `nenhuma cota restante registrada para ${client}`,
@@ -46,8 +47,9 @@ export function formatEnvironmentReport(report, locale = 'en') {
   const labels = LABELS[locale] ?? LABELS.en;
   if (report.unknownClient) return words.unknownClient;
   const lines = [];
-  for (const row of report.clients) {
-    lines.push(`${row.client}${row.inUse ? ` (${words.inUse})` : ''}: ${row.installed === null ? words.unknown : row.installed ? words.installed : words.absent}; ${words.version}: ${row.version ?? words.unknown}.`);
+  for (const row of accountRows(report.clients)) {
+    lines.push(`${accountName(row)}${row.inUse ? ` (${words.inUse})` : ''}: ${row.installed === null ? words.unknown : row.installed ? words.installed : words.absent}; ${words.version}: ${row.version ?? words.unknown}.`);
+    for (const warning of shownWarnings(row)) lines.push(warningText(warning, locale));
     if (row.installed === false) continue;
     lines.push(`${words.models}: ${row.models.join(', ') || words.none}.`);
     lines.push(`${words.actors}: ${row.actors.map((actor) => `${actor.model} (${actor.effort ?? words.unknown}; ${words.sizes}: ${actor.sizes.join(', ') || words.none}${actor.critic ? `; ${words.critic}` : ''})`).join('; ') || words.none}.`);
@@ -64,14 +66,21 @@ export function formatEnvironmentReport(report, locale = 'en') {
   lines.push(`${words.plugin}: ${plugin.path ?? words.unknown}.`, `${words.state}: ${plugin.statePath ?? words.unknown}.`);
   for (const path of plugin.unreadableRecords ?? []) lines.push(`${words.unreadableRecord}: ${path}.`);
   lines.push(`${words.path}: ${plugin.onPath === undefined ? words.unknown : plugin.onPath ? words.yes : words.no}.`);
-  const itemText = (entry) => `${words[entry.item ?? entry]}${entry.client ? ` (${entry.client})` : ''}${entry.sizes ? `: ${entry.sizes.join(', ')}` : ''}`;
+  const itemText = (entry) => {
+    const item = words[entry.item ?? entry];
+    const client = entry.client
+      ? ` (${[entry.client, entry.account ? `${locale === 'pt-BR' ? 'conta' : 'account'} ${entry.account}` : null].filter(Boolean).join(', ')})`
+      : '';
+    return `${item}${client}${entry.sizes ? `: ${entry.sizes.join(', ')}` : ''}`;
+  };
   lines.push(`${words.configured}: ${plugin.configured.map(itemText).join(', ') || words.none}.`);
   for (const entry of plugin.missing) {
-    const text = entry.item === 'models' ? words.missingModels(entry.client)
-      : entry.item === 'quota' ? words.missingQuota(entry.client)
-      : entry.item === 'sizes' ? words.missingSizes(entry.client, entry.sizes)
+    const target = entry.account ? `${entry.client} (${locale === 'pt-BR' ? 'conta' : 'account'} ${entry.account})` : entry.client;
+    const text = entry.item === 'models' ? words.missingModels(target)
+      : entry.item === 'quota' ? words.missingQuota(target)
+      : entry.item === 'sizes' ? words.missingSizes(target, entry.sizes)
         : entry.item === 'path' ? words.missingPath : words.missingSetup;
-    lines.push(`${words.missing}: ${text}. ${entry.tool ? words.callTool(entry.tool, entry.client) : words.askUser(entry.command)}.`);
+    lines.push(`${words.missing}: ${text}. ${entry.tool ? words.callTool(entry.tool, entry.client, entry.account) : words.askUser(entry.command)}.`);
   }
   lines.push(readyLine(readiness(report), locale));
   return lines.join('\n');

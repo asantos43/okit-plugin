@@ -39,6 +39,6 @@ export async function daemonOperation(root, args = {}, deps = {}) {
     return daemonStatus(root, options);
   }
   const now = deps.now ?? Date.now;
-  const spawn = deps.spawn ?? makeSpawner({ logDir: paths(root).runs, now });
+  const spawn = deps.spawn ?? makeSpawner({ logDir: paths(root).runs, now, env: deps.env });
   return tick(root, { spawn });
 }

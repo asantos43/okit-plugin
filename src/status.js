@@ -6,6 +6,7 @@
 import { configOf } from './profiles.js';
 import { CLIENTS } from './spawn-process.js';
 import { environmentSnapshot } from './env/snapshot.js';
+import { accountRows, accountName, shownWarnings, warningText } from './env/account-rows.js';
 import { labelsOf, clientsOf, rowOf, readingOf } from './env/quota.js';
 export { CLIENT_ENV_MARKERS, detectClient, LABELS, labelsOf, ageOf, quotaOrigin, clientsOf, adapterQuotaReader } from './env/quota.js';
 import { projectName, withDemandRef } from './demand-ref.js';
@@ -59,17 +60,21 @@ export async function statusTable(root, deps = {}) {
   const clients = selected ? [selected] : (deps.clients ?? clientsOf(config));
   const note = !selected && !deps.all ? `\n\n${labels.unknownClient}` : '';
 
-  const observations = snapshot.clients.filter((row) => clients.includes(row.client));
+  const observations = accountRows(snapshot.clients.filter((row) => clients.includes(row.client)));
   const remedies = snapshot.plugin.missing
     .filter((entry) => entry.item === 'models' && clients.includes(entry.client))
-    .map((entry) => labels.modelsMissing(entry.client, entry.command));
+    .map((entry) => labels.modelsMissing(entry.client, entry.command, entry.account));
   const rows = observations.map((row) => ({ ...row.quota,
+    // The row names the client and the account; the display text is only in the table.
     ...rowOf(row.client, readingOf(row.reading), row.quotaReadAt, snapshot.config,
-      labels, snapshot.now, deps.orders), models: row.models, actors: row.actors, slots: row.slots,
-    ...(row.installed === false ? { cells: [row.client, '-', '-', '-', labels.optional, '-'] } : {}) }));
-  const capacity = observations.filter((row) => row.installed !== false).map(({ client, slots, slotEvidence }) => labels.cap(client,
-    slotEvidence.running, slots.total, labels.capSource[slotEvidence.source], slots.available)).join('; ');
+      labels, snapshot.now, deps.orders, { client: row.client, account: row.account, display: accountName(row) }),
+    ...(row.account ? { account: row.account } : {}),
+    models: row.models, actors: row.actors, slots: row.slots,
+    ...(row.installed === false ? { cells: [accountName(row), '-', '-', '-', labels.optional, '-'] } : {}) }));
+  const capacity = observations.filter((row) => row.installed !== false).map((row) => labels.cap(accountName(row),
+    row.slotEvidence.running, row.slots.total, labels.capSource[row.slotEvidence.source], row.slots.available)).join('; ');
   const warnings = (deps.limits?.warnings ?? config.limitWarnings).map(labels.warning);
+  warnings.push(...observations.flatMap((row) => shownWarnings(row).map((warning) => `${accountName(row)}: ${warningText(warning, deps.locale)}`)));
   const name = deps.demands?.length === 0 ? null : await projectName(root);
   const demands = (deps.demands ?? await inboxList(root)).map((item) => withDemandRef(item, name));
   const demandTable = demands.length === 0 ? '' : `\n\n${markdownOf(

@@ -37,9 +37,9 @@ export const LABELS = {
     status: { green: 'green', yellow: 'yellow', red: 'red', off: 'off' },
     missing: MISSING,
     optional: 'not installed (optional)',
-    noQuota: (client) => `No quota value recorded. Call \`quota_set\` with the client "${client}" and the percentage that is left.`,
+    noQuota: (client, account) => `No quota value recorded. Call \`quota_set\` with the client "${client}"${account && account !== 'default' ? ` and the account ${account}` : ''} and the percentage that is left.`,
     // The same remedy for the person: the setup is a step of the person, so it asks the assistant for the tool.
-    noQuotaAsk: (client) => `No quota value recorded. Ask your assistant to call \`quota_set\` with the client "${client}" and the percentage that is left.`,
+    noQuotaAsk: (client, account) => `No quota value recorded. Ask your assistant to call \`quota_set\` with the client "${client}"${account && account !== 'default' ? ` and the account ${account}` : ''} and the percentage that is left.`,
     unknownClient: 'Showing all clients; pass the `client` argument to choose one.',
     views: 'A slot allows one executor to run at a time.\nAn actor is a model and its reasoning effort in a coding client.',
     pct: (value) => `${Math.round(value)}%`,
@@ -57,7 +57,7 @@ export const LABELS = {
     unknownAge: 'age unknown',
     provider: 'provider',
     setupPending: (command) => `Setup is not done yet. Run ${command} setup to choose the models.`,
-    modelsMissing: (client, command) => `No model confirmed for ${client}. Ask the user to run \`${command}\`.`,
+    modelsMissing: (client, command, account) => `No model confirmed for ${client}${account ? ` (account ${account})` : ''}. Ask the user to run \`${command}\`.`,
   },
   'pt-BR': {
     columns: ['Assinatura', 'Restante 5h', 'Restante semana', 'Reseta em', 'Situação', 'Origem (idade)'],
@@ -65,9 +65,9 @@ export const LABELS = {
     status: { green: 'verde', yellow: 'amarelo', red: 'vermelho', off: 'desligado' },
     missing: MISSING,
     optional: 'não instalado (opcional)',
-    noQuota: (client) => `Nenhum valor de cota registrado. Chame \`quota_set\` com o cliente "${client}" e a porcentagem que resta.`,
+    noQuota: (client, account) => `Nenhum valor de cota registrado. Chame \`quota_set\` com o cliente "${client}"${account && account !== 'default' ? ` e a conta ${account}` : ''} e a porcentagem que resta.`,
     // A mesma solução para a pessoa: o setup é um passo da pessoa, então ela pede a ferramenta ao assistente.
-    noQuotaAsk: (client) => `Nenhum valor de cota registrado. Peça ao seu assistente para chamar \`quota_set\` com o cliente "${client}" e a porcentagem que resta.`,
+    noQuotaAsk: (client, account) => `Nenhum valor de cota registrado. Peça ao seu assistente para chamar \`quota_set\` com o cliente "${client}"${account && account !== 'default' ? ` e a conta ${account}` : ''} e a porcentagem que resta.`,
     unknownClient: 'Mostrando todos os clientes; passe o argumento `client` para escolher um.',
     views: 'Uma vaga permite executar um executor por vez.\nUm ator é um modelo e seu esforço de raciocínio em um cliente de programação.',
     pct: (value) => `${Math.round(value)}%`,
@@ -85,7 +85,7 @@ export const LABELS = {
     unknownAge: 'idade desconhecida',
     provider: 'provedor',
     setupPending: (command) => `O setup ainda não foi feito. Rode ${command} setup para escolher os modelos.`,
-    modelsMissing: (client, command) => `Nenhum modelo confirmado para ${client}. Peça ao usuário para rodar \`${command}\`.`,
+    modelsMissing: (client, command, account) => `Nenhum modelo confirmado para ${client}${account ? ` (conta ${account})` : ''}. Peça ao usuário para rodar \`${command}\`.`,
   },
 };
 
@@ -215,7 +215,7 @@ async function readingWithAge(cache, root, client, read, now, ttlMs) {
   return { ...entry, cached: false };
 }
 
-function rowOf(client, reading, readAt, config, labels, now, orders) {
+function rowOf(client, reading, readAt, config, labels, now, orders, target = { client }) {
   const observedAt = readAt;
   const recordedAt = Date.parse(reading?.recordedAt);
   if (Number.isFinite(recordedAt)) readAt = recordedAt;
@@ -243,11 +243,12 @@ function rowOf(client, reading, readAt, config, labels, now, orders) {
     order,
     // The cells are strings as well, so a caller never formats the table twice.
     cells: [
-      client,
+      // The table shows the display text of the account; the row itself keeps the pure client name.
+      target.display ?? client,
       cell(fiveHour?.remainingPct),
       cell(week?.remainingPct),
       typeof resets === 'number' ? labels.resets(resets) : labels.missing,
-      reading === null ? labels.noQuota(client)
+      reading === null ? labels.noQuota(target.client, target.account)
         : order === null ? labels.status[status] : `${labels.status[status]}: ${order}`,
       reading === null ? labels.missing : labels.quotaSource[source]
         ? quotaOrigin(reading, now, labels) : `${source} (${ageOf(readAt, now, labels)})`,
@@ -286,10 +287,10 @@ export function clientsOf(config, fallback = CLIENTS) {
  * @returns {Function} `async (client) => reading`
  */
 export function adapterQuotaReader({ stateRoot: root, env, now, config, adapters = ADAPTER_QUOTA } = {}) {
-  return async (client) => {
+  return async (client, account) => {
     const read = adapters[client];
     if (read === undefined) return { source: 'off' };
-    return read({ stateRoot: root, env, now, config });
+    return read({ stateRoot: root, env, now, config, ...(account === undefined ? {} : { account }) });
   };
 }
 

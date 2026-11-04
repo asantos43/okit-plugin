@@ -2,6 +2,17 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import process from 'node:process';
+import { OperationalError } from './install/exit.js';
+
+/** Keep OS text and paths out of settings mutation failures. */
+export function settingsError(error) {
+  if (/^Cannot write /.test(error?.message ?? '')) return error; // already a localized refusal
+  let system = error;
+  for (let depth = 0; depth < 8 && system?.cause && !system.code; depth += 1) system = system.cause;
+  if (!/^E[A-Z0-9]+$/.test(system?.code ?? '')) return error;
+  const failure = `Cannot update settings (${system.code}).`;
+  return new OperationalError(failure);
+}
 
 // Windows refuses a call that lands on a file it has just closed, and antivirus
 // refuses one it is reading: EPERM/EBUSY, for as long as that handle lasts, which
@@ -105,7 +116,7 @@ export async function readJson(file, fallback) {
   try {
     return JSON.parse(raw);
   } catch (error) {
-    throw new Error(`Invalid JSON in ${file}: ${error.message}`, { cause: error });
+    throw new Error(`Invalid JSON in ${file}`, { cause: error });
   }
 }
 

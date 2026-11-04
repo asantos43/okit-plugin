@@ -68,13 +68,14 @@ export const OPERATIONS = [
   {
     name: 'quota_show',
     description: {
-      en: 'Shows the recorded quota of the clients of a root, or of one client when it is named.',
-      'pt-BR': 'Mostra a cota registrada dos clientes de uma raiz, ou de um cliente quando ele é nomeado.',
+      en: 'Reads quota for all clients or one client/account.',
+      'pt-BR': 'Lê a cota de todos os clientes ou de um cliente/conta.',
     },
     schema: {
       type: 'object',
       properties: {
-        client: { type: 'string', description: 'One client of the root; every client when it is absent.' },
+        client: { type: 'string', description: 'Client; omitted selects all.' },
+        account: { type: 'string', pattern: '^[a-z0-9-]{1,32}$', description: 'Stable id; requires client. Default if omitted.' },
       },
       required: [],
       additionalProperties: false,
@@ -84,15 +85,16 @@ export const OPERATIONS = [
   {
     name: 'quota_set',
     description: {
-      en: 'Records the quota of one client: the percentage that is left, and the window it belongs to when it is given.',
-      'pt-BR': 'Registra a cota de um cliente: a porcentagem que resta, e a janela a que ela pertence quando é informada.',
+      en: 'Records remaining quota percentage for a client/account and optional window.',
+      'pt-BR': 'Registra a porcentagem de cota restante de um cliente/conta e a janela opcional.',
     },
     schema: {
       type: 'object',
       properties: {
-        client: { type: 'string', description: 'The client the reading belongs to.' },
-        pct: { type: 'number', minimum: 0, maximum: 100, description: 'The percentage of the quota that is left.' },
-        windowMinutes: { type: 'number', description: 'The length of the window the reading belongs to, in minutes.' },
+        client: { type: 'string', description: 'Client name.' },
+        account: { type: 'string', pattern: '^[a-z0-9-]{1,32}$', description: 'Stable id; default if omitted.' },
+        pct: { type: 'number', minimum: 0, maximum: 100, description: 'Quota percentage remaining.' },
+        windowMinutes: { type: 'number', description: 'Quota window in minutes.' },
       },
       required: ['client', 'pct'],
       additionalProperties: false,
@@ -297,14 +299,15 @@ export const OPERATIONS = [
   {
     name: 'acquire_slot',
     description: {
-      en: 'Reserves one concurrency slot for a run, or reports the cap that refuses it. Take it before the work starts and call release_slot when it ends.',
+      en: 'Reserves a run slot for a client/account. Call release_slot when work ends; the client cap applies per account.',
     },
     schema: {
       type: 'object',
       properties: {
-        runId: { type: 'string', description: 'Identifier of the run that owns the slot.' },
+        runId: { type: 'string', description: 'Run owning the slot.' },
         client: { type: 'string', description: 'Client the run belongs to.' },
-        waitMs: { type: 'number', description: 'Milliseconds to wait for a free slot; 0 reports busy at once.' },
+        account: { type: 'string', pattern: '^[a-z0-9-]{1,32}$', description: 'Stable id; default if omitted.' },
+        waitMs: { type: 'number', description: 'Wait in milliseconds; 0 refuses at once.' },
       },
       required: ['runId', 'client'],
       additionalProperties: false,
@@ -327,9 +330,12 @@ export const OPERATIONS = [
   {
     name: 'limits_status',
     description: {
-      en: 'Reports the concurrency caps and the live runs per client.',
+      en: 'Reports caps and live runs by account. Optional client/account select one; live sums all runs.',
     },
-    schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
+    schema: { type: 'object', properties: {
+      client: { type: 'string', description: 'Client.' },
+      account: { type: 'string', pattern: '^[a-z0-9-]{1,32}$', description: 'Stable id; requires client. Default if omitted.' },
+    }, required: [], additionalProperties: false },
     handler: (root, args, deps) => limitsStatusOperation(root, args, deps),
   },
   {

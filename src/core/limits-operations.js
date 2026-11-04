@@ -9,16 +9,17 @@
 
 import { acquireSlot, limitsStatus, releaseSlot } from '../limits.js';
 import { configOf } from './context.js';
-import { argsOf, optionalMs, requiredText } from './tool-arguments.js';
+import { argsOf, optionalMs, optionalText, requiredText } from './tool-arguments.js';
 
 /** Reserves one concurrency slot for a run, or reports the cap that refuses it. */
 export async function acquireSlotOperation(root, args, deps) {
-  const a = argsOf('acquire_slot', args, ['runId', 'client', 'waitMs']);
+  const a = argsOf('acquire_slot', args, ['runId', 'client', 'waitMs'], ['account']);
   return acquireSlot(
     root,
     requiredText('acquire_slot', a, 'runId'),
     {
       client: requiredText('acquire_slot', a, 'client'),
+      account: optionalText('acquire_slot', a, 'account'),
       config: await configOf(deps, root),
       waitMs: optionalMs('acquire_slot', a, 'waitMs'),
     },
@@ -33,6 +34,9 @@ export async function releaseSlotOperation(root, args) {
 
 /** Reports the concurrency caps and the live runs per client. */
 export async function limitsStatusOperation(root, args, deps) {
-  argsOf('limits_status', args, []);
-  return limitsStatus(root, await configOf(deps, root));
+  const a = argsOf('limits_status', args, [], ['client', 'account']);
+  return limitsStatus(root, await configOf(deps, root), {
+    client: a.account === undefined ? optionalText('limits_status', a, 'client') : requiredText('limits_status', a, 'client'),
+    account: optionalText('limits_status', a, 'account'),
+  });
 }

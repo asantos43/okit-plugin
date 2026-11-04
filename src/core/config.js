@@ -10,7 +10,7 @@ import { CONFIG_SCHEMA } from '../config-schema.js';
 import { configuredClientsOf, configOf, DEFAULT_CONFIG, PROFILE_EFFORTS } from '../profiles.js';
 import { installConfig } from '../install/config.js';
 import { paths } from '../store.js';
-import { readJson, withLock, writeJsonAtomic } from '../state.js';
+import { readJson, withLock, writeJsonAtomic, settingsError } from '../state.js';
 import { argsOf, optionalName, optionalText, requiredText } from './arguments.js';
 import { Refusal } from './refusal.js';
 
@@ -305,14 +305,16 @@ async function readState(root) {
 }
 
 async function mutateState(root, mutate, write) {
-  const locks = paths(root).locks;
-  await mkdir(locks, { recursive: true });
-  return withLock(join(locks, 'config'), async () => {
-    const { raw, config } = await readState(root);
-    const result = await mutate(raw, config);
-    if (result.write !== undefined) await write(paths(root).config, result.write);
-    return result;
-  });
+  try {
+    const locks = paths(root).locks;
+    await mkdir(locks, { recursive: true });
+    return await withLock(join(locks, 'config'), async () => {
+      const { raw, config } = await readState(root);
+      const result = await mutate(raw, config);
+      if (result.write !== undefined) await write(paths(root).config, result.write);
+      return result;
+    });
+  } catch (error) { throw settingsError(error); }
 }
 
 /**

@@ -20,7 +20,7 @@ import { readJson } from '../../src/state.js';
 import { finiteNumber, timeOf, windowsOf } from '../../src/quota-fields.js';
 import { paths, stateRoot } from '../../src/store.js';
 import { newerReading, readingOf } from '../../src/core/statusline-reading.js';
-import { STATUSLINE_FILE } from '../../src/quota/statusline-collector.js';
+import { accountFiles } from '../../src/accounts.js';
 import { capture } from '../../src/trajectory/capture.js';
 
 export const CLIENT = 'claude-code';
@@ -164,16 +164,17 @@ export function capabilities() {
  * the person records a value in `quota/claude-code.json`. The later of the two
  * instants is the reading; a sample that holds no window is no reading.
  *
- * @param {{stateRoot?: string, env?: object, now?: Function, config?: object}} [opts]
+ * @param {{stateRoot?: string, env?: object, now?: Function, config?: object, account?: string}} [opts]
  * @returns {Promise<object>}
  */
-export async function readQuota({ stateRoot: root, env, now = Date.now, config } = {}) {
+export async function readQuota({ stateRoot: root, env, now = Date.now, config, account } = {}) {
   const base = root ?? stateRoot(env);
-  const stored = await readJson(join(paths(base).quota, `${CLIENT}.json`), null);
+  const files = accountFiles(CLIENT, account);
+  const stored = await readJson(join(paths(base).quota, files.reading), null);
   const manual = manualReading(stored, now);
   // The sample of the collector: one that cannot be read is no automatic reading, never an exception.
   let sample = null;
-  try { sample = await readJson(join(paths(base).quota, STATUSLINE_FILE), null); }
+  try { sample = await readJson(join(paths(base).quota, files.statusline), null); }
   catch { /* A sample that cannot be read is no reading at all. */ }
   const automatic = automaticReading(readingOf(sample, await collectorSettings(config, base)), now);
   return newerReading(manual, automatic) ?? { source: 'user' };
@@ -303,7 +304,7 @@ export async function spawn(actor, briefing, opts = {}) {
   const prompt = delivery.native.agentCall.prompt;
 
   if (mode === 'NATIVE') {
-    await capture(opts.stateRoot ?? stateRoot(opts.env), { session_id: runId, client: CLIENT,
+    await capture(opts.stateRoot ?? stateRoot(opts.env), { session_id: runId, client: CLIENT, account: opts.account,
       model: profile.model, effort: profile.effort, role: delivery.context.role.toLowerCase(),
       demand: opts.demand ?? null, step: opts.step ?? null, critic_of: opts.critic_of ?? null },
     { transcript: opts.transcript, message: prompt });
@@ -316,6 +317,7 @@ export async function spawn(actor, briefing, opts = {}) {
     {
       runId,
       client: CLIENT,
+      account: opts.account, config: opts.config,
       role: delivery.context.role.toLowerCase(), critic_of: opts.critic_of,
       step: opts.step,
       profile: {

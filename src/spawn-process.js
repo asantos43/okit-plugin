@@ -12,6 +12,7 @@ import { LIST_MESSAGES } from './profiles.js';
 import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
 import { capture } from './trajectory/capture.js';
+import { accountEnv, requireAccount } from './accounts.js';
 
 export const CLIENTS = ['claude-code', 'codex', 'opencode'];
 
@@ -212,6 +213,19 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
 
   return async function spawnDemand(demand, options = {}) {
     const runId = text(options.runId, 'runId');
+    const file = runFile(runs, runId);
+    const reserved = await readJson(file, null).catch((error) => {
+      if (error.cause?.code === 'EISDIR') return null;
+      throw error;
+    });
+    const accountId = options.account ?? reserved?.account;
+    // A default run reads the saved accounts too (they decide whether it keeps the client's folder variable); an
+    // unreadable file there changes nothing for it, while a run that names an account still needs the file.
+    const configFile = join(dirname(runs), 'config.json');
+    const config = options.config ?? (options.client === 'opencode' ? {}
+      : accountId === undefined ? await readJson(configFile, {}).catch(() => ({})) : await readJson(configFile, {}));
+    const selected = options.client === 'opencode' ? null : requireAccount(config, options.client, accountId);
+    const childEnv = selected ? accountEnv(options.client, selected, env, undefined, config) : env;
     const dir = await demandCwd(demand?.appliesTo, fallbackCwd);
     const built = buildCommand(options.client, {
       briefing: briefingOf(demand),
@@ -225,13 +239,12 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
     const out = await open(join(runs, `${runId}.out`), 'a');
     const child = spawn(built.command, built.args, {
       cwd: dir,
-      env: { ...env, ...built.env },
+      env: { ...childEnv, ...built.env },
       detached: true,
       stdio: ['ignore', out.fd, out.fd],
     });
     await out.close();
 
-    const file = runFile(runs, runId);
     const startedAt = now();
     // A run file that cannot be written, read back or found again is one line
     // on stderr that names the file, never a mystery: the daemon's own error
@@ -244,6 +257,7 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
     try {
       await writeJsonAtomic(file, {
         runId, client: options.client, pid: child.pid ?? null, mode: 'PROCESS', status: 'live', startedAt,
+        ...selected && !selected.isDefault ? { account: selected.id } : {},
       });
     } catch (error) {
       reportRunFile(error);
@@ -284,6 +298,7 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
 
     const captureRun = outcome => capture(dirname(runs), {
       session_id: runId, client: options.client, model: options.profile?.model,
+      account: selected?.id,
       effort: options.profile?.effort, role: options.role ?? demand.role ?? 'executor',
       demand: demand.id ?? null, step: options.step ?? null,
       critic_of: options.critic_of ?? demand.critic_of ?? null,
@@ -497,7 +512,9 @@ const isTimeout = (error) => error?.code === 'ETIMEDOUT' || error?.killed === tr
  * @returns {Promise<{client: string, installed: boolean|null, models: string[],
  *   hidden: string[], source: 'listing'|'catalog', reason: string}>}
  */
-export async function listModelsOf(client, { settings = {}, env = process.env, run = execRun, cwd } = {}) {
+export async function listModelsOf(client, { settings = {}, env = process.env, run = execRun, cwd, account, config } = {}) {
+  if (account !== undefined) env = accountEnv(client, requireAccount(config, client, account), env, undefined, config);
+  else if (client === 'claude-code' || client === 'codex') env = accountEnv(client, { id: 'default' }, env, undefined, config);
   const command = typeof settings.command === 'string' && settings.command.trim() !== ''
     ? settings.command : null;
   if (command === null) {

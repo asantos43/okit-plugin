@@ -1,4 +1,5 @@
 import { homedir } from 'node:os';
+import { homeOf } from '../install/config.js';
 
 import { installPaths } from '../install/config.js';
 import { exitCodeFor } from '../install/exit.js';
@@ -33,7 +34,7 @@ import { diagnose } from './diagnose.js';
  */
 export async function doctorCommand(ctx, { locale, config, verbose = false, client, readers }) {
   const ui = createPresenter({ locale, verbose, write: ctx.out });
-  const home = ctx.home ?? ctx.env.HOME ?? ctx.env.USERPROFILE ?? homedir();
+  const home = ctx.home ?? homeOf(ctx.env, ctx.platform) ?? homedir();
   const { destination } = installPaths(config, { ...ctx, home });
   // The records of the installation, read leniently: a record that cannot be read is a row of the diagnosis, and the
   // other clients are still diagnosed. The records of the installation that is running are found too, when the

@@ -5,7 +5,11 @@
 The okit plugin helps your AI assistant plan work, share it with helpers and check the result.
 It works with Claude Code, Codex and opencode, using the client's own assistants.
 
-The person has five commands — `okit-plugin install`, `update`, `uninstall`, `setup` and `doctor`; everything else is asked of the assistant, which uses the MCP tools.
+The person uses `okit-plugin install`, `update`, `uninstall`, `setup`, `doctor` and `account`; other operations are asked of the assistant, which uses the MCP tools.
+
+## Accounts
+
+Use `okit-plugin account add codex Work --config-dir /absolute/path/codex-work` for an extra account, then follow the manual login instructions. `account list [<client>] [--json]`, `account rename <client> <id-or-label> <new-name>` and `account remove <client> <id>` manage accounts while keeping ids stable and client folders intact. Claude Code is also supported. See [accounts](docs/guide/accounts.md).
 
 <a id="install"></a>
 ## Install

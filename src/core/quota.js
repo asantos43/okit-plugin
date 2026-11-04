@@ -14,6 +14,7 @@ import { paths } from '../store.js';
 import { readJson, writeJsonAtomic } from '../state.js';
 import { argsOf, optionalName, optionalNumber, requiredNumber, requiredText } from './arguments.js';
 import { Refusal } from './refusal.js';
+import { accountFiles, requireAccount } from '../accounts.js';
 
 // The name of a client is a name, never a path: the reading of a client is
 // written as `<client>.json` inside the quota folder of the root, so a name
@@ -32,14 +33,19 @@ function clientName(name, value) {
  * The file of the reading of a client: inside the quota folder of the root,
  * always. The check is on the resolved path, so no name writes outside.
  */
-function quotaFile(name, root, client) {
+function quotaFile(name, root, client, account) {
   const folder = paths(root).quota;
-  const target = join(folder, `${client}.json`);
+  const target = join(folder, account === undefined ? `${client}.json` : accountFiles(client, account).reading);
   const inside = relative(folder, target);
   if (inside === '' || inside.startsWith('..') || isAbsolute(inside)) {
     throw new Refusal(`${name}: the reading of ${client} would be written outside the quota folder`);
   }
   return target;
+}
+
+function selectedAccount(client, account, config) {
+  if (account === undefined) return;
+  requireAccount(config, client, account);
 }
 
 /** The settings of a root: `config.json` over the defaults. */
@@ -68,15 +74,18 @@ function clientsOfRoot(config, deps) {
  * one, or none at all.
  *
  * @param {string} root state root
- * @param {{client?: string}} [args] one client, or every client of the root
+ * @param {{client?: string, account?: string}} [args] one client/account, or every client's default
  * @param {object} [deps] the environment, the clock and the cache of the readings
  * @returns {Promise<{clients: {client: string, reading: object|null}[], now: number}>}
  */
 export async function quotaShow(root, args = {}, deps = {}) {
-  const given = argsOf('quota_show', args, ['client']);
+  const given = argsOf('quota_show', args, ['client', 'account']);
   const client = optionalName('quota_show', given, 'client');
+  const account = optionalName('quota_show', given, 'account');
+  if (account !== undefined) requiredText('quota_show', given, 'client');
   if (client !== undefined) clientName('quota_show', client);
   const config = await settingsOf(root, deps);
+  selectedAccount(client, account, config);
   const known = clientsOfRoot(config, deps);
   if (client !== undefined && !known.includes(client)) {
     throw new Refusal(`quota_show: unknown client ${client}`);
@@ -85,7 +94,11 @@ export async function quotaShow(root, args = {}, deps = {}) {
   const snapshot = await environmentSnapshot({ ...deps, root, config, view: 'selected', all: true,
     clients: client === undefined ? known : [client], readQuota: readers, cache: deps.quotaCache ?? new Map() });
   return {
-    clients: snapshot.clients.map((row) => ({ client: row.client, reading: row.reading })),
+    // The row names the client and the account: the default of a client with several accounts is named too.
+    clients: snapshot.clients.map((row) => ({ client: row.client,
+      ...account === undefined ? (row.accounts?.length > 1 ? { account: 'default' } : {}) : { account },
+      reading: account === undefined || account === 'default' ? row.reading
+        : row.accounts.find((entry) => entry.id === account).reading })),
     now: snapshot.now,
   };
 }
@@ -95,26 +108,28 @@ export async function quotaShow(root, args = {}, deps = {}) {
  * and the window it belongs to when one is given.
  *
  * @param {string} root state root
- * @param {{client: string, pct: number, windowMinutes?: number}} args the client and the percentage
+ * @param {{client: string, account?: string, pct: number, windowMinutes?: number}} args the client/account and the percentage
  * @param {object} [deps] the environment, the clock and the cache of the readings
  * @returns {Promise<{client: string, pct: number, value: object, snapshot: object}>}
  */
 export async function quotaSet(root, args = {}, deps = {}) {
-  const given = argsOf('quota_set', args, ['client', 'pct', 'windowMinutes']);
+  const given = argsOf('quota_set', args, ['client', 'account', 'pct', 'windowMinutes']);
   const client = clientName('quota_set', requiredText('quota_set', given, 'client'));
+  const account = optionalName('quota_set', given, 'account');
   const pct = requiredNumber('quota_set', given, 'pct', { min: 0, max: 100 });
   const windowMinutes = optionalNumber('quota_set', given, 'windowMinutes', { above: 0 });
   const config = await settingsOf(root, deps);
   const known = clientsOfRoot(config, deps);
   if (!known.includes(client)) throw new Refusal(`quota_set: unknown client ${client}`);
+  selectedAccount(client, account, config);
   const now = deps.now ?? Date.now;
   const value = { remainingPct: pct, recordedAt: new Date(now()).toISOString() };
   if (windowMinutes !== undefined) value.windowMinutes = windowMinutes;
-  await writeJsonAtomic(quotaFile('quota_set', root, client), value);
+  await writeJsonAtomic(quotaFile('quota_set', root, client, account), value);
   const readers = adapterQuotaReader({ stateRoot: root, env: deps.env ?? process.env, now, config });
   // The reading is read again, so the cache of the root does not answer with
   // the value it held before this one was recorded.
   const snapshot = await refreshEnvironmentSnapshot({ ...deps, root, config, view: 'selected', all: true,
     clients: known, readQuota: readers, cache: deps.quotaCache });
-  return { client, pct, value, snapshot };
+  return { client, ...account === undefined ? {} : { account }, pct, value, snapshot };
 }

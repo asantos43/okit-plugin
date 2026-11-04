@@ -475,7 +475,7 @@ async function builtRelease() {
 const built = await builtRelease();
 
 /** Runs the program of a generated script for one machine, nothing downloaded or installed: the calls are recorded. */
-async function runScript(t, file, machine, { locale = 'en', assets = built.map((item) => item.file) } = {}) {
+async function runScript(t, file, machine, { locale = 'en', assets = built.map((item) => item.file), env = {}, dest = true } = {}) {
   const home = await fs.mkdtemp(join(tmpdir(), 'bootstrap-arch-'));
   t.after(() => fs.rm(home, { recursive: true, force: true }));
   const js = await embeddedProgram(file);
@@ -494,12 +494,12 @@ async function runScript(t, file, machine, { locale = 'en', assets = built.map((
       return { status: 0, stdout: '200' };
     } },
   };
-  const runtime = { env: {}, versions: { node: '22' }, platform: machine.platform, arch: machine.arch, execPath: 'node',
-    argv: ['node', 'install', '--client', 'claude-code', '--dry-run', '--dest', join(home, 'data'), '--locale', locale] };
+  const runtime = { env, versions: { node: '22' }, platform: machine.platform, arch: machine.arch, execPath: 'node', home,
+    argv: ['node', 'install', '--client', 'claude-code', '--dry-run', ...(dest ? ['--dest', join(home, 'data')] : []), '--locale', locale] };
   const lines = [];
   const out = (line) => lines.push(String(line));
   await load(async (name) => modules[name], runtime, { log: out, error: out });
-  return { text: lines.join('\n'), lines, code: runtime.exitCode ?? 0, calls };
+  return { text: lines.join('\n'), lines, code: runtime.exitCode ?? 0, calls, home };
 }
 
 test('the build has one asset per client, system and architecture, and both scripts carry the same program', async () => {
@@ -536,3 +536,11 @@ for (const file of ['install.sh', 'install.ps1']) {
     }
   }
 }
+
+test('round 12: an empty HOME falls back to the home of the machine for the destination', async (t) => {
+  for (const file of ['install.sh', 'install.ps1']) {
+    const ran = await runScript(t, file, PAIRS.find((machine) => machine.platform !== 'win32'), { env: { HOME: '' }, dest: false });
+    assert.equal(ran.code, 0, ran.text);
+    assert.match(ran.text, /<temp>\/\.local\/share\/okit-plugin/, ran.text);
+  }
+});

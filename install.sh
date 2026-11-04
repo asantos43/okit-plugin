@@ -22,7 +22,7 @@ const present = (() => {
 // then the saved `language`, then the default), and the same line structure on
 // every system: only paths and the PATH hint differ.
 const LOCALES = ["en","pt-BR"];
-const CONFIG_MESSAGES = {"language":{"kind":"language","en":"Choose a language: {languages}.","pt-BR":"Escolha um idioma: {languages}."},"limitsObject":{"en":"limits must be an object","pt-BR":"limits deve ser um objeto"},"limitsClients":{"en":"limits.clients must be an object","pt-BR":"limits.clients deve ser um objeto"},"limitsInteger":{"en":"limits.{name} must be an integer >= 1","pt-BR":"limits.{name} deve ser um número inteiro >= 1"},"statusBarSetting":{"en":"Invalid status bar setting","pt-BR":"Ajuste da barra de status inválido"},"clientFolderSetting":{"en":"Invalid Claude folder setting","pt-BR":"Ajuste da pasta do Claude inválido"},"statusBarShell":{"en":"Invalid status bar shell","pt-BR":"Shell da barra de status inválido"},"todoProjectsObject":{"en":"todo.projects: object","pt-BR":"todo.projects: deve ser um objeto"},"todoProjectsAbsolute":{"en":"todo.projects: absolute project folders","pt-BR":"todo.projects: use pastas de projeto absolutas"},"todoProjectSettings":{"en":"todo.projects: project settings","pt-BR":"todo.projects: ajustes do projeto inválidos"},"todoEnabled":{"en":"todo.enabled: boolean","pt-BR":"todo.enabled: deve ser verdadeiro ou falso"},"todoText":{"en":"todo.{key}: text","pt-BR":"todo.{key}: deve ser um texto de uma linha"},"todoCheckboxCharacter":{"en":"todo.checkbox: one character","pt-BR":"todo.checkbox: um só caractere"},"todoCheckboxObject":{"en":"todo.checkbox: object","pt-BR":"todo.checkbox: deve ser um objeto"},"todoFile":{"en":"todo.file: non-empty text","pt-BR":"todo.file: deve ser um texto não vazio"},"todoSection":{"en":"todo.section: non-empty text","pt-BR":"todo.section: deve ser um texto não vazio"},"smokeDriversList":{"en":"Smoke driver settings must be a named list.","pt-BR":"Os ajustes dos ajudantes precisam ser uma lista por nome."},"smokeDriversKnown":{"en":"Choose a known helper for smoke settings.","pt-BR":"Escolha um ajudante conhecido nos ajustes do smoke."},"smokeDriverInvalid":{"en":"Smoke helper settings are invalid for {client}.","pt-BR":"Os ajustes do ajudante {client} são inválidos."},"smokeMaxTokens":{"en":"Use a positive whole number for the text allowance, or null for no ceiling.","pt-BR":"Use um número inteiro positivo para o limite de texto, ou null para ficar sem teto."},"demoLimits":{"en":"Invalid demo limits","pt-BR":"Limites da demonstração inválidos"},"readingLimits":{"en":"Reading limits: use positive integers","pt-BR":"Limites da leitura: use inteiros positivos"},"previousCommand":{"en":"Previous command: use a list of words","pt-BR":"Comando anterior: use uma lista de palavras"},"quotaFields":{"en":"Quota fields and windows are invalid","pt-BR":"Campos e períodos de cota inválidos"},"quotaReading":{"en":"Invalid quota reading settings","pt-BR":"Ajustes de leitura de cota inválidos"},"quotaSource":{"en":"Quota source: use a file or command words","pt-BR":"Fonte de cota: use arquivo ou palavras do comando"},"codexInteger":{"en":"codexQuota.{key} must be an integer >= 1","pt-BR":"codexQuota.{key} deve ser um número inteiro >= 1"},"codexTail":{"en":"codexQuota.tailBytes must not exceed maxTailBytes","pt-BR":"codexQuota.tailBytes não pode passar de maxTailBytes"},"codexText":{"en":"codexQuota.{key} must be non-empty text","pt-BR":"codexQuota.{key} deve ser um texto não vazio"},"installSetting":{"en":"Invalid install.{key}: {rule}","pt-BR":"install.{key} inválido: {rule}"},"installRoot":{"en":"Invalid install: {rule}","pt-BR":"install inválido: {rule}"},"inboxInteger":{"en":"inbox.{key} must be an integer >= 1","pt-BR":"inbox.{key} deve ser um número inteiro >= 1"},"limitWarnings":{"en":"limitWarnings must be a list of text","pt-BR":"limitWarnings deve ser uma lista de textos"}};
+const CONFIG_MESSAGES = {"accountsSetting":{"en":"Accounts setting {key} is not valid: use unique account ids, valid labels and absolute config directories; default has no directory.","pt-BR":"A configuração de contas {key} não é válida: use ids de conta únicos, nomes válidos e pastas de configuração absolutas; a conta default não tem pasta."},"language":{"kind":"language","en":"Choose a language: {languages}.","pt-BR":"Escolha um idioma: {languages}."},"limitsObject":{"en":"limits must be an object","pt-BR":"limits deve ser um objeto"},"limitsClients":{"en":"limits.clients must be an object","pt-BR":"limits.clients deve ser um objeto"},"limitsInteger":{"en":"limits.{name} must be an integer >= 1","pt-BR":"limits.{name} deve ser um número inteiro >= 1"},"statusBarSetting":{"en":"Invalid status bar setting","pt-BR":"Ajuste da barra de status inválido"},"clientFolderSetting":{"en":"Invalid Claude folder setting","pt-BR":"Ajuste da pasta do Claude inválido"},"statusBarShell":{"en":"Invalid status bar shell","pt-BR":"Shell da barra de status inválido"},"todoProjectsObject":{"en":"todo.projects: object","pt-BR":"todo.projects: deve ser um objeto"},"todoProjectsAbsolute":{"en":"todo.projects: absolute project folders","pt-BR":"todo.projects: use pastas de projeto absolutas"},"todoProjectSettings":{"en":"todo.projects: project settings","pt-BR":"todo.projects: ajustes do projeto inválidos"},"todoEnabled":{"en":"todo.enabled: boolean","pt-BR":"todo.enabled: deve ser verdadeiro ou falso"},"todoText":{"en":"todo.{key}: text","pt-BR":"todo.{key}: deve ser um texto de uma linha"},"todoCheckboxCharacter":{"en":"todo.checkbox: one character","pt-BR":"todo.checkbox: um só caractere"},"todoCheckboxObject":{"en":"todo.checkbox: object","pt-BR":"todo.checkbox: deve ser um objeto"},"todoFile":{"en":"todo.file: non-empty text","pt-BR":"todo.file: deve ser um texto não vazio"},"todoSection":{"en":"todo.section: non-empty text","pt-BR":"todo.section: deve ser um texto não vazio"},"smokeDriversList":{"en":"Smoke driver settings must be a named list.","pt-BR":"Os ajustes dos ajudantes precisam ser uma lista por nome."},"smokeDriversKnown":{"en":"Choose a known helper for smoke settings.","pt-BR":"Escolha um ajudante conhecido nos ajustes do smoke."},"smokeDriverInvalid":{"en":"Smoke helper settings are invalid for {client}.","pt-BR":"Os ajustes do ajudante {client} são inválidos."},"smokeMaxTokens":{"en":"Use a positive whole number for the text allowance, or null for no ceiling.","pt-BR":"Use um número inteiro positivo para o limite de texto, ou null para ficar sem teto."},"demoLimits":{"en":"Invalid demo limits","pt-BR":"Limites da demonstração inválidos"},"readingLimits":{"en":"Reading limits: use positive integers","pt-BR":"Limites da leitura: use inteiros positivos"},"previousCommand":{"en":"Previous command: use a list of words","pt-BR":"Comando anterior: use uma lista de palavras"},"quotaFields":{"en":"Quota fields and windows are invalid","pt-BR":"Campos e períodos de cota inválidos"},"quotaReading":{"en":"Invalid quota reading settings","pt-BR":"Ajustes de leitura de cota inválidos"},"quotaSource":{"en":"Quota source: use a file or command words","pt-BR":"Fonte de cota: use arquivo ou palavras do comando"},"codexInteger":{"en":"codexQuota.{key} must be an integer >= 1","pt-BR":"codexQuota.{key} deve ser um número inteiro >= 1"},"codexTail":{"en":"codexQuota.tailBytes must not exceed maxTailBytes","pt-BR":"codexQuota.tailBytes não pode passar de maxTailBytes"},"codexText":{"en":"codexQuota.{key} must be non-empty text","pt-BR":"codexQuota.{key} deve ser um texto não vazio"},"installSetting":{"en":"Invalid install.{key}: {rule}","pt-BR":"install.{key} inválido: {rule}"},"installRoot":{"en":"Invalid install: {rule}","pt-BR":"install inválido: {rule}"},"inboxInteger":{"en":"inbox.{key} must be an integer >= 1","pt-BR":"inbox.{key} deve ser um número inteiro >= 1"},"limitWarnings":{"en":"limitWarnings must be a list of text","pt-BR":"limitWarnings deve ser uma lista de textos"}};
 // The rules a setting of the installer (install.* of config.json) is refused by, once. This file imports nothing: the
 // presenter (src/install/present.js) embeds it in the standalone install scripts, so the same texts are translated
 // there too. INSTALL_SCHEMA (src/config-schema.js) names a rule by its key.
@@ -65,6 +65,18 @@ const RULE_REASONS = Object.freeze(Object.values(RULES).map(({ en, pt, example }
   return [new RegExp(`^${source}$`), pt.replace(/%(\d)/g, '$$$1'), example];
 }));
 
+/** Shared with the standalone installer: prefer the native Windows home. */
+function homeOf(env = process.env, platform = process.platform) {
+  return (platform === 'win32' ? env.USERPROFILE || env.HOME : env.HOME) || undefined;
+}
+// The quotes PowerShell reads as the delimiters of a string: the ASCII quote and the typographic ones.
+const POWERSHELL_QUOTES = /[\u0027\u2018\u2019\u201a\u201b]/g;
+/**
+ * A value as a PowerShell string: every delimiter of a string is doubled, so the string ends
+ * where it should. PowerShell reads the typographic quotes (' ' ' ') as delimiters too, so a path
+ * that holds one of them (`C:\Users\O'Brien\acc`) would close the string early without this.
+ */
+const powershellLiteral = (value) => `'${String(value).replace(POWERSHELL_QUOTES, (quote) => quote + quote)}'`;
 // The exit-code policy travels with the presenter, so the standalone scripts (which embed this file) have it too.
 
 const SYSTEMS = { win32: 'Windows', linux: 'Linux', darwin: 'macOS' };
@@ -420,9 +432,25 @@ const REASONS = [
   [/^Unsupported platform: (.+)$/, 'Sistema sem suporte: $1', 'Unsupported platform: x'],
   // The rules a setting of install.* is refused by (INSTALL_SCHEMA in config-schema.js), one entry per rule.
   ...RULE_REASONS,
+  // The accounts of a client (src/accounts.js).
+  [/^Account folder must be absolute on this system\.$/, 'A pasta da conta deve ser absoluta neste sistema.', 'Account folder must be absolute on this system.'],
+  [/^The default account follows the folder variable of the client; register that folder as an account before giving the default a label\.$/, 'A conta default segue a variável de pasta do cliente; cadastre essa pasta como uma conta antes de dar um nome à default.', 'The default account follows the folder variable of the client; register that folder as an account before giving the default a label.'],
+  [/^Cannot create the account folder \((E[A-Z0-9]+)\)\.$/, 'Não foi possível criar a pasta da conta ($1).', 'Cannot create the account folder (EEXIST).'],
+  [/^Cannot create the account folder\.$/, 'Não foi possível criar a pasta da conta.', 'Cannot create the account folder.'],
+  [/^Account folders must be unique within the client\.$/, 'As pastas das contas devem ser únicas no cliente.', 'Account folders must be unique within the client.'],
+  [/^Cannot update settings \((E[A-Z0-9]+)\)\.$/, 'Não foi possível atualizar os ajustes ($1).', 'Cannot update settings (ENOTDIR).'],
+  [/^Account configuration must be an object with readable profiles\.$/, 'A configuração de contas deve ser um objeto com perfis legíveis.', 'Account configuration must be an object with readable profiles.'],
+  [/^Unsupported account client\.$/, 'Cliente de conta não suportado.', 'Unsupported account client.'],
+  [/^Invalid account id\.$/, 'Id de conta inválido.', 'Invalid account id.'],
+  [/^Account label must be non-empty text of at most 40 characters without controls\.$/, 'O nome da conta deve ser um texto não vazio de até 40 caracteres sem controles.', 'Account label must be non-empty text of at most 40 characters without controls.'],
+  [/^Account labels must be unique within the client\.$/, 'Os nomes das contas devem ser únicos no cliente.', 'Account labels must be unique within the client.'],
+  [/^Use unique account ids, valid labels and absolute config directories; default has no directory\.$/, 'Utilize ids de conta únicos, nomes válidos e pastas de configuração absolutas; default não tem pasta.', 'Use unique account ids, valid labels and absolute config directories; default has no directory.'],
+  [/^The default account cannot be removed\.$/, 'A conta default não pode ser removida.', 'The default account cannot be removed.'],
+  [/^Unknown account\.$/, 'Conta desconhecida.', 'Unknown account.'],
   // The state files (src/state.js, src/limits.js): the path and what the system said stay as they are.
   [/^Cannot read (.+?): ([^]*)$/, 'Não foi possível ler $1: $2', 'Cannot read /state/config.json: unreadable'],
-  [/^Invalid JSON in (.+?): ([^]*)$/, 'JSON inválido em $1: $2', 'Invalid JSON in /state/config.json: Unexpected token'],
+  [/^Invalid JSON in (.+)$/, 'JSON inválido em $1', 'Invalid JSON in /state/config.json'],
+  [/^Settings could not be read\. Inspect them: MCP config_get \{\}$/, 'Não foi possível ler os ajustes. Confira: MCP config_get {}', 'Settings could not be read. Inspect them: MCP config_get {}'],
   [/^Cannot write the owner of (.+?): ([^]*)$/, 'Não foi possível gravar o dono de $1: $2', 'Cannot write the owner of /state/lock: denied'],
   [/^Cannot write (.+?): ([^]*)$/, 'Não foi possível gravar $1: $2', 'Cannot write /state/config.json: denied'],
   [/^Lock (.+?) is held by (.+) after (.+?) ms([^]*)$/, 'O bloqueio $1 está com $2 depois de $3 ms$4', 'Lock /state/lock is held by pid 1 after 5000 ms'],
@@ -757,7 +785,7 @@ function kindOf(error) {
   return error?.kind === 'usage' || error?.kind === 'language' ? error.kind : 'operational';
 }
 
-return { createPresenter, clientLabel, systemLabel, redact, redactingWriter, redactingStream, resolveLocale, localizeReason, planSteps, exitCodeFor, kindOf };
+return { homeOf, powershellLiteral, createPresenter, clientLabel, systemLabel, redact, redactingWriter, redactingStream, resolveLocale, localizeReason, planSteps, exitCodeFor, kindOf };
 })();
 // Embedded into the standalone release scripts by the build; no repo imports.
 // `present` is the installer's presenter (src/install/present.js), embedded by the same build.
@@ -869,7 +897,7 @@ async function install(defaults, present, hide) {
   if (!system || !arch) fail(t(`No package for system/architecture: ${rawSystem}/${rawArch}. Supported: ${supported}`, `Não há pacote para este sistema/arquitetura: ${rawSystem}/${rawArch}. Com suporte: ${supported}`));
   const roots = settings.DATA_ROOTS[platform];
   if (!roots) fail(t(`Unsupported platform: ${platform}`, `Sistema sem suporte: ${platform}`));
-  const destination = resolve(flags['--dest'] || config.DEST || join(env[roots[0]] || join(env.HOME || env.USERPROFILE || homedir(), ...roots.slice(1)), config.DIRECTORY));
+  const destination = resolve(flags['--dest'] || config.DEST || join(env[roots[0]] || join(present.homeOf(env, process.platform) || homedir(), ...roots.slice(1)), config.DIRECTORY));
   const recordFile = join(destination, 'install.json');
   const records = [];
   // A record that is not JSON cannot be read (exit 1); one whose client or path is not text is a refusal of usage (exit 2).
@@ -926,7 +954,7 @@ async function install(defaults, present, hide) {
   if (!Object.hasOwn(clients, client)) fail(t(`Invalid client; choose: ${Object.keys(clients).join(', ')}`, `Cliente inválido; escolha: ${Object.keys(clients).join(', ')}`));
   const temporary = await fs.mkdtemp(join(tmpdir(), 'okit-bootstrap-'));
   const ps = (code, values) => {
-    const literal = (value) => "'" + String(value).replace(/'/g, "''") + "'";
+    const literal = (value) => present.powershellLiteral(value);
     const encoded = Buffer.from(`${code} ${values.map(literal).join(' ')}`, 'utf16le').toString('base64');
     return run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded]);
   };

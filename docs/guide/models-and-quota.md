@@ -36,4 +36,8 @@ Setup and status read the available automatic or manual allowance. Before the fi
 
 State normally lives in `~/.okwork`; `OKWORK_HOME` selects another folder. Keep the same folder for later commands. Your assistant lists the editable settings, their values, origins and effects (`config_get`); see [configuration details](../components/configuration.md).
 
+## Quota per account
+
+[Accounts](accounts.md) have separate quota readings, collector samples, slots and model choices. Add one with `okit-plugin account add <client> <name> --config-dir <absolute-path>` and follow the manual login and Claude collector instructions. Rename preserves the stable id and its history. `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` override a stored Claude login; macOS Keychain and Codex keyring storage report login as `unknown`. A local login marker does not verify access or quota.
+
 [Guide](README.md) · [Português](models-and-quota.pt-BR.md)

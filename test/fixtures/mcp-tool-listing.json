@@ -60,21 +60,26 @@
     }
   },
   "acquire_slot": {
-    "description": "Reserves one concurrency slot for a run, or reports the cap that refuses it. Take it before the work starts and call release_slot when it ends.",
+    "description": "Reserves a run slot for a client/account. Call release_slot when work ends; the client cap applies per account.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "runId": {
           "type": "string",
-          "description": "Identifier of the run that owns the slot."
+          "description": "Run owning the slot."
         },
         "client": {
           "type": "string",
           "description": "Client the run belongs to."
         },
+        "account": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{1,32}$",
+          "description": "Stable id; default if omitted."
+        },
         "waitMs": {
           "type": "number",
-          "description": "Milliseconds to wait for a free slot; 0 reports busy at once."
+          "description": "Wait in milliseconds; 0 refuses at once."
         }
       },
       "required": [
@@ -101,10 +106,20 @@
     }
   },
   "limits_status": {
-    "description": "Reports the concurrency caps and the live runs per client.",
+    "description": "Reports caps and live runs by account. Optional client/account select one; live sums all runs.",
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "client": {
+          "type": "string",
+          "description": "Client."
+        },
+        "account": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{1,32}$",
+          "description": "Stable id; requires client. Default if omitted."
+        }
+      },
       "required": [],
       "additionalProperties": false
     }
@@ -624,13 +639,18 @@
     }
   },
   "quota_show": {
-    "description": "Shows the recorded quota of the clients of a root, or of one client when it is named. / Mostra a cota registrada dos clientes de uma raiz, ou de um cliente quando ele é nomeado.",
+    "description": "Reads quota for all clients or one client/account. / Lê a cota de todos os clientes ou de um cliente/conta.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "client": {
           "type": "string",
-          "description": "One client of the root; every client when it is absent."
+          "description": "Client; omitted selects all."
+        },
+        "account": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{1,32}$",
+          "description": "Stable id; requires client. Default if omitted."
         }
       },
       "required": [],
@@ -638,23 +658,28 @@
     }
   },
   "quota_set": {
-    "description": "Records the quota of one client: the percentage that is left, and the window it belongs to when it is given. / Registra a cota de um cliente: a porcentagem que resta, e a janela a que ela pertence quando é informada.",
+    "description": "Records remaining quota percentage for a client/account and optional window. / Registra a porcentagem de cota restante de um cliente/conta e a janela opcional.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "client": {
           "type": "string",
-          "description": "The client the reading belongs to."
+          "description": "Client name."
+        },
+        "account": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{1,32}$",
+          "description": "Stable id; default if omitted."
         },
         "pct": {
           "type": "number",
           "minimum": 0,
           "maximum": 100,
-          "description": "The percentage of the quota that is left."
+          "description": "Quota percentage remaining."
         },
         "windowMinutes": {
           "type": "number",
-          "description": "The length of the window the reading belongs to, in minutes."
+          "description": "Quota window in minutes."
         }
       },
       "required": [

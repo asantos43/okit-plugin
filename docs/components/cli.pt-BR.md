@@ -2,7 +2,7 @@
 
 ![okit-plugin: Componentes](../images/banners/components.svg)
 
-A pessoa usa cinco comandos no terminal para instalar, manter e diagnosticar o plugin.
+A pessoa usa comandos no terminal para instalar, manter e diagnosticar o plugin e gerenciar contas.
 
 `--locale` é opcional onde oferecido. Usa `language` (padrão: `en`); peça ao assistente para chamar `config_set` com `key: "language"` e `value: "pt-BR"` para salvar português. Um `--locale en` ou `--locale pt-BR` explícito substitui a escolha salva apenas naquela chamada.
 
@@ -18,6 +18,9 @@ A pessoa usa cinco comandos no terminal para instalar, manter e diagnosticar o p
 | `okit-plugin uninstall` | Remove instalação registrada; preserva estado por padrão | `okit-plugin uninstall --client codex --dry-run` |
 | `okit-plugin setup` | Propõe modelos e salva após confirmação | `okit-plugin setup --again` |
 | `okit-plugin doctor` | Diagnostica a instalação; só lê, com correção por falha | `okit-plugin doctor --client codex` |
+| `okit-plugin account` | Adiciona, lista, remove ou renomeia contas; login continua manual | `okit-plugin account list codex --json` |
+
+Veja [contas](../guide/accounts.pt-BR.md) para `add`, `list`, `remove`, `rename` e registro do coletor. Alterações de conta salvam a configuração; add cria a pasta. Remove preserva a pasta e o login.
 
 ## Entradas internas
 

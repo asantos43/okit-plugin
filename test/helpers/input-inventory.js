@@ -27,6 +27,7 @@ const lineOf = (text, index) => text.slice(0, index).split('\n').length;
 
 /** The top-level keys, with the type the code expects and where a wrong value is refused. `range` is [min, max]. */
 export const TOP_LEVEL_KEYS = Object.freeze({
+  accounts: { type: 'object', checkedBy: 'configOf / accountsProblem (ConfigError accountsSetting); accounts-cli uses the pure mutations' },
   language: { type: 'choice', values: ['en', 'pt-BR'], checkedBy: 'resolveLocale (a value that is not a language is ignored as a saved language and refused as --locale)' },
   install: { type: 'object', checkedBy: 'INSTALL_SCHEMA (installConfig)' },
   limitWarnings: { type: 'list', checkedBy: 'configOf (ConfigError limitWarnings)' },
@@ -139,6 +140,8 @@ const INSTALL_BASE = ['install', '--client', 'claude-code', '--dry-run'];
 export const COMMAND_BASES = Object.freeze({
   install: INSTALL_BASE, update: ['update', '--dry-run'], uninstall: ['uninstall', '--dry-run'], setup: ['setup', '--defaults'],
   doctor: ['doctor'],
+  account: ['account', 'list'],
+  accountAdd: ['account', 'add', 'codex', 'Inventory'],
 });
 
 const NAMES = ['no-such-name', '', ' ', 'a\nb'];
@@ -153,7 +156,9 @@ export const FLAG_TABLE = Object.freeze([
   { flag: '--repo', value: 'owner/repository', commands: ['install'], invalid: ['invalid', 'a b/c', '../x', './y', '..', '', '/'] },
   { flag: '--dest', value: 'folder', commands: ['install'], invalid: [' ', 'a\nb', ''] },
   { flag: '--asset', value: 'file name', commands: ['install'], invalid: [], missing: true },
-  { flag: '--locale', value: 'en | pt-BR', commands: ['install', 'update', 'uninstall', 'setup', 'doctor'], invalid: ['xx', 'EN', 'pt_BR', ' '] },
+  { flag: '--locale', value: 'en | pt-BR', commands: ['install', 'update', 'uninstall', 'setup', 'doctor', 'account'], invalid: ['xx', 'EN', 'pt_BR', ' '] },
+  { flag: '--config-dir', value: 'absolute account folder', commands: ['accountAdd'], invalid: ['', 'relative', 'a\nb'] },
+  { flag: '--json', value: 'none', commands: ['account'], invalid: [] },
   { flag: '--dry-run', value: 'none', commands: ['install', 'update', 'uninstall'], invalid: [] },
   { flag: '--yes', value: 'none', commands: ['install', 'uninstall'], invalid: [] },
   { flag: '--prerelease', value: 'none', commands: ['install'], invalid: [] },
@@ -178,7 +183,6 @@ export const POSITIONAL_NUMBERS = Object.freeze([]);
 
 /** Flags that appear in the source of a command line and are not an input of the commands above, with the reason. */
 export const OUT_OF_SCOPE_FLAGS = Object.freeze({
-  '--json': 'Unsupported by the five CLI commands; presentation explicitly preserves its existing refusal, without parsing or enabling it.',
   '--help': 'help text, no value', '-h': 'help text, no value',
   '--now': 'autostart: starts the service at once, a switch the autostart command owns', '--user': 'autostart: a switch of the service manager',
   '--porcelain': 'git status argument of the inbox', '--project': 'inbox and todo (the orchestration commands, a demand of their own)',
@@ -194,7 +198,7 @@ export const OUT_OF_SCOPE_FLAGS = Object.freeze({
   '--verify': 'git argument', '--format': 'argument of a program we start',
 });
 /** The files whose `'--flag'` literals are command-line inputs of the product. */
-export const FLAG_FILES = Object.freeze(['src/cli.js', 'src/install/index.js', 'src/install/flags.js', 'src/autostart.js', 'src/install/bootstrap.js']);
+export const FLAG_FILES = Object.freeze(['src/cli.js', 'src/accounts-cli.js', 'src/install/index.js', 'src/install/flags.js', 'src/autostart.js', 'src/install/bootstrap.js']);
 
 export function flagLiterals() {
   const found = new Map();
@@ -267,9 +271,9 @@ export function envLiterals() {
 // refusal of usage (exit 2); a file of another program that we would have to change and cannot preserve is unreadable.
 
 export const FILE_RULES = Object.freeze([
-  { file: 'config.json (the plugin\'s own)', readBy: 'readConfig / configOf / installConfig, adapters/{claude-code,codex}/index.js (readQuota)', unreadable: 1, wrongType: 2,
+  { file: 'config.json (the plugin\'s own)', readBy: 'readConfig / configOf / installConfig, accounts-cli.js (locked changes), adapters/{claude-code,codex}/index.js (readQuota)', unreadable: 1, wrongType: 2,
     proof: 'test/input-inventory.test.js#config.json is a folder',
-    note: 'a root that is not an object is an empty configuration; setup reads a wrong shape of profiles as an unreadable file (1, test/setup-wizard.test.js); the quota reader of the claude-code adapter never fails for it: a configuration it cannot read leaves the default settings of the collector (test/adapter-claude-code.test.js#a configuration that cannot be read is no reading of its own)' },
+    note: 'a root that is not an object is an empty configuration; setup and account changes refuse unreadable roots/profiles (exit 1, test/setup-wizard.test.js and test/d115-cli.test.js); the quota reader of the claude-code adapter never fails for it: a configuration it cannot read leaves the default settings of the collector (test/adapter-claude-code.test.js#a configuration that cannot be read is no reading of its own)' },
   { file: 'package.json of --from', readBy: 'src/install/source.js', unreadable: 2, wrongType: 2, proof: 'test/input-inventory.test.js#package.json ${body}',
     note: 'a folder the person named that has no package is a wrong argument (--from), told as such' },
   { file: 'install.json / install.<client>.json (the record)', readBy: 'src/install/place.js, src/install/bootstrap.js', unreadable: 1, wrongType: 2,
@@ -293,10 +297,10 @@ export const FILE_RULES = Object.freeze([
     note: 'only to say whether the status bar is registered: a missing file is inactive, a file that cannot be read or parsed leaves the state unknown; status never fails for it' },
   { file: 'quota/<client>.json (the manual reading)', readBy: 'adapters/{claude-code,codex,opencode}/index.js (readQuota, by `status`)', unreadable: 1, wrongType: 0,
     proof: 'test/input-inventory.test.js#the quota file of a client (quota/<client>.json)',
-    note: 'not JSON, empty or a folder cannot be read (1); valid JSON of another type, or a field of the wrong type, is no reading: status goes on and says no value is recorded' },
+    note: 'not JSON, empty or a folder cannot be read (1); valid JSON of another type, or a field of the wrong type, is no reading: status goes on and says no value is recorded; accountFiles selects <client>.<account>.json for extras, quota_set/quota_show validate the stable id and membership (test/d115-fixes.test.js)' },
   { file: 'quota/claude-code-statusline.json (the sample of the collector)', readBy: 'adapters/claude-code/index.js (readQuota, by `status`)', unreadable: 0, wrongType: 0,
     proof: 'test/adapter-claude-code.test.js#the sample of the collector is read defensively',
-    note: 'the file the collector writes with the JSON of the client; one that cannot be read, one that is not JSON and one that holds no window are no automatic reading: the manual one is used and status goes on' },
+    note: 'the file the collector writes with the JSON of the client; extras use claude-code-statusline.<account>.json via accountFiles; one that cannot be read, one that is not JSON and one that holds no window are no automatic reading: the manual one is used and status goes on' },
 ]);
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -360,17 +364,19 @@ const STATE_OF_OTHER_COMMANDS = 'state of a command outside this inventory (I9 l
  * FILE_RULES row; `excluded` says why the file is not an input of this inventory.
  */
 export const READ_POINTS = Object.freeze([
+  { file: 'src/spawn-process.js', arg: /^(join\(dirname\(runs\), 'config\.json'\)|configFile)$/, rule: CONFIG_JSON },
   // The plugin's own configuration, wherever it is read.
   { file: 'src/', arg: /^(paths\([\w.]+\)\.config|join\(root, 'config\.json'\)|join\(ctx\.root, 'config\.json'\)|join\(stateRoot, 'config\.json'\)|target\.config|files\.config|join\(context\.root, 'config\.json'\))$/, rule: CONFIG_JSON },
   // The adapters (adapters/): the same scan, one table.
-  { file: 'adapters/', arg: /\.quota, `\$\{CLIENT\}\.json`\)$/, rule: 'quota/<client>.json (the manual reading)' },
-  { file: 'adapters/', arg: /\.quota, STATUSLINE_FILE\)$/, rule: 'quota/claude-code-statusline.json (the sample of the collector)' },
+  { file: 'adapters/', arg: /\.quota, (?:`\$\{CLIENT\}\.json`|files\.reading|accountFiles\(CLIENT, account\)\.reading)\)$/, rule: 'quota/<client>.json (the manual reading)' },
+  { file: 'adapters/', arg: /\.quota, files\.statusline\)$/, rule: 'quota/claude-code-statusline.json (the sample of the collector)' },
   { file: 'adapters/claude-code/index.js', arg: /^path$/, rule: 'settings.json of the client (role)' },
   { file: 'adapters/claude-code/index.js', arg: /^file$/, excluded: 'hooks/hooks.json of the client, read only by installHooks, which no command of this inventory calls (the maintainers\' smoke runner does); a file that is not JSON is refused and left alone' },
   { file: 'adapters/', arg: /^join\(source, 'SKILL\.md'\)$/, excluded: 'the SKILL.md of a skill folder of the package being installed (code and text of the program), read only to know the folder is a skill' },
   { file: 'adapters/codex/index.js', arg: /^join\(configRoot\(opts\), 'AGENTS\.override\.md'\)$/, excluded: 'text without a format: the client\'s AGENTS.override.md, only tested for being empty; never parsed (a file that cannot be read is a failure of the work, as for every file)' },
   { file: 'adapters/codex/index.js', arg: /^join\(base, 'config\.json'\)$/, rule: CONFIG_JSON },
   { file: 'adapters/claude-code/index.js', arg: /^join\(base, 'config\.json'\)$/, rule: CONFIG_JSON },
+  { file: 'src/accounts-login.js', arg: /^join\(root, 'config\.toml'\)$/, excluded: 'the config.toml of the Codex client, a source of the client and not an input of the user: only searched for the credentials store (cli_auth_credentials_store); any failure to read it makes the login unknown, never a refusal (test/d115-rows.test.js)' },
   { file: 'adapters/codex/session-quota.js', arg: /^line$/, excluded: 'a line of a session file of the Codex client (a source of the client, not an input of the user): parsed inside a try/catch that returns no reading, so no content makes status fail (test/input-inventory.test.js#own sources)' },
   { file: 'adapters/opencode/quota-source.js', arg: /^output$/, excluded: 'the output of a source of the opencode client (a file or a command the configuration names): parsed inside a try/catch that returns no reading, so no content makes status fail (test/input-inventory.test.js#own sources)' },
   { file: 'adapters/opencode/index.js', arg: /^(source|path)$/, excluded: 'the plugin module okit wrote and the plugin file already in the client\'s folder, compared byte for byte; never parsed' },

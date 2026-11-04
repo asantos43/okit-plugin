@@ -1,5 +1,7 @@
 // The call of one tool of a table: the one place that decides how a tool
 // answers, shared by the MCP server and the local control API.
+import { configOf } from '../core/context.js';
+import { localizeReason, resolveLocale } from '../install/present.js';
 
 /**
  * Calls one tool of the table and answers the way a tool answers: the text of
@@ -21,6 +23,9 @@ export async function callTool(tools, ctx, name, args) {
     return { text: await tool.handler(args, ctx), isError: false };
   } catch (error) {
     const text = error instanceof Error ? error.message : String(error);
-    return { text, isError: true };
+    const config = await configOf(ctx, ctx.root).catch(() => ctx.config ?? {});
+    const { locale } = resolveLocale({ saved: config?.language,
+      args: args?.locale === undefined ? [] : ['--locale', args.locale] });
+    return { text: localizeReason(text, locale), isError: true };
   }
 }

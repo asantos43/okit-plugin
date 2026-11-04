@@ -9,6 +9,7 @@
 import { ConfigError, DEFAULT_CONFIG, LOCALES, PROFILE_EFFORTS } from './profiles.js';
 import { UsageError } from './install/exit.js';
 import { RULES, fillRule } from './install/rules.js';
+import { accountsProblem } from './accounts.js';
 
 /** The largest number of milliseconds a timer takes (`setTimeout`, `AbortSignal.timeout`): 2^31 - 1. */
 export const MAX_TIMER_MS = 2 ** 31 - 1;
@@ -436,6 +437,7 @@ export function installNodes(defaults = DEFAULT_CONFIG.install, node = INSTALL_S
  * of the configuration and fails for one that is in none of: DEFAULT_CONFIG, what `configOf` returns, this table.
  */
 export const EXTRA_KEYS = Object.freeze({
+  accounts: { type: 'object', default: {}, validate: accountsProblem, checkedBy: 'configOf / accountsProblem (ConfigError accountsSetting)' },
   limitWarnings: { type: 'list', checkedBy: 'configOf (ConfigError limitWarnings)' },
   orders: { type: 'object', checkedBy: 'src/orders.js retentionDaysOf: a reader never stops, a wrong value is the default' },
 });

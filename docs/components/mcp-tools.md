@@ -4,21 +4,21 @@
 
 MCP tools expose validated core operations to the client assistant. The person has five commands — `okit-plugin install`, `update`, `uninstall`, `setup` and `doctor`; everything else is asked of the assistant, which uses the MCP tools.
 
-Every `locale` field is optional and lists default `en` from the built-in `language` setting. Calls that omit it use the saved `language`; ask the assistant to call `config_set` with the key `language` and the value `pt-BR` to set Portuguese once. An explicit `locale` (`en` or `pt-BR`) takes priority for that call.
+Every `locale` field is optional and lists default `en` from the built-in `language` setting. Calls that omit it use the saved `language`; ask the assistant to call `config_set` with the key `language` and the value `pt-BR` to set Portuguese once. An explicit `locale` (`en` or `pt-BR`) takes priority for that call. The optional `account` on quota and concurrency tools is a stable slug, with `client` supplied separately. Omit it for default behavior. Quota tools refuse unknown accounts and select `quota/<client>.<account>.json`; slots count each account separately under its client cap. `limits_status` can select a client/account; `live` always sums all runs.
 
 <a id="tools"></a>
 ## Tool contract
 
-The server exposes 29 tools. Inputs are JSON objects; ? marks an optional field. Replies are JSON text containing a result or refusal; invalid arguments raise an error. Writing state does not itself launch a model or spend allowance. The list of the tools costs 14255 bytes of JSON, about 3564 tokens of context, and twenty-four of them are generated from the operations registry (`src/core/operations.js`), so a core function is described once.
+The server exposes 29 tools. Inputs are JSON objects; ? marks an optional field. Replies are JSON text containing a result or refusal; invalid arguments raise an error. Writing state does not itself launch a model or spend allowance. The list of the tools costs 14494 bytes of JSON, about 3624 tokens of context, and twenty-four of them are generated from the operations registry (`src/core/operations.js`), so a core function is described once.
 
 | Name | Purpose and return | Inputs | Effect |
 | :- | :- | :- | :- |
 | `trajectory_show` | Read a saved run step by step, including failed tools and tokens | run | read local files only |
 | `telemetry_status` | Inspect optional saved measurements; consent, folder, size, last export | {} | read |
 | `telemetry_export` | Export saved measurements from an optional date | since? | writes last-export receipt; sends counts only if separately enabled |
-| `acquire_slot` | Reserve a slot; result or cap refusal | runId, client, waitMs? | write |
+| `acquire_slot` | Reserve a slot; result or cap refusal | runId, client, account?, waitMs? | write |
 | `release_slot` | Free a slot; release result | runId | write |
-| `limits_status` | Inspect caps; client caps and live runs | {} | read |
+| `limits_status` | Inspect caps; client caps and live runs | client?, account? | read |
 | `status` | Inspect allowance; rows, markdown, capacityLine and optional showBefore | locale?, all?, client?, size?, slices?, executors? | read |
 | `actors_list` | Inspect actor choices; models, effort, availability and remedies | locale?, all?, client? | read |
 | `env_report` | Inspect environment; observations, ready/gaps and localized text | client?, locale? | read |
@@ -38,8 +38,8 @@ The server exposes 29 tools. Inputs are JSON objects; ? marks an optional field.
 | `order_remove` | Revoke instruction; order with reason/history retained | id, reason? | write |
 | `config_get` | Read the settings of a root; every entry of the schema, or one of them | key? | read |
 | `config_set` | Write one setting; what it was and what it is now; without a value the entry is removed | key, value? | write |
-| `quota_show` | Read the recorded quota of the clients of a root, or of one client | client? | read |
-| `quota_set` | Record the quota of one client; the percentage that is left and its window | client, pct, windowMinutes? | write |
+| `quota_show` | Read the recorded quota of the clients of a root, or of one client | client?, account? | read |
+| `quota_set` | Record the quota of one client; the percentage that is left and its window | client, account?, pct, windowMinutes? | write |
 | `daemon` | Read the state of the daemon; whether it runs, whether it is paused, the last pass, or one pass now | action | read; `pause`, `resume` and `run-once` change the state |
 | `kit_detect` | Probe the orchestration kit of a root; whether it is installed, its version and why it is broken | {} | read |
 

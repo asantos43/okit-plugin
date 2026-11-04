@@ -147,7 +147,9 @@ async function installerClosure() {
 
 // A refusal whose text is not a literal, outside the presenter's own calls, and why it is not the installer's.
 const NON_LITERAL_ALLOWED = new Map([
+  ['src/state.js: failure', 'settingsError: only a validated OS error code is interpolated; REASONS translates the fixed template and d115-fixes tests exercise it'],
   ['src/config-schema.js: CONFIG_SCHEMA.messages.', 'assertSavedValues: the one bilingual line of `config set` (CONFIG_SCHEMA.messages.invalidValue), so that a saved value and a typed one are refused with the same words'],
+  ['src/accounts.js: why.en', 'refuse: the English text of one of the account reasons, each translated by REASONS (test/d115-accounts.test.js walks them all)'],
   ['src/profiles.js: fill(profileMessages.', 'profilePick: the texts of `profileMessages` are a user setting of the daemon\'s profile choice, bilingual by their own configuration'],
 ]);
 

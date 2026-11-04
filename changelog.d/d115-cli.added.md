@@ -1,0 +1,1 @@
+- Added `account add|list|remove|rename` for Claude Code and Codex, with stable ids, manual login and collector instructions, JSON listing, localized refusals and English/Portuguese account guides.

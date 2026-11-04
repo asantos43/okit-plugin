@@ -1,13 +1,37 @@
 import { join } from 'node:path';
 // Human CLI views are kept separate from the presenter embedded in release scripts.
 import { createPresenter as basePresenter, TEXTS as BASE_TEXTS, clientLabel as baseClientLabel,
-  redactingWriter, localizeReason } from './install/present.js';
+  redactingWriter, localizeReason, powershellLiteral } from './install/present.js';
 import { quotedWord, shown as shownCommand } from './install/mcp-register.js';
 import { EPHEMERAL, isEphemeral, programWords } from './install/where.js';
 import { flagsOf } from './install/flags.js';
 import { readyLine } from './env/ready.js';
+import { loginWord } from './env/account-rows.js';
 import { commandToken, hasCommand, resolveTokens } from './install/command-token.js';
 export * from './install/present.js';
+
+export const presentAccount = (row, locale) => [row.client, row.id, row.label, row.configDir ?? 'default',
+  loginWord(row.login, locale)].join('\t');
+export const accountChanged = (action, locale) => action === 'remove'
+  ? (locale === 'pt-BR' ? 'Conta removida da configuração. A pasta e o login permanecem.' : 'Account removed from configuration. The folder and login remain.')
+  : (locale === 'pt-BR' ? 'Conta renomeada. O id e o histórico permanecem.' : 'Account renamed. The id and history remain.');
+
+export function accountInstructions(row, { locale, platform, command, root }) {
+  const pt = locale === 'pt-BR';
+  const variable = row.client === 'claude-code' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
+  const executable = row.client === 'claude-code' ? 'claude' : 'codex';
+  const assignment = (key, value, shell) => shell === 'win32'
+    ? `$env:${key}=${powershellLiteral(value)}; ` : `${key}=${quotedWord(value, 'linux')} `;
+  const lines = [];
+  if (row.login !== 'logged-in') lines.push(`${pt ? 'O login é manual. Execute' : 'Login is manual. Run'}: ${assignment(variable, row.configDir, platform)}${executable}`);
+  if (row.client === 'claude-code') {
+    lines.push(pt ? 'Na pasta desta conta, registre em settings.json → statusLine (type: command) o comando:'
+      : 'In this account folder, register in settings.json → statusLine (type: command) the command:');
+    // Claude runs statusLine commands in a POSIX shell, including Git Bash on Windows.
+    lines.push(`${assignment(variable, row.configDir, 'linux')}${assignment('OKWORK_HOME', root, 'linux')}${shownCommand([command, 'statusline-collector'], 'linux')}`);
+  }
+  return lines;
+}
 
 export const TEXTS = Object.freeze({ ...BASE_TEXTS,
   stepPlanned: { en: 'planned', 'pt-BR': 'planejado' },
@@ -349,7 +373,7 @@ export function presentDiagnosis(result, { ui, command, client, clients, verbose
   // is in the same column.
   const labels = shown.map((row) => row.id === 'registration'
     ? (pt ? `Conexão com ${clientLabel(row.client)}` : `${clientLabel(row.client)} connection`)
-    : (row.client ? `${clientLabel(row.client)}: ${row.label}` : row.label));
+    : (row.client ? `${clientLabel(row.client)}: ${row.accountLabel ? `${row.accountLabel}: ` : ''}${row.label}` : row.label));
   out(pt ? '| Verificação | Resultado |' : '| Check | Result |');
   out('| --- | --- |');
   const cell = (value) => String(value).replaceAll('|', '\\|').replaceAll('\n', ' ');
