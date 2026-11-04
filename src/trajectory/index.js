@@ -54,13 +54,16 @@ export async function show(root, id) {
     `Effort / Esforço: ${data.agent.extra?.effort ?? missing}`,
     `Stopped at step / Parou no passo: ${data.steps.at(-1)?.step_id ?? missing}`];
   for (const item of data.steps) {
+    const calls = new Map((item.tool_calls ?? []).map(call => [call.tool_call_id, call]));
+    const failedCalls = new Set(Array.isArray(item.extra?.failed_calls) ? item.extra.failed_calls : []);
+    const failedResults = new Set(Array.isArray(item.extra?.failed_results) ? item.extra.failed_results : []);
     lines.push(`${item.step_id}. ${item.source}: ${displayContent(item.message) || missing}`);
     if (item.reasoning_content) lines.push(item.reasoning_content);
     for (const call of item.tool_calls ?? []) lines.push(`Tool / Ferramenta: ${call.function_name} ${JSON.stringify(call.arguments)}`);
     for (const [index, result] of (item.observation?.results ?? []).entries()) {
-      const call = data.steps.flatMap(step => step.tool_calls ?? []).find(call => call.tool_call_id === result.source_call_id);
-      const failed = (result.source_call_id != null && Array.isArray(item.extra?.failed_calls) && item.extra.failed_calls.includes(result.source_call_id))
-        || (Array.isArray(item.extra?.failed_results) && item.extra.failed_results.includes(index)) || result.content?.is_error;
+      const call = calls.get(result.source_call_id);
+      const failed = (result.source_call_id != null && failedCalls.has(result.source_call_id))
+        || failedResults.has(index) || result.content?.is_error;
       const refs = (result.subagent_trajectory_ref ?? []).map(ref => `→ ${ref.trajectory_path ?? ref.session_id ?? ref.trajectory_id}`);
       const output = [displayContent(result.content), ...refs].filter(Boolean).join('\n');
       lines.push(`${failed ? 'Failed tool / Ferramenta que falhou' : 'Result / Resultado'}: ${call?.function_name ?? missing}: ${output || missing}`);

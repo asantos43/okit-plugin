@@ -121,7 +121,7 @@ function normalizeStep(value) {
   if (!optional(item.reasoning_content, text)) delete item.reasoning_content;
   item.message = item.message == null ? '' : content(item.message) ? item.message : JSON.stringify(item.message);
   for (const key of Object.keys(item).filter(key => !stepFields.includes(key))) {
-    item.extra = { ...item.extra, [key]: item[key] }; delete item[key];
+    item.extra ??= {}; item.extra[key] = item[key]; delete item[key];
   }
   item.tool_calls = (Array.isArray(item.tool_calls) ? item.tool_calls : []).map(call => ({
     ...(Object.hasOwn(call ?? {}, 'extra') && optional(call.extra, object) ? { extra: call.extra } : {}),
@@ -133,27 +133,28 @@ function normalizeStep(value) {
     ...(Array.isArray(result?.subagent_trajectory_ref) ? { subagent_trajectory_ref: result.subagent_trajectory_ref.filter(validRef) } : {}),
     ...(Object.hasOwn(result ?? {}, 'source_call_id') ? { source_call_id: result.source_call_id } : {}),
     ...(Object.hasOwn(result ?? {}, 'content') ? { content: result.content } : {}) })) };
+  const failed = new Set(Array.isArray(item.extra?.failed_results) ? item.extra.failed_results : []);
   for (const [index, result] of item.observation.results.entries()) {
-    if (result.content?.is_error) item.extra = { ...item.extra,
-      failed_results: [...new Set([...(Array.isArray(item.extra?.failed_results) ? item.extra.failed_results : []), index])] };
+    if (result.content?.is_error) failed.add(index);
     if (Object.hasOwn(result, 'content') && result.content !== null && !content(result.content)) result.content = JSON.stringify(result.content ?? null);
   }
+  if (failed.size) { item.extra ??= {}; item.extra.failed_results = [...failed]; }
   return item;
 }
-function moveResults(item, preceding) {
+function moveResults(item, latest, failures) {
   const results = item.observation?.results ?? [];
   const failed = new Set(Array.isArray(item.extra?.failed_calls) ? item.extra.failed_calls.filter(id => typeof id === 'string' && !!id.trim()) : []);
   const failedResults = new Set(Array.isArray(item.extra?.failed_results) ? item.extra.failed_results : []);
+  const calls = new Set(item.tool_calls.map(call => call.tool_call_id));
+  const resultIds = new Set(results.map(result => result.source_call_id));
   if (item.extra) {
-    item.extra.failed_calls = [...failed].filter(id => item.tool_calls.some(call => call.tool_call_id === id)
-      && !results.some(result => result.source_call_id === id));
+    item.extra.failed_calls = [...failed].filter(id => calls.has(id) && !resultIds.has(id));
     delete item.extra.failed_results;
   }
   delete item.observation;
   for (const [index, result] of results.entries()) {
     const id = result.source_call_id;
-    const matches = candidate => typeof id === 'string' && !!id.trim() && candidate.tool_calls?.some(call => call.tool_call_id === id);
-    const target = matches(item) ? item : preceding.findLast(matches);
+    const target = typeof id === 'string' && !!id.trim() ? calls.has(id) ? item : latest.get(id) : undefined;
     const destination = target ?? item;
     if (!target && result.source_call_id != null) result.source_call_id = null;
     destination.observation ??= { results: [] };
@@ -161,31 +162,28 @@ function moveResults(item, preceding) {
     destination.observation.results.push(result);
     if (failed.has(id) || failedResults.has(index)) {
       const key = result.source_call_id == null ? 'failed_results' : 'failed_calls';
-      destination.extra = { ...destination.extra,
-        [key]: [...new Set([...(Array.isArray(destination.extra?.[key]) ? destination.extra[key] : []), key === 'failed_results' ? resultIndex : result.source_call_id])] };
+      if (!failures.has(destination)) failures.set(destination, {});
+      const state = failures.get(destination);
+      state[key] ??= new Set(Array.isArray(destination.extra?.[key]) ? destination.extra[key] : []);
+      state[key].add(key === 'failed_results' ? resultIndex : result.source_call_id);
     }
   }
   if (item.extra?.failed_calls?.length === 0) delete item.extra.failed_calls;
   if (item.extra && Object.keys(item.extra).length === 0) delete item.extra;
 }
-// Every call ends with a unique non-blank ID; a repeated ID is renamed together with its same-step references.
+// IDs are local to a step. Keep the first duplicate, which owns that step's references.
 function assignCallIds(steps) {
   const validId = id => typeof id === 'string' && !!id.trim();
-  const used = new Set(steps.flatMap(item => item.tool_calls ?? []).map(call => call.tool_call_id).filter(validId));
-  const seen = new Set();
   for (const item of steps) {
-    const kept = new Set();
+    const used = new Set((item.tool_calls ?? []).map(call => call.tool_call_id).filter(validId));
+    const seen = new Set();
     for (const [index, call] of (item.tool_calls ?? []).entries()) {
       const old = call.tool_call_id;
-      if (validId(old) && !seen.has(old)) { seen.add(old); kept.add(old); continue; }
+      if (validId(old) && !seen.has(old)) { seen.add(old); continue; }
       const base = `call-${item.step_id}-${index + 1}`;
       let id = base, suffix = 2;
       while (used.has(id)) id = `${base}-${suffix++}`;
       call.tool_call_id = id; used.add(id); seen.add(id);
-      if (!validId(old) || kept.has(old)) continue;
-      kept.add(old);
-      for (const result of item.observation?.results ?? []) if (result.source_call_id === old) result.source_call_id = id;
-      if (Array.isArray(item.extra?.failed_calls)) item.extra.failed_calls = item.extra.failed_calls.map(failed => failed === old ? id : failed);
     }
   }
 }
@@ -218,6 +216,12 @@ export function normalize(data = {}, { producer = false, dir } = {}) {
   if (!producer && validate(data)) return data;
   data = object(data) ? data : {};
   const steps = [], result = confine(data, topFields);
+  const latest = new Map(), failures = new Map();
+  let previous;
+  const remember = item => {
+    if (item.source === 'agent' && item.llm_call_count !== 0) previous = item;
+    for (const call of item.tool_calls ?? []) latest.set(call.tool_call_id, item);
+  };
   let restructured = false;
   result.schema_version = knownVersion(data.schema_version) ? data.schema_version : SCHEMA_VERSION;
   result.agent = confine(result.agent, agentKeys);
@@ -241,25 +245,28 @@ export function normalize(data = {}, { producer = false, dir } = {}) {
   if (!optional(result.notes, text)) delete result.notes;
   for (const value of Array.isArray(data?.steps) ? data.steps : []) {
     if (!producer && integer(value?.step_id) && validStep(value, value.step_id - 1)) {
-      steps.push(boundedClone(value)); continue;
+      const item = boundedClone(value); steps.push(item); remember(item); continue;
     }
     const item = normalizeStep(value);
     const resultCount = item.observation?.results?.length ?? 0;
-    moveResults(item, steps);
+    moveResults(item, latest, failures);
     if ((item.observation?.results?.length ?? 0) !== resultCount) restructured = true;
     let { extra: usageExtra, ...usage } = item.metrics;
     let movedUsage = false;
-    const previous = steps.findLast(candidate => candidate.source === 'agent' && candidate.llm_call_count !== 0);
     const empty = !item.message && !item.tool_calls.length && !item.observation?.results?.length && !item.reasoning_content;
     const keepExtra = Object.keys(item.extra ?? {}).some(key => !['failed_calls', 'failed_results'].includes(key));
     if (item.source !== 'agent' && Object.keys(usage).length) {
       const canFold = previous && Object.entries(usage).every(([key, n]) => tokenArrays.includes(key)
         || amount(key, (previous.metrics?.[key] ?? 0) + n) !== null);
       if (canFold) {
-        for (const [key, n] of Object.entries(usage)) previous.metrics = { ...previous.metrics,
-          [key]: tokenArrays.includes(key) ? [...(previous.metrics?.[key] ?? []), ...n] : (previous.metrics?.[key] ?? 0) + n };
-        if (usageExtra) previous.metrics = { ...previous.metrics, extra: { ...previous.metrics?.extra, ...usageExtra } };
-        previous.metrics = usageOf(previous.metrics);
+        previous.metrics ??= {};
+        for (const [key, n] of Object.entries(usage)) {
+          if (tokenArrays.includes(key)) {
+            previous.metrics[key] ??= [];
+            for (const token of n) previous.metrics[key].push(token);
+          } else previous.metrics[key] = (previous.metrics[key] ?? 0) + n;
+        }
+        if (usageExtra) Object.assign(previous.metrics.extra ??= {}, usageExtra);
         usage = {}; usageExtra = undefined;
         restructured = true; movedUsage = true;
       }
@@ -288,7 +295,11 @@ export function normalize(data = {}, { producer = false, dir } = {}) {
     const moved = (value?.tool_calls?.length || value?.observation?.results?.length || movedUsage)
       && !item.tool_calls?.length && !item.observation;
     if (moved && !item.message && !item.reasoning_content && !item.metrics && !keepExtra) continue;
-    steps.push(item);
+    steps.push(item); remember(item);
+  }
+  for (const [item, state] of failures) {
+    item.extra ??= {};
+    for (const [key, values] of Object.entries(state)) item.extra[key] = [...values];
   }
   if (!steps.length) steps.push({ timestamp: null, source: 'system', message: '' });
   result.steps = steps.map((item, index) => ({ ...item, step_id: index + 1 }));
@@ -345,6 +356,7 @@ function validUsage(value, final = false) {
       : tokenArrays.every(key => optional(value[key], list => numberList(list, key !== 'logprobs'))));
 }
 function validStep(item, index) {
+  const calls = new Set(Array.isArray(item?.tool_calls) ? item.tool_calls.map(call => call?.tool_call_id) : []);
   return hasOnly(item, stepFields) && integer(item.step_id) && item.step_id === index + 1 && metadata(item)
     && ['agent', 'user', 'system'].includes(item.source) && content(item.message)
     && optional(item.timestamp, harborTime) && optional(item.model_name, text)
@@ -360,7 +372,7 @@ function validStep(item, index) {
     && optional(item.observation, obs => hasOnly(obs, ['results']) && Array.isArray(obs.results)
       && obs.results.every(result => hasOnly(result, resultFields) && metadata(result)
         && optional(result.content, content) && optional(result.source_call_id, text)
-        && (result.source_call_id == null || item.tool_calls?.some(call => call.tool_call_id === result.source_call_id))
+        && (result.source_call_id == null || calls.has(result.source_call_id))
         && optional(result.subagent_trajectory_ref, refs => Array.isArray(refs) && refs.every(validRef))));
 }
 export function validate(data) {

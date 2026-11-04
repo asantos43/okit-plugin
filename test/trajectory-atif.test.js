@@ -11,6 +11,38 @@ import { samples } from './helpers/trajectory-samples.js';
 import { codexFixture } from './helpers/trajectory-samples.js';
 import { fuzz, diff } from '../scripts/check-atif.mjs';
 const context = { session_id: 'atif', model: 'example-model' };
+// | Review 10 | Must pass | Must refuse |
+// | cost / scope | linear user runs, same-step repeated IDs | cross-step result binding |
+test('review 10: 20k Codex user lines normalize in linear time', () => {
+  const reader = samples.find(([client]) => client === 'codex')[1];
+  const line = '{"type":"message","role":"user","text":"u"}';
+  const measure = n => {
+    const input = Array(n).fill(line).join('\n');
+    let best = Infinity;
+    for (let i = 0; i < 2; i++) {
+      const start = performance.now(), data = reader(input, context);
+      best = Math.min(best, performance.now() - start);
+      assert.equal(data.steps.length, n); assert.ok(validate(data));
+    }
+    return best;
+  };
+  measure(1000);
+  // Quadratic work would make 24k about 64x the cost of 3k; linear is about 8x.
+  const small = measure(3000), large = measure(24000);
+  assert.ok(large < 20 * small + 100, `3k: ${small} ms; 24k: ${large} ms`);
+  assert.ok(large < 5000, `24k: ${large} ms`);
+});
+test('review 10: show and trajectory_show resolve repeated IDs in their own step', async t => {
+  const root = await rootOf(t), data = trajectory(context, [{ message: 'Root' }]);
+  data.steps = ['read', 'write'].map((name, i) => ({ step_id: i + 1, source: 'agent', message: '',
+    tool_calls: [{ tool_call_id: 'same', function_name: name, arguments: {} }],
+    ...(i ? { observation: { results: [{ source_call_id: 'same', content: 'written' }] } } : {}) }));
+  assert.ok(validate(data)); assert.deepEqual(normalize(data), data); await save(root, data);
+  const tool = TOOLS.find(item => item.name === 'trajectory_show');
+  for (const output of [await show(root, 'atif'), JSON.parse(await tool.handler({ run: 'atif' }, { root }))]) {
+    assert.match(output, /Result \/ Resultado: write: written/);
+  }
+});
 // | Review 9 | Must pass | Must refuse |
 // | bounds | nested truncation, bounded JSON, separate safe counters | depth > 100, unsafe summed counters |
 test('review 9: save caps nested child messages and result content', async t => {
@@ -703,19 +735,25 @@ test('finding 6: repaired legacy steps update total_steps; Harbor-valid totals r
   const data = trajectory(context, [{ message: 'A' }, { message: 'B' }]);
   data.final_metrics.total_steps = 9; assert.deepEqual(normalize(data), data);
 });
-test('duplicate call IDs are renamed with their results', () => {
+test('duplicate call IDs are renamed only within their step', () => {
   const data = trajectory(context, [{ tool_calls: [{ tool_call_id: 'same', function_name: 'read', arguments: {} }],
     observation: { results: [{ source_call_id: 'same', content: 'First' }] } },
   { tool_calls: [{ tool_call_id: 'same', function_name: 'read', arguments: {} }, { tool_call_id: 'same', function_name: 'read', arguments: {} }],
     extra: { failed_calls: ['same'] }, observation: { results: [{ source_call_id: 'same', content: 'Second' }] } }]);
   const ids = data.steps.flatMap(item => item.tool_calls).map(call => call.tool_call_id);
-  assert.equal(new Set(ids).size, 3); assert.equal(data.steps[0].tool_calls[0].tool_call_id, 'same');
+  assert.equal(new Set(ids).size, 2); assert.equal(data.steps[0].tool_calls[0].tool_call_id, 'same');
+  assert.equal(data.steps[1].tool_calls[0].tool_call_id, 'same');
   assert.equal(data.steps[1].observation.results[0].source_call_id, data.steps[1].tool_calls[0].tool_call_id);
   assert.ok(validate(data)); assertLocalResults(data);
 });
 test('fuzz: the seeded odd trajectories all satisfy validate()', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'atif-fuzz-')); t.after(() => rm(dir, { recursive: true, force: true }));
-  const { files, failures } = await fuzz(dir, { n: 100, stressSizes: { length: 2000, depth: 120, width: 150 } });
-  assert.deepEqual(failures, []); assert.equal(files.length, 104);
+  const { files, failures } = await fuzz(dir, { n: 100, stressSizes: { length: 2000, depth: 120, width: 150, userLines: 200 } });
+  assert.deepEqual(failures, []); assert.equal(files.length, 106);
   for (const file of files) assert.ok(validate(JSON.parse(await readFile(file, 'utf8'))), file);
+  const users = JSON.parse(await readFile(files.at(-2), 'utf8'));
+  assert.equal(users.steps.length, 200); assert.ok(users.steps.every(item => item.source === 'user'));
+  const repeated = JSON.parse(await readFile(files.at(-1), 'utf8'));
+  assert.deepEqual(repeated.steps.map(item => item.tool_calls[0].tool_call_id), ['same', 'same']);
+  assert.deepEqual(repeated.steps[1].extra.failed_calls, ['same']);
 });

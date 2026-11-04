@@ -82,7 +82,7 @@ function generator(seed) {
 }
 
 const kinds = ['steps', 'raw', 'capped', 'legacy', 'capture', 'valid'];
-export function stress(seed = 114, { length = 1200000, depth = 3000, width = 50000 } = {}) {
+export function stress(seed = 114, { length = 1200000, depth = 3000, width = 50000, userLines = 20000 } = {}) {
   const rand = random(seed), base = () => ({ agent: { name: 'stress', version: '1' }, steps: [{ source: 'agent', message: 'Root' }] });
   const long = base(), deep = base(), wide = base(), counts = base();
   long.extra = { child: { ...base(), steps: [{ source: 'agent', message: 'x'.repeat(Math.floor(length * (0.92 + rand() * 0.08))) }] } };
@@ -92,7 +92,13 @@ export function stress(seed = 114, { length = 1200000, depth = 3000, width = 500
   wide.steps = Array.from({ length: width }, () => ({ source: 'agent', message: 'small' }));
   counts.steps = [Number.MAX_SAFE_INTEGER - 1, 1, 1, Number.MAX_SAFE_INTEGER + 1].map((n, i) => ({
     source: i ? 'system' : 'agent', message: 'Usage', metrics: { prompt_tokens: n } }));
-  return [long, deep, counts, wide];
+  const users = base(), repeated = base();
+  users.steps = Array.from({ length: userLines }, () => ({ source: 'user', message: 'u' }));
+  repeated.steps = ['read', 'write'].map((name, i) => ({ step_id: i + 1, source: 'agent', message: '',
+    tool_calls: [{ tool_call_id: 'same', function_name: name, arguments: {} }],
+    observation: { results: [{ source_call_id: 'same', content: name }] },
+    ...(i ? { extra: { failed_calls: ['same'] } } : {}) }));
+  return [long, deep, counts, wide, users, repeated];
 }
 // (a) soundness, (b) totality, (c) valid output, (d) strict identity.
 // Match whole JSON strings/numbers so digits inside strings, fractions and exponents do not count.
@@ -182,7 +188,11 @@ export async function fuzz(dir, { n = 200, seed = 114, stressSizes } = {}) {
       const id = `stress-${seed}-${index}`, file = join(out, `okit-plugin-${id}.json`);
       try {
         await configure({ maxFileBytes: 1048576 });
-        if (!await save(root, { ...input, session_id: id })) throw new Error('save returned false');
+        const saved = index === 4
+          ? await capture(root, { session_id: id, client: 'codex' }, { transcript: input.steps
+            .map(item => JSON.stringify({ type: 'message', role: item.source, text: item.message })).join('\n') })
+          : await save(root, { ...input, session_id: id });
+        if (!saved) throw new Error('stress save/capture returned false');
         const raw = await readFile(file);
         if (raw.length > 1048576 || !validate(JSON.parse(raw))) throw new Error('invalid stress output or exceeded cap');
         files.push(file);

@@ -27,6 +27,14 @@ export function capped(data, config) {
   const limit = Math.min(config.maxFileBytes, config.maxBytes);
   let size = bytes(data);
   if (size <= limit) return data;
+  // Approximate deltas can miss indentation. Bound full-file confirmations per phase.
+  let confirmations = 3;
+  const fits = () => {
+    if (size > limit || confirmations === 0) return false;
+    confirmations--;
+    size = bytes(data);
+    return size <= limit;
+  };
   data.final_metrics ??= totals(data.steps);
   const marker = config.truncationMarker;
   const rootSteps = new Set(data.steps);
@@ -45,12 +53,13 @@ export function capped(data, config) {
         const saved = bytes(child) - bytes(marker);
         if (saved <= 0) continue;
         value[key] = marker; size -= saved;
-        if (size <= limit && bytes(data) <= limit) return data;
+        if (fits()) return data;
       }
     }
   }
   size = bytes(data);
   if (size <= limit) return data;
+  confirmations = 3;
   for (const run of runs.reverse()) {
     run.final_metrics ??= totals(run.steps);
     for (const item of [...run.steps].reverse()) {
@@ -69,22 +78,26 @@ export function capped(data, config) {
         if (!Object.keys(item.extra).length) delete item.extra;
       }
       size -= before - bytes(item);
-      if (size <= limit && bytes(data) <= limit) return data;
+      if (fits()) return data;
     }
   }
   size = bytes(data);
+  if (size <= limit) return data;
+  confirmations = 3;
   for (const [parent, key] of payloads.reverse()) {
     const replacement = key === 'tool_definitions' ? [] : { truncated: marker };
     const saved = bytes(parent[key]) - bytes(replacement);
     if (saved <= 0) continue;
     parent[key] = replacement; size -= saved;
-    if (size <= limit && bytes(data) <= limit) return data;
+    if (fits()) return data;
   }
-  // Halve wide step arrays instead of serializing the entire run per removed step.
+  size = bytes(data);
+  if (size <= limit) return data;
+  // Each removed step is measured once; confirm the file once after all removals.
+  // Standalone pretty sizes undercount indentation, so this estimate is conservative.
   for (const run of runs) {
-    while (run.steps.length > 1 && bytes(data) > limit) run.steps.length = Math.ceil(run.steps.length / 2);
+    while (run.steps.length > 1 && size > limit) size -= bytes(run.steps.pop());
     run.final_metrics.total_steps = run.steps.length;
-    if (bytes(data) <= limit) return data;
   }
   if (!data.steps.length || bytes(data) > limit) {
     throw new Error('Recording limit is too small / Limite de gravação pequeno demais');
