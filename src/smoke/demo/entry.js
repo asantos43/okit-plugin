@@ -16,7 +16,7 @@ export async function smokeDemo(args = {}, deps = {}) {
   const locale = args.locale ?? 'en', pt = locale === 'pt-BR';
   const config = configOf(deps.snapshot?.config ?? deps.config);
   const snapshot = await environmentSnapshot({ ...deps, config, client: args.client, view: 'selected',
-    readQuota: deps.readQuota ?? adapterQuotaReader({ stateRoot: deps.root, env: deps.env }),
+    readQuota: deps.readQuota ?? adapterQuotaReader({ stateRoot: deps.root, env: deps.env, now: deps.now, config }),
     limits: deps.limits ?? (deps.snapshot ? undefined : await limitsStatus(deps.root, config)) });
   const client = args.client ?? snapshot.inUse;
   const scenario = validateScenario(deps.scenario ?? await loadScenario());

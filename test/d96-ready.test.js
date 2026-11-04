@@ -12,6 +12,7 @@ import { readiness, readyLine } from '../src/env/ready.js';
 import { environmentSnapshot } from '../src/env/snapshot.js';
 import { limitsStatus } from '../src/limits.js';
 import { main } from '../src/cli.js';
+import { smokeDemo } from '../src/smoke/demo/entry.js';
 import { envReportOperation } from '../src/core/status-operations.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 import { fixture } from './helpers/install-fixture.js';
@@ -278,4 +279,37 @@ test('an unreadable MCP entry gives its reason in the language of the doctor', a
   assert.match(rows.en.detail, /\(permission denied\)/);
   assert.match(rows['pt-BR'].detail, /\(permissão negada\)/);
   assert.doesNotMatch(rows['pt-BR'].detail, /permission denied/);
+});
+
+test('the smoke demo reads the automatic OpenCode quota source as the snapshot does', async (t) => {
+  const f = await fixture(t);
+  const file = join(f.root, 'opencode-source.json');
+  const sample = { version: 1, company: 'example', source: 'test', read_at: NOW / 1000 - 60,
+    five_hour: { remaining_percent: 70, reset_at: NOW / 1000 + 3600 }, weekly: { remaining_percent: 90, reset_at: null } };
+  await fs.writeFile(file, JSON.stringify(sample));
+  const { readQuota, ...rest } = readings({ installed: { ...OFF, opencode: true } });
+  const deps = { ...rest, root: f.root, config: { ...rest.config, opencodeQuota: { sources: { example: { file } } } } };
+  const snapshot = await environmentSnapshot({ ...deps, cache: new Map(), record: false });
+  const preview = await smokeDemo({ client: 'opencode', dryRun: true }, { ...deps, cache: new Map() });
+  assert.equal(snapshot.clients.find((row) => row.client === 'opencode').quota.remainingPct, 70);
+  assert.equal(preview.plan.quota.remainingPct, 70);
+  assert.ok(!preview.text.includes('Update your allowance'));
+});
+
+test('a state file the disk refuses is told in the language of the doctor', async (t) => {
+  const f = await fixture(t);
+  for (const [locale, word] of [['en', 'permission denied'], ['pt-BR', 'permissão negada']]) {
+    const readers = readersOf(async () => readySnapshot());
+    readers.readText = async (file) => {
+      if (file.endsWith('config.json')) throw new Error('permission denied');
+      return fs.readFile(file, 'utf8');
+    };
+    const result = await diagnose({ ...f.io, root: f.root, records: [], ui: createPresenter({ locale, write: () => {} }), readers });
+    const refused = result.rows.filter((row) => row.status === 'failed' && /config\.json/.test(row.fix ?? ''));
+    assert.ok(refused.length > 0, locale);
+    for (const row of refused) {
+      assert.ok(row.detail.includes(word), `${locale}: ${row.detail}`);
+      if (locale === 'pt-BR') assert.ok(!row.detail.includes('permission denied'), row.detail);
+    }
+  }
 });

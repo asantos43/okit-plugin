@@ -140,7 +140,7 @@ function unreadableRow({ id, label, error, ui, command, root, path, platform }) 
     id,
     status: 'failed',
     label,
-    detail: ui.text('doctorStateUnreadable', { reason: redact(reasonOf(error)) }),
+    detail: ui.text('doctorStateUnreadable', { reason: localizeReason(redact(reasonOf(error)), ui.locale) }),
     fix: ui.text('doctorFixState', { path: quotedWord(pathOf(error, path ?? root), platform), command }),
   };
 }
@@ -440,7 +440,7 @@ async function stateRows({ readers, root, ui, command, stored, language, platfor
     if (read.text === undefined) {
       // The disk refused the file: the reason is said, and the Fix names the file.
       rows.push({ id: entry.id, status: 'failed', label,
-        detail: ui.text('doctorStateUnreadable', { reason: redact(reasonOf(read.error)) }),
+        detail: ui.text('doctorStateUnreadable', { reason: localizeReason(redact(reasonOf(read.error)), ui.locale) }),
         fix: ui.text('doctorFixState', { path: quotedWord(entry.file, platform), command }) });
       continue;
     }
