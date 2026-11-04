@@ -148,3 +148,33 @@ test('help includes account commands in both languages and failures exit 1', asy
   assert.match(invalid.text, /configuração de contas/);
   assert.equal(await fs.readFile(paths(root).config, 'utf8'), '[]');
 });
+
+test('round 11: a folder is checked against the default as it will be once the first account is saved', async (t) => {
+  const { root, home, invoke, config } = await fixture(t);
+  const env = { HOME: home, USERPROFILE: home, OKIT_LANGUAGE: 'en', CLAUDE_CONFIG_DIR: join(root, 'work-folder') };
+  // Saving the first account stops the default from following the variable: it is the install folder then.
+  let result = await invoke(['add', 'claude-code', 'Personal', '--config-dir', join(home, '.claude')], { platform: 'linux', env });
+  assert.equal(result.code, 2, result.text);
+  assert.match(result.text, /Account folders must be unique/);
+  assert.equal((await fs.readFile(paths(root).config, 'utf8').catch(() => null)), null);
+  // The folder the variable names can become an account: it is no longer the default's.
+  result = await invoke(['add', 'claude-code', 'Work', '--config-dir', env.CLAUDE_CONFIG_DIR], { platform: 'linux', env });
+  assert.equal(result.code, 0, result.text);
+  assert.equal((await config()).accounts['claude-code'][0].configDir, env.CLAUDE_CONFIG_DIR);
+});
+
+test('round 11: labelling the default is refused when it would move the default off the folder variable', async (t) => {
+  const { root, home, invoke, config } = await fixture(t);
+  const env = { HOME: home, USERPROFILE: home, OKIT_LANGUAGE: 'en', CLAUDE_CONFIG_DIR: join(root, 'work-folder') };
+  let result = await invoke(['rename', 'claude-code', 'default', 'Main'], { platform: 'linux', env });
+  assert.equal(result.code, 2, result.text);
+  assert.match(result.text, /register that folder as an account/);
+  assert.doesNotMatch(result.text, /account (add|rename)/);
+  assert.equal((await fs.readFile(paths(root).config, 'utf8').catch(() => null)), null);
+  result = await invoke(['rename', 'claude-code', 'default', 'Main'], { platform: 'linux', env: { ...env, CLAUDE_CONFIG_DIR: undefined } });
+  assert.equal(result.code, 0, result.text);
+  assert.equal((await config()).accounts['claude-code'][0].label, 'Main');
+  const ptBr = await invoke(['rename', 'codex', 'default', 'Principal', '--locale', 'pt-BR'], { platform: 'linux', env: { ...env, CODEX_HOME: join(root, 'x') } });
+  assert.equal(ptBr.code, 2, ptBr.text);
+  assert.match(ptBr.text, /cadastre essa pasta como uma conta/);
+});

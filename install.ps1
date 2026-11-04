@@ -429,6 +429,7 @@ const REASONS = [
   ...RULE_REASONS,
   // The accounts of a client (src/accounts.js).
   [/^Account folder must be absolute on this system\.$/, 'A pasta da conta deve ser absoluta neste sistema.', 'Account folder must be absolute on this system.'],
+  [/^The default account follows the folder variable of the client; register that folder as an account before giving the default a label\.$/, 'A conta default segue a variável de pasta do cliente; cadastre essa pasta como uma conta antes de dar um nome à default.', 'The default account follows the folder variable of the client; register that folder as an account before giving the default a label.'],
   [/^Account folders must be unique within the client\.$/, 'As pastas das contas devem ser únicas no cliente.', 'Account folders must be unique within the client.'],
   [/^Cannot update settings \((E[A-Z0-9]+)\)\.$/, 'Não foi possível atualizar os ajustes ($1).', 'Cannot update settings (ENOTDIR).'],
   [/^Account configuration must be an object with readable profiles\.$/, 'A configuração de contas deve ser um objeto com perfis legíveis.', 'Account configuration must be an object with readable profiles.'],

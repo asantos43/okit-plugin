@@ -226,6 +226,11 @@ export function withAccountRenamed(config, client, id, label, options = {}) {
   }
   const check = validateLabel(label, { client, accounts, exceptId: id });
   if (!check.ok) refuse(check.reason);
+  const saved = Object.hasOwn(config?.accounts ?? {}, client);
+  if (id === DEFAULT_ACCOUNT_ID && !saved && options.currentDefaultDir !== undefined && options.defaultDir !== options.currentDefaultDir) {
+    refuse(reason('The default account follows the folder variable of the client; register that folder as an account before giving the default a label.',
+      'A conta default segue a variável de pasta do cliente; cadastre essa pasta como uma conta antes de dar um nome à default.'));
+  }
   const entries = config?.accounts?.[client] ?? [];
   return withEntries(config, client, entries.some((entry) => entry.id === id)
     ? entries.map((entry) => entry.id === id ? { ...entry, label } : entry)

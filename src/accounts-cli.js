@@ -49,11 +49,15 @@ export async function accountCommand(ctx, action, args) {
       const raw = await load();
       const selected = accountsOf(raw, client).find((account) => account.id === name)
         ?? accountsOf(raw, client).find((account) => account.label === name);
-      const defaultDir = defaultFolderOf(client, { config: raw, env: ctx.env, platform: ctx.platform,
-        home: ctx.home ?? homeOf(ctx.env, ctx.platform) ?? '' });
+      const folderOptions = { env: ctx.env, platform: ctx.platform, home: ctx.home ?? homeOf(ctx.env, ctx.platform) ?? '' };
+      // The default's folder as it will be once this change is saved: saving the first account of a client stops the
+      // default from following the client's folder variable, so a new folder is checked against that one.
+      const currentDefaultDir = defaultFolderOf(client, { config: raw, ...folderOptions });
+      const defaultDir = defaultFolderOf(client, { ...folderOptions,
+        config: { ...raw, accounts: { ...raw.accounts, [client]: raw.accounts?.[client] ?? [] } } });
       const next = action === 'add' ? withAccountAdded(raw, client, name, directory, { env: ctx.env, defaultDir })
         : action === 'remove' ? withAccountRemoved(raw, client, name)
-          : withAccountRenamed(raw, client, selected?.id ?? name, value, { env: ctx.env, defaultDir });
+          : withAccountRenamed(raw, client, selected?.id ?? name, value, { env: ctx.env, defaultDir, currentDefaultDir });
       if (action === 'add') await ctx.fs.mkdir(directory, { recursive: true, mode: 0o700 });
       await (ctx.writeConfig ?? ctx.write ?? writeJsonAtomic)(target.config, next);
       if (action === 'add') {
