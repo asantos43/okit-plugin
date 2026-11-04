@@ -54,8 +54,8 @@ export function capped(data, config) {
 export async function save(root, data) {
   const config = await settings(root);
   if (config.enabled !== true) return false;
-  if (!safeId(data.session_id)) throw new Error('Invalid saved run / Execução salva inválida');
-  const safe = capped(normalize(redact(structuredClone(data), config)), config);
+  if (!safeId(data?.session_id)) return false;
+  const safe = capped(normalize(redact(structuredClone(data), config), { dir: config.dir }), config);
   if (!validate(safe)) throw new Error('Invalid saved run / Execução salva inválida');
   await mkdir(config.dir, { recursive: true });
   await withLock(join(config.dir, 'okit-plugin-retention'), async () => {

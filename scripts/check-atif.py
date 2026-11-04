@@ -55,6 +55,66 @@ def paths(value, prefix=()):
         for key, child in (value.items() if isinstance(value, dict) else enumerate(value)):
             yield from paths(child, (*prefix, key))
 
+def optional_paths(model, prefix=()):
+    """Include absent optionals using Harbor's fields, including nested lists."""
+    if hasattr(type(model), "model_fields"):
+        for key, field in type(model).model_fields.items():
+            if not field.is_required():
+                yield (*prefix, key)
+            yield from optional_paths(getattr(model, key), (*prefix, key))
+    elif isinstance(model, list):
+        for index, child in enumerate(model):
+            yield from optional_paths(child, (*prefix, index))
+
+def parent_at(value, path):
+    try:
+        for key in path[:-1]:
+            value = value[key]
+        return value
+    except (KeyError, IndexError, TypeError):
+        return None
+
+def special_mutation(value, kind, rng, optionals):
+    if not isinstance(value, dict):
+        return
+    if kind in (6, 7):
+        candidates = [(parent_at(value, path), path[-1]) for path in optionals]
+        candidates = [(parent, key) for parent, key in candidates if isinstance(parent, dict)]
+        if candidates:
+            parent, key = rng.choice(candidates)
+            if kind == 6:
+                parent[key] = None
+            else:
+                parent.pop(key, None)
+    elif kind == 8 and isinstance(value.get("steps"), list):
+        value["steps"].append({"step_id": len(value["steps"]) + 1, "source": "agent",
+                               "message": "", "is_copied_context": False, "llm_call_count": 0})
+    elif kind == 9:
+        if not isinstance(value.get("final_metrics"), dict):
+            value["final_metrics"] = {}
+        value["final_metrics"]["total_steps"] = rng.choice([10**100, "9" * 4300, "9" * 4301, "9" * 4400, "1_000_000"])
+    elif kind == 10:
+        numeric = {"step_id", "llm_call_count", "prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd",
+                   "total_steps", "total_prompt_tokens", "total_completion_tokens", "total_cached_tokens", "total_cost_usd"}
+        candidates = [path for path in paths(value) if path and (path[-1] in numeric
+                      or len(path) > 1 and path[-2] in ("prompt_token_ids", "completion_token_ids", "logprobs"))]
+        if candidates:
+            path = rng.choice(candidates)
+            parent_at(value, path)[path[-1]] = rng.choice(["1_0", " +1_000 ", "-1_0", "1.00", "1e3", ".5",
+                                                         "inf", "1_0.5", "1__0", "9" * 4300, "9" * 4301, "9" * 4400])
+    elif kind == 11:
+        steps = [step for step in value.get("steps", []) if isinstance(step, dict)] if isinstance(value.get("steps"), list) else []
+        if not steps:
+            return
+        step = rng.choice(steps)
+        image = {"type": "image", "source": {"media_type": "image/png", "path": rng.choice([
+            "missing.png", "x" * 8192, "/__atif_missing__/image.png", "https://example.test/a.png",
+            "s3://bucket/image.png", "odd :// path", "data:image/png;base64,a", ""])}}
+        if rng.choice([True, False]):
+            step["message"] = [image]
+        else:
+            step["observation"] = {"results": [{"content": [image]}]}
+
 def mutate(folder, n, seed):
     folder.mkdir(parents=True, exist_ok=True)
     repo = Path(__file__).resolve().parent.parent
@@ -63,6 +123,7 @@ def mutate(folder, n, seed):
     sources += sorted(folder.glob("okit-plugin-*.json"))
     bases = [json.loads(file.read_text()) for file in sources]
     rng, verdicts = random.Random(seed), {}
+    optionals = list(optional_paths(maximal("ATIF-v1.7")))
     garbage = [None, [], {}, "", "Z", -1, 1.5, "1e999", "x" * 8192, True,
                "1", "1.0", "1.", "1e2", "1_0", " 1 ", "nan", "inf", "-Infinity",
                0, 1, 2**63, "9" * 4400, "yes", "off", ["ATIF-v1.7"], [None],
@@ -75,8 +136,10 @@ def mutate(folder, n, seed):
             parent = value
             for key in path[:-1]:
                 parent = parent[key]
-            operation = rng.randrange(6)
-            if operation == 0 and isinstance(value, dict) and isinstance(value.get("steps"), list) and value["steps"]:
+            operation = rng.randrange(12)
+            if operation >= 6:
+                special_mutation(value, operation, rng, optionals)
+            elif operation == 0 and isinstance(value, dict) and isinstance(value.get("steps"), list) and value["steps"]:
                 steps = value["steps"]
                 if len(steps) > 1 and rng.choice([True, False]):
                     a, b = rng.sample(range(len(steps)), 2)
@@ -101,6 +164,11 @@ def mutate(folder, n, seed):
             verdicts[name] = {"valid": True}
         except Exception as error:
             verdicts[name] = {"valid": False, "error": str(error)}
+        try:
+            Trajectory.model_validate(value, strict=True)
+            verdicts[name]["strict"] = True
+        except Exception:
+            verdicts[name]["strict"] = False
     (folder / "verdicts.json").write_text(json.dumps(verdicts, indent=2) + "\n")
     print(f"Wrote {n} mutations with Harbor verdicts (seed {seed}) to {folder}")
 

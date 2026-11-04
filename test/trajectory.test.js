@@ -181,10 +181,10 @@ test('schema accepts arbitrary agent metadata and refuses invalid versions and f
 test('save refuses unsafe session names before creating any recording file', async t => {
   const root = await rootOf(t, {});
   const before = await readdir(root, { recursive: true });
-  for (const session_id of ['../fora', 'a/b', '..']) {
+  for (const session_id of ['../fora', 'a/b', '..', null, undefined]) {
     const data = claude(claudeFixture, { ...context, session_id });
     assert.equal(validate(data), true, 'the session name must be rejected by save');
-    await assert.rejects(save(root, data), /^Error: Invalid saved run \/ Execução salva inválida$/);
+    assert.equal(await save(root, data), false);
     assert.deepEqual(await readdir(root, { recursive: true }), before);
   }
 });

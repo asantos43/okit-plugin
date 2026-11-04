@@ -1,283 +1,429 @@
 {
  "m-0.json": {
   "error": "1 validation error for Trajectory\nsteps.0.metrics\n  Input should be a valid dictionary or instance of Metrics [type=model_type, input_value='1.', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+  "strict": false,
   "valid": false
  },
  "m-1.json": {
   "error": "1 validation error for Trajectory\nsubagent_trajectories.0.steps\n  Input should be a valid list [type=list_type, input_value='2026-11-03T10:00:00+00:60', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/list_type",
+  "strict": false,
   "valid": false
  },
  "m-10.json": {
   "error": "1 validation error for Trajectory\nsteps.0.observation.results.0\n  Input should be a valid dictionary or instance of ObservationResult [type=model_type, input_value='ATIF-v1.7', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+  "strict": false,
   "valid": false
  },
  "m-11.json": {
+  "strict": true,
   "valid": true
  },
  "m-12.json": {
   "error": "1 validation error for Trajectory\nagent.version\n  Field required [type=missing, input_value={'name': 'okit-plugin', '...d': None, 'step': None}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing",
+  "strict": false,
   "valid": false
  },
  "m-13.json": {
   "error": "1 validation error for Trajectory\nsteps.0.step_id\n  Input should be a valid integer, got a number with a fractional part [type=int_from_float, input_value=1.5, input_type=float]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_from_float",
+  "strict": false,
   "valid": false
  },
  "m-14.json": {
+  "strict": true,
   "valid": true
  },
  "m-15.json": {
   "error": "1 validation error for Trajectory\nfinal_metrics\n  Input should be a valid dictionary or instance of FinalMetrics [type=model_type, input_value='1.', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+  "strict": false,
   "valid": false
  },
  "m-16.json": {
   "error": "1 validation error for Trajectory\nsteps.0\n  Input should be a valid dictionary or instance of Step [type=model_type, input_value='off', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+  "strict": false,
   "valid": false
  },
  "m-17.json": {
   "error": "1 validation error for Trajectory\nsteps.0.metrics\n  Input should be a valid dictionary or instance of Metrics [type=model_type, input_value='1e2', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+  "strict": false,
   "valid": false
  },
  "m-18.json": {
   "error": "1 validation error for Trajectory\nsteps.0.source\n  Input should be 'system', 'user' or 'agent' [type=literal_error, input_value=0, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.13/v/literal_error",
+  "strict": false,
   "valid": false
  },
  "m-19.json": {
   "error": "1 validation error for Trajectory\nunknown_mutation\n  Extra inputs are not permitted [type=extra_forbidden, input_value=['ATIF-v1.7'], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden",
+  "strict": false,
   "valid": false
  },
  "m-2.json": {
   "error": "1 validation error for Trajectory\nsteps\n  List should have at least 1 item after validation, not 0 [type=too_short, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/too_short",
+  "strict": false,
   "valid": false
  },
  "m-20.json": {
-  "error": "3 validation errors for Trajectory\nsteps.1.tool_calls.0.function_name\n  Field required [type=missing, input_value={'tool_call_id': 'call-1'... {'path': 'sample.txt'}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nsteps.1.observation.results.0\n  Input should be a valid dictionary or instance of ObservationResult [type=model_type, input_value=1.5, input_type=float]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type\nunknown_mutation\n  Extra inputs are not permitted [type=extra_forbidden, input_value='1e2', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden",
+  "error": "3 validation errors for Trajectory\nsteps.1.tool_calls.0.function_name\n  Field required [type=missing, input_value={'tool_call_id': 'call-1'... {'path': 'sample.txt'}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nsteps.1.observation.results.0\n  Input should be a valid dictionary or instance of ObservationResult [type=model_type, input_value=1.5, inp",
+  "strict": false,
   "valid": false
  },
  "m-21.json": {
   "error": "1 validation error for Trajectory\nsubagent_trajectories.0.trajectory_id\n  Input should be a valid string [type=string_type, input_value=9223372036854775808, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type",
+  "strict": false,
   "valid": false
  },
  "m-22.json": {
   "error": "1 validation error for Trajectory\n  Value error, steps[0].step_id: expected 1 (sequential from 1), got 2 [type=value_error, input_value={'schema_version': 'ATIF-... 'message': 'child'}]}]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+  "strict": false,
   "valid": false
  },
  "m-23.json": {
   "error": "1 validation error for Trajectory\nsteps.0.message\n  Field required [type=missing, input_value={'step_id': 1, 'source': 'system'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing",
+  "strict": false,
   "valid": false
  },
  "m-24.json": {
-  "error": "2 validation errors for Trajectory\nsteps.0.observation.results.0.extra\n  Input should be a valid dictionary [type=dict_type, input_value='xxxxxxxxxxxxxxxxxxxxxxxx...xxxxxxxxxxxxxxxxxxxxxxx', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/dict_type\nfinal_metrics\n  Input should be a valid dictionary or instance of FinalMetrics [type=model_type, input_value='xxxxxxxxxxxxxxxxxxxxxxxx...xxxxxxxxxxxxxxxxxxxxxxx', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+  "error": "2 validation errors for Trajectory\nsteps.0.observation.results.0.extra\n  Input should be a valid dictionary [type=dict_type, input_value='xxxxxxxxxxxxxxxxxxxxxxxx...xxxxxxxxxxxxxxxxxxxxxxx', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/dict_type\nfinal_metrics\n  Input should be a valid dictionary or instance of FinalMetrics [type=model_type, input_value='xxxx",
+  "strict": false,
   "valid": false
  },
  "m-25.json": {
   "error": "1 validation error for Trajectory\nsteps.1\n  Input should be a valid dictionary or instance of Step [type=model_type, input_value=' 1 ', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+  "strict": false,
   "valid": false
  },
  "m-26.json": {
   "error": "1 validation error for Trajectory\nsteps.1.observation\n  Input should be a valid dictionary or instance of Observation [type=model_type, input_value='2026-11-03T10:00:00+00:60', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+  "strict": false,
   "valid": false
  },
  "m-27.json": {
   "error": "1 validation error for Trajectory\n  Value error, steps[0].step_id: expected 1 (sequential from 1), got 2 [type=value_error, input_value={'schema_version': 'ATIF-...'total_cost_usd': 0.01}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+  "strict": false,
   "valid": false
  },
  "m-28.json": {
-  "error": "3 validation errors for Trajectory\nsteps.0.observation.results.0.content.str\n  Input should be a valid string [type=string_type, input_value=[{'type': 'image', 'source': '2026-11-03T10.5'}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nsteps.0.observation.results.0.content.list[function-after[validate_content_type(), ContentPart]].0.source\n  Input should be a valid dictionary or instance of ImageSource [type=model_type, input_value='2026-11-03T10.5', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type\nfinal_metrics.total_completion_tokens\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='nan', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing",
+  "error": "3 validation errors for Trajectory\nsteps.0.observation.results.0.content.str\n  Input should be a valid string [type=string_type, input_value=[{'type': 'image', 'source': '2026-11-03T10.5'}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nsteps.0.observation.results.0.content.list[function-after[validate_content_type(), ContentPart]].0.source\n  Inp",
+  "strict": false,
   "valid": false
  },
  "m-29.json": {
-  "error": "3 validation errors for Trajectory\nagent.unknown_mutation\n  Extra inputs are not permitted [type=extra_forbidden, input_value='1_0', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden\nsteps.0.message.str\n  Input should be a valid string [type=string_type, input_value=[{'type': 'text', 'text':...known_mutation': '1e2'}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nsteps.0.message.list[function-after[validate_content_type(), ContentPart]].1.unknown_mutation\n  Extra inputs are not permitted [type=extra_forbidden, input_value='1e2', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden",
+  "error": "3 validation errors for Trajectory\nagent.unknown_mutation\n  Extra inputs are not permitted [type=extra_forbidden, input_value='1_0', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden\nsteps.0.message.str\n  Input should be a valid string [type=string_type, input_value=[{'type': 'text', 'text':...known_mutation': '1e2'}], input_type=list]\n    For fur",
+  "strict": false,
   "valid": false
  },
  "m-3.json": {
   "error": "1 validation error for Trajectory\n  Input should be a valid dictionary or instance of Trajectory [type=model_type, input_value='1.', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+  "strict": false,
   "valid": false
  },
  "m-30.json": {
   "error": "1 validation error for Trajectory\n  Input should be a valid dictionary or instance of Trajectory [type=model_type, input_value='1.0', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+  "strict": false,
   "valid": false
  },
  "m-31.json": {
+  "strict": true,
   "valid": true
  },
  "m-32.json": {
   "error": "1 validation error for Trajectory\nsteps.1.tool_calls.0.tool_call_id\n  Field required [type=missing, input_value={'function_name': 'read_f... {'path': 'sample.txt'}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing",
+  "strict": false,
   "valid": false
  },
  "m-33.json": {
   "error": "1 validation error for Trajectory\n  Value error, steps[1].step_id: expected 2 (sequential from 1), got 4 [type=value_error, input_value={'schema_version': 'ATIF-...'total_cost_usd': 0.01}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+  "strict": false,
   "valid": false
  },
  "m-34.json": {
   "error": "1 validation error for Trajectory\nschema_version\n  Input should be 'ATIF-v1.0', 'ATIF-v1.1', 'ATIF-v1.2', 'ATIF-v1.3', 'ATIF-v1.4', 'ATIF-v1.5', 'ATIF-v1.6' or 'ATIF-v1.7' [type=literal_error, input_value='Z', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/literal_error",
+  "strict": false,
   "valid": false
  },
  "m-35.json": {
-  "error": "2 validation errors for Trajectory\nagent.tool_definitions\n  Input should be a valid list [type=list_type, input_value=0, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.13/v/list_type\nsteps.0.tool_calls.0.unknown_mutation\n  Extra inputs are not permitted [type=extra_forbidden, input_value='Z', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden",
+  "error": "2 validation errors for Trajectory\nagent.tool_definitions\n  Input should be a valid list [type=list_type, input_value=0, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.13/v/list_type\nsteps.0.tool_calls.0.unknown_mutation\n  Extra inputs are not permitted [type=extra_forbidden, input_value='Z', input_type=str]\n    For further information visit https://errors.pydantic",
+  "strict": false,
   "valid": false
  },
  "m-36.json": {
   "error": "1 validation error for Trajectory\nsteps.0.observation.results.0.subagent_trajectory_ref.0\n  Input should be a valid dictionary or instance of SubagentTrajectoryRef [type=model_type, input_value='yes', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+  "strict": false,
   "valid": false
  },
  "m-37.json": {
   "error": "1 validation error for Trajectory\n  Input should be a valid dictionary or instance of Trajectory [type=model_type, input_value=[None], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+  "strict": false,
   "valid": false
  },
  "m-38.json": {
   "error": "1 validation error for Trajectory\nsteps.0.observation.results\n  Input should be a valid list [type=list_type, input_value=None, input_type=NoneType]\n    For further information visit https://errors.pydantic.dev/2.13/v/list_type",
+  "strict": false,
   "valid": false
  },
  "m-39.json": {
   "error": "1 validation error for Trajectory\n  Value error, steps[0].step_id: expected 1 (sequential from 1), got 3 [type=value_error, input_value={'schema_version': 'ATIF-...'total_cost_usd': 0.01}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+  "strict": false,
   "valid": false
  },
  "m-4.json": {
   "error": "1 validation error for Trajectory\n  Value error, steps[1].step_id: expected 2 (sequential from 1), got 3 [type=value_error, input_value={'schema_version': 'ATIF-...'total_cost_usd': 0.01}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+  "strict": false,
   "valid": false
  },
  "m-5.json": {
   "error": "1 validation error for Trajectory\nsteps.2.unknown_mutation\n  Extra inputs are not permitted [type=extra_forbidden, input_value='1_0', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden",
+  "strict": false,
   "valid": false
  },
  "m-6.json": {
   "error": "1 validation error for Trajectory\n  Input should be a valid dictionary or instance of Trajectory [type=model_type, input_value='inf', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+  "strict": false,
   "valid": false
  },
  "m-7.json": {
   "error": "1 validation error for Trajectory\nsubagent_trajectories.0.steps.0\n  Input should be a valid dictionary or instance of Step [type=model_type, input_value='2026-W45-2Z10:00:00', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+  "strict": false,
   "valid": false
  },
  "m-8.json": {
   "error": "1 validation error for Trajectory\n  Value error, steps[0].step_id: expected 1 (sequential from 1), got 2 [type=value_error, input_value={'schema_version': 'ATIF-... 'message': 'child'}]}]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+  "strict": false,
   "valid": false
  },
  "m-9.json": {
   "error": "1 validation error for Trajectory\nunknown_mutation\n  Extra inputs are not permitted [type=extra_forbidden, input_value='1e2', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden",
+  "strict": false,
   "valid": false
  },
  "m-r1-1127.json": {
   "error": "1 validation error for Trajectory\nsteps.0.tool_calls.0.extra\n  Input should be a valid dictionary [type=dict_type, input_value='1.', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/dict_type",
+  "strict": false,
   "valid": false
  },
  "m-r1-1141.json": {
-  "error": "3 validation errors for Trajectory\nagent.extra\n  Input should be a valid dictionary [type=dict_type, input_value='yes', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/dict_type\nsteps.0.message.str\n  Input should be a valid string [type=string_type, input_value=[{'type': 'text', 'text':...//example.test/a.png'}}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nsteps.0.message.list[function-after[validate_content_type(), ContentPart]].1.type\n  Input should be 'text' or 'image' [type=literal_error, input_value='yes', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/literal_error",
+  "error": "3 validation errors for Trajectory\nagent.extra\n  Input should be a valid dictionary [type=dict_type, input_value='yes', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/dict_type\nsteps.0.message.str\n  Input should be a valid string [type=string_type, input_value=[{'type': 'text', 'text':...//example.test/a.png'}}], input_type=list]\n    For further information vi",
+  "strict": false,
   "valid": false
  },
  "m-r1-1204.json": {
+  "strict": true,
   "valid": true
  },
  "m-r1-1219.json": {
+  "strict": true,
   "valid": true
  },
  "m-r1-1387.json": {
+  "strict": true,
   "valid": true
  },
  "m-r1-15.json": {
+  "strict": false,
   "valid": true
  },
  "m-r1-1870.json": {
+  "strict": true,
   "valid": true
  },
  "m-r1-1968.json": {
+  "strict": true,
   "valid": true
  },
  "m-r1-267.json": {
+  "strict": true,
   "valid": true
  },
  "m-r1-533.json": {
+  "strict": false,
   "valid": true
  },
  "m-r1-610.json": {
+  "strict": true,
   "valid": true
  },
  "m-r1-650.json": {
+  "strict": false,
   "valid": true
  },
  "m-r1-707.json": {
   "error": "1 validation error for Trajectory\nextra\n  Input should be a valid dictionary [type=dict_type, input_value='2026-W45-2Z10:00:00', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/dict_type",
+  "strict": false,
   "valid": false
  },
  "m-r1-749.json": {
+  "strict": true,
   "valid": true
  },
  "m-r2-1034.json": {
   "error": "1 validation error for Trajectory\nfinal_metrics.total_prompt_tokens\n  Unable to parse input string as an integer, exceeded maximum size [type=int_parsing_size, input_value='999999999999999999999999...99999999999999999999999', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing_size",
+  "strict": false,
   "valid": false
  },
  "m-r2-1091.json": {
   "error": "1 validation error for Trajectory\nfinal_metrics.total_completion_tokens\n  Unable to parse input string as an integer, exceeded maximum size [type=int_parsing_size, input_value='999999999999999999999999...99999999999999999999999', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing_size",
+  "strict": false,
   "valid": false
  },
  "m-r2-1092.json": {
   "error": "1 validation error for Trajectory\nsteps.0.tool_calls.0.function_name\n  Field required [type=missing, input_value={'tool_call_id': 't', 'ar...extra': {'timeout': 30}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing",
+  "strict": false,
   "valid": false
  },
  "m-r2-1359.json": {
+  "strict": true,
   "valid": true
  },
  "m-r2-1456.json": {
+  "strict": true,
   "valid": true
  },
  "m-r2-1646.json": {
   "error": "1 validation error for Trajectory\nsteps.0.metrics.cached_tokens\n  Unable to parse input string as an integer, exceeded maximum size [type=int_parsing_size, input_value='999999999999999999999999...99999999999999999999999', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing_size",
+  "strict": false,
   "valid": false
  },
  "m-r2-1826.json": {
+  "strict": false,
   "valid": true
  },
  "m-r2-497.json": {
+  "strict": false,
   "valid": true
  },
  "m-r3-1009.json": {
   "error": "1 validation error for Trajectory\nsteps.0.metrics.completion_token_ids.0\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='2026-11-03T10:00:00+00:60', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing",
+  "strict": false,
   "valid": false
  },
  "m-r3-1041.json": {
   "error": "1 validation error for Trajectory\nfinal_metrics.total_steps\n  Unable to parse input string as an integer, exceeded maximum size [type=int_parsing_size, input_value='999999999999999999999999...99999999999999999999999', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing_size",
+  "strict": false,
   "valid": false
  },
  "m-r3-1043.json": {
   "error": "1 validation error for Trajectory\nsteps.0.observation.results.0.subagent_trajectory_ref.0.trajectory_id\n  Input should be a valid string [type=string_type, input_value=0, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type",
+  "strict": false,
   "valid": false
  },
  "m-r3-1253.json": {
+  "strict": true,
   "valid": true
  },
  "m-r3-1644.json": {
   "error": "1 validation error for Trajectory\nsteps.1.metrics.cached_tokens\n  Unable to parse input string as an integer, exceeded maximum size [type=int_parsing_size, input_value='999999999999999999999999...99999999999999999999999', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing_size",
+  "strict": false,
   "valid": false
  },
  "m-r3-1834.json": {
+  "strict": false,
   "valid": true
  },
  "m-r3-1856.json": {
   "error": "1 validation error for Trajectory\nsteps.0.metrics.prompt_token_ids.1\n  Unable to parse input string as an integer, exceeded maximum size [type=int_parsing_size, input_value='999999999999999999999999...99999999999999999999999', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing_size",
+  "strict": false,
   "valid": false
  },
  "m-r3-469.json": {
-  "error": "3 validation errors for Trajectory\nsteps.0.message.str\n  Input should be a valid string [type=string_type, input_value=[{'type': 'text', 'text':...image', 'source': '1.'}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nsteps.0.message.list[function-after[validate_content_type(), ContentPart]].1.source\n  Input should be a valid dictionary or instance of ImageSource [type=model_type, input_value='1.', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type\nsteps.0.observation.results.0.subagent_trajectory_ref.0.extra\n  Input should be a valid dictionary [type=dict_type, input_value='2026-W53-7', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/dict_type",
+  "error": "3 validation errors for Trajectory\nsteps.0.message.str\n  Input should be a valid string [type=string_type, input_value=[{'type': 'text', 'text':...image', 'source': '1.'}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nsteps.0.message.list[function-after[validate_content_type(), ContentPart]].1.source\n  Input should be a valid dictionary or insta",
+  "strict": false,
   "valid": false
  },
  "m-r3-686.json": {
+  "strict": false,
   "valid": true
  },
  "m-r3-787.json": {
+  "strict": false,
   "valid": true
  },
  "m-r3-848.json": {
+  "strict": true,
   "valid": true
  },
  "m-r3-910.json": {
-  "error": "2 validation errors for Trajectory\nsteps.0.message.str\n  Input should be a valid string [type=string_type, input_value=[{'type': 'text', 'text':...'2026-11-03T10:00:00Z'}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nsteps.0.message.list[function-after[validate_content_type(), ContentPart]].1.unknown_mutation\n  Extra inputs are not permitted [type=extra_forbidden, input_value='2026-11-03T10:00:00Z', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden",
+  "error": "2 validation errors for Trajectory\nsteps.0.message.str\n  Input should be a valid string [type=string_type, input_value=[{'type': 'text', 'text':...'2026-11-03T10:00:00Z'}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nsteps.0.message.list[function-after[validate_content_type(), ContentPart]].1.unknown_mutation\n  Extra inputs are not permitted [t",
+  "strict": false,
   "valid": false
  },
  "m-r3-945.json": {
-  "error": "2 validation errors for Trajectory\nagent.tool_definitions.0\n  Input should be a valid dictionary [type=dict_type, input_value='2026-11-03T10.5', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/dict_type\nsteps.0.metrics.prompt_token_ids.0\n  Unable to parse input string as an integer, exceeded maximum size [type=int_parsing_size, input_value='999999999999999999999999...99999999999999999999999', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing_size",
+  "error": "2 validation errors for Trajectory\nagent.tool_definitions.0\n  Input should be a valid dictionary [type=dict_type, input_value='2026-11-03T10.5', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/dict_type\nsteps.0.metrics.prompt_token_ids.0\n  Unable to parse input string as an integer, exceeded maximum size [type=int_parsing_size, input_value='99999999999999999999",
+  "strict": false,
   "valid": false
  },
  "m-r3-966.json": {
-  "error": "2 validation errors for Trajectory\nsteps.0.message.str\n  Input should be a valid string [type=string_type, input_value=[{'type': 'text', 'text':...//example.test/a.png'}}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nsteps.0.message.list[function-after[validate_content_type(), ContentPart]].1.source.media_type\n  Input should be 'image/jpeg', 'image/png', 'image/gif' or 'image/webp' [type=literal_error, input_value='999999999999999999999999...99999999999999999999999', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/literal_error",
+  "error": "2 validation errors for Trajectory\nsteps.0.message.str\n  Input should be a valid string [type=string_type, input_value=[{'type': 'text', 'text':...//example.test/a.png'}}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nsteps.0.message.list[function-after[validate_content_type(), ContentPart]].1.source.media_type\n  Input should be 'image/jpeg', 'i",
+  "strict": false,
+  "valid": false
+ },
+ "m-s1-1297.json": {
+  "error": "2 validation errors for Trajectory\nschema_version\n  Input should be 'ATIF-v1.0', 'ATIF-v1.1', 'ATIF-v1.2', 'ATIF-v1.3', 'ATIF-v1.4', 'ATIF-v1.5', 'ATIF-v1.6' or 'ATIF-v1.7' [type=literal_error, input_value='1', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/literal_error\nsteps\n  Input should be a valid list [type=list_type, input_value=1, input_type=int]\n    F",
+  "strict": false,
+  "valid": false
+ },
+ "m-s1-1661.json": {
+  "error": "1 validation error for Trajectory\nsteps\n  List should have at least 1 item after validation, not 0 [type=too_short, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/too_short",
+  "strict": false,
+  "valid": false
+ },
+ "m-s1-1955.json": {
+  "error": "1 validation error for Trajectory\nsteps\n  List should have at least 1 item after validation, not 0 [type=too_short, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/too_short",
+  "strict": false,
+  "valid": false
+ },
+ "m-s1-577.json": {
+  "error": "1 validation error for Trajectory\nsteps\n  List should have at least 1 item after validation, not 0 [type=too_short, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/too_short",
+  "strict": false,
+  "valid": false
+ },
+ "m-s4-1508.json": {
+  "error": "1 validation error for Trajectory\nsteps\n  List should have at least 1 item after validation, not 0 [type=too_short, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/too_short",
+  "strict": false,
+  "valid": false
+ },
+ "m-s4-1626.json": {
+  "error": "2 validation errors for Trajectory\nagent.version\n  Input should be a valid string [type=string_type, input_value=1.5, input_type=float]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nsteps.0.step_id\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='1.', input_type=str]\n    For further information visit https://",
+  "strict": false,
+  "valid": false
+ },
+ "m-s4-1916.json": {
+  "error": "1 validation error for Trajectory\nsteps.0.step_id\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='1.', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing",
+  "strict": false,
+  "valid": false
+ },
+ "m-s4-306.json": {
+  "error": "1 validation error for Trajectory\nsteps.2.metrics.cost_usd\n  Input should be a valid number, unable to parse string as a number [type=float_parsing, input_value=' +1_000 ', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/float_parsing",
+  "strict": false,
+  "valid": false
+ },
+ "m-s4-417.json": {
+  "error": "1 validation error for Trajectory\nfinal_metrics.total_cost_usd\n  Input should be a valid number, unable to parse string as a number [type=float_parsing, input_value=' +1_000 ', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/float_parsing",
+  "strict": false,
+  "valid": false
+ },
+ "m-s4-583.json": {
+  "error": "1 validation error for Trajectory\nsteps.0.step_id\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='1.', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing",
+  "strict": false,
+  "valid": false
+ },
+ "m-s4-94.json": {
+  "error": "1 validation error for Trajectory\nsteps\n  Input should be a valid list [type=list_type, input_value=' 1 ', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/list_type",
+  "strict": false,
+  "valid": false
+ },
+ "m-s4-989.json": {
+  "error": "1 validation error for Trajectory\nsteps\n  List should have at least 1 item after validation, not 0 [type=too_short, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/too_short",
+  "strict": false,
+  "valid": false
+ },
+ "m-s5-1877.json": {
+  "error": "1 validation error for Trajectory\nfinal_metrics.total_cost_usd\n  Input should be a valid number, unable to parse string as a number [type=float_parsing, input_value=' +1_000 ', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/float_parsing",
+  "strict": false,
+  "valid": false
+ },
+ "m-s5-38.json": {
+  "error": "1 validation error for Trajectory\nsteps\n  List should have at least 1 item after validation, not 0 [type=too_short, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/too_short",
+  "strict": false,
   "valid": false
  }
 }

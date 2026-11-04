@@ -82,29 +82,38 @@ function generator(seed) {
 }
 
 const kinds = ['steps', 'raw', 'capped', 'legacy', 'capture', 'valid'];
-// Compare both acceptance directions and preserve Harbor-valid input byte-for-value.
+// (a) soundness, (b) totality, (c) valid output, (d) strict identity.
+// Match whole JSON strings/numbers so digits inside strings, fractions and exponents do not count.
+function unsafeIntegerLiteral(raw) {
+  const tokens = raw.match(/"(?:[^"\\]|\\[\s\S])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g) ?? [];
+  return tokens.some(token => /^-?\d{16,}$/.test(token) && !Number.isSafeInteger(Number(token)));
+}
 export async function diff(dir) {
   const verdicts = JSON.parse(await readFile(join(dir, 'verdicts.json'), 'utf8')), failures = [];
+  let skipped = 0;
   const files = (await readdir(dir)).filter(name => /^m-.*\.json$/.test(name)).sort();
   await mkdir(join(dir, 'out'), { recursive: true });
   for (const name of files) {
     const fail = reason => failures.push({ file: name, reason });
     try {
-      const input = JSON.parse(await readFile(join(dir, name), 'utf8')), oracle = verdicts[name];
-      if (typeof oracle?.valid !== 'boolean') fail('missing Harbor verdict');
+      const raw = await readFile(join(dir, name), 'utf8');
+      const input = JSON.parse(raw), oracle = verdicts[name], skipIdentity = unsafeIntegerLiteral(raw);
+      if (skipIdentity) skipped++;
+      if (typeof oracle?.valid !== 'boolean' || typeof oracle?.strict !== 'boolean') fail('a/d: missing Harbor verdict');
       else {
         try {
-          if (validate(input) !== oracle.valid) fail(`validate disagrees with Harbor (${oracle.valid}): ${oracle.error ?? ''}`);
-        } catch (error) { fail(`validate threw: ${error.message}`); }
+          if (validate(input) && !oracle.valid) fail(`a: validate disagrees with Harbor: ${oracle.error ?? ''}`);
+          if (!skipIdentity && oracle.strict && !validate(input)) fail('d: validate disagrees with strict Harbor');
+        } catch (error) { fail(`a: validate threw: ${error.message}`); }
       }
-      const output = normalize(input);
+      const pure = normalize(input), output = normalize(input, { dir: join(dir, 'out') });
       await writeFile(join(dir, 'out', name), `${JSON.stringify(output, null, 2)}\n`);
-      if (!validate(output)) fail('normalize output is invalid');
-      if (oracle?.valid && !isDeepStrictEqual(input, output)) fail('normalize changed Harbor-valid input');
-    } catch (error) { fail(`exception: ${error.message}`); }
+      if (!validate(pure) || !validate(output)) fail('c: normalize output is invalid');
+      if (!skipIdentity && oracle?.strict && !isDeepStrictEqual(input, pure)) fail('d: normalize changed strict Harbor input');
+    } catch (error) { fail(`b: exception: ${error.message}`); }
   }
-  if (!files.length) failures.push({ file: dir, reason: 'no m-*.json files' });
-  return { files, failures };
+  if (!files.length) failures.push({ file: dir, reason: 'b: no m-*.json files' });
+  return { files, failures, skipped };
 }
 // Pushes N odd trajectories through trajectory → normalize → save (old files through exportTrajectory) and writes them to `dir`.
 export async function fuzz(dir, { n = 200, seed = 114 } = {}) {
@@ -180,9 +189,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const usage = 'Usage: node scripts/check-atif.mjs <folder> | --diff <folder> | --fuzz <folder> [--n 200] [--seed 114]';
   if (args.includes('--diff')) {
     if (!flag('--diff')) throw new Error(usage);
-    const { files, failures } = await diff(resolve(flag('--diff')));
+    const { files, failures, skipped } = await diff(resolve(flag('--diff')));
     for (const failure of failures) console.error(`${failure.file}: ${failure.reason}`);
-    console.log(`${files.length} compared; ${failures.length} mismatches`);
+    console.log(`${files.length} compared; ${failures.length} mismatches; ${skipped} skipped (integer beyond 2^53)`);
     process.exitCode = failures.length ? 1 : 0;
   } else if (args.includes('--fuzz')) {
     if (!flag('--fuzz')) throw new Error(usage);

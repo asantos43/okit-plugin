@@ -14,6 +14,162 @@ const context = { session_id: 'atif', model: 'example-model' };
 // | Harbor corpus | Must pass | Must refuse |
 // | models | all optional fields, nulls, empty collections, multimodal, recursive children | unknown fields, bad content/ref shapes, zero-call metrics |
 const fixtureDir = new URL('./fixtures/atif-valid/', import.meta.url);
+// | Review 8 | Must pass | Must refuse |
+// | integers | safe integer boundaries; finite float fields | unsafe counters, step IDs, counts and token IDs |
+// | raw identity skip | unsafe integer literals outside strings | strings, safe integers, fractional/exponent tokens |
+test('review 8: unsafe integer fields repair before normalize/save', async t => {
+  const root = await rootOf(t), base = trajectory(context, [{ message: 'Safe' }]);
+  for (const value of [1e100, 2 ** 53, -(2 ** 53)]) {
+    for (const mutate of [data => { data.final_metrics.total_steps = value; },
+      data => { data.final_metrics.total_prompt_tokens = value; },
+      data => { data.steps[0].step_id = value; }, data => { data.steps[0].llm_call_count = value; },
+      ...['prompt_tokens', 'completion_tokens', 'cached_tokens', 'prompt_token_ids', 'completion_token_ids'].map(key =>
+        data => { data.steps[0].metrics = { [key]: key.endsWith('_ids') ? [value] : value }; })]) {
+      const input = structuredClone(base); mutate(input); assert.equal(validate(input), false);
+      const output = normalize(input); assert.ok(validate(output)); await save(root, output);
+      const raw = await readFile(join(root, 'trajectory', 'okit-plugin-atif.json'), 'utf8');
+      assert.doesNotMatch(raw, /e\+/); assert.ok(validate(JSON.parse(raw)));
+    }
+  }
+  const floats = structuredClone(base);
+  Object.assign(floats.steps[0], { reasoning_effort: 1e100, metrics: { cost_usd: 1e100, logprobs: [1e100] } });
+  assert.ok(validate(floats)); assert.deepEqual(normalize(floats), floats);
+  const boundary = structuredClone(base);
+  boundary.steps[0].metrics = { prompt_tokens: Number.MAX_SAFE_INTEGER, prompt_token_ids: [-Number.MAX_SAFE_INTEGER] };
+  boundary.steps[0].llm_call_count = Number.MAX_SAFE_INTEGER;
+  assert.ok(validate(boundary)); assert.deepEqual(normalize(boundary), boundary);
+});
+test('review 8: --diff counts raw unsafe integers and keeps rules a/b/c', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'atif-unsafe-')); t.after(() => rm(dir, { recursive: true, force: true }));
+  const base = trajectory(context, [{ message: 'Safe' }]), huge = `1${'0'.repeat(100)}`;
+  const literals = [huge, `-${huge}`, '9007199254740992', '9007199254740991', '1e100', '1234567890123456.5'];
+  const verdicts = {};
+  for (const [index, literal] of literals.entries()) {
+    const name = `m-${index}.json`, data = { ...base, final_metrics: { total_cost_usd: 0 } };
+    await writeFile(join(dir, name), JSON.stringify(data).replace('"total_cost_usd":0', `"total_cost_usd":${literal}`));
+    verdicts[name] = { valid: true, strict: true };
+  }
+  await writeFile(join(dir, 'm-string.json'), JSON.stringify({ ...base, notes: `escaped " ${huge} \\ ${huge}` }));
+  verdicts['m-string.json'] = { valid: true, strict: true };
+  await writeFile(join(dir, 'm-steps.json'), JSON.stringify({ ...base, final_metrics: { total_steps: 0 } })
+    .replace('"total_steps":0', `"total_steps":${huge}`));
+  verdicts['m-steps.json'] = { valid: true, strict: true };
+  await writeFile(join(dir, 'verdicts.json'), JSON.stringify(verdicts));
+  const result = await diff(dir); assert.equal(result.skipped, 4); assert.deepEqual(result.failures, []);
+  verdicts['m-0.json'].valid = false;
+  await writeFile(join(dir, 'verdicts.json'), JSON.stringify(verdicts));
+  assert.ok((await diff(dir)).failures.some(item => item.file === 'm-0.json' && item.reason.startsWith('a:')));
+});
+// | Review 7 | Must pass | Must refuse |
+// | strict scalars | JSON integers, finite numbers, booleans | numeric strings (including >4300 digits), bool words, bools as numbers |
+test('review 7: repair lax scalars without accepting coercions', () => {
+  const base = { schema_version: 'ATIF-v1.4', agent: { name: 'a', version: '1' },
+    steps: [{ step_id: 1, source: 'agent', message: '' }] };
+  for (const value of ['1_0', ' +1_0 ', '-1_0', '10.00', true, 10.0]) {
+    const data = structuredClone(base); data.steps[0].metrics = { prompt_tokens: value };
+    assert.equal(validate(data), typeof value === 'number', String(value)); assert.ok(validate(normalize(data)));
+  }
+  for (const value of ['1_0', '  +1.5e+3  ', '.5', 'inf', '-Infinity', 'nan', false]) {
+    const data = structuredClone(base); data.steps[0].metrics = { cost_usd: value, logprobs: [value] };
+    assert.equal(validate(data), false, String(value)); assert.ok(validate(normalize(data)));
+  }
+  for (const value of ['yes', 'ON', '0', 'off', 1, 0]) {
+    const data = structuredClone(base); data.steps[0].is_copied_context = value;
+    assert.equal(validate(data), false); assert.ok(validate(normalize(data)));
+  }
+  for (const value of ['_1', '1_', '1__0', '1e3', '1.5', '9'.repeat(4301)]) {
+    const data = structuredClone(base); data.steps[0].metrics = { cached_tokens: value };
+    assert.equal(validate(data), false); assert.ok(validate(normalize(data)));
+  }
+  for (const patch of [{ is_copied_context: ' yes ' }, { model_name: 1 }]) {
+    assert.equal(validate({ ...base, steps: [{ ...base.steps[0], ...patch }] }), false);
+  }
+});
+test('review 6 class 2: preserve optional fields and empty dispatch (m-r3-787 and maximal regressions)', async () => {
+  const base = JSON.parse(await readFile(new URL('maximal-v1.7.json', fixtureDir)));
+  const required = new Set(['schema_version', 'name', 'version', 'steps', 'agent', 'step_id', 'source', 'message',
+    'results', 'tool_call_id', 'function_name', 'arguments', 'type', 'media_type', 'path']);
+  function* objects(value, path = []) {
+    if (!value || typeof value !== 'object') return;
+    if (!Array.isArray(value)) yield [value, path];
+    for (const [key, child] of Object.entries(value)) yield* objects(child, [...path, key]);
+  }
+  for (const [obj, path] of objects(base)) for (const key of Object.keys(obj).filter(key => !required.has(key))) {
+    for (const absent of [true, false]) {
+      const data = structuredClone(base), target = path.reduce((v, k) => v[k], data);
+      if (absent) delete target[key]; else target[key] = null;
+      if (validate(data)) assert.deepEqual(normalize(data), data, `${path.join('.')}.${key}`);
+    }
+  }
+  base.final_metrics.total_steps = Number.MAX_SAFE_INTEGER;
+  assert.ok(validate(base)); assert.deepEqual(normalize(base), base);
+  base.agent.unknown = true;
+  const fixed = normalize(base);
+  assert.equal(fixed.steps.length, 2); assert.deepEqual(fixed.steps[1], base.steps[1]);
+  assert.equal(fixed.final_metrics.total_steps, base.final_metrics.total_steps);
+  const moved = { agent: { name: 'a', version: '1' }, final_metrics: { total_steps: 100 }, steps: [
+    { step_id: 1, source: 'agent', message: '', tool_calls: [{ tool_call_id: 't', function_name: 'f', arguments: {} }] },
+    { step_id: 2, source: 'agent', message: '', observation: { results: [{ source_call_id: 't', content: 'ok' }] } }] };
+  const repaired = normalize(moved);
+  assert.equal(repaired.steps.length, 1); assert.equal(repaired.final_metrics.total_steps, 99);
+});
+test('review 6 class 4: reject huge token IDs (m-r3-1856,945; m-r1-533)', () => {
+  for (const key of ['prompt_token_ids', 'completion_token_ids']) {
+    const data = { agent: { name: 'a', version: '1' }, steps: [{ step_id: 1, source: 'agent', message: '',
+      metrics: { [key]: ['1_0', '9'.repeat(4301)] } }] };
+    assert.equal(validate(data), false); assert.ok(validate(normalize(data)));
+    data.steps[0].metrics[key] = [10, 1e100];
+    assert.equal(validate(data), false);
+    assert.equal(normalize(data).steps[0].metrics?.[key], undefined);
+  }
+});
+test('review 7: oversized totals and hostile scalar objects repair before saving', async t => {
+  const root = await rootOf(t);
+  for (const value of ['9'.repeat(4300), '9'.repeat(4301), '9'.repeat(4400), ' +1_000 ']) {
+    const input = { ...trajectory(context), final_metrics: { total_steps: value }, steps: [] };
+    assert.equal(validate(input), false);
+    const output = normalize(input);
+    assert.equal(output.final_metrics.total_steps, 1);
+    assert.ok(validate(output)); await save(root, output);
+  }
+  const output = normalize({ session_id: context.session_id, steps: [{ step_id: { toString: 3, valueOf: 0 }, tool_calls: [{ function_name: { toString: 3 } }] },
+    { source: 'system', metrics: { cost_usd: Number.MAX_VALUE } },
+    { source: 'system', metrics: { cost_usd: Number.MAX_VALUE } }] });
+  assert.ok(validate(output)); await save(root, output);
+});
+test('review 7: every saved-run exception regression repairs and saves', async t => {
+  const root = await rootOf(t), source = new URL('./fixtures/atif-diff/', import.meta.url);
+  assert.equal(await save(root, normalize(null)), false);
+  for (const name of (await readdir(source)).filter(name => name.startsWith('m-s'))) {
+    const output = normalize(JSON.parse(await readFile(new URL(name, source))));
+    assert.ok(validate(output), name);
+    await save(root, { ...output, session_id: context.session_id });
+  }
+});
+test('review 6 class 3: destination-aware images (m-r1-1127,1870; m-r2-1092; m-r3-1043,469,848,910,966)', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'atif-images-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(join(dir, 'exists.png'), 'image');
+  const paths = ['missing.png', 'x'.repeat(8192), join(dir, 'absent.png'), 'https://a/b', 's3://bucket/key',
+    'text://', 'odd :// value', 'data:image/png;base64,a', 'exists.png', join(dir, 'exists.png'), ''];
+  const parts = paths.map(path => ({ type: 'image', source: { media_type: 'image/png', path } }));
+  const input = { schema_version: 'ATIF-v1.4', agent: { name: 'a', version: '1' },
+    steps: [{ step_id: 1, source: 'agent', message: parts, observation: { results: [{ content: parts }] } }] };
+  assert.deepEqual(normalize(input), input);
+  const output = normalize(input, { dir });
+  for (const content of [output.steps[0].message, output.steps[0].observation.results[0].content]) {
+    for (const [index, path] of paths.entries()) {
+      const missing = [0, 1, 2, 7].includes(index);
+      assert.deepEqual(content[index], missing ? { type: 'text', text: `[image: ${path}]` } : parts[index]);
+    }
+  }
+  const root = await rootOf(t); input.session_id = 'images';
+  await save(root, input);
+  const saved = await exportTrajectory(root, 'images');
+  assert.deepEqual(saved.steps[0].message[0], { type: 'text', text: '[image: missing.png]' });
+  assert.deepEqual(saved.steps[0].message[8], { type: 'text', text: '[image: exists.png]' });
+  assert.deepEqual(saved.steps[0].message[9], parts[9]);
+});
 test('review 5 finding 1: schema_version is a literal string', () => {
   const data = trajectory(context, [{ message: 'Hello' }]);
   for (const schema_version of [['ATIF-v1.7'], {}, 7, null]) {
@@ -85,22 +241,21 @@ test('differential repairs root, agent and recursive-list mutations without thro
     }
   }
 });
-// Provisional expectations derived from Harbor-built fixtures and explicit rules;
-// regenerate this corpus with --mutate after the Director can run Harbor.
+// Immutable verdicts recorded by the Director with real Harbor 0.22.0.
 // | Corpus | Must pass | Must refuse |
 // | differential | all eight literal versions | array versions, bad dates, scalar types, unknown fields, non-agent metrics, bad IDs |
 test('seeded differential corpus checks both verdict directions and repairs every input', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'atif-diff-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const source = new URL('./fixtures/atif-diff/', import.meta.url);
-  for (const file of await readdir(source)) await writeFile(join(dir, file), await readFile(new URL(file, source)));
+  for (const file of (await readdir(source)).filter(name => name.endsWith('.json'))) await writeFile(join(dir, file), await readFile(new URL(file, source)));
   const result = await diff(dir);
-  assert.equal(result.files.length, 40); assert.deepEqual(result.failures, []);
+  assert.equal(result.files.length, 90); assert.deepEqual(result.failures, []);
   const verdicts = JSON.parse(await readFile(join(dir, 'verdicts.json')));
-  verdicts['m-0.json'].valid = false; verdicts['m-8.json'].valid = true;
+  verdicts['m-11.json'].valid = false; verdicts['m-8.json'].strict = true;
   await writeFile(join(dir, 'verdicts.json'), JSON.stringify(verdicts));
   const inverted = await diff(dir);
-  assert.ok(inverted.failures.some(item => item.file === 'm-0.json' && /disagrees/.test(item.reason)));
+  assert.ok(inverted.failures.some(item => item.file === 'm-11.json' && /^a:.*disagrees/.test(item.reason)));
   assert.ok(inverted.failures.some(item => item.file === 'm-8.json' && /disagrees/.test(item.reason)));
   assert.ok(inverted.failures.some(item => item.file === 'm-8.json' && /changed/.test(item.reason)));
 });
@@ -121,7 +276,7 @@ for (const [index, [name, fields]] of findings.entries()) {
     data.final_metrics = totals(data.steps);
     assert.deepEqual(normalize(data), data); assert.ok(validate(data)); assert.ok(readable(data));
     const root = await rootOf(t); await save(root, data);
-    assert.deepEqual(await exportTrajectory(root, 'finding'), data);
+    assert.deepEqual(await exportTrajectory(root, 'finding'), normalize(data, { dir: join(root, 'trajectory') }));
   });
 }
 for (const name of await readdir(fixtureDir)) {
@@ -150,7 +305,7 @@ test('Harbor models: optional shapes across every accepted version and model val
   assert.equal(validate({ ...base, schema_version: null }), false);
   const coerced = { agent: { name: 'a', version: '1' }, steps: [{ step_id: '1', source: 'agent', message: '',
     is_copied_context: 'yes', llm_call_count: '1', metrics: { prompt_tokens: '-2', cost_usd: '0.5', prompt_token_ids: [true, '2'] } }] };
-  assert.ok(validate(coerced)); assert.ok(readable(coerced)); assert.deepEqual(normalize(coerced), coerced);
+  assert.equal(validate(coerced), false); assert.ok(validate(normalize(coerced)));
   for (const timestamp of ['2026-11-03', '20261103', '2026-W45-2', '2026W452', '2026-11-03 10:00:00',
     '20261103T100000,1234567+00:60', '2026-11-03T10.5Z']) {
     const data = structuredClone(base); data.steps[0].timestamp = timestamp;
