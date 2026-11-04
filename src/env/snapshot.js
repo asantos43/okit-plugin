@@ -196,7 +196,8 @@ export async function environmentSnapshot(deps = {}) {
       || (quota.ageMinutes !== null && quota.ageMinutes > config.staleMinutes));
     const candidates = (installed === false ? [] : actorPairs(config, client)).map((actor) => {
       const confirmed = available.some((pair) => pair.model === actor.model && pair.effort === actor.effort);
-      const restrictions = [!confirmed && 'unconfirmed', quota.status === 'off' && 'unknown-quota',
+      // An installation nobody could confirm is not a client to launch from: the readiness says the same.
+      const restrictions = [installed === null && 'unknown-install', !confirmed && 'unconfirmed', quota.status === 'off' && 'unknown-quota',
         expired && 'expired-quota',
         quota.status === 'red' && 'low', free === 0 && 'busy'].filter(Boolean);
       return { ...actor, confirmed, restrictions, canLaunch: restrictions.length === 0 };

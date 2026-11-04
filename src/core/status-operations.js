@@ -42,7 +42,7 @@ export async function statusOperation(root, args, deps) {
     all: a.all,
     client: optionalChoice('status', a, 'client', CLIENTS),
     clients: clientsOf(config),
-    readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: root, env }),
+    readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: root, env, now: ctx.now, config }),
     now: ctx.now,
     orders: ctx.orders ?? await orderList(root),
     limits: ctx.limits ?? (ctx.snapshot ? undefined : await limitsStatus(root, config)),
@@ -79,7 +79,7 @@ export async function actorsListOperation(root, args, deps) {
   return listActors({ ...ctx, root, config, env, all: a.all,
     client: optionalChoice('actors_list', a, 'client', CLIENTS),
     locale: optionalChoice('actors_list', a, 'locale', LOCALES, config),
-    readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: root, env }),
+    readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: root, env, now: ctx.now, config }),
     now: ctx.now, cache: ctx.quotaCache, orders: ctx.orders ?? await orderList(root),
     limits: ctx.limits ?? (ctx.snapshot ? undefined : await limitsStatus(root, config)) });
 }
@@ -96,7 +96,7 @@ export async function envReportOperation(root, args, deps) {
     return { unknownClient: true, text: formatEnvironmentReport({ unknownClient: true }, locale) };
   }
   const report = await environmentReport({ ...ctx, config, env, client, locale,
-    readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: root, env }),
+    readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: root, env, now: ctx.now, config }),
     cache: ctx.quotaCache, limits: ctx.limits ?? (ctx.snapshot ? undefined : await limitsStatus(root, config)) });
   return { ...report, ...readiness(report), text: formatEnvironmentReport(report, locale) };
 }

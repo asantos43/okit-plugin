@@ -229,3 +229,53 @@ test('a broken kit row tells no reason of the kit in another language', async (t
   const kit = f.output.find((line) => line.startsWith('| Kit |'));
   assert.equal(kit, '| Kit | encontrado, mas com defeito (opcional) |');
 });
+
+test('an automatic OpenCode quota source counts the same for env_report and the doctor', async (t) => {
+  const f = await fixture(t);
+  const file = join(f.root, 'opencode-source.json');
+  const sample = { version: 1, company: 'example', source: 'test', read_at: NOW / 1000 - 60,
+    five_hour: { remaining_percent: 80, reset_at: NOW / 1000 + 3600 }, weekly: { remaining_percent: 70, reset_at: null } };
+  await fs.writeFile(file, JSON.stringify(sample));
+  const { readQuota, ...rest } = readings({ installed: { ...OFF, opencode: true } });
+  const deps = { ...rest, config: { ...rest.config, opencodeQuota: { sources: { example: { file } } } } };
+  const report = await envReportOperation(f.root, {}, deps);
+  const snapshot = async (extra) => environmentSnapshot({ ...deps, root: f.root, record: false, limits: extra.limits });
+  const result = await diagnose({ ...f.io, root: f.root, records: [], ui: createPresenter({ locale: 'en', write: () => {} }),
+    readers: readersOf(snapshot) });
+  assert.equal(report.ready, true);
+  assert.deepEqual(report.gaps, []);
+  assert.equal(result.ready, report.ready);
+  assert.deepEqual(result.gaps, report.gaps);
+});
+
+test('a client whose installation is not known cannot launch an actor, as the readiness says', async () => {
+  const base = readings({ installed: { ...OFF, codex: null } });
+  const snapshot = await environmentSnapshot({ ...base, versions: {},
+    detectClients: async () => ({ clients: [{ client: 'codex', installed: null, models: ['m'], source: 'listing' }] }) });
+  const codex = snapshot.clients.find((row) => row.client === 'codex');
+  assert.equal(codex.installed, null);
+  assert.ok(codex.candidates.length > 0);
+  assert.ok(codex.candidates.every((actor) => !actor.canLaunch && actor.restrictions.includes('unknown-install')));
+  assert.deepEqual(readiness(snapshot), { ready: false, gaps: everySize('no-client') });
+  for (const locale of ['en', 'pt-BR']) {
+    const { actors } = await listActors({ snapshot, locale, client: 'codex' });
+    assert.ok(actors.length > 0 && actors.every((actor) => !actor.canLaunch));
+    assert.ok(actors.every((actor) => actor.reasons.every(Boolean)));
+  }
+});
+
+test('an unreadable MCP entry gives its reason in the language of the doctor', async (t) => {
+  const f = await fixture(t);
+  const record = { client: 'claude-code', version: '1.0.0', path: '/opt/okit-plugin/1.0.0-claude-code', bin: 'okit-plugin',
+    link: true, autostart: false, settings: { node: '/usr/bin/node' } };
+  const rows = {};
+  for (const locale of ['en', 'pt-BR']) {
+    const result = await diagnose({ ...f.io, root: f.root, records: [record], ui: createPresenter({ locale, write: () => {} }),
+      readers: readersOf(async () => readySnapshot(), { state: 'absent' },
+        { mcpEntry: async () => ({ state: 'unreadable', reason: 'permission denied' }) }) });
+    rows[locale] = result.rows.find((row) => row.id === 'registration');
+  }
+  assert.match(rows.en.detail, /\(permission denied\)/);
+  assert.match(rows['pt-BR'].detail, /\(permissão negada\)/);
+  assert.doesNotMatch(rows['pt-BR'].detail, /permission denied/);
+});

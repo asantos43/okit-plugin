@@ -395,7 +395,7 @@ async function registrationRow(record, { deps, readers, settings, platform, comm
       fix: ui.text('doctorFixRegistration', { command, name: client, client: quotedWord(record.client, platform) }) };
   }
   if (state?.state === 'unreadable') {
-    return { ...base, status: 'warn', detail: ui.text('doctorRegistrationUnreadable', { client, reason: state.reason ?? '' }) };
+    return { ...base, status: 'warn', detail: ui.text('doctorRegistrationUnreadable', { client, reason: localizeReason(state.reason ?? '', ui.locale) }) };
   }
   return { ...base, status: 'skipped', detail: ui.text('doctorRegistrationNone') };
 }
