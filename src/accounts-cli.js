@@ -40,7 +40,7 @@ export async function accountCommand(ctx, action, args) {
     const rows = await Promise.all((client ? [client] : CLIENTS).flatMap((id) => accountsOf(raw, id))
       .map((account) => describe(account, raw)));
     if (json) ctx.out(JSON.stringify(rows));
-    else rows.forEach((row) => ctx.out(presentAccount(row)));
+    else rows.forEach((row) => ctx.out(presentAccount(row, ctx.locale)));
     return exitCodeFor('ok');
   }
   try {
@@ -59,7 +59,7 @@ export async function accountCommand(ctx, action, args) {
       if (action === 'add') {
         const account = accountsOf(next, client).at(-1);
         const row = await describe(account, next);
-        ctx.out(presentAccount(row));
+        ctx.out(presentAccount(row, ctx.locale));
         accountInstructions(row, ctx).forEach(ctx.out);
       } else ctx.out(accountChanged(action, ctx.locale));
       return exitCodeFor('ok');

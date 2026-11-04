@@ -86,8 +86,9 @@ test('logged-out account restricts candidates and environment warning never expo
   const [personal, work] = snapshot.clients[0].accounts;
   assert.equal(work.login, 'logged-out');
   assert.ok(work.candidates.every((actor) => !actor.canLaunch && actor.restrictions.includes('not-logged-in')));
-  assert.deepEqual(work.warnings, personal.warnings);
-  assert.deepEqual(work.warnings.map((warning) => warning.variable), ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']);
+  // The warnings of the environment belong to the client: they ride on the default's row, once.
+  assert.deepEqual(work.warnings, []);
+  assert.deepEqual(personal.warnings.map((warning) => warning.variable), ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']);
   assert.equal(readiness(snapshot).accounts[0].ready, 0);
   for (const locale of ['en', 'pt-BR']) {
     const text = formatEnvironmentReport(snapshot, locale);

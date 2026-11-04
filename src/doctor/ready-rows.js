@@ -1,5 +1,5 @@
 import { readiness } from '../env/ready.js';
-import { accountRows, shownWarnings, warningText } from '../env/account-rows.js';
+import { accountRows, loginWord, shownWarnings, warningText } from '../env/account-rows.js';
 
 // The rows of the doctor that answer "can the executors be launched?": the models and the quota of each client that is
 // installed, the status bar collector and the kit. They are told from the environment snapshot, which the doctor takes
@@ -52,7 +52,7 @@ export function readinessRows({ snapshot, kit, ui, program }) {
     if (row.account) {
       rows.push({ id: 'login', client: row.client, ...account, label: 'Login',
         status: row.login === 'logged-out' ? 'warn' : row.login === 'unknown' ? 'skipped' : 'ok',
-        detail: ui.locale === 'pt-BR' ? ({ 'logged-in': 'conectada', 'logged-out': 'deslogada', unknown: 'desconhecido' })[row.login] : row.login });
+        detail: loginWord(row.login, ui.locale) });
     }
     for (const warning of shownWarnings(row)) rows.push({ id: warning.code, client: row.client, ...account,
       label: ui.locale === 'pt-BR' ? 'Aviso' : 'Warning', status: 'warn', detail: warningText(warning, ui.locale) });

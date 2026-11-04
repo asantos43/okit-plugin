@@ -1,5 +1,5 @@
 import { capOf } from '../limits.js';
-import { accountsOf, accountEnv } from '../accounts.js';
+import { accountsOf, accountEnv, accountFiles } from '../accounts.js';
 import { loginState, accountWarnings } from '../accounts-login.js';
 import { configOf, DEFAULT_CONFIG, normalizeLimits } from '../profiles.js';
 import { setupPending } from './configuration.js';
@@ -21,11 +21,19 @@ import { STATUSLINE_FILE } from '../quota/statusline-collector.js';
 const exec = promisify(execFile);
 const READING_CACHE = new Map();
 
-// Whether the collector has written a reading yet: null when this cannot be told (no state folder, or the file system refused).
-async function readingReceived(deps) {
+// Whether the collector has written a reading yet, for any account of the client: null when this cannot be told (no
+// state folder, or the file system refused and no file was found).
+async function readingReceived(deps, config, client) {
   if (!deps.root) return null;
-  try { await (deps.fs ?? filesystem).stat(join(paths(deps.root).quota, STATUSLINE_FILE)); return true; }
-  catch (error) { return ['ENOENT', 'ENOTDIR'].includes(error?.code) ? false : null; }
+  let unknown = false;
+  const names = [STATUSLINE_FILE];
+  try { for (const account of accountsOf(config, client)) names.push(accountFiles(client, account.id).statusline); }
+  catch { /* a client without accounts has the default's file only */ }
+  for (const name of new Set(names)) {
+    try { await (deps.fs ?? filesystem).stat(join(paths(deps.root).quota, name)); return true; }
+    catch (error) { if (!['ENOENT', 'ENOTDIR'].includes(error?.code)) unknown = true; }
+  }
+  return unknown ? null : false;
 }
 
 async function statuslineState(deps, config, command) {
@@ -41,7 +49,7 @@ async function statuslineState(deps, config, command) {
       && collectorCommandIndex(value.statusLine.command, settings, { ...config.install, command }) > 0;
   } catch (error) { if (error.code === 'ENOENT') active = false; }
   return { active, path, command: `${command} install --client ${settings.client} --statusline`,
-    received: active === true ? await readingReceived(deps) : null };
+    received: active === true ? await readingReceived(deps, config, settings.client) : null };
 }
 
 async function withTimeout(pending, milliseconds) {
@@ -197,8 +205,10 @@ export async function environmentSnapshot(deps = {}) {
     const accountRows = accounts.map((account) => {
     const target = { client, ...account.isDefault ? {} : { account: account.id } };
     const login = logins.get(account.key);
-    const warnings = accountWarnings(client, deps.env, { config, platform: deps.platform,
-      home: deps.home ?? homeOf(deps.env, deps.platform) ?? homedir() });
+    // Every warning of the environment (the folder variable, the credential variables) belongs to the client, not
+    // to an account: it rides on the default's row, so a client with N accounts shows it once.
+    const warnings = account.isDefault ? accountWarnings(client, deps.env, { config, platform: deps.platform,
+      home: deps.home ?? homeOf(deps.env, deps.platform) ?? homedir() }) : [];
     const reading = account.isDefault ? detected.clients.find((entry) => entry.client === client) : observations.get(account.key);
     const installed = (account.isDefault ? deps.versions?.[client]?.installed : undefined) ?? reading?.installed ?? null;
     // Saved setup choices belong to the default; extras need their own confirmed listing.

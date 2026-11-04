@@ -6,10 +6,12 @@ import { quotedWord, shown as shownCommand } from './install/mcp-register.js';
 import { EPHEMERAL, isEphemeral, programWords } from './install/where.js';
 import { flagsOf } from './install/flags.js';
 import { readyLine } from './env/ready.js';
+import { loginWord } from './env/account-rows.js';
 import { commandToken, hasCommand, resolveTokens } from './install/command-token.js';
 export * from './install/present.js';
 
-export const presentAccount = (row) => [row.client, row.id, row.label, row.configDir ?? 'default', row.login].join('\t');
+export const presentAccount = (row, locale) => [row.client, row.id, row.label, row.configDir ?? 'default',
+  loginWord(row.login, locale)].join('\t');
 export const accountChanged = (action, locale) => action === 'remove'
   ? (locale === 'pt-BR' ? 'Conta removida da configuração. A pasta e o login permanecem.' : 'Account removed from configuration. The folder and login remain.')
   : (locale === 'pt-BR' ? 'Conta renomeada. O id e o histórico permanecem.' : 'Account renamed. The id and history remain.');

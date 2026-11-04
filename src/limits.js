@@ -2,7 +2,7 @@
 // instead of trusting the client to hold the cap.
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { requireAccount, accountsOf } from './accounts.js';
+import { requireAccount, accountsOf, accountKey } from './accounts.js';
 
 import { DEFAULT_CONFIG, configOf } from './profiles.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
@@ -48,11 +48,14 @@ async function readLiveRuns(root, staleMinutes) {
   return runs;
 }
 
-// A hand-edited run file may carry a client or account the model refuses: it still counts, under its bare client.
+// A run with no account is the default's. A run of an account that is not (or no longer) saved keeps its own key, so it
+// never takes a slot of a saved account; a hand-edited run that carries a client or account id the model refuses
+// still counts, under its bare client.
 function keyOfRun(run, config) {
   const client = run.client ?? 'unknown';
   if (run.account === undefined) return client;
-  try { return requireAccount(config, run.client, run.account).key; } catch { return client; }
+  try { return requireAccount(config, run.client, run.account).key; } catch { /* not saved: its own key, below */ }
+  try { return accountKey(run.client, run.account); } catch { return client; }
 }
 
 function tally(runs, config) {

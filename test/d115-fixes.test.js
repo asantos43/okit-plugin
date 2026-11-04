@@ -23,7 +23,7 @@ import { configSet } from '../src/core/config.js';
 import { localizeReason, powershellLiteral } from '../src/install/present.js';
 import { accountInstructions } from '../src/cli-present.js';
 import { quotedWord } from '../src/install/mcp-register.js';
-import { collectStatusline } from '../src/quota/statusline-collector.js';
+import { collectStatusline, statuslineCommand } from '../src/quota/statusline-collector.js';
 import { paths } from '../src/store.js';
 import { EventEmitter } from 'node:events';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -514,14 +514,14 @@ test('round 2: every account input refuses a valid but unknown slug', async (t) 
   assert.deepEqual((await limitsStatus(root, config)).byClient, {});
 });
 
-test('round 2: unknown saved run accounts consume the bare client cap', async (t) => {
+test('round 2: unknown saved run accounts never consume the slots of a saved account (round 8: nor the default\'s)', async (t) => {
   const root = await temporary(t);
   const config = { accounts, limits: { clients: { [client]: 1 } } };
   await fs.mkdir(join(root, 'runs'));
   await fs.writeFile(join(root, 'runs/ghost.json'), JSON.stringify({ client, account: 'ghost-a', status: 'live' }));
-  assert.deepEqual((await limitsStatus(root, config)).byClient, { [client]: 1 });
-  assert.equal((await canSpawn(root, { client, config })).ok, false);
-  assert.equal((await acquireSlot(root, 'default', { client, config })).ok, false);
+  assert.deepEqual((await limitsStatus(root, config)).byClient, { [`${client}:ghost-a`]: 1 });
+  assert.equal((await canSpawn(root, { client, config })).ok, true);
+  assert.equal((await acquireSlot(root, 'default', { client, config })).ok, true);
   assert.equal((await canSpawn(root, { client, account: 'work', config })).ok, true);
 });
 
@@ -983,4 +983,124 @@ test('round 7: Codex warns by CODEX_HOME and the sessions of the default ignore 
   assert.deepEqual(accountWarnings('codex', env, { config: {}, platform: 'linux', home: root }), []);
   assert.deepEqual(accountWarnings('codex', { HOME: root, CODEX_HOME: join(root, 'spare') },
     { config: saved, platform: 'linux', home: root }), []);
+});
+
+// | Round 8 | Must pass | Must refuse |
+// | Collector | settings missing = no accounts; folder variable + unreadable settings = nothing written | the default's file taking another account's reading |
+// | Warnings | one per client (the default's row), however many accounts | the same warning N times |
+// | Collector received | any account's statusline file | only the default's file |
+// | Human login | pt-BR words in `account list`/`add`; --json raw | raw English token in pt-BR |
+// | Orphan run | its own key; no slot of a saved account | counted against the default |
+
+const exists = (file) => fs.stat(file).then(() => true, () => false);
+
+test('round 8: an unreadable config.json with the folder variable set writes no reading', async (t) => {
+  const input = statuslineInput(50), run = async () => Buffer.from('bar');
+  for (const [name, prepare] of [
+    ['invalid JSON', (file) => fs.writeFile(file, '{ nope')],
+    ['a directory', (file) => fs.mkdir(file)],
+  ]) {
+    const root = await temporary(t), quota = paths(root).quota;
+    await prepare(join(root, 'config.json'));
+    const out = [];
+    await statuslineCommand(['--previous', 'echo'], { root, stdin: [input], run, stdout: (bytes) => out.push(Buffer.from(bytes)),
+      now: () => 1800000000000, env: { CLAUDE_CONFIG_DIR: '/work' } });
+    assert.equal(Buffer.concat(out).toString(), 'bar', `${name}: the bar still answers`);
+    assert.equal(await exists(join(quota, 'claude-code-statusline.json')), false, `${name}: not in the default's file`);
+    assert.equal(await exists(join(quota, 'claude-code-statusline.work.json')), false, name);
+    // Without the folder variable the reading is the default's, as it always was.
+    await statuslineCommand(['--previous', 'echo'], { root, stdin: [input], run, stdout() {}, now: () => 1800000000000, env: {} });
+    assert.equal(await exists(join(quota, 'claude-code-statusline.json')), true, `${name}: no variable`);
+  }
+  // Only a missing file means "no accounts saved": the folder variable is honored as before.
+  const root = await temporary(t);
+  await statuslineCommand(['--previous', 'echo'], { root, stdin: [statuslineInput(50)], run, stdout() {},
+    now: () => 1800000000000, env: { CLAUDE_CONFIG_DIR: '/work' } });
+  assert.equal(await exists(join(paths(root).quota, 'claude-code-statusline.json')), true);
+});
+
+test('round 8: collectStatusline given an unreadable config writes nothing for a named folder', async (t) => {
+  const root = await temporary(t);
+  await collectStatusline({ stateRoot: root, config: {}, unreadable: true, now: () => 1800000000000,
+    input: statuslineInput(50), env: { CLAUDE_CONFIG_DIR: '/work' } });
+  assert.equal(await exists(paths(root).quota), false);
+});
+
+test('round 8: the warnings of the environment show once per client, however many accounts it has', async (t) => {
+  const root = await temporary(t);
+  const config = { ...round6Config(root), accounts: { 'claude-code': [
+    { id: 'work', label: 'Work', configDir: join(root, 'work') }, { id: 'spare', label: 'Spare', configDir: join(root, 'spare') }] } };
+  const env = { HOME: root, CLAUDE_CONFIG_DIR: join(root, 'unknown'), ANTHROPIC_API_KEY: 'x' };
+  const snapshot = await environmentSnapshot({ ...round6Deps(config, root), env });
+  assert.equal(snapshot.clients[0].accounts.length, 3);
+  assert.deepEqual(snapshot.clients[0].accounts.map((account) => account.warnings.map(({ code }) => code)),
+    [['env-credential-overrides-login', 'config-dir-unregistered'], [], []]);
+  for (const locale of ['en', 'pt-BR']) {
+    const rows = readinessRows({ snapshot, ui: { locale }, program: 'okit-plugin' }).rows;
+    for (const id of ['config-dir-unregistered', 'env-credential-overrides-login']) {
+      assert.equal(rows.filter((row) => row.id === id).length, 1, `${locale}: ${id}`);
+    }
+    const [folder, credential] = locale === 'en' ? ['Register that folder as an account', 'overrides the stored login']
+      : ['Cadastre essa pasta como uma conta', 'sobrepõe o login guardado'];
+    const { capacityLine } = await statusTable('', { snapshot, all: true, demands: [], locale });
+    for (const text of [formatEnvironmentReport(snapshot, locale), capacityLine]) {
+      assert.equal(text.split(folder).length - 1, 1, text);
+      assert.equal(text.split(credential).length - 1, 1, text);
+    }
+  }
+});
+
+test('round 8: the collector counts as active-with-reading when ANY account of the client has its statusline file', async () => {
+  const config = { accounts: { 'claude-code': [{ id: 'work', label: 'Work', configDir: '/work' }, { id: 'spare', label: 'Spare', configDir: '/spare' }] } };
+  const settings = JSON.stringify({ statusLine: { type: 'command', command: 'okit-plugin statusline-collector' } });
+  const reading = async (present) => {
+    const asked = [];
+    const stat = async (path) => {
+      asked.push(path);
+      if (present.some((name) => path.endsWith(name))) return { isFile: () => true };
+      throw Object.assign(new Error(), { code: 'ENOENT' });
+    };
+    const snapshot = await environmentSnapshot({ ...observation(config), root: '/state', cache: new Map(),
+      fs: { stat, readFile: async () => settings } });
+    return snapshot.plugin.statusline.received;
+  };
+  assert.equal(await reading(['claude-code-statusline.spare.json']), true);
+  assert.equal(await reading(['claude-code-statusline.json']), true);
+  assert.equal(await reading([]), false);
+});
+
+test('round 8: account list and add speak the login in pt-BR; --json stays raw', async (t) => {
+  const root = await temporary(t), folder = join(root, 'work');
+  await fs.writeFile(join(root, 'config.json'), JSON.stringify({
+    accounts: { 'claude-code': [{ id: 'work', label: 'Work', configDir: folder }] } }));
+  const run = async (args) => {
+    const lines = [];
+    assert.equal(await main(args, { root, env: { HOME: root }, stdout: (line) => lines.push(line), stderr() {} }), 0);
+    return lines;
+  };
+  const human = { en: await run(['account', 'list', 'claude-code']), 'pt-BR': await run(['account', 'list', 'claude-code', '--locale', 'pt-BR']) };
+  assert.match(human.en.at(-1), /\tlogged-out$/);
+  assert.match(human['pt-BR'].at(-1), /\tdeslogada$/);
+  assert.doesNotMatch(human['pt-BR'].join('\n'), /logged-(in|out)|\bunknown\b/);
+  assert.equal(JSON.parse((await run(['account', 'list', 'claude-code', '--json', '--locale', 'pt-BR']))[0]).at(-1).login, 'logged-out');
+  const added = await run(['account', 'add', 'claude-code', 'Spare', '--config-dir', join(root, 'spare'), '--locale', 'pt-BR']);
+  assert.match(added[0], /\tdeslogada$/);
+  assert.doesNotMatch(added[0], /logged-out/);
+});
+
+test('round 8: a run of an account that is not saved takes no slot of the default or of a saved account', async (t) => {
+  const root = await temporary(t);
+  const config = { accounts, limits: { clients: { [client]: 1 } } };
+  await fs.mkdir(join(root, 'runs'));
+  for (const [name, run] of [
+    ['gone', { client, account: 'gone', status: 'live' }],
+    ['plain', { client, status: 'live' }],
+  ]) await fs.writeFile(join(root, `runs/${name}.json`), JSON.stringify({ ...run, runId: name, startedAt: Date.now() }));
+  const status = await limitsStatus(root, config);
+  assert.equal(status.byClient[client], 1, 'a run with no account is the default\'s');
+  assert.equal(status.byClient[`${client}:gone`], 1, 'the removed account keeps its own key');
+  assert.equal(status.byClient[`${client}:work`], undefined);
+  assert.equal(status.live, 2);
+  assert.deepEqual((await limitsStatus(root, config, { client, account: 'work' })).byClient, { [`${client}:work`]: 0 });
+  assert.equal((await canSpawn(root, { client, account: 'work', config })).ok, true);
 });

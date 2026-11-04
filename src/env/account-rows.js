@@ -6,6 +6,11 @@ export function accountRows(rows = []) {
   })) : [row]);
 }
 
+const LOGIN_WORDS = { 'pt-BR': { 'logged-in': 'conectada', 'logged-out': 'deslogada', unknown: 'desconhecido' } };
+
+/** The login state as a person reads it: translated for pt-BR, the raw token otherwise (and in JSON, which never calls this). */
+export const loginWord = (state, locale) => LOGIN_WORDS[locale]?.[state] ?? state;
+
 export const accountName = (row) => row.accountLabel ? `${row.client}: ${row.accountLabel}` : row.client;
 
 /** The warnings of a row: every one for an account of a list, only the folder warning for a lone account. */

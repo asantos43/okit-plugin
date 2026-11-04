@@ -155,7 +155,7 @@ export function runPrevious({ command, args, input, timeoutMs, maxOutputBytes })
 
 /** Collection must never prevent the user's bar from running. Output stays binary. */
 export async function collectStatusline({ input, previous, stateRoot, run = runPrevious,
-  now = Date.now, config, env = process.env, platform = process.platform,
+  now = Date.now, config, unreadable = false, env = process.env, platform = process.platform,
   home = homeOf(env, platform) ?? '' } = {}) {
   previous ??= Array.isArray(config?.statuslineCollector?.previous)
     ? config.statuslineCollector.previous : undefined;
@@ -170,7 +170,9 @@ export async function collectStatusline({ input, previous, stateRoot, run = runP
         // The folder of the default account is the one the client uses with no override: the default has no
         // folder saved with it, so the folder of the environment that names it is the default's own.
         const defaultDir = defaultFolderOf('claude-code', { config, env, platform, home });
-        const account = accountOfConfigDir({ client: 'claude-code', config, env, platform, defaultDir });
+        // With the folder variable set and the settings unreadable, the account of the folder is unknown: nothing.
+        const account = unreadable && env.CLAUDE_CONFIG_DIR ? null
+          : accountOfConfigDir({ client: 'claude-code', config, env, platform, defaultDir });
         // A folder that names no account writes nothing: the reading of one account never overwrites another's.
         if (account) {
           await writeJsonAtomic(join(paths(stateRoot).quota, accountFiles(account.client, account.id).statusline),
@@ -196,7 +198,10 @@ export function collectorArgsValid(argv) {
 export async function statuslineCommand(argv, io = {}) {
   try {
     const root = io.root ?? defaultRoot(io.env);
-    const config = await readJson(paths(root).config, {}).catch(() => ({}));
+    // Only a missing file means "no accounts saved"; a file that cannot be read says nothing about which account
+    // a folder belongs to, so the reading of that folder is not written (the bar itself still runs).
+    let unreadable = false;
+    const config = await readJson(paths(root).config, {}).catch(() => { unreadable = true; return {}; });
     let settings;
     try { settings = configOf(config).statuslineCollector; }
     catch { settings = configOf().statuslineCollector; }
@@ -216,7 +221,7 @@ export async function statuslineCommand(argv, io = {}) {
     }
     if (size > settings.maxInputBytes) return 0;
     const output = await collectStatusline({ input: Buffer.concat(chunks), previous,
-      stateRoot: root, run: io.run, now: io.now, config, env: io.env ?? process.env, platform: io.platform });
+      stateRoot: root, run: io.run, now: io.now, config, unreadable, env: io.env ?? process.env, platform: io.platform });
     (io.stdout ?? ((bytes) => process.stdout.write(bytes)))(output);
   } catch { /* No diagnostics on a status bar. */ }
   return 0;
