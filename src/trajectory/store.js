@@ -56,6 +56,8 @@ export function capped(data, config) {
   const limit = Math.min(config.maxFileBytes, config.maxBytes);
   let size = bytes(data);
   if (size <= limit) return data;
+  rememberClocks(data); // Retain observed clocks only when a cap can remove steps.
+  size = bytes(data);
   // Approximate deltas can miss indentation. Bound full-file confirmations per phase.
   let confirmations = 3;
   const fits = () => {
@@ -142,6 +144,23 @@ export function capped(data, config) {
   }
   return data;
 }
+// The contract of the merge, in one place:
+// - group by [source, timestamp]; reserve exact message/call-ID occurrences
+//   before comparing prefixes or cut versions, then use group position;
+//   different nonempty call IDs or incompatible messages remain separate;
+// - the backbone: the longer sequence of steps wins; equal lengths use the
+//   canonical JSON text of the steps, never the order of the saves;
+// - ambiguity: without identity, keep both; this can retain duplicates.
+//   Distinct events without a common clock use canonical, not chronological, order.
+// - the winner of a position: the whole step with more content (message,
+//   reasoning, calls, results, usage, extra), then more bytes, then the
+//   canonical text; a step with the cut marker loses to the same step whole;
+//   a message that moved leaves no duplicate tail;
+// - the numbers: step_id is assigned from 1 after the merge, so it is display
+//   order only; the steps and the usage totals are the same in either order;
+// - the metadata: the latest observed timestamp wins the scalar fields and
+//   canonical scalar metadata breaks clock ties, independently of cut steps; maps keep the
+//   keys of both captures and the child runs merge by their trajectory ID.
 // step_id is output numbering, never identity across captures.
 const canonical = value => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
   ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item) ?? '';
@@ -168,8 +187,9 @@ const stepParts = item => {
 const stepText = item => canonical({ ...item, step_id: undefined });
 // The richer step wins its position: more content parts, then more bytes, then
 // the canonical text, so the answer never depends on the order of the saves.
-export function richer(left, right, marker = defaultMarker) {
-  const cutLeft = truncated(left, marker), cutRight = truncated(right, marker);
+export function richer(left, right, marker = defaultMarker, cuts) {
+  const cutLeft = cuts ? cuts.get(left) : truncated(left, marker);
+  const cutRight = cuts ? cuts.get(right) : truncated(right, marker);
   if (cutLeft !== cutRight) return !cutLeft;
   const parts = stepParts(left) - stepParts(right);
   if (parts !== 0) return parts > 0;
@@ -177,8 +197,21 @@ export function richer(left, right, marker = defaultMarker) {
   if (size !== 0) return size > 0;
   return stepText(left) > stepText(right);
 }
-const identity = item => item.timestamp != null ? canonical([item.source, item.timestamp])
-  : canonical([item.source, item.message, item.message ? null : item.tool_calls?.map(call => call.tool_call_id)]);
+const identity = item => canonical([item.source, item.timestamp ?? null]);
+const callIds = item => (item.tool_calls ?? []).map(call => call.tool_call_id);
+const signature = item => canonical([item.message ?? '', callIds(item)]);
+const prefixOf = (a, b) => a.length <= b.length && a.every((id, index) => id === b[index]);
+function compatible(left, right, cuts) {
+  if (left.timestamp != null && right.timestamp != null && left.timestamp !== right.timestamp) return false;
+  const a = callIds(left), b = callIds(right);
+  if (!prefixOf(a, b) && !prefixOf(b, a)) return false;
+  if (cuts.get(left) || cuts.get(right)) return true;
+  if (left.source !== right.source) return false;
+  if (a.length && b.length) return true; // Stable call IDs identify partial call versions.
+  const x = left.message ?? '', y = right.message ?? '';
+  return typeof x === 'string' && typeof y === 'string'
+    ? x.startsWith(y) || y.startsWith(x) : canonical(x) === canonical(y);
+}
 // Keep the longer sequence as the backbone; ties use content, never save order.
 // Match occurrences globally so reordered messages cannot leave a duplicate tail.
 export function mergeSteps(existing = [], incoming = [], marker = defaultMarker) {
@@ -186,34 +219,49 @@ export function mergeSteps(existing = [], incoming = [], marker = defaultMarker)
   if (base.length < other.length || base.length === other.length && canonical(base.map(stepText)) < canonical(other.map(stepText))) {
     [base, other] = [other, base];
   }
-  const output = base.map(item => ({ ...item })), queues = new Map(), used = new Set(), unmatched = [];
+  const output = [...base], groups = new Map(), queues = new Map(), used = new Set(), unmatched = [];
+  const cuts = new Map([...base, ...other].map(item => [item, truncated(item, marker)]));
   base.forEach((item, index) => {
-    const key = identity(item);
+    const group = identity(item), key = canonical([group, signature(item)]);
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(index);
     if (!queues.has(key)) queues.set(key, { indices: [], next: 0 });
     queues.get(key).indices.push(index);
   });
   for (const item of other) {
-    const queue = queues.get(identity(item)), index = queue?.indices[queue.next++];
+    const queue = queues.get(canonical([identity(item), signature(item)])), index = queue?.indices[queue.next++];
     if (index === undefined) { unmatched.push(item); continue; }
     used.add(index);
-    if (richer(item, output[index], marker)) output[index] = { ...item };
+    if (richer(item, output[index], marker, cuts)) output[index] = item;
   }
-  return alignUnmatched(output, unmatched, used, marker);
+  return alignUnmatched(output, unmatched, groups, used, cuts, marker);
 }
-function alignUnmatched(output, unmatched, used, marker) {
-  const free = output.map((_item, index) => index).filter(index => !used.has(index));
-  let next = 0;
-  for (const item of unmatched) {
-    const index = free[next], kept = output[index];
-    // Distinct timestamps are distinct events. Without that evidence, align
-    // remaining occurrences in sequence; a rewritten transcript replaces slots.
-    if (kept === undefined || kept.timestamp != null && item.timestamp != null
-      && !truncated(kept, marker) && !truncated(item, marker)) {
-      output.push({ ...item }); continue;
+function alignUnmatched(output, unmatched, groups, used, cuts, marker) {
+  // Exact matches are reserved first. Bound all remaining candidate visits,
+  // including used slots: O(n+m) visits plus input payload processing.
+  let budget = 8 * (output.length + unmatched.length);
+  const pending = [];
+  const match = (item, indices, cutOnly = false) => {
+    for (const index of indices) {
+      if (--budget < 0) return false;
+      const kept = output[index];
+      if (used.has(index) || cutOnly && !cuts.get(item) && !cuts.get(kept)) continue;
+      // Charge prefix comparisons by their payload too, not just candidate count.
+      const cut = cuts.get(item) || cuts.get(kept);
+      budget -= (cut ? 0 : Math.min(item.message?.length ?? 1, kept.message?.length ?? 1))
+        + (item.tool_calls?.length ?? 0) + (kept.tool_calls?.length ?? 0);
+      if (budget < 0) return false;
+      if (!compatible(item, kept, cuts)) continue;
+      used.add(index);
+      if (richer(item, kept, marker, cuts)) output[index] = item;
+      return true;
     }
-    next++;
-    if (richer(item, kept, marker)) output[index] = { ...item };
-  }
+    return false;
+  };
+  for (const item of unmatched) if (!match(item, groups.get(identity(item)) ?? [])) pending.push(item);
+  const free = output.map((_item, index) => index).filter(index => !used.has(index));
+  // Old capped steps can have source=system; only cut versions cross groups.
+  for (const item of pending) if (budget < 0 || !match(item, free, true)) output.push(item);
   return output.map((item, index) => ({ ...item, step_id: index + 1 }));
 }
 const totalKeys = ['total_prompt_tokens', 'total_completion_tokens', 'total_cached_tokens', 'total_cost_usd'];
@@ -227,27 +275,47 @@ function mergedTotals(steps, stored) {
   }
   return result;
 }
-// Latest observed event wins scalar metadata; canonical text breaks ties when
-// captures have no clock. Thus incoming means the later snapshot, not lock order.
-const runTime = run => (run?.steps ?? []).reduce((time, item) => Math.max(time, Date.parse(item.timestamp) || 0), 0);
+// Clock ties compare scalar identity metadata only: cap changes to steps,
+// totals, notes and free-form payloads cannot change the metadata winner.
+const runTime = run => (run?.steps ?? []).reduce((time, item) => Math.max(time, Date.parse(item.timestamp) || 0),
+  Number.isFinite(run?.extra?.trajectory_merge_clock) ? run.extra.trajectory_merge_clock : 0);
+function rememberClocks(run) {
+  const pending = [run];
+  while (pending.length) {
+    const item = pending.pop(), time = runTime(item);
+    if (time > 0) ownData(item.extra ??= {}, 'trajectory_merge_clock', time);
+    pending.push(...(item.subagent_trajectories ?? []));
+  }
+}
+const metadataKey = run => canonical([run?.schema_version, run?.session_id, run?.trajectory_id,
+  run?.continued_trajectory_ref, run?.agent?.name, run?.agent?.version, run?.agent?.model_name]);
 function unionMap(left, right) {
   const result = { ...left };
   for (const [key, value] of Object.entries(right ?? {})) {
     const old = result[key];
     ownData(result, key, old && value && typeof old === 'object' && typeof value === 'object'
-      && !Array.isArray(old) && !Array.isArray(value) ? unionMap(old, value) : value);
+      && !Array.isArray(old) && !Array.isArray(value) ? unionMap(old, value)
+        : Object.hasOwn(result, key) && canonical(old) > canonical(value) ? old : value);
   }
   return result;
 }
 export function mergeRuns(existing, incoming, marker = defaultMarker) {
   if (runTime(existing) > runTime(incoming) || runTime(existing) === runTime(incoming)
-    && canonical(existing) > canonical(incoming)) [existing, incoming] = [incoming, existing];
+    && metadataKey(existing) > metadataKey(incoming)) [existing, incoming] = [incoming, existing];
   const steps = mergeSteps(existing?.steps, incoming?.steps, marker);
   const merged = { ...existing, ...incoming, steps };
+  if (runTime(existing) === runTime(incoming)) {
+    for (const key of ['notes', 'continued_trajectory_ref']) {
+      if (canonical(existing?.[key]) > canonical(incoming?.[key])) merged[key] = existing[key];
+    }
+  }
   const extra = unionMap(existing?.agent?.extra, incoming?.agent?.extra);
   merged.agent = { ...existing?.agent, ...incoming?.agent };
   if (Object.keys(extra).length) merged.agent.extra = extra;
   if (existing?.extra || incoming?.extra) merged.extra = unionMap(existing?.extra, incoming?.extra);
+  if (existing?.extra?.trajectory_merge_clock != null || incoming?.extra?.trajectory_merge_clock != null) {
+    ownData(merged.extra ??= {}, 'trajectory_merge_clock', Math.max(runTime(existing), runTime(incoming)));
+  }
   const children = new Map();
   for (const child of [...(existing?.subagent_trajectories ?? []), ...(incoming?.subagent_trajectories ?? [])]) {
     if (child?.trajectory_id != null) children.set(child.trajectory_id, children.has(child.trajectory_id)
@@ -269,13 +337,16 @@ const previousDefaults = { stat, readJson, rename, rm, open };
 async function quarantine(file, now, io) {
   let backup, reserved = false;
   try {
-    for (let suffix = 0; ; suffix++) {
+    for (let suffix = 0; suffix < 1000; suffix++) {
       backup = `${file}${corruptSuffix}${now}${suffix ? `-${suffix}` : ''}`;
       try { const handle = await io.open(backup, 'wx'); reserved = true; await handle.close(); break; }
       catch (error) { if (error.code !== 'EEXIST') throw error; }
     }
+    if (!reserved) throw Object.assign(new Error('Cannot quarantine recording: 1000 backup name collisions / Não foi possível isolar a gravação: 1000 colisões'),
+      { code: 'EQUARANTINEFULL' });
     await io.rename(file, backup);
-  } catch {
+  } catch (error) {
+    if (error.code === 'EQUARANTINEFULL') throw error;
     // Do not silently overwrite a bad source if moving it failed.
     try {
       if (reserved) await rm(backup, { force: true });
@@ -284,6 +355,17 @@ async function quarantine(file, now, io) {
     catch { throw new Error('Cannot replace recording. Try again. / Não foi possível substituir a gravação. Tente de novo.'); }
   }
 }
+// The contract of the file that is already there:
+// - the size of the file is checked against the per-file and the total byte
+//   limits before it is read or parsed;
+// - an oversized, unreadable or invalid file moves to a unique
+//   `<file>.corrupt-<timestamp>` backup, and a counter keeps the name unique;
+// - a backup shares the retention of the recordings: the oldest go first, and
+//   the age, the total bytes, the per-file bytes and the file count budget
+//   apply to both;
+// - a backup never shows up in the list of sessions;
+// - when the move fails, the bad file is removed or the save refuses in plain
+//   words; it is never overwritten silently.
 // Stat before reading or parsing, under the same lock as the replacement.
 async function readPrevious(file, now, config, injected) {
   const io = { ...previousDefaults, ...injected };

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdtemp, mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { save, mergeRuns, richer, pruneFiles } from '../src/trajectory/store.js';
+import { save, mergeRuns, mergeSteps, richer, pruneFiles } from '../src/trajectory/store.js';
 import { readTrajectory } from '../adapters/opencode/trajectory.js';
 import { prune } from '../src/trajectory/index.js';
 import { trajectory, validate } from '../src/trajectory/schema.js';
@@ -54,6 +54,84 @@ test('OpenCode empty messages becoming content preserve A and B in both save ord
 // | merged file | complete content, equal steps/totals in either order | markers winning real content |
 // | retention | unique backups inside age/byte/file budgets | unbounded backups, silent failed rename |
 // | previous file | stat before bounded JSON read | reading oversized content |
+// | shared timestamp | reserve B before empty -> A; prefix updates | losing A, duplicate usage |
+// | call identity | same text with different IDs stays distinct | consuming call-1 for call-2 |
+// | ambiguity/order | keep both in canonical order | claiming chronological order without clocks |
+// | work budget | 4000+4000 steps under 1 second | repeated unbounded candidate/payload scans |
+// | quarantine | release lock after 1000 collisions | deleting the bad source on exhaustion |
+test('shared timestamp reserves exact occurrences before completing empty content', async t => {
+  const root = await rootOf(t, {}), timestamp = '2026-01-01T00:00:00Z';
+  const timed = (message, prompt_tokens) => ({ message, timestamp, metrics: { prompt_tokens } });
+  const short = trajectory(context, [timed('', 0), timed('B', 5)]);
+  const full = trajectory(context, [timed('A', 1), timed('B', 5)]);
+  for (const pair of [[short, full], [full, short]]) {
+    const merged = mergeRuns(...pair);
+    assert.deepEqual(merged.steps.map(item => item.message), ['A', 'B']);
+    assert.equal(merged.final_metrics.total_prompt_tokens, 6);
+    const parent = run => ({ ...run, subagent_trajectories: [{ ...run, trajectory_id: 'child' }] });
+    assert.deepEqual(mergeRuns(...pair.map(parent)).subagent_trajectories[0].steps, merged.steps);
+    await rm(fileOf(root), { force: true });
+    for (const run of pair) await save(root, run);
+    assert.deepEqual((await readSaved(root)).steps, merged.steps);
+    assert.equal((await readSaved(root)).final_metrics.total_prompt_tokens, 6);
+  }
+});
+
+test('same message with distinct call IDs reserves the correct occurrence', () => {
+  const withCall = id => ({ message: 'ok', tool_calls: [{ ...call, tool_call_id: id }] });
+  for (const timestamp of [null, '2026-01-01T00:00:00Z']) {
+    const a = trajectory(context, [{ ...withCall('call-2'), timestamp }]);
+    const b = trajectory(context, ['call-1', 'call-2'].map(id => ({ ...withCall(id), timestamp })));
+    assert.deepEqual(mergeRuns(a, b), mergeRuns(b, a));
+    assert.deepEqual(mergeRuns(a, b).steps.map(item => item.tool_calls[0].tool_call_id), ['call-1', 'call-2']);
+  }
+  const before = trajectory(context, [{ message: 'starting', tool_calls: [call] }]);
+  const after = trajectory(context, [{ message: 'completed', tool_calls: [call], metrics: { prompt_tokens: 6 } }]);
+  assert.equal(mergeRuns(before, after).steps.length, 1);
+  assert.equal(mergeRuns(before, after).final_metrics.total_prompt_tokens, 6);
+});
+
+test('incompatible groups never consume a timestamped event via a clockless slot', () => {
+  const a = trajectory(context, [{ message: 'C', timestamp: '2026-01-01T00:00:00Z' }, step('D')]);
+  const b = trajectory(context, [{ message: 'A', timestamp: '2026-01-02T00:00:00Z' }, step('B'.repeat(30))]);
+  const merged = mergeRuns(a, b);
+  assert.deepEqual(merged, mergeRuns(b, a));
+  assert.deepEqual(merged.steps.map(item => item.message).sort(), ['A', 'B'.repeat(30), 'C', 'D']);
+});
+
+test('prefix updates within shared timestamps reserve exact content first', () => {
+  const timestamp = '2026-01-01T00:00:00Z';
+  const a = trajectory(context, ['A', 'B'].map(message => ({ message, timestamp })));
+  const b = trajectory(context, ['B complete', 'A complete'].map(message => ({ message, timestamp })));
+  const merged = mergeRuns(a, b);
+  assert.deepEqual(merged, mergeRuns(b, a));
+  assert.deepEqual(merged.steps.map(item => item.message), ['B complete', 'A complete']);
+});
+
+test('merge work is bounded for 4000 by 4000 timed events and ambiguous groups', () => {
+  for (const shared of [false, true]) {
+    const events = prefix => Array.from({ length: 4000 }, (_, index) => ({ source: 'agent',
+      timestamp: new Date(shared ? 0 : (index * 2 + (prefix === 'B' ? 1 : 0)) * 1000).toISOString(),
+      message: `${prefix}${index}` }));
+    const a = events('A'), b = events('B'), started = performance.now();
+    const merged = mergeSteps(a, b), elapsed = performance.now() - started;
+    assert.equal(merged.length, 8000);
+    assert.ok(elapsed < 1000, `${shared ? 'shared' : 'distinct'} timestamps: ${elapsed} ms`);
+    assert.equal(merged[7999].step_id, 8000);
+  }
+});
+
+test('truncation detection visits a retained payload once across unmatched events', () => {
+  let visits = 0;
+  const a = Array.from({ length: 4000 }, (_, index) => ({ source: 'agent', message: 'A',
+    timestamp: new Date(index * 1000).toISOString() }));
+  a[0].extra = { get probe() { visits++; return 'payload'; } };
+  const b = a.slice(1).map((item, index) => ({ ...item,
+    timestamp: new Date((index + 4000) * 1000).toISOString() }));
+  assert.equal(mergeSteps(a, b).length, 7999);
+  assert.equal(visits, 1);
+});
+
 test('rewritten transcripts align messages without a stale duplicate tail', () => {
   const a = trajectory(context, ['A', 'B', 'C'].map(step));
   const b = trajectory(context, ['C', 'A', 'B'].map(step));
@@ -188,7 +266,7 @@ test('the merged file never reports less usage than either file', async t => {
   const saved = await readSaved(root);
   assert.equal(saved.final_metrics.total_prompt_tokens, 500, 'the totals of the file on disk outlive the merge');
   assert.equal(saved.final_metrics.total_completion_tokens, 40);
-  assert.equal(saved.final_metrics.total_steps, 1);
+  assert.equal(saved.final_metrics.total_steps, 2, 'an unknown historical cut marker has no identity; keep both');
 });
 
 test('raising the cap from 750 to 4000 restores long text and ok', async t => {
@@ -201,6 +279,40 @@ test('raising the cap from 750 to 4000 restores long text and ok', async t => {
   assert.deepEqual((await readSaved(root)).steps, data.steps);
   assert.equal(richer({ message: '[truncated: too deep]' }, { message: 'ok' }), false);
   assert.equal(richer({ message: 'long', extra: { nested: '[custom cut]' } }, { message: 'ok' }, '[custom cut]'), false);
+});
+
+test('capped sequential saves keep identical metadata and totals in either order', async t => {
+  const root = await rootOf(t, { maxFileBytes: 750 });
+  const a = trajectory({ ...context, model: 'z' }, [step('long '.repeat(150)), step('ok')]);
+  const b = trajectory({ ...context, model: 'a' }, [step('other '.repeat(150)), step('ok')]);
+  let first;
+  for (const pair of [[a, b], [b, a]]) {
+    await rm(fileOf(root), { force: true });
+    for (const run of pair) await save(root, run);
+    const saved = await readSaved(root);
+    assert.equal(saved.agent.model_name, 'z');
+    assert.equal(validate(saved), true);
+    assert.ok(Buffer.byteLength(await readFile(fileOf(root))) <= 750);
+    if (first) assert.deepEqual(saved, first);
+    first = saved;
+  }
+});
+
+test('metadata retains the full observed clock when the cap removes later events', async t => {
+  const root = await rootOf(t, { maxFileBytes: 750 });
+  const a = trajectory({ ...context, model: 'a' }, Array.from({ length: 20 }, (_, index) => ({
+    message: `event ${index} `.repeat(100), timestamp: new Date((index + 1) * 1000).toISOString()
+  })));
+  const b = trajectory({ ...context, model: 'z' }, [{ message: 'older', timestamp: new Date(10000).toISOString() }]);
+  b.extra = { trajectory_merge_clock: 9000 }; // Numeric clocks must not use lexical map tie breaks.
+  for (const pair of [[a, b], [b, a]]) {
+    await rm(fileOf(root), { force: true });
+    for (const run of pair) await save(root, run);
+    const saved = await readSaved(root);
+    assert.equal(saved.agent.model_name, 'a');
+    assert.equal(saved.extra.trajectory_merge_clock, 20000);
+    assert.equal(validate(saved), true);
+  }
 });
 
 test('saving the same run twice does not duplicate it', async t => {
@@ -275,6 +387,23 @@ test('failed backup rename removes the bad source or refuses plainly', async t =
     previousIO: { rename: denied, rm: denied }
   }), /Cannot replace recording/);
   assert.equal(await readFile(fileOf(root), 'utf8'), 'bad again');
+});
+
+test('quarantine collisions refuse at the bound, preserve the bad source and release the lock', async t => {
+  const root = await rootOf(t, {}); await mkdir(join(root, 'trajectory'));
+  await writeFile(fileOf(root), 'bad');
+  let attempts = 0;
+  await assert.rejects(save(root, trajectory(context, [step('fresh')]), { lockTimeoutMs: 10,
+    previousIO: { open: async () => {
+      attempts++;
+      throw Object.assign(new Error('collision'), { code: 'EEXIST' });
+    } }
+  }), /Cannot quarantine recording: 1000 backup name collisions/);
+  assert.equal(attempts, 1000);
+  assert.equal(await readFile(fileOf(root), 'utf8'), 'bad');
+  assert.ok(!(await readdir(join(root, 'trajectory'))).includes('okit-plugin-retention.lock'));
+  await save(root, trajectory(context, [step('fresh')]), { lockTimeoutMs: 10 });
+  assert.equal((await readSaved(root)).steps[0].message, 'fresh');
 });
 
 test('oversized previous file is separated without invoking the JSON reader', async t => {
