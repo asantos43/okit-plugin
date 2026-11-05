@@ -115,6 +115,8 @@ for (const [client, reader] of samples) test(`review 14: ${client} BOM transcrip
         const transcript = prefix + body, data = reader(transcript, context);
         assert.equal(data.steps[0].message, message); assert.ok(validate(data));
         await writeFile(file, transcript);
+        // Each decoding fixture is independent; different clockless messages now survive merges.
+        await rm(join(root, 'trajectory', 'okit-plugin-atif.json'), { force: true });
         assert.equal(await capture(root, { ...context, client }, { file }), true);
         const saved = JSON.parse(await readFile(join(root, 'trajectory', 'okit-plugin-atif.json'), 'utf8'));
         assert.equal(saved.steps[0].message, message); assert.ok(validate(saved));
