@@ -343,7 +343,7 @@ The order of one pass, `tick`:
 
 - 5 — Due templates — `openDue` with the worst reading of the pass: the lowest quota and the least idle of the clients it knows.
 - 6 — Pending demands, oldest first — The inbox lists newest first, so the queue is reversed and a demand waiting behind newer ones never starves. A period serves one run at a time: while a sibling of the same `ext.template` and `ext.period` is still `delegated` or `criticised`, the others wait.
-- 7 — Cap — Per demand: `classify` when the item has no `effort`, `profilePick`, then `acquireSlot` before the spawner runs and `releaseSlot` if it refuses, so a refusal costs nothing.
+- 7 — Cap — Per demand: `classify` when the item has no `effort`, `profilePick`, then `acquireSlot` before the spawner runs and `releaseSlot` if it refuses, so a refusal costs nothing; an account that is not logged in is refused by the spawner's `preflight` before the slot, and if the login vanishes in the window before the spawn, `discardSlot` removes the run file so the refusal leaves no record.
 - 8 — One decision line — `{ at, opened, spawned, skipped, purged, stopped?, paused? }` appended as a single JSON line to `logs/<date>.jsonl`, so a reader tailing the file always sees a whole pass.
 
 The daemon never refuses a demand on its own: a demand is skipped only for a technical bound (paused, kill switch, quota floor, the concurrency cap) or a spawner failure, and every skip says which.

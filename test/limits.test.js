@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 
-import { acquireSlot, canSpawn, countLive, limitsStatus, releaseSlot } from '../src/limits.js';
+import { acquireSlot, canSpawn, countLive, discardSlot, limitsStatus, releaseSlot } from '../src/limits.js';
 
 const roots = [];
 
@@ -127,6 +127,20 @@ test('acquireSlot writes a live run and releaseSlot frees the slot', async () =>
   assert.deepEqual(await releaseSlot(dir, 'r1'), { ok: true, runId: 'r1' });
   assert.equal(await countLive(dir, config), 0);
   assert.deepEqual(await releaseSlot(dir, 'ghost'), { ok: false, reason: 'unknown run', runId: 'ghost' });
+});
+
+test('discardSlot removes the run record, frees the slot and tells an unknown run without throwing', async () => {
+  const dir = await root();
+  const config = { limits: { global: 4, perClient: 3 } };
+  await acquireSlot(dir, 'r1', { client: 'alpha', config });
+  await acquireSlot(dir, 'r2', { client: 'alpha', config });
+  assert.equal(await countLive(dir, config), 2);
+
+  assert.deepEqual(await discardSlot(dir, 'r1'), { ok: true, runId: 'r1' });
+  assert.deepEqual(await readdir(join(dir, 'runs')), ['r2.json'], 'no record of the discarded run is kept');
+  assert.equal(await countLive(dir, config), 1);
+  assert.deepEqual(await discardSlot(dir, 'r1'), { ok: false, reason: 'unknown run', runId: 'r1' });
+  assert.deepEqual(await discardSlot(dir, 'ghost'), { ok: false, reason: 'unknown run', runId: 'ghost' });
 });
 
 test('acquireSlot refuses the run that would pass the cap', async () => {

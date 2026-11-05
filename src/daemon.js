@@ -11,7 +11,7 @@ import process from 'node:process';
 import { classify } from './classify.js';
 import { demandRef, projectName, withDemandRef } from './demand-ref.js';
 import { inboxList, inboxSetExt, inboxSetStatus } from './inbox.js';
-import { acquireSlot, releaseSlot } from './limits.js';
+import { acquireSlot, discardSlot, releaseSlot } from './limits.js';
 import { DEFAULT_CONFIG, profilePick } from './profiles.js';
 import { record as telemetryRecord } from './telemetry/index.js';
 import { orderPurge } from './orders.js';
@@ -192,7 +192,9 @@ async function delegate(root, item, deps, settings, cache) {
       runId,
     });
   } catch (error) {
-    await releaseSlot(root, runId);
+    // A refusal that started nothing (the login vanished after the preflight) leaves no run behind.
+    if (error.code === 'account-not-logged-in') await discardSlot(root, runId);
+    else await releaseSlot(root, runId);
     return { skip: spawnerSkip(error) };
   }
   const returned = spawned?.runId ?? runId;

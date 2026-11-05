@@ -249,7 +249,10 @@ test('the daemon shows the refusal as a plain reason and command, not as a failu
   const record = await tick(root, deps);
   assert.deepEqual(record.spawned, []);
   assert.equal(record.skipped.length, 1);
-  assert.match(record.skipped[0].reason, /^The Claude Code account "Work" \(work\) is not logged in, so nothing was started\. Log it in with: CLAUDE_CONFIG_DIR=/);
+  // The command is the one `loginCommand` builds for this account and platform: its path and quoting are the host's.
+  const login = loginCommand('claude-code', { configDir: dirs['claude-code'] }, 'linux');
+  assert.match(record.skipped[0].reason, /^The Claude Code account "Work" \(work\) is not logged in, so nothing was started\. Log it in with: .*CLAUDE_CONFIG_DIR=/);
+  assert.ok(record.skipped[0].reason.includes(`Log it in with: ${login}`), record.skipped[0].reason);
   assert.doesNotMatch(record.skipped[0].reason, /spawner failed|\n\s+at /);
   assert.equal(calls.length, 0);
   // The refusal came before the reservation: no run record, no output file, and the slot was never held.
@@ -261,6 +264,36 @@ test('the daemon shows the refusal as a plain reason and command, not as a failu
   const next = await tick(root, deps);
   assert.equal(next.spawned.length, 1);
   assert.equal(calls.length, 1);
+});
+
+// | Window between the preflight and the spawn | Must pass | Must refuse |
+// | login vanishes (preflight ok, spawn refuses) | plain reason, no run record, no live slot | a `done` record left behind |
+// | any other spawner error | the record stays `done` as before | discarding the record |
+async function windowScene(t, error) {
+  const { root } = await scene(t);
+  await writeJsonAtomic(paths(root).config, { profiles: { 'claude-code': { simple: { model: 'm' }, normal: { model: 'm' }, hard: { model: 'm' } } } });
+  await inboxAdd(root, { title: 'first demand', client: 'claude-code' });
+  const spawn = Object.assign(async () => { throw error; }, { preflight: async () => {} });
+  const deps = { now: () => Date.now(), quota: () => ({ remainingPct: 80 }), idle: () => true, spawn };
+  return { root, record: await tick(root, deps) };
+}
+
+test('a login that vanishes between the preflight and the spawn leaves no run record and no live slot', async (t) => {
+  const account = { id: 'work', label: 'Work', configDir: '/x/work' };
+  const error = new AccountNotLoggedIn({ client: 'claude-code', account, platform: 'linux' });
+  const { root, record } = await windowScene(t, error);
+  assert.deepEqual(record.spawned, []);
+  assert.deepEqual(record.skipped.map((entry) => entry.reason), [error.message], 'the plain message, not "the spawner failed"');
+  assert.deepEqual(await readdir(join(root, 'runs')).catch(() => []), [], 'the reservation left no file');
+  assert.equal(await countLive(root), 0);
+});
+
+test('any other spawner error still leaves the run as done', async (t) => {
+  const { root, record } = await windowScene(t, Object.assign(new Error('boom'), { code: 'EBOOM' }));
+  assert.deepEqual(record.skipped.map((entry) => entry.reason), ['the spawner failed: boom']);
+  const files = await readdir(join(root, 'runs'));
+  assert.equal(files.length, 1, 'the record of the failed spawn is kept');
+  assert.equal(await countLive(root), 0);
 });
 
 // | Adapters | Must pass | Must refuse |
