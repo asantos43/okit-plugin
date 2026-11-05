@@ -58,6 +58,8 @@ test('OpenCode empty messages becoming content preserve A and B in both save ord
 // | call identity | same text with different IDs stays distinct | consuming call-1 for call-2 |
 // | reserved slot | exact occurrence plus a distinct prefix | consuming the exact slot twice |
 // | cross-group match | a known cut version may cross groups | merging intact timed/clockless prefixes |
+// | partial cut | reasoning-only cuts preserve message identity | consuming incompatible intact messages |
+// | cap usage | add totals for complete disjoint clock ranges | guessing additivity for unknown/overlapping clocks |
 // | ambiguity/order | keep both in canonical order | claiming chronological order without clocks |
 // | work budget | 4000+4000 steps under 1 second | repeated unbounded candidate/payload scans |
 // | quarantine | release lock after 1000 collisions | deleting the bad source on exhaustion |
@@ -338,6 +340,39 @@ test('metadata retains the full observed clock when the cap removes later events
   }
 });
 
+test('disjoint dated captures retain all 23 tokens through a 750-byte cap in both orders', async t => {
+  const root = await rootOf(t, { maxFileBytes: 750 });
+  const dated = (message, day, prompt_tokens) => ({ message,
+    timestamp: `2026-01-0${day}T00:00:00Z`, metrics: { prompt_tokens } });
+  const a = trajectory(context, [dated('A', 1, 8)]);
+  const b = trajectory(context, [dated('long '.repeat(150), 2, 10), dated('other '.repeat(150), 3, 5)]);
+  let first;
+  for (const pair of [[a, b], [b, a]]) {
+    await rm(fileOf(root), { force: true });
+    for (const run of pair) await save(root, run);
+    const saved = await readSaved(root);
+    assert.equal(saved.final_metrics.total_prompt_tokens, 23);
+    assert.ok(Buffer.byteLength(await readFile(fileOf(root))) <= 750);
+    if (first) assert.deepEqual(saved, first);
+    first = saved;
+  }
+});
+
+test('unknown, overlapping and legacy capped clock ranges never prove additive usage', () => {
+  const a = trajectory(context, [{ message: 'A', timestamp: '2026-01-01T00:00:00Z', metrics: { prompt_tokens: 8 } }]);
+  for (const start of [null, undefined, 'invalid', Date.parse('2026-01-01T00:00:00Z')]) {
+    const b = trajectory(context, [{ message: '[Content shortened / Conteúdo reduzido]',
+      source: 'system', timestamp: '2026-01-03T00:00:00Z' }]);
+    b.extra = { trajectory_merge_clock: Date.parse('2026-01-03T00:00:00Z') };
+    if (start !== undefined) b.extra.trajectory_merge_start = start;
+    b.final_metrics.total_prompt_tokens = 15;
+    const ab = mergeRuns(a, b);
+    assert.deepEqual(ab, mergeRuns(b, a));
+    assert.equal(ab.final_metrics.total_prompt_tokens, 15, String(start));
+    assert.equal(mergeRuns(ab, a).final_metrics.total_prompt_tokens, 15);
+  }
+});
+
 test('saving the same run twice does not duplicate it', async t => {
   const root = await rootOf(t, {});
   const data = trajectory(context, [step('one'), step('two')]);
@@ -347,6 +382,93 @@ test('saving the same run twice does not duplicate it', async t => {
   const second = await readFile(fileOf(root), 'utf8');
   assert.equal(second, first, 'the same run twice leaves the same file');
   assert.equal(JSON.parse(second).steps.length, 2);
+});
+
+test('a reasoning-only cap cannot consume an incompatible message at the same clock', async t => {
+  const root = await rootOf(t, { maxFileBytes: 1000 }), timestamp = '2026-01-01T00:00:00Z';
+  const a = trajectory(context, [{ message: 'A', timestamp,
+    reasoning_content: 'reasoning '.repeat(300), metrics: { prompt_tokens: 2 } }]);
+  const b = trajectory(context, [{ message: 'B', timestamp, metrics: { prompt_tokens: 3 } }]);
+  await save(root, a);
+  const cut = await readSaved(root);
+  assert.equal(cut.steps[0].message, 'A');
+  assert.match(cut.steps[0].reasoning_content, /Content shortened/);
+  for (const pair of [[cut, b], [b, cut]]) {
+    const merged = mergeRuns(...pair);
+    assert.deepEqual(merged.steps.map(item => item.message).sort(), ['A', 'B']);
+    assert.equal(merged.final_metrics.total_prompt_tokens, 5);
+  }
+  await writeFile(join(root, 'config.json'), JSON.stringify({ trajectory: { enabled: true, maxFileBytes: 4000 } }));
+  await save(root, b);
+  assert.deepEqual((await readSaved(root)).steps.map(item => item.message).sort(), ['A', 'B']);
+  assert.equal((await readSaved(root)).final_metrics.total_prompt_tokens, 5);
+});
+
+test('seeded save properties cover 300 pairs with repeated/absent clocks and low caps', async t => {
+  const root = await rootOf(t, {}), started = performance.now();
+  let seed = 0xd12306, cappedPairs = 0, intactPairs = 0, lossyOrders = 0, lossyReplays = 0;
+  const random = n => {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+    return (seed >>> 0) % n;
+  };
+  const capture = () => trajectory({ ...context, model: ['a', 'z'][random(2)] },
+    Array.from({ length: 1 + random(4) }, () => ({
+      message: ['A', 'B', 'C', 'B'][random(4)].repeat(random(3) === 0 ? 160 : 1),
+      timestamp: [null, '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z'][random(3)],
+      metrics: { prompt_tokens: random(11) }, reasoning_content: 'r'.repeat(random(3) * 300)
+    })));
+  // Lossy caps erase identities and the backbone: arbitrary union equality and
+  // replay equality cannot be recovered from bounded storage. Only (a)/(c) are
+  // relaxed after actual loss (including free-form metadata maps): retain
+  // scalar metadata, valid bounds and usage lower bounds. Intact pairs still
+  // assert the full (a), (b), (c) contract; disjoint cap totals have a test above.
+  for (let index = 0; index < 300; index++) {
+    const a = capture(), b = capture(), limit = index % 3 ? 750 + random(3) * 300 : 16000;
+    const label = `seed=0xd12306 pair=${index} limit=${limit}`;
+    await writeFile(join(root, 'config.json'), JSON.stringify({ trajectory: { enabled: true, maxFileBytes: limit } }));
+    await rm(fileOf(root), { force: true });
+    for (const run of [a, b]) await save(root, run);
+    const ab = await readSaved(root);
+    await save(root, a);
+    const replay = await readSaved(root);
+    await rm(fileOf(root), { force: true });
+    for (const run of [b, a]) await save(root, run);
+    const ba = await readSaved(root);
+    for (const saved of [ab, ba, replay]) {
+      assert.equal(validate(saved), true, label);
+      assert.ok(Buffer.byteLength(`${JSON.stringify(saved, null, 2)}\n`) <= limit, label);
+      assert.ok(saved.final_metrics.total_prompt_tokens >= Math.max(
+        a.final_metrics.total_prompt_tokens, b.final_metrics.total_prompt_tokens), label);
+    }
+    for (const key of ['name', 'version', 'model_name']) {
+      assert.equal(ab.agent[key], ba.agent[key], label);
+      assert.equal(replay.agent[key], ab.agent[key], label);
+    }
+    const cut = [ab, ba, replay].some(run => Object.hasOwn(run.extra ?? {}, 'trajectory_merge_start'));
+    if (cut) {
+      cappedPairs++;
+      if (JSON.stringify(ab) !== JSON.stringify(ba)) lossyOrders++;
+      if (JSON.stringify(replay) !== JSON.stringify(ab)) lossyReplays++;
+      assert.ok(replay.final_metrics.total_prompt_tokens >= ab.final_metrics.total_prompt_tokens, label);
+      continue;
+    }
+    intactPairs++;
+    assert.deepEqual(ab, ba, label);
+    assert.deepEqual(replay, ab, label);
+    // This generator's messages repeat one letter: its first letter is exactly
+    // the compatible-prefix family; a different letter/clock is a distinct identity.
+    const key = item => JSON.stringify([item.source, item.timestamp, item.message[0]]);
+    const counts = run => run.steps.reduce((map, item) => map.set(key(item), (map.get(key(item)) ?? 0) + 1), new Map());
+    const kept = counts(ab);
+    for (const run of [a, b]) for (const [identity, count] of counts(run)) {
+      assert.ok(kept.get(identity) >= count, `${label} lost ${identity}`);
+    }
+  }
+  assert.ok(cappedPairs >= 100 && intactPairs >= 100);
+  const elapsed = performance.now() - started;
+  t.diagnostic(`seed=0xd12306: ${intactPairs} intact, ${cappedPairs} capped pairs in ${elapsed.toFixed(0)} ms; `
+    + `${lossyOrders} lossy order differences, ${lossyReplays} lossy replay differences`);
+  assert.ok(elapsed < 3000, `property budget: ${elapsed} ms`);
 });
 
 test('metadata and child runs merge deterministically with map unions', () => {

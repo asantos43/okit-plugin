@@ -125,6 +125,11 @@ export function capped(data, config) {
   confirmations = 3;
   for (const [parent, key] of payloads.reverse()) {
     const replacement = key === 'tool_definitions' ? [] : { truncated: marker };
+    // Merge clocks are bookkeeping, not free-form payload: never erase proof
+    // of a disjoint range, or turn an unknown start into a known one after cap.
+    if (key === 'extra') for (const field of ['trajectory_merge_clock', 'trajectory_merge_start']) {
+      if (Object.hasOwn(parent[key], field)) ownData(replacement, field, parent[key][field]);
+    }
     const saved = bytes(parent[key]) - bytes(replacement);
     if (saved <= 0) continue;
     ownData(parent, key, replacement); size -= saved;
@@ -157,7 +162,9 @@ export function capped(data, config) {
 //   canonical text; a step with the cut marker loses to the same step whole;
 //   a message that moved leaves no duplicate tail;
 // - the numbers: step_id is assigned from 1 after the merge, so it is display
-//   order only; the steps and the usage totals are the same in either order;
+//   order only; intact captures have equal steps and totals in either order;
+//   after lossy persistence only disjoint complete clock ranges prove additive
+//   totals; overlapping/unknown ranges retain conservative usage lower bounds;
 // - the metadata: the latest observed timestamp wins the scalar fields and
 //   canonical scalar metadata breaks clock ties, independently of cut steps; maps keep the
 //   keys of both captures and the child runs merge by their trajectory ID.
@@ -201,11 +208,12 @@ const identity = item => canonical([item.source, item.timestamp ?? null]);
 const callIds = item => (item.tool_calls ?? []).map(call => call.tool_call_id);
 const signature = item => canonical([item.message ?? '', callIds(item)]);
 const prefixOf = (a, b) => a.length <= b.length && a.every((id, index) => id === b[index]);
-function compatible(left, right, cuts) {
+function compatible(left, right, messageCuts) {
   if (left.timestamp != null && right.timestamp != null && left.timestamp !== right.timestamp) return false;
   const a = callIds(left), b = callIds(right);
   if (!prefixOf(a, b) && !prefixOf(b, a)) return false;
-  if (cuts.get(left) || cuts.get(right)) return true;
+  // A shortened reasoning/result/payload does not erase the message identity.
+  if (messageCuts.get(left) || messageCuts.get(right)) return true;
   if (left.source !== right.source) return false;
   if (a.length && b.length) return true; // Stable call IDs identify partial call versions.
   const x = left.message ?? '', y = right.message ?? '';
@@ -221,6 +229,7 @@ export function mergeSteps(existing = [], incoming = [], marker = defaultMarker)
   }
   const output = [...base], groups = new Map(), queues = new Map(), used = new Set(), unmatched = [];
   const cuts = new Map([...base, ...other].map(item => [item, truncated(item, marker)]));
+  const messageCuts = new Map([...base, ...other].map(item => [item, truncated(item.message, marker)]));
   base.forEach((item, index) => {
     const group = identity(item), key = canonical([group, signature(item)]);
     if (!groups.has(group)) groups.set(group, []);
@@ -234,9 +243,9 @@ export function mergeSteps(existing = [], incoming = [], marker = defaultMarker)
     used.add(index);
     if (richer(item, output[index], marker, cuts)) output[index] = item;
   }
-  return alignUnmatched(output, unmatched, groups, used, cuts, marker);
+  return alignUnmatched(output, unmatched, groups, used, cuts, messageCuts, marker);
 }
-function alignUnmatched(output, unmatched, groups, used, cuts, marker) {
+function alignUnmatched(output, unmatched, groups, used, cuts, messageCuts, marker) {
   // Exact matches are reserved first. Bound all remaining candidate visits,
   // including used slots: O(n+m) visits plus input payload processing.
   let budget = 8 * (output.length + unmatched.length);
@@ -245,13 +254,13 @@ function alignUnmatched(output, unmatched, groups, used, cuts, marker) {
     for (const index of indices) {
       if (--budget < 0) return false;
       const kept = output[index];
-      if (used.has(index) || cutOnly && !cuts.get(item) && !cuts.get(kept)) continue;
+      if (used.has(index) || cutOnly && !messageCuts.get(item) && !messageCuts.get(kept)) continue;
       // Charge prefix comparisons by their payload too, not just candidate count.
-      const cut = cuts.get(item) || cuts.get(kept);
+      const cut = messageCuts.get(item) || messageCuts.get(kept);
       budget -= (cut ? 0 : Math.min(item.message?.length ?? 1, kept.message?.length ?? 1))
         + (item.tool_calls?.length ?? 0) + (kept.tool_calls?.length ?? 0);
       if (budget < 0) return false;
-      if (!compatible(item, kept, cuts)) continue;
+      if (!compatible(item, kept, messageCuts)) continue;
       used.add(index);
       if (richer(item, kept, marker, cuts)) output[index] = item;
       return true;
@@ -265,12 +274,35 @@ function alignUnmatched(output, unmatched, groups, used, cuts, marker) {
   return output.map((item, index) => ({ ...item, step_id: index + 1 }));
 }
 const totalKeys = ['total_prompt_tokens', 'total_completion_tokens', 'total_cached_tokens', 'total_cost_usd'];
+// A null start means some clock was absent or a legacy cap erased its range.
+// Only complete, strictly disjoint clock ranges prove that usage can be added.
+function rangeStart(run) {
+  if (Object.hasOwn(run?.extra ?? {}, 'trajectory_merge_start')) {
+    return Number.isFinite(run.extra.trajectory_merge_start) ? run.extra.trajectory_merge_start : null;
+  }
+  if (run?.extra?.trajectory_merge_clock != null || !run?.steps?.length) return null;
+  let start = Infinity;
+  for (const item of run.steps) {
+    const time = Date.parse(item.timestamp);
+    if (!Number.isFinite(time)) return null;
+    start = Math.min(start, time);
+  }
+  return start;
+}
 // The totals a file kept outlive the steps the file cap shortened, so the
 // merged file never reports less than either file it came from.
-function mergedTotals(steps, stored) {
+function mergedTotals(steps, runs) {
   const computed = totals(steps), result = { total_steps: steps.length };
+  const [a, b] = runs.map(rangeStart);
+  const disjoint = a != null && b != null && (runTime(runs[0]) < b || runTime(runs[1]) < a);
+  const stored = runs.map(run => run?.final_metrics);
   for (const key of totalKeys) {
     const values = [computed[key], ...stored.map(item => item?.[key])].filter(value => typeof value === 'number');
+    if (disjoint && stored.every(item => typeof item?.[key] === 'number')) {
+      const sum = stored[0][key] + stored[1][key];
+      if (!Number.isFinite(sum) || key !== 'total_cost_usd' && !Number.isSafeInteger(sum)) { result[key] = null; continue; }
+      values.push(sum);
+    }
     result[key] = values.length ? Math.max(...values) : null;
   }
   return result;
@@ -282,8 +314,9 @@ const runTime = run => (run?.steps ?? []).reduce((time, item) => Math.max(time, 
 function rememberClocks(run) {
   const pending = [run];
   while (pending.length) {
-    const item = pending.pop(), time = runTime(item);
+    const item = pending.pop(), time = runTime(item), start = rangeStart(item);
     if (time > 0) ownData(item.extra ??= {}, 'trajectory_merge_clock', time);
+    ownData(item.extra ??= {}, 'trajectory_merge_start', start);
     pending.push(...(item.subagent_trajectories ?? []));
   }
 }
@@ -316,6 +349,11 @@ export function mergeRuns(existing, incoming, marker = defaultMarker) {
   if (existing?.extra?.trajectory_merge_clock != null || incoming?.extra?.trajectory_merge_clock != null) {
     ownData(merged.extra ??= {}, 'trajectory_merge_clock', Math.max(runTime(existing), runTime(incoming)));
   }
+  if (Object.hasOwn(existing?.extra ?? {}, 'trajectory_merge_start')
+    || Object.hasOwn(incoming?.extra ?? {}, 'trajectory_merge_start')) {
+    const a = rangeStart(existing), b = rangeStart(incoming);
+    ownData(merged.extra ??= {}, 'trajectory_merge_start', a == null || b == null ? null : Math.min(a, b));
+  }
   const children = new Map();
   for (const child of [...(existing?.subagent_trajectories ?? []), ...(incoming?.subagent_trajectories ?? [])]) {
     if (child?.trajectory_id != null) children.set(child.trajectory_id, children.has(child.trajectory_id)
@@ -324,7 +362,7 @@ export function mergeRuns(existing, incoming, marker = defaultMarker) {
   if (children.size) merged.subagent_trajectories = [...children.values()].sort((a, b) => a.trajectory_id.localeCompare(b.trajectory_id));
   else delete merged.subagent_trajectories;
   merged.final_metrics = { ...existing?.final_metrics, ...incoming?.final_metrics,
-    ...mergedTotals(steps, [existing?.final_metrics, incoming?.final_metrics]) };
+    ...mergedTotals(steps, [existing, incoming]) };
   if (existing?.final_metrics?.extra || incoming?.final_metrics?.extra) {
     merged.final_metrics.extra = unionMap(existing?.final_metrics?.extra, incoming?.final_metrics?.extra);
   }

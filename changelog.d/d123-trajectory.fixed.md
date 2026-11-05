@@ -7,3 +7,6 @@ A lock that does not free up within its wait ends in a plain refusal instead of 
 Quarantine refuses after 1000 exclusive-name collisions, preserving the bad source and releasing the lock / A quarentena recusa após 1000 colisões de nomes exclusivos, preservando o arquivo ruim e liberando a trava
 Regression tests reject reusing an exact-match slot for another prefix occurrence / Testes de regressão impedem reutilizar uma posição exata para outra ocorrência de prefixo
 Regression tests keep intact clockless and timestamped prefixes in separate groups / Testes de regressão preservam prefixos íntegros com e sem data em grupos separados
+Reasoning-only caps preserve incompatible messages at equal timestamps / Cortes só no raciocínio preservam mensagens incompatíveis com a mesma data
+Disjoint complete clock ranges retain additive usage through persistence caps, while unknown or overlapping ranges keep conservative totals / Intervalos completos de datas separados conservam uso somado sob corte; intervalos desconhecidos ou sobrepostos mantêm totais conservadores
+A fixed-seed property covers 300 save pairs under 3 seconds and documents the limits of equality and replay after lossy caps / Uma propriedade com semente fixa cobre 300 pares de gravações em menos de 3 segundos e documenta os limites de igualdade e reapresentação após cortes com perda
