@@ -105,20 +105,131 @@ async function policyScene(t, extra = {}) {
   return { root, config, deps, launches, checked };
 }
 
+// | Launch evidence | Must pass | Must refuse |
+// | no setup confirmation | configured profiles on every account | — |
+// | catalog + setup | matching client confirmation on extras | changed model/effort |
+// | listing + setup | model listed by that account | extra omits the model |
+test('daemon launches the roomiest saved Claude account with or without setup confirmation', async (t) => {
+  for (const confirmed of [false, true]) {
+    const { root, deps, launches } = await policyScene(t);
+    const profiles = { 'claude-code': { hard: { model: 'opus', effort: 'high' } } };
+    await writeJsonAtomic(join(root, 'config.json'), {
+      accounts: { 'claude-code': [{ id: 'default', label: 'default' },
+        { id: 'a', label: 'extra', configDir: join(root, 'a') }] }, profiles,
+      ...confirmed ? { setup: { done: { profiles } } } : {},
+    });
+    delete deps.actors;
+    deps.env.ANTHROPIC_API_KEY = 'test-key';
+    deps.run = async () => ({ stdout: '1.0.0', code: 0 });
+    deps.quota = async (_client, id) => account(id, id === 'a' ? 90 : 40).reading;
+    await inboxAdd(root, { title: 'Claude work', client: 'claude-code', effort: 'hard' });
+    const result = await tick(root, deps);
+    assert.equal(result.spawned.length, 1, JSON.stringify(result.skipped));
+    assert.equal(launches[0].account, 'a');
+  }
+});
+
+test('setup confirmation refuses changed catalog pairs and extras missing a listed model', async (t) => {
+  for (const source of ['catalog', 'listing']) {
+    const { root, config, deps, launches } = await policyScene(t);
+    await mkdir(join(root, '.codex'));
+    await writeFile(join(root, '.codex', 'auth.json'), '');
+    if (source === 'catalog') {
+      config.setup = { done: { profiles: { codex: { normal: { model: 'other', effort: 'high' } } } } };
+      deps.run = async () => ({ code: 1, stdout: '' });
+    } else {
+      config.setup = { done: { profiles: config.profiles } };
+      deps.run = async ({ env }) => ({ code: 0,
+        stdout: JSON.stringify(['a', 'b'].some((id) => env.CODEX_HOME === join(root, id))
+          ? [] : [{ slug: 'm', visibility: 'list' }]) });
+    }
+    await writeJsonAtomic(join(root, 'config.json'), config);
+    delete deps.actors;
+    deps.quota = async (_client, id) => account(id, id ? 90 : 40).reading;
+    await inboxAdd(root, { title: 'confirmed work', client: 'codex', effort: 'normal' });
+    const result = await tick(root, deps);
+    assert.equal(result.spawned.length, source === 'catalog' ? 0 : 1, JSON.stringify(result.skipped));
+    assert.deepEqual(launches.map((options) => options.account), source === 'catalog' ? [] : ['default']);
+    if (source === 'catalog') assert.match(result.skipped[0].reason, /does not offer this model and effort/);
+  }
+});
+
 test('daemon reviews receive the executor account and preflight uses the launch decision', async (t) => {
-  for (const role of ['critic', 'verifier']) {
+  for (const role of ['critic', 'verifier', undefined]) {
     const { root, deps, launches, checked } = await policyScene(t);
     await writeJsonAtomic(join(root, 'runs', 'executor.json'), {
-      runId: 'executor', client: 'codex', account: 'a', status: 'done', startedAt: now - 100,
+      runId: 'executor', demand: 'D1', role: 'executor', client: 'codex', account: 'a', status: 'done', startedAt: now - 100,
     });
-    await inboxAdd(root, { title: role, client: 'codex', effort: 'normal', ext: { role, critic_of: 'executor' } });
+    const demand = await inboxAdd(root, { title: 'review', client: 'codex', effort: 'normal',
+      ext: { ...role ? { role, executorAccount: 'a' } : {}, critic_of: 'D1' } });
     const result = await tick(root, deps);
     assert.equal(result.spawned.length, 1);
     assert.equal(launches[0].executorAccount, 'a');
     assert.equal(launches[0].account, 'b', 'eligible review account differs from executor even with less quota');
     assert.equal(checked[0].account, launches[0].account);
     assert.equal(checked[0].accountReason, launches[0].accountReason);
+    assert.equal(launches[0].role, role ?? 'critic');
+    assert.equal(checked[0].role, launches[0].role);
+    const store = await readJson(join(root, 'inbox.json'));
+    assert.equal(store.items.find((item) => item.id === demand.id).ext.executorAccount, role ? 'a' : undefined);
   }
+});
+
+test('an inferred critic role reaches the process run record', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'd121-role-'));
+  let child;
+  t.after(async () => {
+    if (child?.exitCode === null) {
+      child.ref();
+      const closed = new Promise((resolve) => child.once('close', resolve));
+      child.kill();
+      await closed;
+    }
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if ((await readRunRecords(root)).every((run) => run.endedAt)) break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  await writeJsonAtomic(join(root, 'config.json'), { profiles: { codex: { normal: { model: 'm', effort: 'high' } } } });
+  const spawn = makeSpawner({ logDir: join(root, 'runs'), cwd: root, env: { HOME: root },
+    spawn(_command, _args, options) {
+      child = realSpawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], options);
+      return child;
+    } });
+  await inboxAdd(root, { title: 'inferred review', client: 'codex', effort: 'normal', ext: { critic_of: 'D1' } });
+  const result = await tick(root, { spawn, env: { HOME: root }, now: () => now });
+  assert.equal(result.spawned.length, 1, JSON.stringify(result.skipped));
+  const run = await readJson(join(root, 'runs', `${result.spawned[0].runId}.json`));
+  assert.equal(run.role, 'critic');
+});
+
+test('relinking a daemon slot preserves the chosen account and reason', async (t) => {
+  const { root, deps } = await policyScene(t);
+  deps.spawn = async () => ({ runId: 'relinked' });
+  await inboxAdd(root, { title: 'relink', client: 'codex', effort: 'normal' });
+  const result = await tick(root, deps);
+  assert.equal(result.spawned[0].runId, 'relinked');
+  const run = await readJson(join(root, 'runs', 'relinked.json'));
+  assert.equal(run.account, 'a');
+  assert.equal(run.chosenAccount, 'a');
+  assert.equal(run.accountReason, 'chosen');
+});
+
+test('daemon quota telemetry separates the client from each cached account', async (t) => {
+  const { root, deps } = await policyScene(t, {
+    telemetry: { enabled: true, dir: 'telemetry', kitExecutable: 'd121-no-kit' },
+  });
+  await inboxAdd(root, { title: 'telemetry', client: 'codex', effort: 'normal' });
+  await tick(root, deps);
+  const files = await readdir(join(root, 'telemetry'));
+  const events = await Promise.all(files.map((file) => readJson(join(root, 'telemetry', file))));
+  const readings = events.flatMap((event) => event.resourceMetrics[0].scopeMetrics[0].metrics)
+    .filter((metric) => metric.name === 'okit.plugin.quota.check').map((metric) => Object.fromEntries(
+      metric.sum.dataPoints[0].attributes.map(({ key, value }) => [key, value.stringValue])))
+    .filter((event) => !event.reason);
+  assert.deepEqual(readings.map((event) => [event.client, event.account]).sort(),
+    [['codex', undefined], ['codex', 'a'], ['codex', 'b']].sort());
 });
 
 test('enforced pace defers before any run, waits for the instant, and leaves named accounts and continuations fixed', async (t) => {

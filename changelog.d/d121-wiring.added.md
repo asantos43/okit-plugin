@@ -2,3 +2,7 @@
 - Omit account policy choices for absent clients in doctor and actor reports.
 - Translate invalid account policy timestamps into Brazilian Portuguese.
 - Synchronize generated installers with the presenter and configuration messages.
+- Let saved Claude Code accounts share client catalog confirmation, and preserve configured daemon profiles on every account before setup confirmation.
+- Infer the critic role from critic_of before account choice and launch, preserving the executor account in review inbox metadata.
+- Preserve the chosen account and reason when relinking daemon slots.
+- Record quota telemetry with the bare client and a separate optional account, including cached extra-account readings.

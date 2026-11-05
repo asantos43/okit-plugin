@@ -178,14 +178,15 @@ async function delegate(root, item, deps, settings, cache) {
   const profile = profilePick({ client, effort, quota, config: settings.config });
   await telemetryRecord(root, 'profile.choice', { client, ...profile });
   const runId = newRunId();
+  const criticOf = item.critic_of ?? item.ext?.critic_of;
+  const role = item.role ?? item.ext?.role ?? (criticOf ? 'critic' : undefined);
 
   const options = { client, profile, runId, config: settings.config,
     account: fixedAccount,
-    resumeSession, role: item.role ?? item.ext?.role, executorAccount: item.executorAccount ?? item.ext?.executorAccount };
+    resumeSession, role, executorAccount: item.executorAccount ?? item.ext?.executorAccount };
   const prepare = async ({ runs, settings: config }) => {
     if (resumeSession && typeof resumeSession.account !== 'string') return { ok: false,
       reason: accountReasonText({ code: 'session-account' }, resolveLocale({ env: deps.env, saved: config.language }).locale) };
-    const criticOf = item.critic_of ?? item.ext?.critic_of;
     const executor = criticOf ? runs.filter((run) => run.runId === criticOf
       || run.demand === criticOf && run.role === 'executor')
       .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0] : undefined;
@@ -228,7 +229,7 @@ async function delegate(root, item, deps, settings, cache) {
   }
   const returned = spawned?.runId ?? runId;
   if (returned === runId) return { runId, account: options.account, role: options.role };
-  return { runId: await relinkSlot(root, runId, returned, client, settings.config, options.account), account: options.account, role: options.role };
+  return { runId: await relinkSlot(root, runId, returned, client, settings.config, options), account: options.account, role: options.role };
 }
 
 /**
@@ -240,12 +241,13 @@ async function delegate(root, item, deps, settings, cache) {
  *
  * @returns {Promise<string>} the id the slot is held under
  */
-async function relinkSlot(root, from, to, client, config, account) {
+async function relinkSlot(root, from, to, client, config, { account, accountReason }) {
+  const options = { client, config, account, prepare: () => ({ account, accountReason }) };
   try {
     await releaseSlot(root, from);
-    const taken = await acquireSlot(root, to, { client, config, account });
+    const taken = await acquireSlot(root, to, options);
     if (taken.ok) return to;
-    await acquireSlot(root, from, { client, config, account });
+    await acquireSlot(root, from, options);
     return from;
   } catch {
     return from;
@@ -287,6 +289,12 @@ export async function tick(root, deps = {}) {
     for (const entry of [...record.spawned, ...record.skipped]) {
       if (names.has(entry.id)) entry.ref = names.get(entry.id);
     }
+    for (const [key, reading] of cache) {
+      const [client, account] = key.split(':');
+      await telemetryRecord(root, 'quota.check', { client, ...account ? { account } : {},
+        state: typeof reading?.remainingPct !== 'number' ? 'unknown'
+          : reading.remainingPct < settings.minQuotaPct ? 'red' : 'green' });
+    }
     await appendDecision(root, record);
     return record;
   };
@@ -311,9 +319,6 @@ export async function tick(root, deps = {}) {
   const pending = await inboxList(root, { status: 'pending' });
   const clients = clientsOf(pending);
   const stop = await quotaStopReason(deps, clients.filter((client) => !settings.config.accounts?.[client]), settings.minQuotaPct, cache);
-  for (const [client, reading] of cache) await telemetryRecord(root, 'quota.check', { client,
-    state: typeof reading?.remainingPct !== 'number' ? 'unknown'
-      : reading.remainingPct < settings.minQuotaPct ? 'red' : 'green' });
   if (stop !== null) {
     record.stopped = stop;
     record.skipped.push({ id: 'daemon', reason: stop });

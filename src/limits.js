@@ -68,13 +68,12 @@ export async function accountChoice({ client, actorClass, config, runs, now = Da
 
 async function launchActors(client, account, config, env, run) {
   const profiles = Object.values(config.profiles?.[client] ?? {}).filter(Boolean);
-  if (!Object.hasOwn(config.accounts ?? {}, client)) return profiles;
+  if (!Object.hasOwn(config.accounts ?? {}, client) || !config.setup?.done?.profiles?.[client]) return profiles;
   const observed = await detectClients({ client, onlyClient: client, account: account.id, config, run,
     env: accountEnv(client, account, env, undefined, config) });
   const reading = observed.clients.find((entry) => entry.client === client);
-  // Setup's fallback belongs to the default. An extra needs its own listing.
-  const evidence = account.isDefault || reading?.source === 'listing' ? reading : { source: 'listing', models: [] };
-  return profiles.filter((actor) => confirmedActor(config, client, evidence, reading?.installed, actor));
+  // Listings are account-specific; catalog confirmation belongs to the client.
+  return profiles.filter((actor) => confirmedActor(config, client, reading, reading?.installed, actor));
 }
 
 // A run with no account is the default's. A run of an account that is not (or no longer) saved keeps its own key, so it

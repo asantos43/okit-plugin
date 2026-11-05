@@ -90,8 +90,9 @@ export function confirmedModels(config, client, reading, installed) {
     .map(([, profile]) => profile.model))];
 }
 
-// Model-only listings cannot validate a changed effort. Keep the effort of
-// the saved choice (or reference profile) until setup records the new pair.
+// Catalog confirmation is shared by the client's accounts; live listings
+// confirm only the account observed. Model-only listings cannot validate a
+// changed effort: keep the saved (or reference) effort until setup records it.
 export function confirmedActor(config, client, reading, installed, actor) {
   if (installed === false || reading?.hidden?.includes(actor.model)) return false;
   const saved = config.setup?.done?.profiles?.[client] ?? {};
