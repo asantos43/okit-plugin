@@ -1,6 +1,6 @@
 // Concurrency cap over runs/<runId>.json. The core counts its own live runs
 // instead of trusting the client to hold the cap.
-import { readdir } from 'node:fs/promises';
+import { readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { requireAccount, requireBareClient, accountsOf, accountKey } from './accounts.js';
 
@@ -162,6 +162,24 @@ export async function releaseSlot(root, runId) {
     const run = await readJson(file, null);
     if (!run) return { ok: false, reason: 'unknown run', runId };
     await writeJsonAtomic(file, { ...run, status: 'done', endedAt: Date.now() });
+    return { ok: true, runId };
+  });
+}
+
+/**
+ * Drops the run file of `runId` as if the slot had never been taken. For a launch
+ * that was refused before anything started: it leaves no record, unlike
+ * `releaseSlot`, which keeps the run as `done`.
+ *
+ * @param {string} root state root
+ * @param {string} runId
+ * @returns {Promise<{ok: boolean, reason?: string, runId: string}>}
+ */
+export async function discardSlot(root, runId) {
+  return withLock(runsDir(root), async () => {
+    const file = runFile(root, runId);
+    if (!(await readJson(file, null))) return { ok: false, reason: 'unknown run', runId };
+    await rm(file, { force: true });
     return { ok: true, runId };
   });
 }

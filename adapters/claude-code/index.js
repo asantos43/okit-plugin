@@ -311,13 +311,14 @@ export async function spawn(actor, briefing, opts = {}) {
     return { mode, runId, agentCall: { model: profile.model, effort: profile.effort, prompt } };
   }
 
-  const spawner = makeSpawner({ spawn: opts.spawn, logDir: opts.logDir, env: opts.env, cwd: opts.cwd });
+  const spawner = makeSpawner({ spawn: opts.spawn, logDir: opts.logDir, env: opts.env, cwd: opts.cwd,
+    ...opts.platform ? { platform: opts.platform } : {}, home: opts.home, fs: opts.fs });
   const outcome = await spawner(
     { title: prompt, id: opts.demand, appliesTo: textOrNull(opts.appliesTo) },
     {
       runId,
       client: CLIENT,
-      account: opts.account, config: opts.config,
+      account: opts.account, config: opts.config, locale: opts.locale,
       role: delivery.context.role.toLowerCase(), critic_of: opts.critic_of,
       step: opts.step,
       profile: {
