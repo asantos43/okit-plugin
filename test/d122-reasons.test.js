@@ -7,8 +7,10 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { diagnose } from '../src/doctor/diagnose.js';
+import { installNodes, problemOf } from '../src/config-schema.js';
 import { installConfig } from '../src/install/config.js';
 import { createPresenter, localizeReason, REASONS } from '../src/install/present.js';
+import { RULE_PHRASES } from '../src/install/rules.js';
 import { registerMcp } from '../src/install/mcp-register.js';
 import { executionPolicyStep } from '../src/install/policy.js';
 import { mcpStep, register } from '../src/install/register.js';
@@ -503,5 +505,39 @@ test('the name of a file that is not a reason stays as it was raised', async (t)
   });
   // The same refusal with the name of the file alone (the message of the critic).
   assert.equal(localizeReason('Invalid JSON in invalid maxUsd', 'pt-BR'), 'JSON inválido em invalid maxUsd');
+});
+
+// The rule of a refusal of a setting is fixed text of the catalog (the rule of the schema, with the values of the node
+// it names), so it is told in the language of the run; the name or the value of the person is not a rule and stays as
+// it was raised.
+//
+// | reason | must pass | must refuse |
+// | the rule of a refused setting | the rule in pt-BR | the rule in English |
+// | a name that is not a rule | the name as it was raised | a translation of the name |
+// | every rule the schema can name | the phrase in the table | a phrase missing from it |
+test('the rule of a refused setting is told in the language of the run', () => {
+  const reason = 'Invalid install.kit.executables: a non-empty list of a name without slashes';
+  assert.equal(localizeReason(reason, 'pt-BR'), 'install.kit.executables inválido: uma lista não vazia de um nome sem barras');
+  assert.equal(localizeReason(reason, 'en'), reason);
+  // The name of the person is not a rule: it stays as it was raised, byte for byte.
+  const name = 'Invalid install.kit.executables: the name of the person';
+  assert.equal(localizeReason(name, 'pt-BR'), 'install.kit.executables inválido: the name of the person');
+  assert.equal(localizeReason(name, 'en'), name);
+});
+
+test('every rule the schema of the settings can name is a phrase of the catalog', () => {
+  // The rules the schema can build, one by one: the phrase of each of them is in the table of the rules.
+  const phrases = new Set();
+  for (const { node } of installNodes()) {
+    const found = problemOf(node, Symbol('not a value'));
+    if (found) phrases.add(found.rule);
+  }
+  assert.ok(phrases.size > 20, `${phrases.size} rules`);
+  for (const rule of phrases) {
+    assert.ok(RULE_PHRASES.has(rule), `${rule}: no pt-BR text`);
+    const once = localizeReason(`Invalid install.aKey: ${rule}`, 'pt-BR');
+    assert.ok(!once.includes(rule), `${rule}: the rule stayed in English`);
+    assert.equal(localizeReason(once, 'pt-BR'), once, `${rule}: translating twice changes the text`);
+  }
 });
 

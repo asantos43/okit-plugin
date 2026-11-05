@@ -3,7 +3,7 @@
 // then the saved `language`, then the default), and the same line structure on
 // every system: only paths and the PATH hint differ.
 import { LOCALES, CONFIG_MESSAGES } from '../profiles.js';
-import { RULE_REASONS } from './rules.js';
+import { RULE_PHRASES, RULE_REASONS } from './rules.js';
 /** Shared with the standalone installer: prefer the native Windows home. */
 export function homeOf(env = process.env, platform = process.platform) {
   return (platform === 'win32' ? env.USERPROFILE || env.HOME : env.HOME) || undefined;
@@ -484,6 +484,10 @@ const EXACT_REASONS = new Map([
   ...Object.values(CONFIG_MESSAGES)
     .filter((entry) => !/\{\w+\}/.test(entry.en))
     .map((entry) => [entry.en, entry['pt-BR']]),
+  // The rules of the settings: the phrase of a rule is fixed text of the catalog (the rule of the schema, with the
+  // values of the node it names), so it is told in the language of the run; the name or the value of the person is not
+  // a rule and stays as it was raised.
+  ...RULE_PHRASES,
 ]);
 
 /** A captured part in the language of the run: only when it is one of the exact phrases of the catalog. */
