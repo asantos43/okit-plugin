@@ -1,9 +1,9 @@
-import { mkdir, readdir, stat, rm } from 'node:fs/promises';
+import { mkdir, readdir, rename, stat, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readJson, writeJsonAtomic, withLock } from '../state.js';
 import { settings } from './config.js';
 import { redact } from './redact.js';
-import { boundedClone, normalize, validate, totals, ownData } from './schema.js';
+import { boundedClone, normalize, readable, validate, totals, ownData } from './schema.js';
 
 const prefix = 'okit-plugin-';
 const bytes = value => Buffer.byteLength(`${JSON.stringify(value, null, 2)}\n`);
@@ -139,16 +139,106 @@ export function capped(data, config) {
   }
   return data;
 }
-export async function save(root, data) {
+// The identity of a step inside one session is its position: every capture
+// rebuilds the same steps in the same order, so step_id names the same step
+// in every save of that session.
+const stepParts = item => {
+  let count = 0;
+  if (item?.message) count += 1;
+  if (item?.reasoning_content) count += 1;
+  count += item?.tool_calls?.length ?? 0;
+  count += item?.observation?.results?.length ?? 0;
+  for (const key of Object.keys(item?.metrics ?? {})) if (item.metrics[key] != null) count += 1;
+  return count + Object.keys(item?.extra ?? {}).length;
+};
+const stepText = item => JSON.stringify(item) ?? '';
+// The richer step wins its position: more content parts, then more bytes, then
+// the canonical text, so the answer never depends on the order of the saves.
+export function richer(left, right) {
+  const parts = stepParts(left) - stepParts(right);
+  if (parts !== 0) return parts > 0;
+  const size = Buffer.byteLength(stepText(left)) - Buffer.byteLength(stepText(right));
+  if (size !== 0) return size > 0;
+  return stepText(left) > stepText(right);
+}
+// The union of two runs of the same session: every step of both is kept and
+// the richer one wins the position they share.
+export function mergeSteps(existing = [], incoming = []) {
+  const byId = new Map();
+  for (const item of existing) if (Number.isInteger(item?.step_id)) byId.set(item.step_id, item);
+  for (const item of incoming) {
+    if (!Number.isInteger(item?.step_id)) continue;
+    const kept = byId.get(item.step_id);
+    if (kept === undefined || richer(item, kept)) byId.set(item.step_id, item);
+  }
+  return [...byId.values()].sort((a, b) => a.step_id - b.step_id);
+}
+const totalKeys = ['total_prompt_tokens', 'total_completion_tokens', 'total_cached_tokens', 'total_cost_usd'];
+// The totals a file kept outlive the steps the file cap shortened, so the
+// merged file never reports less than either file it came from.
+function mergedTotals(steps, stored) {
+  const computed = totals(steps), result = { total_steps: steps.length };
+  for (const key of totalKeys) {
+    const values = [computed[key], ...stored.map(item => item?.[key])].filter(value => typeof value === 'number');
+    result[key] = values.length ? Math.max(...values) : null;
+  }
+  return result;
+}
+export function mergeRuns(existing, incoming) {
+  const steps = mergeSteps(existing?.steps, incoming?.steps);
+  steps.forEach((item, index) => { item.step_id = index + 1; });
+  const merged = { ...existing, ...incoming, steps };
+  const extra = { ...existing?.agent?.extra, ...incoming?.agent?.extra };
+  merged.agent = { ...existing?.agent, ...incoming?.agent };
+  if (Object.keys(extra).length) merged.agent.extra = extra;
+  const children = new Map();
+  for (const child of [...(existing?.subagent_trajectories ?? []), ...(incoming?.subagent_trajectories ?? [])]) {
+    if (child?.trajectory_id != null) children.set(child.trajectory_id, child);
+  }
+  if (children.size) merged.subagent_trajectories = [...children.values()];
+  else delete merged.subagent_trajectories;
+  merged.final_metrics = { ...existing?.final_metrics, ...incoming?.final_metrics,
+    ...mergedTotals(steps, [existing?.final_metrics, incoming?.final_metrics]) };
+  return merged;
+}
+const corruptSuffix = '.corrupt-';
+// The refusal of a lock that did not free up, in plain words.
+const busy = 'Recording is busy right now. Try again in a moment. / A gravação está ocupada agora. Tente de novo em instantes.';
+// The file a session already has: read under the lock. A file that cannot be
+// read is not merged: it is renamed aside, so its bytes are kept and the new
+// save still goes through.
+async function readPrevious(file, now) {
+  const missing = Symbol('missing');
+  let parsed = missing;
+  try { parsed = await readJson(file, missing); }
+  catch { parsed = null; } // a file that is not JSON cannot be merged
+  if (parsed === missing) return null;
+  if (parsed && readable(parsed)) return parsed;
+  try { await rename(file, `${file}${corruptSuffix}${now}`); } catch { /* the save still goes through */ }
+  return null;
+}
+export async function save(root, data, { lockTimeoutMs = 5000, now = Date.now() } = {}) {
   const config = await settings(root);
   if (config.enabled !== true) return false;
   if (!safeId(data?.session_id)) return false;
-  const safe = capped(normalize(redact(boundedClone(data), config), { dir: config.dir }), config);
-  if (!validate(safe)) throw new Error('Invalid saved run / Execução salva inválida');
+  const prepared = normalize(redact(boundedClone(data), config), { dir: config.dir });
+  if (!validate(prepared)) throw new Error('Invalid saved run / Execução salva inválida');
   await mkdir(config.dir, { recursive: true });
-  await withLock(join(config.dir, 'okit-plugin-retention'), async () => {
-    await writeJsonAtomic(join(config.dir, `${prefix}${data.session_id}.json`), safe);
-    await pruneFiles(config);
-  });
+  const file = join(config.dir, `${prefix}${data.session_id}.json`);
+  try {
+    await withLock(join(config.dir, 'okit-plugin-retention'), async () => {
+      const previous = await readPrevious(file, now);
+      const merged = previous ? mergeRuns(previous, prepared) : prepared;
+      const safe = capped(previous ? normalize(merged, { dir: config.dir }) : merged, config);
+      if (!validate(safe)) throw new Error('Invalid saved run / Execução salva inválida');
+      await writeJsonAtomic(file, safe);
+      await pruneFiles(config);
+    }, { timeoutMs: lockTimeoutMs });
+  } catch (error) {
+    // The lock waits a bounded time; when that wait runs out the caller is
+    // told in plain words instead of waiting for ever.
+    if (/is held by .* after \d+ ms/.test(error?.message ?? '')) throw new Error(busy);
+    throw error;
+  }
   return true;
 }
