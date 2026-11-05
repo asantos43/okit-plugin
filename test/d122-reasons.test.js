@@ -7,14 +7,17 @@ import test from 'node:test';
 
 import { diagnose } from '../src/doctor/diagnose.js';
 import { installConfig } from '../src/install/config.js';
-import { createPresenter } from '../src/install/present.js';
+import { createPresenter, localizeReason } from '../src/install/present.js';
 import { registerMcp } from '../src/install/mcp-register.js';
 import { executionPolicyStep } from '../src/install/policy.js';
 import { mcpStep, register } from '../src/install/register.js';
 import { selfCheck } from '../src/install/selfcheck.js';
+import { runClientSmoke } from '../src/smoke/client.js';
+import { runDemo } from '../src/smoke/demo/index.js';
 import { reportText } from '../src/smoke/demo/report.js';
 import { offerSetup } from '../src/setup/offer.js';
 import { configOf } from '../src/profiles.js';
+import { actorPairs } from '../src/env/snapshot.js';
 import { fixture } from './helpers/install-fixture.js';
 import { readySnapshot } from './helpers/ready-snapshot.js';
 
@@ -216,4 +219,139 @@ test('the offer of the two languages tells the reason in the language of each si
     async () => { throw new Error(DENIED); }));
   assert.ok(text.includes(`Setup could not run: ${DENIED}.`), text);
   assert.ok(text.includes(`O setup não pôde rodar: ${PT}.`), text);
+});
+
+// The demo with helpers of its own: the snapshot of the client, the executor and the critic that answer as the
+// test wants. The ledger, the preflight and the run are the real ones (`runDemo` runs them).
+function demoWorld({ run, review, quota = { source: 'user', remainingPct: 80, status: 'green', readAt: 1000, ageMinutes: 0 },
+  smoke = {} } = {}) {
+  const config = configOf({ limits: { global: 1 }, profiles: { codex: {
+    simple: { model: 'small', effort: 'low' }, normal: { model: 'medium', effort: 'medium' },
+    hard: { model: 'large', effort: 'high' }, critic: { model: 'reviewer', effort: 'high' } } },
+    smoke: { ...configOf().smoke, ...smoke } });
+  const snapshot = { config, now: 1000, inUse: 'codex', plugin: { missing: [] }, clients: [{
+    client: 'codex', quota, reading: {}, slots: { available: 2 }, sizeCoverage: { gaps: [] },
+    candidates: actorPairs(config, 'codex').map((pair) => ({ ...pair, confirmed: true, canLaunch: true, restrictions: [] })) }] };
+  const usage = { costUsd: 0, tokens: 0, turns: 1 };
+  const actor = { maxCostUsd: 0, async run(briefing) {
+    if (run) return run(briefing);
+    return { status: 'completed', summary: 'done',
+      artifacts: briefing.demand.files.map((file, index) => ({ path: briefing.allowedOutputPaths[index], content: file.content })),
+      usage };
+  } };
+  const critic = { maxCostUsd: 0, async review({ briefing, checks }) {
+    if (review) return review({ briefing, checks });
+    return { verdict: checks.every((check) => check.passed) ? 'approved' : 'rejected', criteria: checks, feedback: '', usage };
+  } };
+  return { snapshot, actor, critic, clock: () => 1000 };
+}
+
+/** The text of the demo in the language of the run: the reasons of the run are told as a real run tells them. */
+const demoText = (result, locale) => reportText({ ...result, mode: 'real' }, locale);
+
+test('the demo says the ceiling of the real ledger in the language of the run', async () => {
+  for (const locale of ['en', 'pt-BR']) {
+    // The real ledger: the tokens of the first work reach the ceiling, so the next reservation refuses.
+    const world = demoWorld({ smoke: { maxTokens: 10 },
+      run: async (briefing) => ({ status: 'completed', summary: 'done',
+        artifacts: briefing.demand.files.map((file, index) => ({ path: briefing.allowedOutputPaths[index], content: file.content })),
+        usage: { costUsd: 0, tokens: 10, turns: 1 } }) });
+    const result = await runDemo({ ...world, locale });
+    const text = demoText(result, locale);
+    if (locale === 'pt-BR') {
+      assert.ok(text.includes('teto de orçamento ou de voltas'), text);
+      assert.ok(!text.includes('budget or turn ceiling'), text);
+    } else {
+      assert.ok(text.includes('budget or turn ceiling'), text);
+    }
+  }
+});
+
+test('the demo says the refusal of the quota in the language of the run', async () => {
+  for (const locale of ['en', 'pt-BR']) {
+    // The real preflight: the quota of the client is below the floor of the configuration.
+    const world = demoWorld({ quota: { source: 'user', remainingPct: 5, status: 'red', readAt: 1000, ageMinutes: 0 } });
+    const result = await runDemo({ ...world, locale });
+    assert.ok(result.reasons.includes('quota-below-floor'), result.reasons.join(' / '));
+    const text = demoText(result, locale);
+    if (locale === 'pt-BR') {
+      assert.ok(text.includes('cota abaixo do piso'), text);
+      assert.ok(!text.includes('quota-below-floor'), text);
+    } else {
+      assert.ok(text.includes('quota-below-floor'), text);
+    }
+  }
+});
+
+test('the demo says that the executor did not finish in the language of the run', async () => {
+  for (const locale of ['en', 'pt-BR']) {
+    // The real run: the helper answers that it did not complete the work.
+    const world = demoWorld({ run: async () => ({ status: 'failed', summary: 'not done', artifacts: [],
+      usage: { costUsd: 0, tokens: 0, turns: 1 } }) });
+    const result = await runDemo({ ...world, locale });
+    const text = demoText(result, locale);
+    if (locale === 'pt-BR') {
+      assert.ok(text.includes('o executor não completou'), text);
+      assert.ok(!text.includes('executor did not complete'), text);
+    } else {
+      assert.ok(text.includes('executor did not complete'), text);
+    }
+  }
+});
+
+test('the demo says the failure of the helper in the language of the run, not the whole bilingual phrase', async () => {
+  const phrase = 'The helper exceeded the text allowance. / O ajudante ultrapassou o limite de texto.';
+  for (const locale of ['en', 'pt-BR']) {
+    // The real driver: the helper answers with the failure it raised.
+    const world = demoWorld({ run: async () => { throw new Error(phrase); } });
+    const result = await runDemo({ ...world, locale });
+    const text = demoText(result, locale);
+    if (locale === 'pt-BR') {
+      assert.ok(text.includes('O ajudante ultrapassou o limite de texto.'), text);
+      assert.ok(!text.includes('The helper exceeded the text allowance'), text);
+    } else {
+      assert.ok(text.includes('The helper exceeded the text allowance.'), text);
+      assert.ok(!text.includes('O ajudante ultrapassou o limite de texto'), text);
+    }
+  }
+});
+
+test('the smoke client says the refusal of the client in the language of the run', async (t) => {
+  for (const locale of ['en', 'pt-BR']) {
+    const root = await fs.mkdtemp(join(tmpdir(), 'd122-smoke-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    await fs.writeFile(join(root, 'config.json'), JSON.stringify({ profiles: { 'claude-code': {
+      simple: { model: 's', effort: 'medium' } } }, smoke: {} }));
+    const lines = [];
+    const result = await runClientSmoke(['--client', 'claude-code'], { root, locale,
+      env: { HOME: root, OKWORK_HOME: root, CLAUDE_CONFIG_DIR: join(root, 'real-config') },
+      out: (line) => lines.push(line), err: (line) => lines.push(line), now: () => 1700000000000,
+      readQuota: async () => ({ source: 'user', remainingPct: 80 }), run: async () => ({ stdout: '1.0.0' }),
+      client: async () => { throw new Error(DENIED); } });
+    assert.equal(result.code, 2);
+    assert.equal(result.reason, 'client-refused');
+    const text = lines.join('\n');
+    if (locale === 'pt-BR') {
+      assert.ok(text.includes(PT), text);
+      assert.ok(!text.includes(DENIED), text);
+    } else {
+      assert.ok(text.includes(DENIED), text);
+      assert.ok(!text.includes(PT), text);
+    }
+  }
+});
+
+test('translating a reason twice gives the same text, and a text the catalog does not know is kept', () => {
+  const reasons = ['budget or turn ceiling', 'quota needs refresh', 'executor did not complete',
+    'run interrupted', 'slot unavailable', 'time ceiling', 'profile turn ceiling', 'rework ceiling',
+    'blocked dependencies', 'unsafe artifact', 'quota-unknown', 'quota-below-floor', DENIED];
+  for (const reason of reasons) {
+    const once = localizeReason(reason, 'pt-BR');
+    assert.notEqual(once, reason, `${reason}: no pt-BR text`);
+    assert.equal(localizeReason(once, 'pt-BR'), once, `${reason}: translating twice changes the text`);
+    assert.equal(localizeReason(reason, 'en'), reason, `${reason}: the English text changed`);
+  }
+  // A text the catalog does not know stays as it was raised.
+  const unknown = 'spawn claude ENOENT: the helper is not on this machine';
+  assert.equal(localizeReason(unknown, 'pt-BR'), unknown);
 });

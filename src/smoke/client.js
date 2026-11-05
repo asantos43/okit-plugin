@@ -357,7 +357,7 @@ async function runScenario(argv, io) {
   } catch (error) {
     header.reason = 'client-refused';
     const artifacts = await writeArtifacts(root, runId, header, [], deps);
-    err(error.message); out(`${artifacts.jsonl}\n${artifacts.log}`);
+    err(localizeReason(error.message, io.locale)); out(`${artifacts.jsonl}\n${artifacts.log}`);
     return { code: 2, records: [], artifacts, reason: header.reason };
   }
   const records = [];

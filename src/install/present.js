@@ -407,6 +407,31 @@ export const REASONS = [
   [/^version command failed$/, 'o comando de versão falhou', 'version command failed'],
   [/^invalid version output$/, 'a saída da versão é inválida', 'invalid version output'],
   [/^version command timed out after (.+) ms$/, 'o comando de versão passou de $1 ms', 'version command timed out after 5000 ms'],
+  // The reasons of the smoke demo (src/smoke/demo): the ceiling of the ledger, the state of the quota, the failure of
+  // an attempt and the refusal of the run. The demo says them in the language of the run, like every other reason.
+  [/^budget or turn ceiling$/, 'teto de orçamento ou de voltas', 'budget or turn ceiling'],
+  [/^turn ceiling$/, 'teto de voltas', 'turn ceiling'],
+  [/^time ceiling$/, 'teto de tempo', 'time ceiling'],
+  [/^profile turn ceiling$/, 'teto de voltas do perfil', 'profile turn ceiling'],
+  [/^rework ceiling$/, 'teto de retrabalho', 'rework ceiling'],
+  [/^unresolved usage or unenforced ceiling$/, 'uso não resolvido ou teto não aplicado', 'unresolved usage or unenforced ceiling'],
+  [/^unknown turns$/, 'voltas desconhecidas', 'unknown turns'],
+  [/^double settlement$/, 'acerto duplicado', 'double settlement'],
+  [/^run interrupted$/, 'execução interrompida', 'run interrupted'],
+  [/^quota needs refresh$/, 'a cota precisa ser renovada', 'quota needs refresh'],
+  [/^quota evidence needs refresh$/, 'a evidência da cota precisa ser renovada', 'quota evidence needs refresh'],
+  [/^quota-unknown$/, 'cota desconhecida', 'quota-unknown'],
+  [/^quota-below-floor$/, 'cota abaixo do piso', 'quota-below-floor'],
+  [/^slot unavailable$/, 'vaga indisponível', 'slot unavailable'],
+  [/^unsafe artifact$/, 'artefato inseguro', 'unsafe artifact'],
+  [/^blocked dependencies$/, 'dependências bloqueadas', 'blocked dependencies'],
+  [/^executor did not complete$/, 'o executor não completou', 'executor did not complete'],
+  [/^environment snapshot required$/, 'o retrato do ambiente é obrigatório', 'environment snapshot required'],
+  [/^real mode requires quota confirmation$/, 'o modo real exige a confirmação da cota', 'real mode requires quota confirmation'],
+  [/^explicit quota confirmation required$/, 'a confirmação da cota é obrigatória', 'explicit quota confirmation required'],
+  [/^invalid (.+)$/, 'valor inválido: $1', 'invalid maxUsd'],
+  // A reason the demo prefixes with its own label: the label stays, the reason is translated.
+  [/^(narration|report export|cleanup): (.+)$/, '$1: $2', 'narration: budget or turn ceiling'],
 ];
 
 // The refusals of the settings (CONFIG_MESSAGES in profiles.js): each English text with its {name} placeholders is a
