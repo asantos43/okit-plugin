@@ -61,6 +61,7 @@ test('OpenCode empty messages becoming content preserve A and B in both save ord
 // | partial cut | reasoning-only cuts preserve message identity | consuming incompatible intact messages |
 // | cap usage | add totals for complete disjoint clock ranges | guessing additivity for unknown/overlapping clocks |
 // | ambiguity/order | keep both in canonical order | claiming chronological order without clocks |
+// | metadata ties | canonical agent fields and recursive map unions | argument/save order picking definitions |
 // | work budget | 4000+4000 steps under 1 second | repeated unbounded candidate/payload scans |
 // | quarantine | release lock after 1000 collisions | deleting the bad source on exhaustion |
 test('shared timestamp reserves exact occurrences before completing empty content', async t => {
@@ -487,6 +488,50 @@ test('seeded save properties cover 120 pairs with repeated/absent clocks and low
   t.diagnostic(`seed=0xd12306: ${intactPairs} intact, ${cappedPairs} capped pairs in ${elapsed.toFixed(0)} ms; `
     + `${lossyOrders} lossy order differences, ${lossyReplays} lossy replay differences; ${saves} saves`);
   assert.ok(elapsed < budgetMs, `property budget: ${elapsed} ms (ceiling ${budgetMs} ms)`);
+});
+
+test('agent tool definitions merge canonically without a clock', () => {
+  const a = trajectory(context, [step('A')]), b = trajectory(context, [step('A')]);
+  a.agent.tool_definitions = [{ name: 'f' }]; b.agent.tool_definitions = [{ name: 'g' }];
+  assert.equal(validate(a), true); assert.equal(validate(b), true);
+  assert.deepEqual(mergeRuns(a, b), mergeRuns(b, a));
+  assert.deepEqual(mergeRuns(a, b).agent.tool_definitions, [{ name: 'g' }]);
+});
+
+test('agent tool definitions agree in real saves at 20000 bytes in both orders', async t => {
+  const root = await rootOf(t, { maxFileBytes: 20000 });
+  const a = trajectory(context, [step('A')]), b = trajectory(context, [step('A')]);
+  a.agent.tool_definitions = [{ name: 'f' }]; b.agent.tool_definitions = [{ name: 'g' }];
+  const saved = [];
+  for (const pair of [[a, b], [b, a]]) {
+    await rm(fileOf(root), { force: true });
+    for (const run of pair) assert.equal(await save(root, run), true);
+    saved.push(await readSaved(root));
+    assert.equal(validate(saved.at(-1)), true);
+    assert.ok(Buffer.byteLength(await readFile(fileOf(root))) <= 20000);
+    assert.equal(Object.hasOwn(saved.at(-1).extra ?? {}, 'trajectory_merge_start'), false);
+  }
+  assert.deepEqual(saved[0], saved[1]);
+  assert.deepEqual(saved[0].agent.tool_definitions, [{ name: 'g' }]);
+});
+
+test('all agent fields and metadata maps break ties per field', () => {
+  const a = trajectory(context, [step('A')]), b = trajectory(context, [step('A')]);
+  Object.assign(a.agent, { name: 'z', version: '1', model_name: 'a', extra: { nested: { a: 1, shared: 'z' } } });
+  Object.assign(b.agent, { name: 'a', version: '2', model_name: 'z', extra: { nested: { b: 2, shared: 'a' } } });
+  a.extra = { nested: { a: 1, shared: 'z' }, shape: { x: 1 } };
+  b.extra = { nested: { b: 2, shared: 'a' }, shape: ['z'] };
+  a.final_metrics.extra = { shared: 'z' }; b.final_metrics.extra = { shared: 'a' };
+  a.notes = 'z'; b.notes = 'a';
+  a.continued_trajectory_ref = 'a'; b.continued_trajectory_ref = 'z';
+  const merged = mergeRuns(a, b);
+  assert.deepEqual(merged, mergeRuns(b, a));
+  assert.deepEqual(merged.agent, { ...a.agent, version: '2', model_name: 'z',
+    extra: { nested: { a: 1, b: 2, shared: 'z' } } });
+  assert.deepEqual(merged.extra, { nested: { a: 1, b: 2, shared: 'z' }, shape: { x: 1 } });
+  assert.deepEqual(merged.final_metrics.extra, { shared: 'z' });
+  assert.equal(merged.notes, 'z'); assert.equal(merged.continued_trajectory_ref, 'z');
+  assert.equal(validate(merged), true);
 });
 
 test('metadata and child runs merge deterministically with map unions', () => {

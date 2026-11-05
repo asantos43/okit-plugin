@@ -156,6 +156,8 @@ export function capped(data, config) {
 // - the backbone: the longer sequence of steps wins; equal lengths use the
 //   canonical JSON text of the steps, never the order of the saves;
 // - ambiguity: without identity, keep both; this can retain duplicates.
+//   Clockless replay with the same call ID and similar messages is not
+//   guaranteed idempotent because the occurrence identity is ambiguous.
 //   Distinct events without a common clock use canonical, not chronological, order.
 // - the winner of a position: the whole step with more content (message,
 //   reasoning, calls, results, usage, extra), then more bytes, then the
@@ -166,8 +168,9 @@ export function capped(data, config) {
 //   after lossy persistence only disjoint complete clock ranges prove additive
 //   totals; overlapping/unknown ranges retain conservative usage lower bounds;
 // - the metadata: the latest observed timestamp wins the scalar fields and
-//   canonical scalar metadata breaks clock ties, independently of cut steps; maps keep the
-//   keys of both captures and the child runs merge by their trajectory ID.
+//   canonical JSON breaks ties per field, including every agent field; maps
+//   union keys recursively and child runs merge by their trajectory ID.
+//   The seeded property covers 120 real-save pairs with a 20-second ceiling.
 // step_id is output numbering, never identity across captures.
 const canonical = value => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
   ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item) ?? '';
@@ -307,8 +310,8 @@ function mergedTotals(steps, runs) {
   }
   return result;
 }
-// Clock ties compare scalar identity metadata only: cap changes to steps,
-// totals, notes and free-form payloads cannot change the metadata winner.
+// Scalar metadata follows observed clocks; ties are canonical per field,
+// independently of changes to steps, totals or free-form payloads.
 const runTime = run => (run?.steps ?? []).reduce((time, item) => Math.max(time, Date.parse(item.timestamp) || 0),
   Number.isFinite(run?.extra?.trajectory_merge_clock) ? run.extra.trajectory_merge_clock : 0);
 function rememberClocks(run) {
@@ -320,31 +323,22 @@ function rememberClocks(run) {
     pending.push(...(item.subagent_trajectories ?? []));
   }
 }
-const metadataKey = run => canonical([run?.schema_version, run?.session_id, run?.trajectory_id,
-  run?.continued_trajectory_ref, run?.agent?.name, run?.agent?.version, run?.agent?.model_name]);
-function unionMap(left, right) {
+function unionMap(left, right, preferRight = false) {
   const result = { ...left };
   for (const [key, value] of Object.entries(right ?? {})) {
-    const old = result[key];
+    const old = Object.hasOwn(result, key) ? result[key] : undefined;
     ownData(result, key, old && value && typeof old === 'object' && typeof value === 'object'
       && !Array.isArray(old) && !Array.isArray(value) ? unionMap(old, value)
-        : Object.hasOwn(result, key) && canonical(old) > canonical(value) ? old : value);
+        : !preferRight && Object.hasOwn(result, key) && canonical(old) > canonical(value) ? old : value);
   }
   return result;
 }
 export function mergeRuns(existing, incoming, marker = defaultMarker) {
-  if (runTime(existing) > runTime(incoming) || runTime(existing) === runTime(incoming)
-    && metadataKey(existing) > metadataKey(incoming)) [existing, incoming] = [incoming, existing];
+  if (runTime(existing) > runTime(incoming)) [existing, incoming] = [incoming, existing];
+  const newer = runTime(existing) < runTime(incoming);
   const steps = mergeSteps(existing?.steps, incoming?.steps, marker);
-  const merged = { ...existing, ...incoming, steps };
-  if (runTime(existing) === runTime(incoming)) {
-    for (const key of ['notes', 'continued_trajectory_ref']) {
-      if (canonical(existing?.[key]) > canonical(incoming?.[key])) merged[key] = existing[key];
-    }
-  }
-  const extra = unionMap(existing?.agent?.extra, incoming?.agent?.extra);
-  merged.agent = { ...existing?.agent, ...incoming?.agent };
-  if (Object.keys(extra).length) merged.agent.extra = extra;
+  const merged = { ...unionMap(existing, incoming, newer), steps };
+  merged.agent = unionMap(existing?.agent, incoming?.agent, newer);
   if (existing?.extra || incoming?.extra) merged.extra = unionMap(existing?.extra, incoming?.extra);
   if (existing?.extra?.trajectory_merge_clock != null || incoming?.extra?.trajectory_merge_clock != null) {
     ownData(merged.extra ??= {}, 'trajectory_merge_clock', Math.max(runTime(existing), runTime(incoming)));
@@ -361,11 +355,8 @@ export function mergeRuns(existing, incoming, marker = defaultMarker) {
   }
   if (children.size) merged.subagent_trajectories = [...children.values()].sort((a, b) => a.trajectory_id.localeCompare(b.trajectory_id));
   else delete merged.subagent_trajectories;
-  merged.final_metrics = { ...existing?.final_metrics, ...incoming?.final_metrics,
+  merged.final_metrics = { ...unionMap(existing?.final_metrics, incoming?.final_metrics),
     ...mergedTotals(steps, [existing, incoming]) };
-  if (existing?.final_metrics?.extra || incoming?.final_metrics?.extra) {
-    merged.final_metrics.extra = unionMap(existing?.final_metrics?.extra, incoming?.final_metrics?.extra);
-  }
   return merged;
 }
 const corruptSuffix = '.corrupt-';
