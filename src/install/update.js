@@ -83,12 +83,16 @@ export async function activate(record, previous, deps, action = 'update', progre
 export async function rollback(current, deps, targets = null) {
   if (!current?.previous) throw new UsageError('No previous version retained');
   if (current.previous.client !== current.client) throw new UsageError('Previous version belongs to another client');
-  // The registrations of the accounts are of the clients' folders, not of a version: the record of the old payload is
-  // taken without the ones IT held, and the ones registered NOW stay exactly as they are.
-  const { accounts: _held, defaultRegistered: _default, statusline: _bar, ...older } = current.previous;
+  // Field by field (RECORD_FIELDS). From the OLD record only the payload: client, system, arch, repo, bin, version, path,
+  // destination, at, sha256, prerelease, settings, wasRunning. From the record of NOW everything that is a registration or
+  // a choice made since: link, linkDirectory, autostart, statusline (the default's bar and its backup), accounts (each
+  // one's folder and bar) and defaultRegistered. The registrations are of the clients' folders, not of a version: the old
+  // record's are dropped here, and nothing is created that the record of now does not have.
+  const { link: _link, linkDirectory: _directory, autostart: _autostart, statusline: _bar, accounts: _held,
+    defaultRegistered: _default, ...older } = current.previous;
   const record = { ...older, link: current.link, linkDirectory: current.linkDirectory,
     autostart: current.autostart, previous: { ...current, previous: null },
-    ...(current.statusline ? { statusline: current.statusline } : _bar ? { statusline: _bar } : {}),
+    ...(current.statusline ? { statusline: current.statusline } : {}),
     ...(current.accounts ? { accounts: current.accounts } : {}),
     ...(current.defaultRegistered === false ? { defaultRegistered: false } : {}) };
   const ui = presenterOf(deps);

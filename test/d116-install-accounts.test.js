@@ -424,6 +424,50 @@ test('a rollback keeps the default registered since then, and does not bring bac
   assert.equal(f.holds(f.client), true);
 });
 
+test('a rollback brings back no status bar of an old record: reinstalling the default then makes its backup', async (t) => {
+  const f = await world(t);
+  // Settings that exist before the plugin, with bytes the install would not write (spaces, a tab, a closing newline).
+  const originals = { default: Buffer.from('{\n  "mark": "original-default",\t"x": 1  \n}\n'), work: Buffer.from('{ "mark" : "original-work" }\n') };
+  await fs.mkdir(f.client, { recursive: true });
+  await fs.mkdir(f.work, { recursive: true });
+  await fs.writeFile(join(f.client, 'settings.json'), originals.default);
+  await fs.writeFile(join(f.work, 'settings.json'), originals.work);
+  assert.equal(await f.run('install', '--client', CLIENT, '--statusline'), 0, f.output.join('\n'));
+  assert.equal(await f.run('install', '--client', CLIENT, '--account', 'work', '--statusline'), 0, f.output.join('\n'));
+  f.setVersion('1.0.1');
+  assert.equal(await f.run('update', '--client', CLIENT), 0, f.output.join('\n'));
+  const oldBar = (await f.record()).previous.statusline;
+  assert.ok(oldBar, 'the old record held the default\'s bar');
+  // The default goes: its settings come back and its bar and backup are gone from the record of now.
+  assert.equal(await f.run('uninstall', '--client', CLIENT), 0, f.output.join('\n'));
+  assert.ok(originals.default.equals(await fs.readFile(join(f.client, 'settings.json'))));
+  const gone = await f.record();
+  assert.equal(gone.statusline, undefined);
+  assert.equal(gone.defaultRegistered, false);
+  assert.equal(await exists(oldBar.backup), false);
+  // The rollback brings the old payload, not the old bar of the default; the bar of `work` (registered now) stays.
+  assert.equal(await f.run('update', '--rollback', '--client', CLIENT), 0, f.output.join('\n'));
+  const rolled = await f.record();
+  assert.equal(rolled.version, '1.0.0');
+  assert.equal(rolled.statusline, undefined);
+  assert.equal(rolled.defaultRegistered, false);
+  assert.deepEqual(rolled.accounts, gone.accounts);
+  assert.equal(await exists(rolled.accounts.work.statusline.backup), true);
+  assert.ok(originals.default.equals(await fs.readFile(join(f.client, 'settings.json'))));
+  // The default is installed again in the restored version: its backup is made now, and its uninstall restores the original.
+  f.setVersion('1.0.0');
+  assert.equal(await f.run('install', '--client', CLIENT, '--statusline'), 0, f.output.join('\n'));
+  const again = await f.record();
+  assert.ok(again.statusline, 'the bar of the default is registered again');
+  assert.equal(await exists(again.statusline.backup), true);
+  assert.equal(again.defaultRegistered, undefined);
+  f.output.length = 0;
+  assert.equal(await f.run('uninstall', '--client', CLIENT), 0, f.output.join('\n'));
+  assert.ok(originals.default.equals(await fs.readFile(join(f.client, 'settings.json'))));
+  assert.equal(await exists(again.statusline.backup), false);
+  assert.ok(Object.hasOwn(await settingsOf(f.work), 'statusLine'), 'the bar of work is still there');
+});
+
 test('the backup of an update keeps the plugin\'s files of every account and never a login', async (t) => {
   const f = await world(t);
   const folders = { default: f.client, work: f.work, personal: f.personal };
@@ -433,6 +477,10 @@ test('the backup of an update keeps the plugin\'s files of every account and nev
     await fs.writeFile(join(folder, '.credentials.json'), `SECRET-CREDENTIALS-${id}`);
     await fs.writeFile(join(folder, 'auth.json'), `SECRET-AUTH-${id}`);
     await fs.writeFile(join(folder, 'oauth-token.txt'), `SECRET-TOKEN-${id}`);
+    // Inside the plugins folder (copied as a whole): only the recursive filter of the copy keeps the login out.
+    await fs.mkdir(join(folder, 'plugins', 'cache'), { recursive: true });
+    await fs.writeFile(join(folder, 'plugins', 'cache', 'auth.json'), `SECRET-NESTED-${id}`);
+    await fs.writeFile(join(folder, 'plugins', 'cache', 'keep.txt'), `kept-${id}`);
     await fs.writeFile(join(folder, 'settings.json'), JSON.stringify({ mark: `original-${id}` }));
   }
   assert.equal(await f.run('install', '--client', CLIENT, '--statusline'), 0, f.output.join('\n'));
@@ -450,6 +498,9 @@ test('the backup of an update keeps the plugin\'s files of every account and nev
   // The files the plugin writes are there, each folder's own original content apart from the others'.
   const settings = await Promise.all(kept.filter((file) => file.endsWith('settings.json')).map((file) => fs.readFile(file, 'utf8')));
   for (const id of Object.keys(folders)) assert.ok(settings.some((text) => text.includes(`original-${id}`)), `no backup of ${id}`);
+  // The plugins folder was copied (its harmless file is there), without the login file inside it.
+  const harmless = await Promise.all(kept.filter((file) => file.endsWith('keep.txt')).map((file) => fs.readFile(file, 'utf8')));
+  for (const id of Object.keys(folders)) assert.ok(harmless.includes(`kept-${id}`), `no plugins folder of ${id}`);
   // The logins themselves were not touched.
   for (const [id, folder] of Object.entries(folders)) assert.equal(await fs.readFile(join(folder, '.credentials.json'), 'utf8'), `SECRET-CREDENTIALS-${id}`);
 });
