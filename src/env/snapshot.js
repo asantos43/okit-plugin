@@ -269,7 +269,7 @@ export async function environmentSnapshot(deps = {}) {
       slots: { total: cap, available: free },
       slotEvidence: { running: deps.limits?.byClient?.[account.key] ?? 0, source } };
     });
-    policyAccounts.set(client, accountRows.map((account) => ({ ...account,
+    policyAccounts.set(client, accountRows.filter((account) => account.installed !== false).map((account) => ({ ...account,
       ...!Object.hasOwn(config.accounts ?? {}, client) ? { actors: Object.values(config.profiles[client] ?? {}).filter(Boolean) } : {},
       login: !Object.hasOwn(config.accounts ?? {}, client) ? 'unknown'
         : credentialInEnv(client, deps.env) ? 'logged-in' : account.login })));
@@ -289,7 +289,8 @@ export async function environmentSnapshot(deps = {}) {
     });
   }
   const runs = deps.runs ?? (deps.root ? await readRunRecords(deps.root) : []);
-  const accountChoices = rows.flatMap((row) => Object.entries(config.profiles[row.client] ?? {})
+  const accountChoices = rows.filter((row) => policyAccounts.get(row.client).length > 0)
+    .flatMap((row) => Object.entries(config.profiles[row.client] ?? {})
     .filter(([, actor]) => actor?.model && ['claude-code', 'codex'].includes(row.client))
     .map(([name, actor]) => {
       const result = chooseAccount({ client: row.client, actorClass: { ...actor, name,

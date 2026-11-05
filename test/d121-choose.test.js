@@ -164,6 +164,28 @@ test('doctor and actors expose the current policy choice and its reason in both 
   }
 });
 
+// | Snapshot corpus | Must pass | Must refuse |
+// | absent, implicit or saved default | optional note | account choices in actors/doctor |
+// | installed, implicit or saved default | account choices | dropping the default |
+test('absent clients have no policy choices, with or without a saved default', async () => {
+  for (const installed of [false, true]) for (const saved of [false, true]) {
+    const snapshot = await environmentSnapshot({ client: 'codex', env: {}, now: () => now,
+      config: { profiles: { codex: { simple: null, normal: { model: 'm', effort: 'medium' }, hard: null } },
+        ...saved ? { accounts: { codex: [{ id: 'default', label: 'default' }] } } : {} },
+      plugin: {}, versions: { codex: { installed } }, readQuota: async () => ({ source: 'off' }),
+      fs: { readFile: async () => { throw Object.assign(new Error(), { code: 'ENOENT' }); } },
+      detectClients: async () => ({ clients: [{ client: 'codex', installed, source: 'listing', models: ['m'] }] }) });
+    assert.equal(snapshot.accountChoices.length, installed ? 1 : 0);
+    for (const locale of ['en', 'pt-BR']) {
+      const actors = await listActors({ snapshot, client: 'codex', locale });
+      const doctor = readinessRows({ snapshot, ui: { locale }, program: 'okit-plugin' });
+      assert.equal(doctor.rows.filter((row) => row.id === 'account-policy').length, installed ? 1 : 0);
+      if (!installed) assert.deepEqual(actors.notes, [locale === 'en'
+        ? 'codex: not installed (optional).' : 'codex: não instalado (opcional).']);
+    }
+  }
+});
+
 test('one account passes without changing inputs or reading credentials', () => {
   const accounts = freeze([account()]);
   const result = choose(accounts);

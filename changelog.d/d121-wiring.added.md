@@ -1,1 +1,4 @@
 - Route unnamed daemon launches through account policy before slot reservation, share the decision with preflight, defer paced work without runs, expose bilingual doctor/actor choices, and record account ids and reason codes.
+- Omit account policy choices for absent clients in doctor and actor reports.
+- Translate invalid account policy timestamps into Brazilian Portuguese.
+- Synchronize generated installers with the presenter and configuration messages.
