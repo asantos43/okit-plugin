@@ -60,9 +60,15 @@ export function collectorExecutable(deps) {
   return platform === config.windowsPlatform && bin ? join(bin, config.command).replaceAll('\\', '/') : config.command;
 }
 
+// An extra account keeps its status bar in `record.accounts[id]`; the default's stays in `record.statusline`.
+const scoped = (deps) => Boolean(deps.accountScope) && !deps.accountScope.isDefault;
+export const statuslineOf = (record, deps) => (scoped(deps) ? record.accounts?.[deps.accountScope.id]?.statusline : record.statusline);
+/** The copy of the settings of an extra account is its own file: the default's name with the account id. */
+const backupName = (deps) => (scoped(deps) ? `${deps.statuslineConfig.backupFile}.${deps.accountScope.id}` : deps.statuslineConfig.backupFile);
+
 /** The client's settings file that holds the status bar: the one the record names, else the client's own. */
-export const settingsPath = (record, deps) => record.statusline?.path
-  ?? join(clientRoot(record.client, deps), deps.statuslineConfig.settingsFile);
+export const settingsPath = (record, deps) => statuslineOf(record, deps)?.path
+  ?? join(deps.accountScope?.root ?? clientRoot(record.client, deps), deps.statuslineConfig.settingsFile);
 
 export async function planStatusline(record, deps) {
   const settings = deps.statuslineConfig;
@@ -78,7 +84,7 @@ export async function planStatusline(record, deps) {
   // A collector at another path is already registered; only update a command
   // whose original settings this installation can restore.
   const executable = collectorExecutable(deps);
-  if (owned && (!record.statusline || (collectorIndex === 1 && words[0] === executable))) return null;
+  if (owned && (!statuslineOf(record, deps) || (collectorIndex === 1 && words[0] === executable))) return null;
   let command;
   if (owned) command = [executable, ...words.slice(collectorIndex)].map(quote).join(' ');
   else {
@@ -101,17 +107,25 @@ async function writeBytes(path, bytes, fs) {
 }
 
 export async function applyStatusline(record, plan, deps) {
-  const backup = record.statusline?.backup ?? join(deps.root, deps.statuslineConfig.backupFile);
-  const statusline = record.statusline ?? { path: plan.path, backup, existed: plan.original !== null,
+  const held = statuslineOf(record, deps);
+  const backup = held?.backup ?? join(deps.root, backupName(deps));
+  const statusline = held ?? { path: plan.path, backup, existed: plan.original !== null,
     previous: plan.previous };
-  if (!record.statusline) await writeBytes(backup, plan.original ?? Buffer.alloc(0), deps.fs);
+  if (!held) await writeBytes(backup, plan.original ?? Buffer.alloc(0), deps.fs);
   try {
     await writeBytes(plan.path, plan.bytes, deps.fs);
-    await saveRecord(deps.destination, { ...record, statusline: { ...statusline, hash: hash(plan.bytes) } }, deps);
+    const next = { ...statusline, hash: hash(plan.bytes) };
+    if (!deps.accountScope) await saveRecord(deps.destination, { ...record, statusline: next }, deps);
+    else {
+      // A run with accounts registers several of them in one record: the record in memory keeps what each one saved.
+      if (scoped(deps)) record.accounts = { ...record.accounts, [deps.accountScope.id]: { ...record.accounts?.[deps.accountScope.id], statusline: next } };
+      else record.statusline = next;
+      await saveRecord(deps.destination, record, deps);
+    }
   } catch (error) {
     if (plan.original === null) await deps.fs.rm(plan.path, { force: true });
     else await writeBytes(plan.path, plan.original, deps.fs).catch(() => {});
-    if (!record.statusline) await deps.fs.rm(backup, { force: true });
+    if (!held) await deps.fs.rm(backup, { force: true });
     throw error;
   }
 }
@@ -119,8 +133,8 @@ export async function applyStatusline(record, plan, deps) {
 export async function registerStatusline(record, flags, deps) {
   if (!appliesStatusline(record, flags, deps)) return null;
   const ui = presenterOf(deps);
-  if (!flags.statusline && !record.statusline && !deps.tty) {
-    const turnOn = commandText(ui, deps.config.command, ['install', '--client', record.client, '--statusline'], { later: true });
+  if (!flags.statusline && !statuslineOf(record, deps) && !deps.tty) {
+    const turnOn = commandText(ui, deps.config.command, ['install', '--client', record.client, ...(scoped(deps) ? ['--account', deps.accountScope.id] : []), '--statusline'], { later: true });
     return { status: 'skipped', detail: ui.text('statuslineHow', { command: turnOn }) };
   }
   try {
@@ -130,7 +144,7 @@ export async function registerStatusline(record, flags, deps) {
     ui.detail(`${ui.text('statuslineAdd')}: ${deps.config.command} ${deps.statuslineConfig.subcommand}`);
     ui.detail(`${ui.text('statuslineKeep')}: ${plan.previous?.command ?? ui.text('statuslineNone')}`);
     if (deps.dryRun || flags.check) return { status: 'plan', detail: plan.path };
-    if (!flags.statusline && !record.statusline) {
+    if (!flags.statusline && !statuslineOf(record, deps)) {
       const accepted = await ui.confirm(deps.read, { explain: [ui.text('statuslineExplain'), ui.text('statuslineExplain2', { path: plan.path })],
         question: ui.text('statuslineAsk') });
       if (!accepted) return { status: 'skipped', detail: ui.text('statuslineDeclined') };
@@ -146,8 +160,8 @@ export function appliesStatusline(record, flags, deps) {
 }
 
 export async function undoStatusline(record, deps) {
-  if (!record.statusline) return null;
-  const saved = record.statusline;
+  const saved = statuslineOf(record, deps);
+  if (!saved) return null;
   const ui = presenterOf(deps);
   if (deps.dryRun) return { status: 'plan', detail: saved.path };
   let notes = [];

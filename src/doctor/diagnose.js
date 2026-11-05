@@ -8,6 +8,7 @@ import { usableNode, installationScript, autostartPlan, autostartPresent, detect
 import { daemonStatus } from '../daemon.js';
 import { installConfig, installPaths } from '../install/config.js';
 import { mcpPlan, mcpStatus, quotedWord, shown } from '../install/mcp-register.js';
+import { depsFor, registeredTargets } from '../install/account-scope.js';
 import { clientLabel, localizeReason, controlReason, redact } from '../install/present.js';
 import { checkLabel, selfCheck } from '../install/selfcheck.js';
 import { extraText } from '../install/texts.js';
@@ -286,9 +287,16 @@ export async function diagnose(input) {
   // installation is the record's own folder), never rebuilt out of the settings.
   const selfCheckDeps = selfCheckDependencies({ input, settings, env, home, platform, fs, run, now, ui, records, statuslineConfig, collectorConfig });
   for (const record of resolved) {
-    rows.push(await registrationRow(record, { deps, readers, settings, platform, command: program, ui, root }));
+    // The accounts that hold a registration (D116): with one account the rows are what they always were; with several,
+    // the registration of each one is read in its own folder and the row says whose it is.
+    const accounts = storedValue && (record.accounts || record.defaultRegistered === false) ? registeredTargets(record, storedValue, deps) : [];
+    const [first, ...others] = accounts;
+    const tell = (row, target) => (others.length ? { ...row, label: `${row.label} [${target.label}]` } : row);
+    const own = { readers, settings, platform, command: program, ui, root };
+    rows.push(tell(await registrationRow(record, { deps: first ? depsFor(deps, first) : deps, ...own }), first));
+    for (const other of others) rows.push(tell(await registrationRow(record, { deps: depsFor(deps, other), ...own }), other));
     rows.push(...await selfCheckRows(record, { readers,
-      selfCheckDeps: { ...selfCheckDeps, destination: record.destination }, ui, command: program, root, platform }));
+      selfCheckDeps: { ...selfCheckDeps, destination: record.destination, accountsConfig: storedValue }, ui, command: program, root, platform }));
   }
 
   // 5. The state files: the configuration, the inbox and the orders.

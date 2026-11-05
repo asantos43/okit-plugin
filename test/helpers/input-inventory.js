@@ -152,6 +152,10 @@ const NAMES = ['no-such-name', '', ' ', 'a\nb'];
  */
 export const FLAG_TABLE = Object.freeze([
   { flag: '--client', value: 'client name', commands: ['install', 'update', 'uninstall', 'doctor'], invalid: NAMES },
+  // The id of a saved account: an id that is not saved or not an id is refused; `update` refuses the flag itself (it moves
+  // every registered account), and without `--client` (or with `all`) the client of the account is not named.
+  { flag: '--account', value: 'id of a saved account', commands: ['install', 'update', 'uninstall'],
+    invalid: [...NAMES, 'Bad Id', '../x', 'claude-code:work', 'x'.repeat(80)] },
   { flag: '--from', value: 'folder of a package', commands: ['install'], invalid: ['/nonexistent/okit-from', ''] },
   { flag: '--repo', value: 'owner/repository', commands: ['install'], invalid: ['invalid', 'a b/c', '../x', './y', '..', '', '/'] },
   { flag: '--dest', value: 'folder', commands: ['install'], invalid: [' ', 'a\nb', ''] },

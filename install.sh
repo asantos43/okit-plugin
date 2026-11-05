@@ -128,6 +128,11 @@ const TEXTS = Object.freeze({
   quotaUndo: { en: 'Restore {client} settings', 'pt-BR': 'Restaurar ajustes do {client}' },
   removeKeep: { en: '{path} (your settings are kept)', 'pt-BR': '{path} (seus ajustes foram mantidos)' },
   removePurge: { en: '{path} (settings removed too)', 'pt-BR': '{path} (ajustes removidos também)' },
+  accountsListed: { en: 'Accounts of {client}: {accounts}. The default account was used.', 'pt-BR': 'Contas do {client}: {accounts}. A conta default foi usada.' },
+  accountsKept: { en: '{path} (kept: other accounts still use it: {accounts})', 'pt-BR': '{path} (mantido: outras contas ainda o usam: {accounts})' },
+  accountMoved: { en: 'The account {account} is registered in another folder than the one saved now; uninstall it before installing it again.', 'pt-BR': 'A conta {account} está registrada em outra pasta que não a salva agora; desinstale-a antes de instalá-la de novo.' },
+  accountsOtherVersion: { en: 'Other accounts use version {version}; run {command} update first.', 'pt-BR': 'Outras contas usam a versão {version}; rode {command} update primeiro.' },
+  purgeAccounts: { en: '--purge requires no remaining accounts (still registered: {accounts})', 'pt-BR': '--purge exige que não reste nenhuma conta registrada (ainda registradas: {accounts})' },
   unlinkDone: { en: '{command} removed', 'pt-BR': '{command} removido' },
   unlinkShared: { en: '{command} kept for the other client', 'pt-BR': '{command} mantido para o outro cliente' },
   clientChoose: { en: 'Which client do you want to install for?', 'pt-BR': 'Para qual cliente você quer instalar?' },
@@ -447,6 +452,11 @@ const REASONS = [
   [/^Use unique account ids, valid labels and absolute config directories; default has no directory\.$/, 'Utilize ids de conta únicos, nomes válidos e pastas de configuração absolutas; default não tem pasta.', 'Use unique account ids, valid labels and absolute config directories; default has no directory.'],
   [/^The default account cannot be removed\.$/, 'A conta default não pode ser removida.', 'The default account cannot be removed.'],
   [/^Unknown account\.$/, 'Conta desconhecida.', 'Unknown account.'],
+  [/^Accounts are not supported for this client\.$/, 'Contas não são suportadas para este cliente.', 'Accounts are not supported for this client.'],
+  [/^An update moves every registered account; run it without --account\.$/, 'Uma atualização move todas as contas registradas; rode sem --account.', 'An update moves every registered account; run it without --account.'],
+  [/^Name the client of the account with --client\.$/, 'Informe o cliente da conta com --client.', 'Name the client of the account with --client.'],
+  [/^That account is not registered\.$/, 'Essa conta não está registrada.', 'That account is not registered.'],
+  [/^--purge requires no remaining accounts$/, '--purge exige que não reste nenhuma conta registrada', '--purge requires no remaining accounts'],
   // The state files (src/state.js, src/limits.js): the path and what the system said stay as they are.
   [/^Cannot read (.+?): ([^]*)$/, 'Não foi possível ler $1: $2', 'Cannot read /state/config.json: unreadable'],
   [/^Invalid JSON in (.+)$/, 'JSON inválido em $1', 'Invalid JSON in /state/config.json'],
@@ -606,8 +616,8 @@ function resolveLocale({ args = [], env = {}, saved } = {}) {
  * number, so they cannot differ. `upToDate` is the same version already installed, which has only the steps that
  * still apply to it (the quota and the command link).
  */
-function planSteps({ upToDate = false, get = 'get', backup = false, quota = false, link = false, smoke = false } = {}) {
-  if (upToDate) return [...(quota ? ['quota'] : []), ...(link ? ['link'] : [])];
+function planSteps({ upToDate = false, get = 'get', backup = false, quota = false, link = false, smoke = false, register = false } = {}) {
+  if (upToDate) return [...(register ? ['register'] : []), ...(quota ? ['quota'] : []), ...(link ? ['link'] : [])];
   return [get, ...(backup ? ['backup'] : []), 'files', 'register', 'link', ...(quota ? ['quota'] : []), ...(smoke ? ['smoke'] : [])];
 }
 

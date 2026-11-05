@@ -37,6 +37,8 @@ The installer prints the same numbered steps on Linux, macOS and Windows, in one
 
 A setting of `config.json` that is not valid (for example `install.timeoutMs` set to `0` or to text) is refused by every command with exit 2, a line that names the setting and the rule (`Invalid install.timeoutMs: an integer from 1 to 2147483647`), and the file untouched; fix the value, or remove it to use the default.
 
+To register the plugin in one saved account of Claude Code or Codex, add `--client` and `--account`; see [accounts](accounts.md#register).
+
 Install/update can edit shell profiles or the Windows user PATH; `--no-path` skips this. Downloads verify SHA-256 for changed bytes; it does not authenticate the source. Real-client proof varies by system: see [release evidence](../maintainers/RELEASING.md#proof-per-pair).
 
 [Next: ask the Director](ask-the-director.md) · [Guide](README.md) · [Português](install.pt-BR.md)

@@ -566,7 +566,7 @@ const mcpCwd = (deps, record) => deps.mcpCwd || record.path;
 async function ask(words, deps, cwd) {
   presenterOf(deps).detail(shown(words, deps.platform));
   try {
-    return answered(await deps.run({ ...command(words), timeout: deps.config.timeoutMs, cwd }));
+    return answered(await deps.run({ ...command(words), timeout: deps.config.timeoutMs, cwd, ...(deps.cliEnv ? { env: deps.cliEnv } : {}) }));
   } catch (error) {
     return answered(error, true);
   }

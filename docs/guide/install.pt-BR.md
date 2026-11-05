@@ -37,6 +37,8 @@ O instalador imprime os mesmos passos numerados no Linux, no macOS e no Windows,
 
 Um ajuste de `config.json` que não é válido (por exemplo `install.timeoutMs` com `0` ou com texto) é recusado por todo comando com saída 2, uma linha que nomeia o ajuste e a regra (`install.timeoutMs inválido: um inteiro de 1 a 2147483647`) e o arquivo intacto; corrija o valor, ou apague-o para usar o padrão.
 
+Para registrar o plugin em uma conta salva do Claude Code ou do Codex, acrescente `--client` e `--account`; veja [contas](accounts.pt-BR.md#register).
+
 Instalar/atualizar pode editar perfis do terminal ou o PATH do usuário no Windows; `--no-path` pula isso. O download verifica SHA-256 contra bytes alterados; isso não autentica a origem. A comprovação no cliente real varia por sistema: veja [provas da versão](../maintainers/RELEASING.pt-BR.md#proof-per-pair).
 
 [Depois: pedir ao Diretor](ask-the-director.pt-BR.md) · [Guia](README.pt-BR.md) · [English](install.md)
