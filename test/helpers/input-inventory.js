@@ -27,6 +27,7 @@ const lineOf = (text, index) => text.slice(0, index).split('\n').length;
 
 /** The top-level keys, with the type the code expects and where a wrong value is refused. `range` is [min, max]. */
 export const TOP_LEVEL_KEYS = Object.freeze({
+  accountPolicy: { type: 'object', checkedBy: 'configOf (ConfigError accountPolicy), CONFIG_SCHEMA accountPolicy.*' },
   accounts: { type: 'object', checkedBy: 'configOf / accountsProblem (ConfigError accountsSetting); accounts-cli uses the pure mutations' },
   language: { type: 'choice', values: ['en', 'pt-BR'], checkedBy: 'resolveLocale (a value that is not a language is ignored as a saved language and refused as --locale)' },
   install: { type: 'object', checkedBy: 'INSTALL_SCHEMA (installConfig)' },
@@ -122,6 +123,7 @@ export const INSTALL_NUMBERS = Object.freeze({
 });
 /** The numbers `config set` takes; `integer` or `number`. */
 export const CONFIG_NUMBERS = Object.freeze({
+  'accountPolicy.minQuotaPct': ['number', 0, 100], 'accountPolicy.paceMarginPct': ['number', 0, 100],
   'limits.global': ['integer', ...SIZE], 'limits.clients.<client>': ['integer', ...SIZE],
   'profiles.<client>.<class>.maxTurns': ['integer', ...SIZE],
   lowQuotaPct: ['number', 0, 100], 'daemon.minQuotaPct': ['number', 0, 100], 'smoke.quotaFloorPct': ['number', 0, 100],

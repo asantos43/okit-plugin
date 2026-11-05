@@ -161,7 +161,13 @@ test('the table of the settings lists the defaults with their origin', async (t)
   const root = await tempRoot(t);
   const shown = await getConfig(root);
   const entries = shown.entries.filter((entry) => !entry.path.startsWith('codexQuota.') && !entry.path.startsWith('telemetry.'));
-  assert.equal(entries.length, 52);
+  assert.equal(entries.length, 55);
+  assert.deepEqual(entries.filter((entry) => entry.path.startsWith('accountPolicy.'))
+    .map(({ path, value, origin }) => ({ path, value, origin })), [
+    { path: 'accountPolicy.enforcePace', value: false, origin: 'default' },
+    { path: 'accountPolicy.paceMarginPct', value: 15, origin: 'default' },
+    { path: 'accountPolicy.minQuotaPct', value: 0, origin: 'default' },
+  ]);
   assert.ok(shown.entries.some((entry) => entry.path === 'telemetry.enabled' && entry.value === false && entry.origin === 'default'));
   assert.ok(shown.entries.some((entry) => entry.path === 'codexQuota.tailBytes' && entry.value === 16384 && entry.origin === 'default'));
   assert.ok(entries.every((entry) => entry.origin === 'default'));

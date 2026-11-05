@@ -81,6 +81,15 @@ test('weekly headroom uses own percentages and time to reset, then session, load
   assert.equal(choose([account('a'), account('b')], { runs }).account.id, 'b');
 });
 
+test('final id tie-break is independent of input order when all scores are equal', () => {
+  const a = account('a'), z = account('z');
+  assert.equal(choose([a, z]).account, a);
+  assert.equal(choose([z, a]).account, a);
+  a.login = 'logged-out';
+  z.actors = [];
+  assert.equal(choose([z, a]).reason.code, 'login');
+});
+
 test('unknown windows rank last but do not bar; known exhausted window still bars', () => {
   const unknown = { ...account('a'), reading: null };
   assert.equal(choose([unknown, account('z', 20, 20)]).account.id, 'z');

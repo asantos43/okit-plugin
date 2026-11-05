@@ -15,9 +15,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(HERE, 'fixtures', 'mcp-golden.json');
 const UPDATE = process.env.GOLDEN_UPDATE === '1';
 
-// Captured from the pre-D113 replies, before changing any display text.
+// Pre-D113 envelope and display shapes, with D121's additive snapshot.config.accountPolicy defaults.
 const DISPLAY_SHAPES = {
-  status: '1d5b24e2e73f9f69f631161534b143133b0cbaeb1f72e945aa2c924899f0625f',
+  status: '5ec97bac232791b50277d37051c1d4302372db577e44a9c8b5a6b4b189d6269c',
   actors_list: '7ce389f5861b56a3e49e6aad988ced46da0690507e6dc4d1e0d745c6bac061ab',
 };
 function jsonShape(value) {
@@ -37,7 +37,10 @@ test('display replies preserve pre-D113 JSON keys, types and MCP envelope in bot
     assert.equal(frame.result.isError, false);
     assert.deepEqual(Object.keys(frame.result.content[0]).sort(), ['text', 'type']);
     assert.equal(frame.result.content[0].type, 'text');
-    const shape = jsonShape(JSON.parse(frame.result.content[0].text));
+    const reply = JSON.parse(frame.result.content[0].text);
+    if (name === 'status') assert.deepEqual(reply.snapshot.config.accountPolicy,
+      { minQuotaPct: 0, paceMarginPct: 15, enforcePace: false });
+    const shape = jsonShape(reply);
     assert.equal(createHash('sha256').update(JSON.stringify(shape)).digest('hex'), expected, `${name}/${locale}`);
   }
 });

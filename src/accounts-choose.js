@@ -42,7 +42,17 @@ function quotaOf(reading, now) {
   return { session, weekly, reset, headroom: expected === null ? null : weekly.remainingPct - expected };
 }
 
-/** Select from pre-read accounts and run records. See docs/components/state.md for the input contract. */
+/**
+ * Select from pre-read account identities: {client, id, login, actors: [{model, effort}], reading}.
+ * Reading uses quota windows: remainingPct, windowMinutes (or minutes), resetsAt/resetsInMinutes.
+ * The caller supplies fresh observations and resolves resumeSession to {account}; no owner means refusal.
+ * actorClass is a profile name in settings.profiles[client], or {name, model, effort, role?, executorAccount?, urgent?}.
+ * now is epoch milliseconds. Runs follow limits.js: status live, staleMinutes (30), absent account is default.
+ * Slots use account.parallelLimit, then settings.limits.clients[client], then limits.global (3).
+ * Recency uses account.lastLaunchedAt and run.startedAt. Unknown weekly reset disables pacing.
+ * Critic/verifier prefer another eligible account; urgent means the person's explicit urgency.
+ * The result preserves the supplied account object; null wait_until means no safe release time is known.
+ */
 export function chooseAccount({ client, actorClass, accounts = [], runs = [], now, resumeSession, settings = {} }) {
   if (!Number.isFinite(now)) throw new TypeError('now must be a finite timestamp');
   const actor = typeof actorClass === 'string'
@@ -50,10 +60,12 @@ export function chooseAccount({ client, actorClass, accounts = [], runs = [], no
   const pin = resumeSession?.account;
   if (resumeSession && typeof pin !== 'string') return { wait_until: null, reason: { code: 'session-account' } };
   const candidates = accounts.filter((a) => a.client === client && (pin === undefined || a.id === pin))
-    .map((a) => inspect(a, actor, runs, now, settings)).sort((a, b) => compareId(a.account, b.account));
+    .map((a) => inspect(a, actor, runs, now, settings));
   let eligible = candidates.filter((a) => !a.reason);
-  if (!eligible.length) return { wait_until: null,
-    reason: candidates[0]?.reason ?? { code: pin === undefined ? 'unavailable' : 'session-account' } };
+  if (!eligible.length) {
+    const first = candidates.sort((a, b) => compareId(a.account, b.account))[0];
+    return { wait_until: null, reason: first?.reason ?? { code: pin === undefined ? 'unavailable' : 'session-account' } };
+  }
   const review = ['critic', 'verifier'].includes(actor.role ?? actor.name);
   if (pin === undefined && review && eligible.some((a) => a.account.id !== actor.executorAccount)) {
     eligible = eligible.filter((a) => a.account.id !== actor.executorAccount);
