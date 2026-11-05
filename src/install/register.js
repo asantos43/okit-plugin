@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { detect } from './menu.js';
 import { quote } from './link.js';
-import { presenterOf, pick, clientLabel } from './present.js';
+import { presenterOf, pick, clientLabel, localizeReason } from './present.js';
 import { mcpPlan, registerMcp, shown } from './mcp-register.js';
 
 /**
@@ -112,10 +112,13 @@ export async function mcpStep(record, deps, action) {
     return mcpNotes(await registerMcp(record, deps, action), deps, action);
   } catch (error) {
     // Nothing of the MCP step throws into the installer: an unexpected failure is a warning.
+    const ui = presenterOf(deps);
     const reason = String(error?.message ?? error);
     const command = shown(mcpWords(record, deps, action), deps.platform);
+    // The reason of the failure is told in the language of the run (REASONS), never in the language of the system.
     return mcpNotes({ status: 'failed', reason,
-      detail: presenterOf(deps).text('mcpFailed', { client: clientLabel(record.client), reason, command }) }, deps, action);
+      detail: ui.text('mcpFailed', { client: clientLabel(record.client),
+        reason: localizeReason(reason, ui.locale), command }) }, deps, action);
   }
 }
 
@@ -156,7 +159,8 @@ async function registerRole(record, deps, remove = false) {
   let adapter;
   try { adapter = await (deps.loadAdapter ?? loadAdapter)(record); }
   catch (error) {
-    presenterOf(deps).detail(`${presenterOf(deps).text('roleUnsupported')}: ${error.message}`);
+    const ui = presenterOf(deps);
+    ui.detail(`${ui.text('roleUnsupported')}: ${localizeReason(error.message, ui.locale)}`);
     return;
   }
   const command = hookCommand(record.path);

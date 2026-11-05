@@ -3,6 +3,7 @@
 // anything without an explicit yes (the question, or --set-execution-policy).
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { localizeReason } from './present.js';
 
 const execute = promisify(execFile);
 const SCOPES = ['MachinePolicy', 'UserPolicy', 'Process', 'CurrentUser', 'LocalMachine'];
@@ -36,7 +37,7 @@ export async function executionPolicyStep(ui, flags, deps) {
   const label = ui.text('policy');
   let judged;
   try { judged = judgePolicy(parsePolicies((await shell([LIST])).stdout)); }
-  catch (error) { ui.detail(`${label}: ${error.message}`); return; }
+  catch (error) { ui.detail(`${label}: ${localizeReason(error.message, ui.locale)}`); return; }
   if (!judged.blocked) return;
   if (judged.group) return ui.row(label, 'skipped', ui.text('policyGroup'));
   const set = 'Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned';
@@ -52,6 +53,6 @@ export async function executionPolicyStep(ui, flags, deps) {
     await shell([`${set} -Force`]);
     return ui.row(label, 'ok', ui.text('policySet'));
   } catch (error) {
-    return ui.row(label, 'skipped', ui.text('policyFailed', { reason: error.message }));
+    return ui.row(label, 'skipped', ui.text('policyFailed', { reason: localizeReason(error.message, ui.locale) }));
   }
 }

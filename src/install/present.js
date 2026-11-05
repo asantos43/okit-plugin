@@ -3,7 +3,7 @@
 // then the saved `language`, then the default), and the same line structure on
 // every system: only paths and the PATH hint differ.
 import { LOCALES, CONFIG_MESSAGES } from '../profiles.js';
-import { RULE_REASONS } from './rules.js';
+import { RULE_PHRASES, RULE_REASONS } from './rules.js';
 /** Shared with the standalone installer: prefer the native Windows home. */
 export function homeOf(env = process.env, platform = process.platform) {
   return (platform === 'win32' ? env.USERPROFILE || env.HOME : env.HOME) || undefined;
@@ -407,6 +407,43 @@ export const REASONS = [
   [/^version command failed$/, 'o comando de versão falhou', 'version command failed'],
   [/^invalid version output$/, 'a saída da versão é inválida', 'invalid version output'],
   [/^version command timed out after (.+) ms$/, 'o comando de versão passou de $1 ms', 'version command timed out after 5000 ms'],
+  // The reasons of the smoke demo (src/smoke/demo): the ceiling of the ledger, the state of the quota, the failure of
+  // an attempt and the refusal of the run. The demo says them in the language of the run, like every other reason.
+  [/^budget or turn ceiling$/, 'teto de orçamento ou de voltas', 'budget or turn ceiling'],
+  [/^turn ceiling$/, 'teto de voltas', 'turn ceiling'],
+  [/^time ceiling$/, 'teto de tempo', 'time ceiling'],
+  [/^profile turn ceiling$/, 'teto de voltas do perfil', 'profile turn ceiling'],
+  [/^rework ceiling$/, 'teto de retrabalho', 'rework ceiling'],
+  [/^unresolved usage or unenforced ceiling$/, 'uso não resolvido ou teto não aplicado', 'unresolved usage or unenforced ceiling'],
+  [/^unknown turns$/, 'voltas desconhecidas', 'unknown turns'],
+  [/^double settlement$/, 'acerto duplicado', 'double settlement'],
+  [/^run interrupted$/, 'execução interrompida', 'run interrupted'],
+  [/^quota needs refresh$/, 'a cota precisa ser renovada', 'quota needs refresh'],
+  [/^quota evidence needs refresh$/, 'a evidência da cota precisa ser renovada', 'quota evidence needs refresh'],
+  [/^quota-unknown$/, 'cota desconhecida', 'quota-unknown'],
+  [/^quota-below-floor$/, 'cota abaixo do piso', 'quota-below-floor'],
+  [/^slot unavailable$/, 'vaga indisponível', 'slot unavailable'],
+  [/^unsafe artifact$/, 'artefato inseguro', 'unsafe artifact'],
+  [/^blocked dependencies$/, 'dependências bloqueadas', 'blocked dependencies'],
+  // The refusals of the scenario of the demo (src/smoke/demo/scenario.js): the reason of the validation itself.
+  [/^invalid scenario$/, 'cenário inválido', 'invalid scenario'],
+  [/^invalid files or acceptance$/, 'arquivos ou aceitação inválidos', 'invalid files or acceptance'],
+  [/^unsafe path$/, 'caminho inseguro', 'unsafe path'],
+  [/^duplicate or unsafe key$/, 'chave repetida ou insegura', 'duplicate or unsafe key'],
+  [/^unexpected class$/, 'classe inesperada', 'unexpected class'],
+  [/^missing or cyclic dependency$/, 'dependência faltando ou cíclica', 'missing or cyclic dependency'],
+  [/^unsafe acceptance$/, 'aceitação insegura', 'unsafe acceptance'],
+  [/^unsafe fault$/, 'falha insegura', 'unsafe fault'],
+  [/^unsafe symlink$/, 'link simbólico inseguro', 'unsafe symlink'],
+  [/^executor did not complete$/, 'o executor não completou', 'executor did not complete'],
+  [/^environment snapshot required$/, 'o retrato do ambiente é obrigatório', 'environment snapshot required'],
+  [/^injected actor and critic required$/, 'o ator e o crítico injetados são obrigatórios', 'injected actor and critic required'],
+  [/^real mode requires quota confirmation$/, 'o modo real exige a confirmação da cota', 'real mode requires quota confirmation'],
+  [/^explicit quota confirmation required$/, 'a confirmação da cota é obrigatória', 'explicit quota confirmation required'],
+  // The settings of the demo that are refused by their value (src/smoke/demo/budget.js): the key is one of ours, so
+  // the reason is ours too. A name of a person that begins with "invalid" is not a reason and stays as it was raised.
+  [/^invalid (maxUsd|maxMinutes|checkTimeoutMs|quotaFloorPct|quotaMaxAgeMinutes|quotaExpireMinutes|maxTurns|maxTokens)$/, 'valor inválido: $1', 'invalid maxUsd'],
+  [/^invalid quota limits$/, 'limites de cota inválidos', 'invalid quota limits'],
 ];
 
 // The refusals of the settings (CONFIG_MESSAGES in profiles.js): each English text with its {name} placeholders is a
@@ -419,6 +456,43 @@ const CONFIG_REASONS = Object.values(CONFIG_MESSAGES).map((entry) => {
   return [new RegExp('^' + source + '$'), entry['pt-BR']];
 });
 
+// The reasons the demo prefixes with its own label (src/smoke/demo/index.js): the label stays as it is and the text
+// behind it is told in the language of the run only when the catalog knows that exact text. Any other text behind a
+// label is a name, a path or a message of the system, and it stays as it was raised, byte for byte.
+const LABELS = /^(narration|report export|cleanup): ([^]*)$/;
+
+/** The text of a reason of the catalog that is a whole text: no capture and no wildcard. */
+const literalOf = (pattern) => {
+  const source = pattern.source.startsWith('^') ? pattern.source.slice(1) : pattern.source;
+  const body = source.endsWith('$') ? source.slice(0, -1) : source;
+  // The flag "i" does not make the phrase inexact: the phrase is the text of the pattern, and the lookup is letter by
+  // letter ("permission denied" is a whole phrase of the catalog, "Permission denied" is not).
+  return /[\\^$.|?*+()[\]{}]/.test(body) ? null : body;
+};
+
+/**
+ * The exact phrases of the catalog: the only texts that may be told in the language of the run inside a capture or
+ * behind a label. A phrase is one whole text of the catalog (no capture and no wildcard) and the lookup is letter by
+ * letter, so a name that is equal to one of them is told too. This is a known limit.
+ */
+const EXACT_REASONS = new Map([
+  ...REASONS.flatMap(([pattern, text]) => {
+    const literal = literalOf(pattern);
+    return literal === null ? [] : [[literal, text]];
+  }),
+  // The refusals of the settings that name no parameter: their English text is a whole phrase too.
+  ...Object.values(CONFIG_MESSAGES)
+    .filter((entry) => !/\{\w+\}/.test(entry.en))
+    .map((entry) => [entry.en, entry['pt-BR']]),
+  // The rules of the settings: the phrase of a rule is fixed text of the catalog (the rule of the schema, with the
+  // values of the node it names), so it is told in the language of the run; the name or the value of the person is not
+  // a rule and stays as it was raised.
+  ...RULE_PHRASES,
+]);
+
+/** A captured part in the language of the run: only when it is one of the exact phrases of the catalog. */
+const exactText = (text) => EXACT_REASONS.get(text) ?? text;
+
 /** A reason in the language of the run: the installer's own (REASONS), a refusal of the settings (CONFIG_MESSAGES), or as raised. */
 export function localizeReason(reason, locale) {
   const value = String(reason ?? '');
@@ -428,14 +502,21 @@ export function localizeReason(reason, locale) {
   for (const [raw, text] of CONFIG_REASONS) {
     const pattern = dotAll(raw);
     const found = pattern.exec(value);
-    if (found) return text.replace(/\{(\w+)\}/g, (_, name) => localizeReason(found.groups[name], locale));
+    // A parameter of a refusal is a name, a path or a number: it is told in the language of the run only when it is
+    // one of the exact phrases of the catalog, and it stays as it was raised otherwise.
+    if (found) return text.replace(/\{(\w+)\}/g, (_, name) => exactText(found.groups[name]));
   }
   for (const [raw, text] of REASONS) {
     const pattern = dotAll(raw);
-    // A capture may itself be one of our reasons ("Invalid --from package: Missing CLI"): it is translated too,
-    // so that no line carries both languages. Text that is not a reason (a name, a system error) stays as it is.
-    if (pattern.test(value)) return value.replace(pattern, (...match) => text.replace(/\$(\d)/g, (_, index) => localizeReason(match[Number(index)], locale)));
+    // A capture is a name, a path or a message of the system: it is told in the language of the run only when it is,
+    // whole, one of the exact phrases of the catalog ("Invalid --from package: Missing CLI" is told whole), never by a
+    // rule that has a capture or a wildcard and never by another rule.
+    if (pattern.test(value)) return value.replace(pattern, (...match) => text.replace(/\$(\d)/g, (_, index) => exactText(match[Number(index)])));
   }
+  // A reason behind a label of the demo: the text is not translated by a pattern (a pattern could catch a name of a
+  // person); it is translated only when it is one of the exact phrases of the catalog, and it stays as it is otherwise.
+  const labeled = LABELS.exec(value);
+  if (labeled) return `${labeled[1]}: ${exactText(labeled[2])}`;
   return value;
 }
 
@@ -481,7 +562,8 @@ export function controlReason(ui, { code, error = '' } = {}) {
   const sentence = ui.text(key, { ms: String(error).match(/did not answer in (\d+) ms/)?.[1] ?? '?' });
   if (key !== 'controlFailed' && key !== 'controlArguments') return sentence;
   const detail = key === 'controlArguments' ? String(error).replace(/^the arguments cannot be sent:\s*/, '') : error;
-  return detail ? `${sentence} (${ui.text('controlDetail', { reason: detail })})` : sentence;
+  // The detail is a reason of ours (REASONS) or a text of the system: it is told in the language of the run.
+  return detail ? `${sentence} (${ui.text('controlDetail', { reason: localizeReason(detail, ui.locale) })})` : sentence;
 }
 
 /**

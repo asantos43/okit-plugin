@@ -25,7 +25,7 @@ export async function embeddedPresenter(root) {
   const source = await readFile(join(root, 'src/install/present.js'), 'utf8');
   const policy = await readFile(join(root, 'src/install/exit.js'), 'utf8');
   const rules = (await readFile(join(root, 'src/install/rules.js'), 'utf8')).replace(/^export /gm, '');
-  const link = /^import \{ LOCALES, CONFIG_MESSAGES \} from '\.\.\/profiles\.js';\nimport \{ RULE_REASONS \} from '\.\/rules\.js';\n/m;
+  const link = /^import \{ LOCALES, CONFIG_MESSAGES \} from '\.\.\/profiles\.js';\nimport \{ [^}]+ \} from '\.\/rules\.js';\n/m;
   const reexport = /^export \{ exitCodeFor, kindOf \} from '\.\/exit\.js';\n/m;
   if (!link.test(source) || !reexport.test(source)) throw new Error('src/install/present.js: unexpected imports');
   const body = source.replace(link, () => `const LOCALES = ${JSON.stringify(LOCALES)};\nconst CONFIG_MESSAGES = ${JSON.stringify(CONFIG_MESSAGES)};\n${rules}\n`).replace(reexport, '').replace(/^export /gm, '');

@@ -39,3 +39,42 @@ export const RULE_REASONS = Object.freeze(Object.values(RULES).map(({ en, pt, ex
   const source = en.split(/(%\d)/).map((part, index) => (index % 2 ? '(.+)' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).join('');
   return [new RegExp(`^${source}$`), pt.replace(/%(\d)/g, '$$$1'), example];
 }));
+
+// The exact phrase of every rule, and of every composition of rules that the schema of the settings can name: the
+// English text as it is raised and the pt-BR text of the same phrase. The refusal of a setting inserts the rule as it
+// was raised (`Invalid install.{key}: {rule}`), so the presenter looks the phrase up in this table
+// (src/install/present.js): a phrase that is not here stays as it was raised, and the name or the value of the person
+// is never touched. The phrases are built from the rules themselves, so a rule that changes its text changes its
+// phrases too; the list below names the compositions the schema can build (src/config-schema.js), and the test
+// (test/d122-reasons.test.js) walks the schema and fails for a phrase that is missing here.
+const PHRASES = Object.freeze(Object.fromEntries(Object.entries(RULES).map(([key, rule]) => [key, [rule.en, rule.pt]])));
+/** The phrase of a rule that holds other rules: each part is a phrase (the English one and the pt-BR one). */
+const holds = (key, ...parts) => [fillRule(RULES[key].en, parts.map((part) => part[0])), fillRule(RULES[key].pt, parts.map((part) => part[1]))];
+/** The phrase of a rule whose parts are values (numbers, names of a client): the same values in both languages. */
+const values = (key, ...parts) => [fillRule(RULES[key].en, parts), fillRule(RULES[key].pt, parts)];
+
+export const RULE_PHRASES = new Map([
+  // The rules alone: the ones that name no part of another rule.
+  ...Object.values(PHRASES).filter(([en]) => !/%\d/.test(en)),
+  // The rules with the parts of other rules.
+  holds('orNull', PHRASES.text),
+  holds('filledList', PHRASES.plain),
+  holds('filledList', PHRASES.text),
+  holds('filledList', holds('filledList', PHRASES.text)),
+  holds('filledList', PHRASES.object),
+  holds('list', PHRASES.text),
+  holds('list', PHRASES.plain),
+  holds('list', PHRASES.line),
+  holds('objectOf', PHRASES.headerValue),
+  holds('objectOf', PHRASES.text),
+  holds('objectOf', PHRASES.object),
+  holds('objectOf', PHRASES.dataRoot),
+  holds('objectOf', holds('filledList', PHRASES.object)),
+  holds('orNull', values('choice', 'user, local, project')),
+  // The rules with the values of a node of the schema (the bounds of a number, the choices of a client).
+  values('integer', 1, 2147483647),
+  values('integer', 1, 9007199254740991),
+  values('integer', 2501, 2147483647),
+  values('integer', 1, 2147481147),
+  values('choice', 'marketplace, module'),
+]);

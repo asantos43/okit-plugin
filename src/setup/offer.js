@@ -7,6 +7,7 @@ import process from 'node:process';
 import { readJson } from '../state.js';
 import { paths } from '../store.js';
 import { commandText } from '../install/command-token.js';
+import { localizeReason } from '../install/present.js';
 import { setupPending, DEFAULT_CONFIG } from '../profiles.js';
 import { runSetup, setupResultLines, formatUnreadable, isReadableConfig, CONFIG_UNREADABLE } from './setup.js';
 
@@ -35,12 +36,19 @@ function fill(text, values) {
   return text.replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ''));
 }
 
-/** The text of one message in one language; `both` shows the two of them. */
+/**
+ * The text of one message in one language; `both` shows the two of them.
+ *
+ * The reason of a failure is told here, once: the Portuguese side says it in Portuguese (REASONS),
+ * the English side says it as the system said it. The caller never translates the reason itself.
+ */
 export function formatOffer(key, locale, values = {}) {
   const message = OFFER_MESSAGES[key];
   const language = locale === 'en' ? message.en : locale === 'pt-BR' ? message['pt-BR'] : null;
-  if (language !== null) return fill(language, values);
-  return `${fill(message.en, values)} / ${fill(message['pt-BR'], values)}`;
+  // The reason of a failure is told in the language of the side that shows it (REASONS).
+  const portuguese = values.reason === undefined ? values : { ...values, reason: localizeReason(values.reason, 'pt-BR') };
+  if (language !== null) return fill(language, locale === 'pt-BR' ? portuguese : values);
+  return `${fill(message.en, values)} / ${fill(message['pt-BR'], portuguese)}`;
 }
 
 /** An empty answer accepts the recommendation, like the setup wizard does. */
