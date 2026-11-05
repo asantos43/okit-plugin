@@ -25,7 +25,7 @@ async function rootOf(t, config) {
   return root;
 }
 
-const fileOf = root => join(root, 'trajectory', 'okit-plugin-session-1.json');
+const fileOf = (root, session_id = 'session-1') => join(root, 'trajectory', `okit-plugin-${session_id}.json`);
 const readSaved = async root => JSON.parse(await readFile(fileOf(root), 'utf8'));
 const step = message => ({ message });
 const call = { tool_call_id: 'call-1', function_name: 'read_file', arguments: { path: 'sample.txt' } };
@@ -83,6 +83,24 @@ test('a corrupt existing file is moved aside and the save goes through', async t
   assert.equal(saved.steps[0].message, 'fresh');
 });
 
+test('a file that is valid JSON outside the schema is moved aside too', async t => {
+  const root = await rootOf(t, {});
+  await mkdir(join(root, 'trajectory'), { recursive: true });
+  for (const [index, payload] of ['{"foo":1}', '[]'].entries()) {
+    const session_id = `session-${index + 2}`;
+    await writeFile(fileOf(root, session_id), payload);
+    const data = trajectory({ ...context, session_id }, [step('fresh')]);
+    assert.equal(await save(root, data, { now: 1700000000001 }), true);
+    const names = await readdir(join(root, 'trajectory'));
+    assert.ok(names.includes(`okit-plugin-${session_id}.json.corrupt-1700000000001`),
+      `the file of ${payload} is kept aside and not merged`);
+    const saved = JSON.parse(await readFile(fileOf(root, session_id), 'utf8'));
+    assert.equal(validate(saved), true);
+    assert.equal(saved.steps[0].message, 'fresh');
+    assert.doesNotMatch(JSON.stringify(saved), /foo/, 'the content of the file aside is not merged');
+  }
+});
+
 test('the merged file stays inside the configured limits', async t => {
   const root = await rootOf(t, { maxFileBytes: 1500, truncationMarker: '[shortened here]' });
   const large = trajectory(context, [step('first'), step('second '.repeat(400)), step('third')]);
@@ -94,6 +112,26 @@ test('the merged file stays inside the configured limits', async t => {
   assert.equal(validate(saved), true);
   assert.equal(saved.steps.length, 3);
   assert.ok(saved.steps.some(item => item.message === '[shortened here]'), 'the long step shows the marker');
+});
+
+test('the merged file never reports less usage than either file', async t => {
+  const root = await rootOf(t, {});
+  await mkdir(join(root, 'trajectory'), { recursive: true });
+  // A file whose steps were shortened by the cap keeps the totals it had.
+  const capped = {
+    schema_version: 'ATIF-v1.4', session_id: 'session-1',
+    agent: { name: 'okit-plugin', version: '1.0.0', extra: { role: 'executor' } },
+    steps: [{ step_id: 1, timestamp: null, source: 'system', message: '[shortened here]' }],
+    final_metrics: { total_steps: 1, total_prompt_tokens: 500, total_completion_tokens: 40,
+      total_cached_tokens: 0, total_cost_usd: null }
+  };
+  await writeFile(fileOf(root), JSON.stringify(capped, null, 2));
+  const data = trajectory(context, [{ message: 'fresh', tool_calls: [call], metrics: { prompt_tokens: 10 } }]);
+  assert.equal(await save(root, data), true);
+  const saved = await readSaved(root);
+  assert.equal(saved.final_metrics.total_prompt_tokens, 500, 'the totals of the file on disk outlive the merge');
+  assert.equal(saved.final_metrics.total_completion_tokens, 40);
+  assert.equal(saved.final_metrics.total_steps, 1);
 });
 
 test('saving the same run twice does not duplicate it', async t => {
@@ -117,8 +155,11 @@ test('a lock that does not free up ends in a plain refusal', async t => {
   for (let tries = 0; tries < 100; tries++) {
     try { await stat(`${lock}.lock`); break; } catch { await sleep(5); }
   }
+  const started = Date.now();
   await assert.rejects(save(root, trajectory(context, [step('one')]), { lockTimeoutMs: 60 }),
     /Recording is busy right now/);
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 2000, `the refusal waits only for the limit given (${elapsed} ms)`);
   release();
   await running;
   assert.equal(await readdir(join(root, 'trajectory')).then(names => names.includes('okit-plugin-session-1.json')), false);
