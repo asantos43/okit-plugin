@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename, stat, rm } from 'node:fs/promises';
+import { mkdir, readdir, rename, stat, rm, open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readJson, writeJsonAtomic, withLock } from '../state.js';
 import { settings } from './config.js';
@@ -34,18 +34,21 @@ function stepBytes(value) {
 }
 export const safeId = id => typeof id === 'string' && id.length <= 255
   && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) && !id.includes('..');
-export async function files(config) {
-  try { return (await readdir(config.dir)).filter(name => name.startsWith(prefix) && name.endsWith('.json')); }
+export async function files(config, { backups = false } = {}) {
+  try { return (await readdir(config.dir)).filter(name => name.startsWith(prefix)
+    && (name.endsWith('.json') || backups && /\.json\.corrupt-\d+(?:-\d+)?$/.test(name))); }
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
 }
 export async function pruneFiles(config, now = Date.now()) {
-  const entries = await Promise.all((await files(config)).map(async name => ({ name, ...await stat(join(config.dir, name)) })));
+  const entries = await Promise.all((await files(config, { backups: true })).map(async name => ({ name, ...await stat(join(config.dir, name)) })));
   entries.sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name));
-  let size = 0, removed = 0;
+  let size = 0, removed = 0, kept = 0;
   for (const entry of entries) {
-    if (entry.mtimeMs < now - config.retentionDays * 86400000 || size + entry.size > config.maxBytes) {
+    if (entry.mtimeMs < now - config.retentionDays * 86400000 || size + entry.size > config.maxBytes
+      || entry.name.includes('.json.corrupt-') && entry.size > config.maxFileBytes
+      || kept >= (config.maxFiles ?? Infinity)) {
       await rm(join(config.dir, entry.name), { force: true }); removed++;
-    } else size += entry.size;
+    } else { size += entry.size; kept++; }
   }
   return { removed };
 }
@@ -139,9 +142,20 @@ export function capped(data, config) {
   }
   return data;
 }
-// The identity of a step inside one session is its position: every capture
-// rebuilds the same steps in the same order, so step_id names the same step
-// in every save of that session.
+// step_id is output numbering, never identity across captures.
+const canonical = value => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
+  ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item) ?? '';
+const defaultMarker = '[Content shortened / Conteúdo reduzido]';
+function truncated(item, marker = defaultMarker) {
+  const pending = [item];
+  while (pending.length) {
+    const value = pending.pop();
+    if (typeof value === 'string' && (value.includes(marker) || value.includes(defaultMarker)
+      || value.includes('[truncated: too deep]'))) return true;
+    if (value && typeof value === 'object') for (const child of Object.values(value)) pending.push(child);
+  }
+  return false;
+}
 const stepParts = item => {
   let count = 0;
   if (item?.message) count += 1;
@@ -151,27 +165,56 @@ const stepParts = item => {
   for (const key of Object.keys(item?.metrics ?? {})) if (item.metrics[key] != null) count += 1;
   return count + Object.keys(item?.extra ?? {}).length;
 };
-const stepText = item => JSON.stringify(item) ?? '';
+const stepText = item => canonical({ ...item, step_id: undefined });
 // The richer step wins its position: more content parts, then more bytes, then
 // the canonical text, so the answer never depends on the order of the saves.
-export function richer(left, right) {
+export function richer(left, right, marker = defaultMarker) {
+  const cutLeft = truncated(left, marker), cutRight = truncated(right, marker);
+  if (cutLeft !== cutRight) return !cutLeft;
   const parts = stepParts(left) - stepParts(right);
   if (parts !== 0) return parts > 0;
   const size = Buffer.byteLength(stepText(left)) - Buffer.byteLength(stepText(right));
   if (size !== 0) return size > 0;
   return stepText(left) > stepText(right);
 }
-// The union of two runs of the same session: every step of both is kept and
-// the richer one wins the position they share.
-export function mergeSteps(existing = [], incoming = []) {
-  const byId = new Map();
-  for (const item of existing) if (Number.isInteger(item?.step_id)) byId.set(item.step_id, item);
-  for (const item of incoming) {
-    if (!Number.isInteger(item?.step_id)) continue;
-    const kept = byId.get(item.step_id);
-    if (kept === undefined || richer(item, kept)) byId.set(item.step_id, item);
+const identity = item => item.timestamp != null ? canonical([item.source, item.timestamp])
+  : canonical([item.source, item.message, item.message ? null : item.tool_calls?.map(call => call.tool_call_id)]);
+// Keep the longer sequence as the backbone; ties use content, never save order.
+// Match occurrences globally so reordered messages cannot leave a duplicate tail.
+export function mergeSteps(existing = [], incoming = [], marker = defaultMarker) {
+  let base = existing, other = incoming;
+  if (base.length < other.length || base.length === other.length && canonical(base.map(stepText)) < canonical(other.map(stepText))) {
+    [base, other] = [other, base];
   }
-  return [...byId.values()].sort((a, b) => a.step_id - b.step_id);
+  const output = base.map(item => ({ ...item })), queues = new Map(), used = new Set(), unmatched = [];
+  base.forEach((item, index) => {
+    const key = identity(item);
+    if (!queues.has(key)) queues.set(key, { indices: [], next: 0 });
+    queues.get(key).indices.push(index);
+  });
+  for (const item of other) {
+    const queue = queues.get(identity(item)), index = queue?.indices[queue.next++];
+    if (index === undefined) { unmatched.push(item); continue; }
+    used.add(index);
+    if (richer(item, output[index], marker)) output[index] = { ...item };
+  }
+  return alignUnmatched(output, unmatched, used, marker);
+}
+function alignUnmatched(output, unmatched, used, marker) {
+  const free = output.map((_item, index) => index).filter(index => !used.has(index));
+  let next = 0;
+  for (const item of unmatched) {
+    const index = free[next], kept = output[index];
+    // Distinct timestamps are distinct events. Without that evidence, align
+    // remaining occurrences in sequence; a rewritten transcript replaces slots.
+    if (kept === undefined || kept.timestamp != null && item.timestamp != null
+      && !truncated(kept, marker) && !truncated(item, marker)) {
+      output.push({ ...item }); continue;
+    }
+    next++;
+    if (richer(item, kept, marker)) output[index] = { ...item };
+  }
+  return output.map((item, index) => ({ ...item, step_id: index + 1 }));
 }
 const totalKeys = ['total_prompt_tokens', 'total_completion_tokens', 'total_cached_tokens', 'total_cost_usd'];
 // The totals a file kept outlive the steps the file cap shortened, so the
@@ -184,40 +227,81 @@ function mergedTotals(steps, stored) {
   }
   return result;
 }
-export function mergeRuns(existing, incoming) {
-  const steps = mergeSteps(existing?.steps, incoming?.steps);
-  steps.forEach((item, index) => { item.step_id = index + 1; });
+// Latest observed event wins scalar metadata; canonical text breaks ties when
+// captures have no clock. Thus incoming means the later snapshot, not lock order.
+const runTime = run => (run?.steps ?? []).reduce((time, item) => Math.max(time, Date.parse(item.timestamp) || 0), 0);
+function unionMap(left, right) {
+  const result = { ...left };
+  for (const [key, value] of Object.entries(right ?? {})) {
+    const old = result[key];
+    ownData(result, key, old && value && typeof old === 'object' && typeof value === 'object'
+      && !Array.isArray(old) && !Array.isArray(value) ? unionMap(old, value) : value);
+  }
+  return result;
+}
+export function mergeRuns(existing, incoming, marker = defaultMarker) {
+  if (runTime(existing) > runTime(incoming) || runTime(existing) === runTime(incoming)
+    && canonical(existing) > canonical(incoming)) [existing, incoming] = [incoming, existing];
+  const steps = mergeSteps(existing?.steps, incoming?.steps, marker);
   const merged = { ...existing, ...incoming, steps };
-  const extra = { ...existing?.agent?.extra, ...incoming?.agent?.extra };
+  const extra = unionMap(existing?.agent?.extra, incoming?.agent?.extra);
   merged.agent = { ...existing?.agent, ...incoming?.agent };
   if (Object.keys(extra).length) merged.agent.extra = extra;
+  if (existing?.extra || incoming?.extra) merged.extra = unionMap(existing?.extra, incoming?.extra);
   const children = new Map();
   for (const child of [...(existing?.subagent_trajectories ?? []), ...(incoming?.subagent_trajectories ?? [])]) {
-    if (child?.trajectory_id != null) children.set(child.trajectory_id, child);
+    if (child?.trajectory_id != null) children.set(child.trajectory_id, children.has(child.trajectory_id)
+      ? mergeRuns(children.get(child.trajectory_id), child, marker) : child);
   }
-  if (children.size) merged.subagent_trajectories = [...children.values()];
+  if (children.size) merged.subagent_trajectories = [...children.values()].sort((a, b) => a.trajectory_id.localeCompare(b.trajectory_id));
   else delete merged.subagent_trajectories;
   merged.final_metrics = { ...existing?.final_metrics, ...incoming?.final_metrics,
     ...mergedTotals(steps, [existing?.final_metrics, incoming?.final_metrics]) };
+  if (existing?.final_metrics?.extra || incoming?.final_metrics?.extra) {
+    merged.final_metrics.extra = unionMap(existing?.final_metrics?.extra, incoming?.final_metrics?.extra);
+  }
   return merged;
 }
 const corruptSuffix = '.corrupt-';
 // The refusal of a lock that did not free up, in plain words.
 const busy = 'Recording is busy right now. Try again in a moment. / A gravação está ocupada agora. Tente de novo em instantes.';
-// The file a session already has: read under the lock. A file that cannot be
-// read is not merged: it is renamed aside, so its bytes are kept and the new
-// save still goes through.
-async function readPrevious(file, now) {
+const previousDefaults = { stat, readJson, rename, rm, open };
+async function quarantine(file, now, io) {
+  let backup, reserved = false;
+  try {
+    for (let suffix = 0; ; suffix++) {
+      backup = `${file}${corruptSuffix}${now}${suffix ? `-${suffix}` : ''}`;
+      try { const handle = await io.open(backup, 'wx'); reserved = true; await handle.close(); break; }
+      catch (error) { if (error.code !== 'EEXIST') throw error; }
+    }
+    await io.rename(file, backup);
+  } catch {
+    // Do not silently overwrite a bad source if moving it failed.
+    try {
+      if (reserved) await rm(backup, { force: true });
+      await io.rm(file, { force: true });
+    }
+    catch { throw new Error('Cannot replace recording. Try again. / Não foi possível substituir a gravação. Tente de novo.'); }
+  }
+}
+// Stat before reading or parsing, under the same lock as the replacement.
+async function readPrevious(file, now, config, injected) {
+  const io = { ...previousDefaults, ...injected };
+  try {
+    if ((await io.stat(file)).size > Math.min(config.maxFileBytes, config.maxBytes)) {
+      await quarantine(file, now, io); return null;
+    }
+  } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   const missing = Symbol('missing');
   let parsed = missing;
-  try { parsed = await readJson(file, missing); }
+  try { parsed = await io.readJson(file, missing); }
   catch { parsed = null; } // a file that is not JSON cannot be merged
   if (parsed === missing) return null;
   if (parsed && readable(parsed)) return parsed;
-  try { await rename(file, `${file}${corruptSuffix}${now}`); } catch { /* the save still goes through */ }
+  await quarantine(file, now, io);
   return null;
 }
-export async function save(root, data, { lockTimeoutMs = 5000, now = Date.now() } = {}) {
+export async function save(root, data, { lockTimeoutMs = 5000, now = Date.now(), previousIO } = {}) {
   const config = await settings(root);
   if (config.enabled !== true) return false;
   if (!safeId(data?.session_id)) return false;
@@ -227,8 +311,8 @@ export async function save(root, data, { lockTimeoutMs = 5000, now = Date.now() 
   const file = join(config.dir, `${prefix}${data.session_id}.json`);
   try {
     await withLock(join(config.dir, 'okit-plugin-retention'), async () => {
-      const previous = await readPrevious(file, now);
-      const merged = previous ? mergeRuns(previous, prepared) : prepared;
+      const previous = await readPrevious(file, now, config, previousIO);
+      const merged = previous ? mergeRuns(previous, prepared, config.truncationMarker) : prepared;
       const safe = capped(previous ? normalize(merged, { dir: config.dir }) : merged, config);
       if (!validate(safe)) throw new Error('Invalid saved run / Execução salva inválida');
       await writeJsonAtomic(file, safe);

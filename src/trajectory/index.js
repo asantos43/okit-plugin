@@ -39,7 +39,7 @@ export async function list(root) {
 }
 export async function prune(root) {
   const config = await settings(root);
-  if (!(await files(config)).length) return { removed: 0 };
+  if (!(await files(config, { backups: true })).length) return { removed: 0 };
   return withLock(join(config.dir, 'okit-plugin-retention'), () => pruneFiles(config));
 }
 function displayContent(value) {
