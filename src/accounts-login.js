@@ -45,12 +45,19 @@ const LOGIN_TEXTS = {
 
 /**
  * The command that logs an account in, as one line for the shell of the platform: the account's own folder variable
- * and the client's own command. An extra names its folder; the default is the folder the client uses with no override.
+ * and the client's own command. The command rebuilds the environment of the account that was checked: an extra sets the
+ * variable to its folder; the default of a client with saved accounts (`saved`) REMOVES the variable, which a terminal
+ * may have inherited from an extra, because the launch checked it without; the default of a client with no saved
+ * accounts is the client as it always was.
  */
-export function loginCommand(client, account, platform = process.platform) {
+export function loginCommand(client, account, platform = process.platform, { saved = false } = {}) {
   const executable = client === 'codex' ? 'codex login' : 'claude';
-  if (!account?.configDir) return executable;
   const variable = CONFIG_ENV[client];
+  if (!account?.configDir) {
+    if (!saved) return executable;
+    return platform === 'win32' ? `Remove-Item Env:${variable} -ErrorAction SilentlyContinue; ${executable}`
+      : `env -u ${variable} ${executable}`;
+  }
   return platform === 'win32' ? `$env:${variable}=${powershellLiteral(account.configDir)}; ${executable}`
     : `${variable}=${quotedWord(account.configDir, 'linux')} ${executable}`;
 }
@@ -60,8 +67,8 @@ export function loginCommand(client, account, platform = process.platform) {
  * never a credential path or a token) and the login command, so a caller can show the reason or choose another account.
  */
 export class AccountNotLoggedIn extends Error {
-  constructor({ client, account, locale = 'en', platform = process.platform }) {
-    const command = loginCommand(client, account, platform);
+  constructor({ client, account, locale = 'en', platform = process.platform, saved = false }) {
+    const command = loginCommand(client, account, platform, { saved });
     const side = LOGIN_TEXTS[locale] ?? LOGIN_TEXTS.en;
     super(fill(client === 'codex' ? side.codex : side.claude, { client: clientLabel(client), label: account?.label ?? account?.id, id: account?.id, login: command }));
     this.name = 'AccountNotLoggedIn';

@@ -156,6 +156,9 @@ function liveHolders(items) {
   return held;
 }
 
+// An account that is not logged in is a plain reason with the command that fixes it, not a failure of the spawner.
+const spawnerSkip = (error) => error.code === 'account-not-logged-in' ? error.message : `the spawner failed: ${error.message}`;
+
 const newRunId = () => `${RUN_PREFIX}${randomBytes(4).toString('hex')}`;
 
 // The slot is taken before the spawner runs, so the cap cannot be crossed, and
@@ -168,6 +171,13 @@ async function delegate(root, item, deps, settings, cache) {
   await telemetryRecord(root, 'profile.choice', { client, ...profile });
   const runId = newRunId();
 
+  // A launch that is refused for its account (not logged in) must not take a slot: the slot creates the run file, and
+  // giving it back keeps that file as `done`. The spawner's own check, run before the reservation.
+  try {
+    await deps.spawn.preflight?.(item, { client });
+  } catch (error) {
+    return { skip: spawnerSkip(error) };
+  }
   const slot = await acquireSlot(root, runId, { client, config: settings.config });
   if (!slot.ok) return { skip: slot.reason ?? BUSY };
 
@@ -183,8 +193,7 @@ async function delegate(root, item, deps, settings, cache) {
     });
   } catch (error) {
     await releaseSlot(root, runId);
-    // An account that is not logged in is a plain reason with the command that fixes it, not a failure of the spawner.
-    return { skip: error.code === 'account-not-logged-in' ? error.message : `the spawner failed: ${error.message}` };
+    return { skip: spawnerSkip(error) };
   }
   const returned = spawned?.runId ?? runId;
   if (returned === runId) return { runId };

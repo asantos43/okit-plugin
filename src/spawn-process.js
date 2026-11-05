@@ -217,10 +217,11 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
   const runs = logDir ?? paths(stateRoot(env)).runs;
   const fallbackCwd = cwd ?? process.cwd();
 
-  return async function spawnDemand(demand, options = {}) {
-    const runId = text(options.runId, 'runId');
-    const file = runFile(runs, runId);
-    const reserved = await readJson(file, null).catch((error) => {
+  // The account of a launch and its login, decided without creating or starting anything: the one place that both the
+  // spawner and a caller that reserves state first (the daemon, through `spawnDemand.preflight`) go through.
+  async function prepare(options) {
+    const file = options.runId === undefined ? null : runFile(runs, text(options.runId, 'runId'));
+    const reserved = file === null ? null : await readJson(file, null).catch((error) => {
       if (error.cause?.code === 'EISDIR') return null;
       throw error;
     });
@@ -239,8 +240,16 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
       && !credentialInEnv(options.client, env)
       && await loginState({ client: options.client, account: selected, config, env: childEnv, platform, ...home ? { home } : {}, ...fs ? { fs } : {} }) === 'logged-out') {
       const saved = resolveLocale({ env, saved: config?.language }).locale;
-      throw new AccountNotLoggedIn({ client: options.client, account: selected, locale: options.locale ?? saved, platform });
+      throw new AccountNotLoggedIn({ client: options.client, account: selected, locale: options.locale ?? saved, platform,
+        saved: Object.hasOwn(config?.accounts ?? {}, options.client) });
     }
+    return { selected, childEnv };
+  }
+
+  async function spawnDemand(demand, options = {}) {
+    const runId = text(options.runId, 'runId');
+    const file = runFile(runs, runId);
+    const { selected, childEnv } = await prepare(options);
     const dir = await demandCwd(demand?.appliesTo, fallbackCwd);
     const built = buildCommand(options.client, {
       briefing: briefingOf(demand),
@@ -334,7 +343,14 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
     child.unref?.();
 
     return { runId, pid: child.pid ?? null, mode: 'PROCESS' };
-  };
+  }
+
+  /**
+   * The refusal of a launch that cannot start, with nothing created: the same check `spawnDemand` makes, for a caller
+   * that would otherwise reserve a slot (and its run file) first. `runId` is optional (no slot is held yet).
+   */
+  spawnDemand.preflight = async (_demand, options = {}) => { await prepare(options); };
+  return spawnDemand;
 }
 
 // D61: listing the models a client offers. The command, its arguments, the

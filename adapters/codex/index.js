@@ -150,9 +150,10 @@ export async function spawn(actor, briefing, opts = {}) {
     return { mode, runId, agentCall: { model, effort, prompt } };
   }
   const spawner = makeSpawner({ spawn: opts.spawn, logDir: opts.logDir, cwd: opts.cwd,
+    ...opts.platform ? { platform: opts.platform } : {}, home: opts.home, fs: opts.fs,
     env: { ...(opts.env ?? process.env), CODEX_HOME: configRoot(opts) } });
   return spawner({ title: prompt, id: opts.demand, appliesTo: opts.appliesTo }, {
-    runId, client: CLIENT, account: opts.account, config: opts.config,
+    runId, client: CLIENT, account: opts.account, config: opts.config, locale: opts.locale,
     profile: { model, effort, sandbox: opts.sandbox ?? actor.sandbox },
     role: delivery.context.role.toLowerCase(), critic_of: opts.critic_of, step: opts.step,
     maxMinutes: opts.maxMinutes,

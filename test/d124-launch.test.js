@@ -5,11 +5,15 @@ import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 
+import * as claudeAdapter from '../adapters/claude-code/index.js';
+import * as codexAdapter from '../adapters/codex/index.js';
 import { AccountNotLoggedIn, loginCommand } from '../src/accounts-login.js';
 import { tick } from '../src/daemon.js';
 import { inboxAdd } from '../src/inbox.js';
+import { countLive } from '../src/limits.js';
 import { makeSpawner } from '../src/spawn-process.js';
 import { writeJsonAtomic } from '../src/state.js';
 import { paths } from '../src/store.js';
@@ -34,7 +38,10 @@ async function scene(t, { accounts = true, config = {} } = {}) {
   await writeJsonAtomic(join(root, 'config.json'), { ...saved, ...config });
   const calls = [];
   const spawn = (command, args, options) => { calls.push({ command, args, options }); return child(); };
-  const launch = (extra = {}) => makeSpawner({ logDir: join(root, 'runs'), cwd: root, spawn, env: { HOME: root, KEEP: 'same', OTHER_TOKEN: SECRET }, ...extra });
+  // The platform is fixed: Claude Code's login cannot be told on darwin (Keychain), so a scenario that expects a
+  // refusal must not depend on the machine it runs on. A scenario for another platform says so.
+  const launch = (extra = {}) => makeSpawner({ logDir: join(root, 'runs'), cwd: root, spawn, platform: 'linux',
+    env: { HOME: root, KEEP: 'same', OTHER_TOKEN: SECRET }, ...extra });
   return { root, dirs, calls, launch };
 }
 const demand = { title: 'test' };
@@ -49,7 +56,7 @@ test('an extra account that is not logged in stops before any file or process, w
     assert.equal(error.code, 'account-not-logged-in');
     assert.equal(error.client, client);
     assert.equal(error.account, 'work');
-    assert.equal(error.loginCommand, loginCommand(client, { configDir: dirs[client] }, process.platform));
+    assert.equal(error.loginCommand, loginCommand(client, { configDir: dirs[client] }, 'linux'));
     assert.ok(error.loginCommand.includes(dirs[client]) && error.loginCommand.includes(FOLDER[client]));
     assert.match(error.message, /is not logged in/);
     assert.ok(error.message.includes(error.loginCommand));
@@ -89,6 +96,47 @@ test('the login command is the form of the shell of the platform', () => {
   assert.equal(loginCommand('claude-code', { configDir: folder }, 'win32'), `$env:CLAUDE_CONFIG_DIR='${doubled}'; claude`);
   assert.equal(loginCommand('codex', { configDir: folder }, 'win32'), `$env:CODEX_HOME='${doubled}'; codex login`);
   assert.equal(loginCommand('codex', { configDir: null }, 'linux'), 'codex login', 'the default has no folder of its own');
+});
+
+// | Login command | Must pass | Must refuse |
+// | Extra | sets the variable to its folder | the variable left as the terminal has it |
+// | Default, client with saved accounts | removes the variable | keeping a variable inherited from an extra |
+// | Default, no saved accounts | the client as it always was | touching the variable |
+test('the login command rebuilds the environment of the account that was checked, on every platform', () => {
+  const cases = [['claude-code', 'CLAUDE_CONFIG_DIR', 'claude'], ['codex', 'CODEX_HOME', 'codex login']];
+  for (const [client, variable, program] of cases) {
+    for (const platform of ['linux', 'darwin', 'win32']) {
+      const where = `${client} ${platform}`;
+      const set = loginCommand(client, { configDir: '/acc' }, platform, { saved: true });
+      assert.equal(set, platform === 'win32' ? `$env:${variable}='/acc'; ${program}` : `${variable}=/acc ${program}`, where);
+      const removed = loginCommand(client, { configDir: null }, platform, { saved: true });
+      assert.equal(removed, platform === 'win32' ? `Remove-Item Env:${variable} -ErrorAction SilentlyContinue; ${program}`
+        : `env -u ${variable} ${program}`, where);
+      assert.equal(loginCommand(client, { configDir: null }, platform, { saved: false }), program, where);
+      assert.equal(loginCommand(client, { configDir: null }, platform), program, where);
+    }
+  }
+});
+
+test('a login command for the default does not keep the folder an extra left in the terminal', async (t) => {
+  if (process.platform === 'win32') return t.skip('the probe runs the POSIX form in sh');
+  for (const [client, variable, program] of [['claude-code', 'CLAUDE_CONFIG_DIR', 'claude'], ['codex', 'CODEX_HOME', 'codex login']]) {
+    const probe = (command) => spawnSync('sh', ['-c', command.replace(program, `printenv ${variable}`)],
+      { env: { PATH: process.env.PATH, [variable]: '/inherited-extra' }, encoding: 'utf8' }).stdout;
+    // The old command, with the variable inherited, is what the critic's probe showed leaking the extra's folder.
+    assert.equal(probe(loginCommand(client, { configDir: null }, 'linux', { saved: false })).trim(), '/inherited-extra');
+    assert.equal(probe(loginCommand(client, { configDir: null }, 'linux', { saved: true })), '', `${client}: the default drops it`);
+    assert.equal(probe(loginCommand(client, { configDir: '/acc' }, 'linux', { saved: true })).trim(), '/acc', `${client}: an extra names its own`);
+  }
+});
+
+test('on darwin the Claude Code login is unknown and launches, while Codex is told and refused', async (t) => {
+  const { calls, launch } = await scene(t);
+  await launch({ platform: 'darwin' })(demand, options('claude-code', 'work'));
+  assert.equal(calls.length, 1, 'Claude Code: unknown does not block');
+  const error = await failure(launch({ platform: 'darwin' })(demand, options('codex', 'work')));
+  assert.ok(error instanceof AccountNotLoggedIn, 'Codex: logged-out refuses');
+  assert.equal(calls.length, 1);
 });
 
 test('a logged-in account launches, found by the marker file of its own folder', async (t) => {
@@ -140,7 +188,7 @@ test('the default account of a client with saved accounts is held to the same ru
   const error = await failure(launch({ fs: absent })(demand, options('codex', undefined)));
   assert.ok(error instanceof AccountNotLoggedIn);
   assert.equal(error.account, 'default');
-  assert.equal(error.loginCommand, 'codex login', 'the default is the folder the client uses with no override');
+  assert.equal(error.loginCommand, 'env -u CODEX_HOME codex login', 'the default is the folder the client uses with no override');
   assert.equal(calls.length, 0);
   assert.deepEqual(await readdir(root), ['config.json']);
   await launch({ fs: present })(demand, options('codex', undefined, { runId: 'in' }));
@@ -195,11 +243,56 @@ test('the daemon shows the refusal as a plain reason and command, not as a failu
   await inboxAdd(root, { title: 'first demand', client: 'claude-code' });
   const spawner = launch();
   // The daemon does not choose accounts yet (D121): the account of the pass is the one the spawner is told.
-  const spawn = (item, given) => spawner(item, { ...given, account: 'work' });
-  const record = await tick(root, { now: () => Date.now(), quota: () => ({ remainingPct: 80 }), idle: () => true, spawn });
+  const spawn = Object.assign((item, given) => spawner(item, { ...given, account: 'work' }),
+    { preflight: (item, given) => spawner.preflight(item, { ...given, account: 'work' }) });
+  const deps = { now: () => Date.now(), quota: () => ({ remainingPct: 80 }), idle: () => true, spawn };
+  const record = await tick(root, deps);
   assert.deepEqual(record.spawned, []);
   assert.equal(record.skipped.length, 1);
   assert.match(record.skipped[0].reason, /^The Claude Code account "Work" \(work\) is not logged in, so nothing was started\. Log it in with: CLAUDE_CONFIG_DIR=/);
   assert.doesNotMatch(record.skipped[0].reason, /spawner failed|\n\s+at /);
   assert.equal(calls.length, 0);
+  // The refusal came before the reservation: no run record, no output file, and the slot was never held.
+  assert.deepEqual(await readdir(join(root, 'runs')).catch(() => []), [], 'no run record and no output file');
+  assert.equal(await countLive(root), 0);
+  // The account logs in: the very next pass launches (the refusal cost nothing).
+  await mkdir(dirs['claude-code'], { recursive: true });
+  await writeFile(join(dirs['claude-code'], '.credentials.json'), '');
+  const next = await tick(root, deps);
+  assert.equal(next.spawned.length, 1);
+  assert.equal(calls.length, 1);
+});
+
+// | Adapters | Must pass | Must refuse |
+// | locale | the option reaches the refusal: pt-BR says pt-BR with no saved language or variable | English by omission |
+// | platform/fs | injected through to the check | the machine's platform deciding the test |
+test('the adapters forward the language of the run to the refusal of an account that is not logged in', async (t) => {
+  const { root, dirs, calls } = await scene(t);
+  const config = { accounts: { 'claude-code': [{ id: 'work', label: 'Work', configDir: dirs['claude-code'] }],
+    codex: [{ id: 'work', label: 'Work', configDir: dirs.codex }] } };
+  const common = { headless: true, spawn: () => { calls.push('spawned'); return child(); }, logDir: join(root, 'runs'), cwd: root,
+    account: 'work', config, platform: 'linux', fs: absent, env: { HOME: root } };
+  const briefing = 'Role: Executor\nfix the bug';
+  for (const [name, adapter, expected] of [
+    ['claude-code', claudeAdapter, /^A conta "Work" \(work\) do Claude Code não está logada/],
+    ['codex', codexAdapter, /^A conta "Work" \(work\) do Codex não está logada/]]) {
+    const error = await failure(adapter.spawn({ model: 'm' }, briefing, { ...common, locale: 'pt-BR', runId: `${name}-pt` }));
+    assert.ok(error instanceof AccountNotLoggedIn, `${name}: ${error?.message}`);
+    assert.match(error.message, expected);
+    const english = await failure(adapter.spawn({ model: 'm' }, briefing, { ...common, runId: `${name}-en` }));
+    assert.match(english.message, /is not logged in/, `${name}: English without the option`);
+  }
+  assert.deepEqual(calls, []);
+});
+
+test('the daemon with the real spawner: the default account of a client with saved accounts is refused before the slot', async (t) => {
+  const { root, dirs, calls, launch } = await scene(t);
+  await writeJsonAtomic(paths(root).config, { accounts: { codex: [{ id: 'work', label: 'Work', configDir: dirs.codex }] },
+    profiles: { codex: { simple: { model: 'm' }, normal: { model: 'm' }, hard: { model: 'm' } } } });
+  await inboxAdd(root, { title: 'first demand', client: 'codex' });
+  const record = await tick(root, { now: () => Date.now(), quota: () => ({ remainingPct: 80 }), idle: () => true, spawn: launch({ fs: absent }) });
+  assert.match(record.skipped[0].reason, /Log it in with: env -u CODEX_HOME codex login$/);
+  assert.equal(calls.length, 0);
+  assert.deepEqual(await readdir(join(root, 'runs')).catch(() => []), []);
+  assert.equal(await countLive(root), 0);
 });
