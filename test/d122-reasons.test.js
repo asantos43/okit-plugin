@@ -8,7 +8,7 @@ import test from 'node:test';
 
 import { diagnose } from '../src/doctor/diagnose.js';
 import { installConfig } from '../src/install/config.js';
-import { createPresenter, localizeReason } from '../src/install/present.js';
+import { createPresenter, localizeReason, REASONS } from '../src/install/present.js';
 import { registerMcp } from '../src/install/mcp-register.js';
 import { executionPolicyStep } from '../src/install/policy.js';
 import { mcpStep, register } from '../src/install/register.js';
@@ -16,8 +16,9 @@ import { selfCheck } from '../src/install/selfcheck.js';
 import { runClientSmoke } from '../src/smoke/client.js';
 import { runDemo } from '../src/smoke/demo/index.js';
 import { reportText } from '../src/smoke/demo/report.js';
+import { readJson } from '../src/state.js';
 import { offerSetup } from '../src/setup/offer.js';
-import { configOf } from '../src/profiles.js';
+import { configOf, CONFIG_MESSAGES } from '../src/profiles.js';
 import { actorPairs } from '../src/env/snapshot.js';
 import { fixture } from './helpers/install-fixture.js';
 import { readySnapshot } from './helpers/ready-snapshot.js';
@@ -384,11 +385,35 @@ test('the reason behind a label of the demo is told only when the catalog knows 
   const known = localizeReason('narration: budget or turn ceiling', 'pt-BR');
   assert.ok(known.includes('teto de orçamento ou de voltas'), known);
   assert.ok(!known.includes('budget or turn ceiling'), known);
-  // The text behind the label is a name and a message of the system: it stays as it was raised, byte for byte.
+  // The text behind the label is a name and a message of the system: the name stays as it was raised, byte for byte,
+  // and the message of the system is told when it is an exact phrase of the catalog.
   const reason = 'narration: Cannot read invalid settings.json: permission denied';
   const once = localizeReason(reason, 'pt-BR');
+  assert.ok(once.includes('invalid settings.json'), once);
   assert.equal(localizeReason(once, 'pt-BR'), once, 'translating twice changes the text');
   assert.equal(localizeReason(reason, 'en'), reason);
+});
+
+test('a reason inside a reason is told when it is one of the exact phrases of the catalog', () => {
+  // The capture is a whole reason of the catalog: both parts are said in the language of the run.
+  const reason = 'Invalid --from package: Missing CLI';
+  assert.equal(localizeReason(reason, 'pt-BR'), 'Pacote de --from inválido: CLI ausente');
+  assert.equal(localizeReason(reason, 'en'), reason);
+});
+
+test('translating twice gives the same text for every reason of the catalog', () => {
+  for (const [, , sample] of REASONS) {
+    const once = localizeReason(sample, 'pt-BR');
+    assert.notEqual(once, sample, `${sample}: no pt-BR text`);
+    assert.equal(localizeReason(once, 'pt-BR'), once, `${sample}: translating twice changes the text`);
+  }
+  // The refusals of the settings are a catalog too: the same promise, with the parameters in place.
+  for (const [code, entry] of Object.entries(CONFIG_MESSAGES)) {
+    const text = entry.en.replace(/\{(\w+)\}/g, 'sample');
+    const once = localizeReason(text, 'pt-BR');
+    assert.notEqual(once, text, `${code}: no pt-BR text`);
+    assert.equal(localizeReason(once, 'pt-BR'), once, `${code}: translating twice changes the text`);
+  }
 });
 
 test('the reasons of the validation of the scenario are in the catalog', () => {
@@ -441,3 +466,42 @@ test('a reason that carries a path with " / " in it is shown whole, in the langu
     assert.ok(text.includes(reason), text);
   }
 });
+
+// A capture is a name, a path or a message of the system: it is told in the language of the run only when it is, whole,
+// one of the exact phrases of the catalog. A name that looks like a reason is a name, and it stays as it was raised.
+//
+// | reason | must pass | must refuse |
+// | a name of a client that is not a reason | the name as it was raised | a translation of the name |
+// | a file whose name is not a reason | the name of the file as it was raised | a translation of the name |
+// | a reason inside a reason, exact phrase | both parts in pt-BR | the reason in English |
+// | every reason of the catalog, translated twice | the same text | a second, different text |
+test('a name of a client that is not a reason stays as it was raised', async (t) => {
+  const root = await fs.mkdtemp(join(tmpdir(), 'd122-client-name-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const lines = [];
+  // The real refusal of the smoke client: the name of the client is not a client of ours.
+  const result = await runClientSmoke(['--client', 'invalid maxUsd'], { root, locale: 'pt-BR',
+    env: { HOME: root, OKWORK_HOME: root }, out: (line) => lines.push(line), err: (line) => lines.push(line),
+    now: () => 1700000000000 });
+  assert.equal(result.code, 2);
+  const text = lines.join('\n');
+  assert.ok(text.includes('invalid maxUsd'), text);
+  assert.ok(!text.includes('valor inválido'), text);
+});
+
+test('the name of a file that is not a reason stays as it was raised', async (t) => {
+  const root = await fs.mkdtemp(join(tmpdir(), 'd122-file-name-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const file = join(root, 'invalid maxUsd');
+  await fs.writeFile(file, '{not json');
+  // The real refusal of the state: the file holds no JSON, and its name is not a reason of the catalog.
+  await assert.rejects(readJson(file, null), (error) => {
+    const shown = localizeReason(error.message, 'pt-BR');
+    assert.ok(shown.includes('invalid maxUsd'), shown);
+    assert.ok(!shown.includes('valor inválido'), shown);
+    return true;
+  });
+  // The same refusal with the name of the file alone (the message of the critic).
+  assert.equal(localizeReason('Invalid JSON in invalid maxUsd', 'pt-BR'), 'JSON inválido em invalid maxUsd');
+});
+

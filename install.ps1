@@ -520,14 +520,29 @@ const LABELS = /^(narration|report export|cleanup): ([^]*)$/;
 const literalOf = (pattern) => {
   const source = pattern.source.startsWith('^') ? pattern.source.slice(1) : pattern.source;
   const body = source.endsWith('$') ? source.slice(0, -1) : source;
-  return pattern.flags.includes('i') || /[\\^$.|?*+()[\]{}]/.test(body) ? null : body;
+  // The flag "i" does not make the phrase inexact: the phrase is the text of the pattern, and the lookup is letter by
+  // letter ("permission denied" is a whole phrase of the catalog, "Permission denied" is not).
+  return /[\\^$.|?*+()[\]{}]/.test(body) ? null : body;
 };
 
-/** The exact phrases of the catalog: the only texts that may be told in the language of the run behind a label. */
-const EXACT_REASONS = new Map(REASONS.flatMap(([pattern, text]) => {
-  const literal = literalOf(pattern);
-  return literal === null ? [] : [[literal, text]];
-}));
+/**
+ * The exact phrases of the catalog: the only texts that may be told in the language of the run inside a capture or
+ * behind a label. A phrase is one whole text of the catalog (no capture and no wildcard) and the lookup is letter by
+ * letter, so a name that is equal to one of them is told too. This is a known limit.
+ */
+const EXACT_REASONS = new Map([
+  ...REASONS.flatMap(([pattern, text]) => {
+    const literal = literalOf(pattern);
+    return literal === null ? [] : [[literal, text]];
+  }),
+  // The refusals of the settings that name no parameter: their English text is a whole phrase too.
+  ...Object.values(CONFIG_MESSAGES)
+    .filter((entry) => !/\{\w+\}/.test(entry.en))
+    .map((entry) => [entry.en, entry['pt-BR']]),
+]);
+
+/** A captured part in the language of the run: only when it is one of the exact phrases of the catalog. */
+const exactText = (text) => EXACT_REASONS.get(text) ?? text;
 
 /** A reason in the language of the run: the installer's own (REASONS), a refusal of the settings (CONFIG_MESSAGES), or as raised. */
 function localizeReason(reason, locale) {
@@ -538,18 +553,21 @@ function localizeReason(reason, locale) {
   for (const [raw, text] of CONFIG_REASONS) {
     const pattern = dotAll(raw);
     const found = pattern.exec(value);
-    if (found) return text.replace(/\{(\w+)\}/g, (_, name) => localizeReason(found.groups[name], locale));
+    // A parameter of a refusal is a name, a path or a number: it is told in the language of the run only when it is
+    // one of the exact phrases of the catalog, and it stays as it was raised otherwise.
+    if (found) return text.replace(/\{(\w+)\}/g, (_, name) => exactText(found.groups[name]));
   }
   for (const [raw, text] of REASONS) {
     const pattern = dotAll(raw);
-    // A capture may itself be one of our reasons ("Invalid --from package: Missing CLI"): it is translated too,
-    // so that no line carries both languages. Text that is not a reason (a name, a system error) stays as it is.
-    if (pattern.test(value)) return value.replace(pattern, (...match) => text.replace(/\$(\d)/g, (_, index) => localizeReason(match[Number(index)], locale)));
+    // A capture is a name, a path or a message of the system: it is told in the language of the run only when it is,
+    // whole, one of the exact phrases of the catalog ("Invalid --from package: Missing CLI" is told whole), never by a
+    // rule that has a capture or a wildcard and never by another rule.
+    if (pattern.test(value)) return value.replace(pattern, (...match) => text.replace(/\$(\d)/g, (_, index) => exactText(match[Number(index)])));
   }
   // A reason behind a label of the demo: the text is not translated by a pattern (a pattern could catch a name of a
   // person); it is translated only when it is one of the exact phrases of the catalog, and it stays as it is otherwise.
   const labeled = LABELS.exec(value);
-  if (labeled) return `${labeled[1]}: ${EXACT_REASONS.get(labeled[2]) ?? labeled[2]}`;
+  if (labeled) return `${labeled[1]}: ${exactText(labeled[2])}`;
   return value;
 }
 
