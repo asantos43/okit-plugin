@@ -4,6 +4,8 @@
 
 Claude Code e Codex podem ter várias contas. Cada uma tem id estável, nome editável e pasta de configuração própria. OpenCode está fora deste recurso. A conta implícita `default` não sobrescreve a pasta e mantém o ambiente atual do cliente.
 
+A lista de ajustes também inclui `accountPolicy.minQuotaPct` (0), `accountPolicy.paceMarginPct` (15) e `accountPolicy.enforcePace` (false). Eles preparam a escolha de conta e o ritmo; ainda não mudam os lançamentos.
+
 <a id="manage"></a>
 ## Gerenciar uma conta
 

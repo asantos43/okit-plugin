@@ -17,6 +17,25 @@ export const MAX_TIMER_MS = 2 ** 31 - 1;
 export const CONFIG_SCHEMA = Object.freeze({
   entries: [
     {
+      path: 'accountPolicy.enforcePace', type: 'boolean', defaultPath: 'accountPolicy.enforcePace',
+      constraint: { en: 'a boolean', 'pt-BR': 'um booleano' },
+      description: { en: 'Defer hard work when weekly use is ahead of pace; inactive until account policy is connected.',
+        'pt-BR': 'Adiar trabalho difícil quando o uso semanal adianta o ritmo; inativo até conectar a política de contas.' },
+    },
+    {
+      path: 'accountPolicy.paceMarginPct', type: 'number', minimum: 0, maximum: 100,
+      defaultPath: 'accountPolicy.paceMarginPct',
+      constraint: { en: 'a number from 0 to 100', 'pt-BR': 'um número de 0 a 100' },
+      description: { en: 'Weekly pace margin in percentage points.', 'pt-BR': 'Margem do ritmo semanal em pontos percentuais.' },
+    },
+    {
+      path: 'accountPolicy.minQuotaPct', type: 'number', minimum: 0, maximum: 100,
+      defaultPath: 'accountPolicy.minQuotaPct',
+      constraint: { en: 'a number from 0 to 100', 'pt-BR': 'um número de 0 a 100' },
+      description: { en: 'Each known quota window must be above this percentage.',
+        'pt-BR': 'Cada janela de cota conhecida deve estar acima deste percentual.' },
+    },
+    {
       path: 'limits.global', type: 'integer', minimum: 1, defaultPath: 'limits.global',
       legacyAliases: ['limits.perClient'],
       constraint: { en: 'an integer >= 1', 'pt-BR': 'um inteiro >= 1' },

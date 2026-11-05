@@ -4,6 +4,8 @@
 
 Claude Code and Codex can have multiple accounts. Each has a stable id, an editable label and its own configuration folder. OpenCode is outside this feature. The implicit `default` account has no folder override and keeps the client's current environment.
 
+The settings list also includes `accountPolicy.minQuotaPct` (0), `accountPolicy.paceMarginPct` (15) and `accountPolicy.enforcePace` (false). These prepare account choice and pacing; they do not change launches yet.
+
 <a id="manage"></a>
 ## Manage an account
 

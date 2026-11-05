@@ -34,6 +34,9 @@ client is a configured client; class is simple, normal or hard. Each field defau
 | `profiles.<client>.<class>.effort` | Reasoning effort used for this client and work class. |
 | `profiles.<client>.<class>.maxTurns` | Maximum number of turns for this client and work class. |
 | `lowQuotaPct` | Profiles are lowered when the remaining quota is below this percentage. |
+| `accountPolicy.minQuotaPct` | Pure account policy: each known window must exceed this percentage (default 0). |
+| `accountPolicy.paceMarginPct` | Pure account policy: weekly pace margin in points (default 15). |
+| `accountPolicy.enforcePace` | Pure account policy: defer hard work ahead of pace (default false); not connected to launches yet. |
 | `daemon.minQuotaPct` | The daemon does not open demands when the remaining quota is below this percentage. |
 | `smoke.quotaFloorPct` | Smoke refuses to start when the remaining quota is below this percentage. |
 | `codexQuota.sessionsDirectory` | Codex automatic quota reading setting. |

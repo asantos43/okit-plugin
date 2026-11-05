@@ -34,6 +34,9 @@ client é um cliente configurado; class é simple, normal ou hard. O padrão de 
 | `profiles.<client>.<class>.effort` | Esforço de raciocínio usado neste cliente e nesta classe de trabalho. |
 | `profiles.<client>.<class>.maxTurns` | Número máximo de voltas para este cliente e esta classe de trabalho. |
 | `lowQuotaPct` | Os perfis são rebaixados quando a cota restante fica abaixo deste percentual. |
+| `accountPolicy.minQuotaPct` | Política pura: cada janela conhecida deve superar este percentual (padrão 0). |
+| `accountPolicy.paceMarginPct` | Política pura: margem semanal em pontos percentuais (padrão 15). |
+| `accountPolicy.enforcePace` | Política pura: adiar trabalho difícil à frente do ritmo (padrão false); ainda sem ligação ao lançamento. |
 | `daemon.minQuotaPct` | O daemon não abre demandas quando a cota restante fica abaixo deste percentual. |
 | `smoke.quotaFloorPct` | O smoke recusa iniciar quando a cota restante fica abaixo deste percentual. |
 | `codexQuota.sessionsDirectory` | Ajuste da leitura automática de cota do Codex. |

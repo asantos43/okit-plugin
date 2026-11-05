@@ -29,6 +29,20 @@ A raiz padrão é ~/.okwork; OKWORK_HOME substitui a pasta inteira (não acresce
 | `claude-statusline.original` | Backup da barra antes do registro consentido |
 | `autostart/okit-daemon.cron`, `logs/daemon.out` | Plano cron e saída do daemon nesse plano |
 
+## Escolha pura de conta
+
+Só `login: 'logged-out'` barra a conta por login. `unknown` (inclusive Claude no macOS e keyring do Codex) ou login ausente passa, mas marca a observação da conta como `unknown` e fica depois das contas conhecidas, como uma janela de cota desconhecida. Os demais filtros e a conta fixa da continuação continuam valendo. O chamador fornece a observação de login; esta política não inspeciona credenciais do ambiente.
+
+`src/accounts-choose.js` exporta `chooseAccount` e `accountReasonText`, ainda sem ligação ao lançamento, daemon, doctor, actors, telemetria ou painel. A função não lê disco, ambiente nem credenciais. `now` é obrigatório, em milissegundos; `runs` contém registros já lidos, com as regras de execução ativa e expiração de `limits.js` (conta ausente significa `default`).
+
+Cada conta recebe `client`, `id`, `login` de `loginState`, `actors: [{model, effort}]` confirmados nessa conta e `reading` no formato do leitor de cota (`windows`, `remainingPct`, `windowMinutes`, `resetsAt` ou `resetsInMinutes`). O chamador fornece observações atuais. Janelas desconhecidas passam, mas ficam por último; as conhecidas devem superar `settings.accountPolicy.minQuotaPct` (padrão 0). Vagas usam `parallelLimit` da conta, depois limite do cliente, depois limite padrão (3).
+
+`actorClass` é o nome da classe em `settings.profiles[client]` ou `{name, model, effort, role?, executorAccount?, urgent?}`. Revisores (`critic`/`verifier`) preferem outra conta elegível. `resumeSession: {account}` identifica e fixa a conta da continuação, mesmo se barrada. O chamador resolve a conta da sessão; dono ausente é recusado. `urgent: true` representa urgência explícita da pessoa.
+
+A ordem compara percentual semanal restante menos percentual dos sete dias ainda restante, percentual da sessão, menos execuções ativas, lançamento mais antigo (`lastLaunchedAt` ou inícios registrados) e id em ordem de código. Sem renovação semanal conhecida, o ritmo é desconhecido. `paceMarginPct` tem padrão 15; `enforcePace`, padrão false, só avisa. Ligada, adia trabalho `hard` até recuperar a margem, no máximo até a renovação. Trabalho simples/normal e urgente passa. Os ajustes estão no schema para a página de configurações e só afetam esta função pura por enquanto.
+
+O retorno é `{account, reason}` ou `{wait_until, reason}`. O motivo contém código e evidências numéricas; `accountReasonText(reason, locale)` preenche a tabela en/pt-BR. `wait_until` é um instante em milissegundos para ritmo; `null` indica ausência de previsão segura. Se todas forem barradas, retorna a primeira falha da conta de menor id. Falha de continuação sempre corresponde à conta fixada.
+
 <a id="installation"></a>
 ## Fora da raiz de estado
 
