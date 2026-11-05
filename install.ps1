@@ -403,7 +403,9 @@ const TEXTS = Object.freeze({
 const REASONS = [
   [/^permission denied$/i, 'permissão negada', 'permission denied'],
   [/^the installed daemon script could not be identified$/, 'não foi possível identificar o script do daemon instalado', 'the installed daemon script could not be identified'],
-  [/^(.+?): (permission denied)$/i, '$1: $2', '/record.json: permission denied'],
+  // A path that could not be read: the prefix must have the shape of a path (a POSIX path, a home, a relative path or
+  // a drive of Windows), so a name of a person that ends with ": permission denied" stays as it was raised.
+  [/^((?:\/|~|\.\.\/|\.\/|[A-Za-z]:[\\\/]).*?): (permission denied)$/i, '$1: $2', '/record.json: permission denied'],
   [/^No installation record found$/, 'Nenhuma instalação encontrada', 'No installation record found'],
   [/^No previous version retained$/, 'Nenhuma versão anterior foi guardada', 'No previous version retained'],
   [/^Previous version belongs to another client$/, 'A versão anterior é de outro cliente', 'Previous version belongs to another client'],

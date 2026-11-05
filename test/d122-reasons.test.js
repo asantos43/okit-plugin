@@ -396,6 +396,26 @@ test('the reason behind a label of the demo is told only when the catalog knows 
   assert.equal(localizeReason(reason, 'en'), reason);
 });
 
+// The rule of the path that could not be read: only a prefix with the shape of a path is a path. A name of a person
+// that ends with ": permission denied" is not a path and stays as it was raised.
+//
+// | reason | must pass | must refuse |
+// | a path that could not be read | the path as it was raised and the reason in Portuguese | the path translated |
+// | a text that is not a path | the text as it was raised | a translation of the text |
+test('the rule of the path that could not be read takes only a prefix with the shape of a path', () => {
+  for (const path of ['/record.json', '~/state/record.json', './record.json', '../state/record.json',
+    'C:\\state\\record.json', 'C:/state/record.json']) {
+    const reason = `${path}: permission denied`;
+    assert.equal(localizeReason(reason, 'pt-BR'), `${path}: ${PT}`, reason);
+    assert.equal(localizeReason(reason, 'en'), reason, reason);
+  }
+  for (const text of ['maria: permission denied', 'Maria: permission denied', 'okit: permission denied',
+    'e: permission denied']) {
+    assert.equal(localizeReason(text, 'pt-BR'), text, text);
+    assert.equal(localizeReason(text, 'en'), text, text);
+  }
+});
+
 test('a reason inside a reason is told when it is one of the exact phrases of the catalog', () => {
   // The capture is a whole reason of the catalog: both parts are said in the language of the run.
   const reason = 'Invalid --from package: Missing CLI';
