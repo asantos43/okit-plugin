@@ -1,4 +1,4 @@
-import { ACCOUNT_CLIENTS, DEFAULT_ACCOUNT_ID, accountEnv, accountsOf, requireAccount } from '../accounts.js';
+import { ACCOUNT_CLIENTS, DEFAULT_ACCOUNT_ID, accountEnv, accountKey, accountsOf, requireAccount } from '../accounts.js';
 import { clientRoot } from './config.js';
 import { UsageError } from './exit.js';
 
@@ -24,10 +24,17 @@ export const accountsSaved = (user, client) => hasAccounts(client) && Object.has
  * @param {string} client the client of the run
  * @returns {object|null} the account (`accountsOf` shape)
  */
-export function requestedAccount(flags, user, client) {
+export function requestedAccount(flags, user, client, record = null, command = 'install') {
   if (flags.account === undefined) return null;
   if (!hasAccounts(client)) throw new UsageError('Accounts are not supported for this client.');
-  const account = requireAccount(user, client, flags.account);
+  let account;
+  try { account = requireAccount(user, client, flags.account); } catch (error) {
+    // What is registered is known by the record alone: an account that is no longer saved can still be taken out, in the
+    // folder the registration was made in. Installing it again needs it saved (the configuration gives the folder).
+    const folder = command === 'uninstall' ? record?.accounts?.[flags.account]?.configDir : null;
+    if (!folder) throw error;
+    return { client, id: flags.account, label: flags.account, configDir: folder, isDefault: false, key: accountKey(client, flags.account) };
+  }
   if (!account.isDefault && !account.configDir) throw new UsageError('Unknown account.');
   return account;
 }
@@ -42,15 +49,24 @@ export function requestedAccount(flags, user, client) {
  * @returns {{id: string, label: string, isDefault: boolean, client: string, root: string, env: object}}
  */
 export function targetOf(deps, user, account) {
-  const env = accountEnv(account.client, account, deps.env, deps.config.clients[account.client].configEnv, user);
+  // The environment of the run itself, never the one a previous account left in `deps.env` (see `depsFor`).
+  const base = deps.baseEnv ?? deps.env;
+  const env = accountEnv(account.client, account, base, deps.config.clients[account.client].configEnv, user);
   const root = !account.isDefault ? account.configDir
-    : env === deps.env ? deps.injectedRoot ?? clientRoot(account.client, deps) : clientRoot(account.client, { ...deps, env });
+    : env === base ? deps.injectedRoot ?? clientRoot(account.client, { ...deps, env: base }) : clientRoot(account.client, { ...deps, env });
   return { id: account.id, label: account.label, isDefault: account.isDefault, client: account.client, root, env };
 }
 
-/** The dependencies of one account: its folder, and its environment for the client's own program. */
-export const depsFor = (deps, target) => ({ ...deps, clientRoot: target.root, accountScope: target,
-  cliEnv: target.env === deps.env ? undefined : target.env });
+/**
+ * The dependencies of one account: its folder and ITS environment (every command that is run for the account, the
+ * client's own program and the checks of what was registered, sees the folder variable of that account and of no other).
+ * `baseEnv` keeps the environment of the run, the one the accounts are derived from.
+ */
+export function depsFor(deps, target) {
+  const base = deps.baseEnv ?? deps.env;
+  return { ...deps, baseEnv: base, env: target.env, clientRoot: target.root, accountScope: target,
+    cliEnv: target.env === base ? undefined : target.env };
+}
 
 /** The header of the run, and the note of a run that named no account while extras are saved (the default was used). */
 export function header(ui, deps, values) {
@@ -58,21 +74,30 @@ export function header(ui, deps, values) {
   if (deps.accountNote) ui.explain([deps.accountNote]);
 }
 
-/** The record without the registrations of accounts that are no longer saved: their folder is unknown, nothing is touched. */
-export function pruneAccounts(record, targets) {
-  if (!record.accounts) return record;
-  const kept = Object.fromEntries(Object.entries(record.accounts).filter(([id]) => targets.some((target) => target.id === id)));
-  if (Object.keys(kept).length) record.accounts = kept; else delete record.accounts;
-  return record;
+/**
+ * The ids of the accounts that hold a registration, the default first. Only the record knows them: an account that was
+ * removed from the configuration is still registered until someone takes it out, and it still keeps the payload.
+ */
+export function registeredIds(record) {
+  if (!record || !hasAccounts(record.client)) return [];
+  return [...(record.defaultRegistered === false ? [] : [DEFAULT_ACCOUNT_ID]), ...Object.keys(record.accounts ?? {})];
 }
 
-/** The targets whose registration the record holds, the default first. An account that is no longer saved has no folder to act on. */
+/**
+ * The targets whose registration the record holds, the default first. The folder of an extra is the one the registration
+ * was made in (`record.accounts[id].configDir`), whatever the configuration says now; the configuration only gives the
+ * label. A registration with no folder anywhere (neither recorded nor saved) cannot be acted on and is left as it is.
+ */
 export function registeredTargets(record, user, deps) {
   if (!record || !hasAccounts(record.client)) return [];
-  return accountsOf(user, record.client)
-    .filter((account) => (account.isDefault ? record.defaultRegistered !== false
-      : Object.hasOwn(record.accounts ?? {}, account.id) && Boolean(account.configDir)))
-    .map((account) => targetOf(deps, user, account));
+  const saved = new Map(accountsOf(user, record.client).map((account) => [account.id, account]));
+  return registeredIds(record).flatMap((id) => {
+    const account = saved.get(id);
+    if (id === DEFAULT_ACCOUNT_ID) return [targetOf(deps, user, account)];
+    const configDir = record.accounts[id]?.configDir ?? account?.configDir;
+    if (!configDir) return [];
+    return [targetOf(deps, user, { client: record.client, id, label: account?.label ?? id, configDir, isDefault: false, key: accountKey(record.client, id) })];
+  });
 }
 
 /** Whether the record or the run involves accounts at all: otherwise the single-account path runs as it always did. */
@@ -83,7 +108,7 @@ export const involvesAccounts = (record, user, client, requested) => hasAccounts
 /** The record with this account's registration noted. */
 export function markRegistered(record, target) {
   if (target.isDefault) delete record.defaultRegistered;
-  else record.accounts = { ...record.accounts, [target.id]: record.accounts?.[target.id] ?? {} };
+  else record.accounts = { ...record.accounts, [target.id]: { ...record.accounts?.[target.id], configDir: target.root } };
   return record;
 }
 

@@ -293,7 +293,7 @@ export async function diagnose(input) {
     const [first, ...others] = accounts;
     const tell = (row, target) => (others.length ? { ...row, label: `${row.label} [${target.label}]` } : row);
     const own = { readers, settings, platform, command: program, ui, root };
-    rows.push(tell(await registrationRow(record, { deps: first && !first.isDefault ? depsFor(deps, first) : deps, ...own }), first));
+    rows.push(tell(await registrationRow(record, { deps: first ? depsFor(deps, first) : deps, ...own }), first));
     for (const other of others) rows.push(tell(await registrationRow(record, { deps: depsFor(deps, other), ...own }), other));
     rows.push(...await selfCheckRows(record, { readers,
       selfCheckDeps: { ...selfCheckDeps, destination: record.destination, accountsConfig: storedValue }, ui, command: program, root, platform }));

@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { main } from '../src/cli.js';
 import { exitCodeFor } from '../src/install/exit.js';
 import { readRecord } from '../src/install/place.js';
 import { accountFiles } from '../src/accounts.js';
-import { collectStatusline } from '../src/quota/statusline-collector.js';
-import { paths } from '../src/store.js';
+import { commandWords } from '../src/install/statusline.js';
+import { HOME_ENV, paths } from '../src/store.js';
 import { answerCheck, fixture, mcpWorld } from './helpers/install-fixture.js';
 
 // D116: `install|uninstall --client C --account X` registers and unregisters the plugin in the folder of one account.
@@ -20,6 +22,7 @@ import { answerCheck, fixture, mcpWorld } from './helpers/install-fixture.js';
 
 const CLIENT = 'claude-code';
 const FOLDER_VARIABLE = 'CLAUDE_CONFIG_DIR';
+const CLI = fileURLToPath(new URL('../src/cli.js', import.meta.url));
 
 /** The name of the MCP entry in the words of the client's own command (`mcp add --scope user NAME -- ...`). */
 function entryName(args) {
@@ -208,6 +211,14 @@ test('update moves the payload once and re-registers every registered account', 
     .map(({ env }) => env?.[FOLDER_VARIABLE] ?? 'default'));
   assert.deepEqual([...folders].sort(), ['default', f.personal, f.work].sort());
   assert.match(f.output.join('\n'), /The default account was used\./);
+  // The MCP entry of every folder was written again to the new payload, and none still names the old one.
+  for (const folder of [f.client, f.work, f.personal]) {
+    const add = f.commands.filter(({ args, env }) => args?.[0] === 'mcp' && args[1] === 'add'
+      && (env?.[FOLDER_VARIABLE] ?? f.client) === folder).at(-1);
+    assert.ok(add, `no MCP entry written in ${folder}`);
+    assert.ok(add.args.some((word) => word.startsWith(after.path)), add.args.join(' '));
+    assert.ok(!add.args.some((word) => word.startsWith(before.path)), add.args.join(' '));
+  }
 });
 
 test('update --account is refused, in the language of the run', async (t) => {
@@ -226,17 +237,21 @@ test('an unknown id, a client without accounts and a missing client are refused 
   const refused = async (args, text) => {
     f.output.length = 0;
     assert.equal(await f.run(...args, '--locale', 'pt-BR'), exitCodeFor('usage'), args.join(' '));
-    assert.match(f.output.join('\n'), text);
+    const said = f.output.join('\n');
+    assert.match(said, text);
+    // Neither a stack nor a folder of the person leaks into the refusal.
+    assert.doesNotMatch(said, /TypeError|RangeError|\bat .*\(.*:\d+:\d+\)|node:internal/);
+    assert.ok(!said.includes(f.home), said);
   };
   await refused(['install', '--client', CLIENT, '--account', 'nobody'], /Conta desconhecida\./);
-  await refused(['install', '--client', CLIENT, '--account', 'Bad Id!'], /./);
+  await refused(['install', '--client', CLIENT, '--account', 'Bad Id!'], /Id de conta inválido\./);
   await refused(['install', '--client', 'opencode', '--account', 'work'], /Contas não são suportadas para este cliente\./);
   await refused(['install', '--account', 'work'], /Informe o cliente da conta com --client\./);
   await refused(['uninstall', '--account', 'work'], /Informe o cliente da conta com --client\./);
   await refused(['install', '--client', 'all', '--account', 'work'], /Informe o cliente da conta com --client\./);
   // A flag with no value (or an empty one) is refused as every value flag is; a repeated one is read the last way.
-  await refused(['install', '--client', CLIENT, '--account'], /./);
-  await refused(['install', '--client', CLIENT, '--account', ''], /./);
+  await refused(['install', '--client', CLIENT, '--account'], /Falta o valor de --account/);
+  await refused(['install', '--client', CLIENT, '--account', ''], /Falta o valor de --account/);
   await refused(['install', '--client', CLIENT, '--account', 'work', '--account', 'nobody'], /Conta desconhecida\./);
   assert.equal(await f.record(), null);
   assert.equal(await exists(join(f.work, 'settings.json')), false);
@@ -263,7 +278,8 @@ test('without extra accounts the install and the uninstall are what they always 
 test('platforms: the folder variable of the account reaches the program on linux, macOS and Windows alike', async (t) => {
   for (const platform of ['linux', 'darwin', 'win32']) {
     const f = await fixture(t, platform);
-    const work = join(f.home, 'work');
+    // A folder with a space and an apostrophe: the variable carries it as it is, whatever the platform quotes.
+    const work = join(f.home, "O'Brien work");
     const saved = JSON.parse(await fs.readFile(join(f.root, 'config.json'), 'utf8'));
     saved.accounts = { [CLIENT]: [{ id: 'work', label: 'Work', configDir: work }] };
     await fs.writeFile(join(f.root, 'config.json'), JSON.stringify(saved));
@@ -283,11 +299,283 @@ test('the status bar registered for X writes X\'s reading when the client runs i
   // One command for every account: it names no account, the client's folder variable at run time does.
   assert.equal((await settingsOf(f.personal)).statusLine.command, command);
   assert.ok(!command.includes(f.work) && !command.includes(f.personal));
-  const config = JSON.parse(await fs.readFile(join(f.root, 'config.json'), 'utf8'));
-  const input = Buffer.from(JSON.stringify({ rate_limits: { five_hour: { used_percentage: 40, resets_at: 1800000000 } } }));
+  // The REGISTERED command is run, as the client runs it, over ONE shared state: the collector of the repository stands
+  // for the command that the link names, and each run is given its own account's folder only.
+  const words = commandWords(command);
+  assert.ok(words && words[1] === 'statusline-collector', command);
+  const shared = join(f.home, 'shared-state');
+  await fs.mkdir(shared);
+  await fs.copyFile(join(f.root, 'config.json'), join(shared, 'config.json'));
+  const input = JSON.stringify({ rate_limits: { five_hour: { used_percentage: 40, resets_at: Math.floor(Date.now() / 1000) + 3600 } } });
+  const ran = [];
   for (const [id, folder] of [['work', f.work], ['personal', f.personal]]) {
-    const root = join(f.home, `state-${id}`);
-    await collectStatusline({ stateRoot: root, config, now: () => 1800000000000, input, env: { [FOLDER_VARIABLE]: folder } });
-    assert.deepEqual(await fs.readdir(paths(root).quota), [accountFiles(CLIENT, id).statusline]);
+    const result = spawnSync(process.execPath, [CLI, ...words.slice(1)], { input, encoding: 'utf8',
+      env: { PATH: process.env.PATH, HOME: f.home, [HOME_ENV]: shared, [FOLDER_VARIABLE]: folder } });
+    assert.equal(result.status, 0, result.stderr);
+    ran.push(accountFiles(CLIENT, id).statusline);
+    // After each run the shared state holds the readings of the accounts that ran so far, and no other file.
+    assert.deepEqual((await fs.readdir(paths(shared).quota)).sort(), [...ran].sort());
+  }
+  // A folder that names no saved account writes nothing: the readings of the accounts are never overwritten by it.
+  const result = spawnSync(process.execPath, [CLI, ...words.slice(1)], { input, encoding: 'utf8',
+    env: { PATH: process.env.PATH, HOME: f.home, [HOME_ENV]: shared, [FOLDER_VARIABLE]: join(f.home, 'forgotten') } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual((await fs.readdir(paths(shared).quota)).sort(), [...ran].sort());
+});
+
+/** Saves the accounts of the client in the configuration of the run: the ones left out are forgotten by it. */
+async function saveAccounts(f, list) {
+  const saved = JSON.parse(await fs.readFile(join(f.root, 'config.json'), 'utf8'));
+  saved.accounts = { [CLIENT]: list };
+  await fs.writeFile(join(f.root, 'config.json'), JSON.stringify(saved));
+}
+
+/** Every file under a folder, as paths (a folder that is not there holds none). */
+async function filesUnder(folder) {
+  const found = [];
+  const entries = await fs.readdir(folder, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const path = join(folder, entry.name);
+    if (entry.isDirectory()) found.push(...await filesUnder(path));
+    else found.push(path);
+  }
+  return found;
+}
+
+test('an account taken out of the configuration still holds the payload and is taken out where it was registered', async (t) => {
+  const f = await world(t);
+  assert.equal(await f.run('install', '--client', CLIENT), 0, f.output.join('\n'));
+  assert.equal(await f.run('install', '--client', CLIENT, '--account', 'work', '--statusline'), 0, f.output.join('\n'));
+  const { path } = await f.record();
+  // The person forgets `work`: only the record knows that it is registered.
+  await saveAccounts(f, [{ id: 'personal', label: 'Personal', configDir: f.personal }]);
+  f.output.length = 0;
+  assert.equal(await f.run('uninstall', '--client', CLIENT), 0, f.output.join('\n'));
+  assert.deepEqual(Object.keys((await f.record()).accounts), ['work']);
+  assert.equal(await exists(path), true);
+  assert.match(f.output.join('\n'), /other accounts still use it: work/);
+  // --purge is refused while the forgotten account holds a registration, naming it.
+  f.output.length = 0;
+  assert.equal(await f.run('uninstall', '--client', CLIENT, '--purge', '--yes'), exitCodeFor('usage'));
+  assert.match(f.output.join('\n'), /still registered: work/);
+  assert.equal(await exists(path), true);
+  assert.equal(f.holds(f.work), true);
+  // Installing it again needs it saved; nothing changes.
+  const commandsBefore = f.commands.length;
+  assert.equal(await f.run('install', '--client', CLIENT, '--account', 'work'), exitCodeFor('usage'));
+  assert.equal(f.commands.length, commandsBefore);
+  // Taking it out acts in the folder it was registered in, and then nothing holds the payload.
+  f.output.length = 0;
+  assert.equal(await f.run('uninstall', '--client', CLIENT, '--account', 'work', '--purge', '--yes'), 0, f.output.join('\n'));
+  const removed = f.commands.slice(commandsBefore).filter(({ args }) => ['plugin', 'mcp'].includes(args?.[0]));
+  assert.ok(removed.length > 0);
+  assert.ok(removed.every(({ env }) => env[FOLDER_VARIABLE] === f.work), JSON.stringify(removed));
+  assert.equal(f.holds(f.work), false);
+  assert.equal(await exists(join(f.work, 'settings.json')), false);
+  assert.equal(await f.record(), null);
+  assert.equal(await exists(path), false);
+});
+
+test('a rollback keeps the registrations of now: an account gone since then stays gone', async (t) => {
+  const f = await world(t);
+  for (const account of ['work', 'personal']) {
+    assert.equal(await f.run('install', '--client', CLIENT, '--account', account), 0, f.output.join('\n'));
+  }
+  const first = await f.record();
+  f.setVersion('1.0.1');
+  assert.equal(await f.run('update', '--client', CLIENT), 0, f.output.join('\n'));
+  assert.equal(await f.run('uninstall', '--client', CLIENT, '--account', 'personal'), 0, f.output.join('\n'));
+  assert.deepEqual(Object.keys((await f.record()).accounts), ['work']);
+  // The old record held both accounts; the rollback must not bring `personal` back.
+  const commandsBefore = f.commands.length;
+  assert.equal(await f.run('update', '--rollback', '--client', CLIENT), 0, f.output.join('\n'));
+  const rolled = await f.record();
+  assert.equal(rolled.version, '1.0.0');
+  assert.equal(rolled.path, first.path);
+  assert.deepEqual(Object.keys(rolled.accounts), ['work']);
+  assert.equal(rolled.defaultRegistered, false);
+  assert.equal(f.holds(f.personal), false);
+  assert.equal(f.holds(f.work), true);
+  const registered = f.commands.slice(commandsBefore).filter(({ args }) => ['plugin', 'mcp'].includes(args?.[0]));
+  assert.ok(registered.length > 0);
+  assert.ok(registered.every(({ env }) => env[FOLDER_VARIABLE] === f.work), JSON.stringify(registered));
+  const entry = registered.filter(({ args }) => args[0] === 'mcp' && args[1] === 'add').at(-1);
+  assert.ok(entry.args.some((word) => word.startsWith(first.path)), entry.args.join(' '));
+});
+
+test('a rollback keeps the default registered since then, and does not bring back an old absence', async (t) => {
+  const f = await world(t);
+  assert.equal(await f.run('install', '--client', CLIENT, '--account', 'work'), 0, f.output.join('\n'));
+  f.setVersion('1.0.1');
+  assert.equal(await f.run('update', '--client', CLIENT), 0, f.output.join('\n'));
+  // The record that the rollback goes back to says the default was not registered; now it is.
+  assert.equal((await f.record()).previous.defaultRegistered, false);
+  assert.equal(await f.run('install', '--client', CLIENT), 0, f.output.join('\n'));
+  assert.equal((await f.record()).defaultRegistered, undefined);
+  const commandsBefore = f.commands.length;
+  assert.equal(await f.run('update', '--rollback', '--client', CLIENT), 0, f.output.join('\n'));
+  const rolled = await f.record();
+  assert.equal(rolled.version, '1.0.0');
+  assert.equal(rolled.defaultRegistered, undefined);
+  assert.deepEqual(Object.keys(rolled.accounts), ['work']);
+  const folders = new Set(f.commands.slice(commandsBefore).filter(({ args }) => args?.[0] === 'plugin')
+    .map(({ env }) => env?.[FOLDER_VARIABLE] ?? 'default'));
+  assert.deepEqual([...folders].sort(), ['default', f.work].sort());
+  assert.equal(f.holds(f.client), true);
+});
+
+test('the backup of an update keeps the plugin\'s files of every account and never a login', async (t) => {
+  const f = await world(t);
+  const folders = { default: f.client, work: f.work, personal: f.personal };
+  // Each folder holds the files of a login (that no backup may copy) and settings of its own that the install keeps.
+  for (const [id, folder] of Object.entries(folders)) {
+    await fs.mkdir(folder, { recursive: true });
+    await fs.writeFile(join(folder, '.credentials.json'), `SECRET-CREDENTIALS-${id}`);
+    await fs.writeFile(join(folder, 'auth.json'), `SECRET-AUTH-${id}`);
+    await fs.writeFile(join(folder, 'oauth-token.txt'), `SECRET-TOKEN-${id}`);
+    await fs.writeFile(join(folder, 'settings.json'), JSON.stringify({ mark: `original-${id}` }));
+  }
+  assert.equal(await f.run('install', '--client', CLIENT, '--statusline'), 0, f.output.join('\n'));
+  for (const account of ['work', 'personal']) {
+    assert.equal(await f.run('install', '--client', CLIENT, '--account', account, '--statusline'), 0, f.output.join('\n'));
+  }
+  f.setVersion('1.0.1');
+  assert.equal(await f.run('update', '--client', CLIENT), 0, f.output.join('\n'));
+  const kept = await filesUnder(join(f.destination, 'backups'));
+  assert.ok(kept.length > 0);
+  for (const file of kept) {
+    assert.ok(!/credential|auth\.json|token/i.test(file.slice(f.destination.length)), file);
+    assert.doesNotMatch(await fs.readFile(file, 'utf8'), /SECRET-/, file);
+  }
+  // The files the plugin writes are there, each folder's own original content apart from the others'.
+  const settings = await Promise.all(kept.filter((file) => file.endsWith('settings.json')).map((file) => fs.readFile(file, 'utf8')));
+  for (const id of Object.keys(folders)) assert.ok(settings.some((text) => text.includes(`original-${id}`)), `no backup of ${id}`);
+  // The logins themselves were not touched.
+  for (const [id, folder] of Object.entries(folders)) assert.equal(await fs.readFile(join(folder, '.credentials.json'), 'utf8'), `SECRET-CREDENTIALS-${id}`);
+});
+
+test('the check of a run asks each registered account with that account\'s own folder, once', async (t) => {
+  const f = await world(t);
+  // The run itself names a folder (the personal one): no account may be asked with it unless it is that account.
+  f.io.env[FOLDER_VARIABLE] = f.personal;
+  assert.equal(await f.run('install', '--client', CLIENT, '--statusline'), 0, f.output.join('\n'));
+  for (const account of ['work', 'personal']) {
+    assert.equal(await f.run('install', '--client', CLIENT, '--account', account, '--statusline'), 0, f.output.join('\n'));
+  }
+  f.commands.length = 0;
+  // The same version is here: the run is only the check, which runs the written status bar of every registered account.
+  assert.equal(await f.run('install', '--client', CLIENT, '--account', 'work', '--statusline'), 0, f.output.join('\n'));
+  const asked = f.commands.filter(({ args }) => (args ?? []).some((word) => String(word).includes('statusline-collector')));
+  const count = new Map();
+  for (const { env } of asked) {
+    const folder = env[FOLDER_VARIABLE] ?? 'default';
+    count.set(folder, (count.get(folder) ?? 0) + 1);
+  }
+  assert.deepEqual([...count.keys()].sort(), ['default', f.personal, f.work].sort());
+  // Every account is asked the same number of times (no query repeated for one and missed for another).
+  assert.equal(new Set(count.values()).size, 1, JSON.stringify([...count]));
+  // The default is asked with a clean environment: the variable of the run (the personal folder) does not reach it.
+  assert.ok(asked.filter(({ env }) => !Object.hasOwn(env, FOLDER_VARIABLE)).length > 0);
+});
+
+test('the doctor reads the registration of each account with its own folder, one query each', async (t) => {
+  const f = await world(t);
+  for (const account of [null, 'work', 'personal']) {
+    assert.equal(await f.run('install', '--client', CLIENT, ...(account ? ['--account', account] : [])), 0, f.output.join('\n'));
+  }
+  // The terminal of the person happens to name the work folder.
+  f.io.env[FOLDER_VARIABLE] = f.work;
+  f.commands.length = 0;
+  await main(['doctor'], f.io);
+  const queries = f.commands.filter(({ args }) => args?.[0] === 'mcp' && args[1] === 'get');
+  const folders = queries.map(({ env }) => env?.[FOLDER_VARIABLE] ?? 'default');
+  assert.deepEqual([...folders].sort(), ['default', f.personal, f.work].sort(), JSON.stringify(folders));
+});
+
+test('an id saved again with another folder is refused until the account is uninstalled where it was registered', async (t) => {
+  const f = await world(t);
+  assert.equal(await f.run('install', '--client', CLIENT, '--account', 'work', '--statusline'), 0, f.output.join('\n'));
+  const before = await f.record();
+  const elsewhere = join(f.home, 'accounts', 'work-moved');
+  await saveAccounts(f, [{ id: 'work', label: 'Work', configDir: elsewhere }, { id: 'personal', label: 'Personal', configDir: f.personal }]);
+  const commandsBefore = f.commands.length;
+  for (const [locale, text] of [['en', /registered in another folder/], ['pt-BR', /registrada em outra pasta/]]) {
+    f.output.length = 0;
+    assert.equal(await f.run('install', '--client', CLIENT, '--account', 'work', '--statusline', '--locale', locale), exitCodeFor('usage'));
+    assert.match(f.output.join('\n'), text);
+    assert.doesNotMatch(f.output.join('\n'), /TypeError|node:internal/);
+  }
+  // Nothing was touched: no command, no file in the new folder, the same record.
+  assert.equal(f.commands.length, commandsBefore);
+  assert.equal(await exists(elsewhere), false);
+  assert.deepEqual(await f.record(), before);
+  // Uninstalling takes the registration out of the folder it was made in, and leaves the new folder alone.
+  assert.equal(await f.run('uninstall', '--client', CLIENT, '--account', 'work'), 0, f.output.join('\n'));
+  const removed = f.commands.slice(commandsBefore).filter(({ args }) => ['plugin', 'mcp'].includes(args?.[0]));
+  assert.ok(removed.length > 0);
+  assert.ok(removed.every(({ env }) => env[FOLDER_VARIABLE] === f.work), JSON.stringify(removed));
+  assert.equal(await exists(join(f.work, 'settings.json')), false);
+  assert.equal(await exists(elsewhere), false);
+  assert.equal(await f.record(), null);
+});
+
+test('an install of one account does not move the others to another version', async (t) => {
+  const f = await world(t);
+  for (const account of ['work', 'personal']) {
+    assert.equal(await f.run('install', '--client', CLIENT, '--account', account), 0, f.output.join('\n'));
+  }
+  const before = await f.record();
+  const commandsBefore = f.commands.length;
+  f.setVersion('1.0.1');
+  for (const [locale, text] of [['en', /Other accounts use version 1\.0\.0; run \S+ update first\./],
+    ['pt-BR', /Outras contas usam a versão 1\.0\.0; rode \S+ update primeiro\./]]) {
+    f.output.length = 0;
+    assert.equal(await f.run('install', '--client', CLIENT, '--account', 'personal', '--locale', locale), exitCodeFor('usage'));
+    assert.match(f.output.join('\n'), text);
+  }
+  assert.deepEqual(await f.record(), before);
+  assert.equal(f.commands.length, commandsBefore);
+  assert.equal(await exists(before.path), true);
+  // An update moves them all; a single registered account may bring its own version.
+  const alone = await world(t);
+  assert.equal(await alone.run('install', '--client', CLIENT, '--account', 'work'), 0, alone.output.join('\n'));
+  alone.setVersion('1.0.1');
+  assert.equal(await alone.run('install', '--client', CLIENT, '--account', 'work'), 0, alone.output.join('\n'));
+  assert.equal((await alone.record()).version, '1.0.1');
+});
+
+test('an install of one account repairs a payload that is not whole without touching the others', async (t) => {
+  const f = await world(t);
+  for (const account of ['work', 'personal']) {
+    assert.equal(await f.run('install', '--client', CLIENT, '--account', account), 0, f.output.join('\n'));
+  }
+  const before = await f.record();
+  const server = join(before.path, 'src/mcp/server.js');
+  await fs.rm(server);
+  const commandsBefore = f.commands.length;
+  assert.equal(await f.run('install', '--client', CLIENT, '--account', 'personal'), 0, f.output.join('\n'));
+  const after = await f.record();
+  assert.equal(after.path, before.path);
+  assert.equal(await exists(server), true);
+  assert.deepEqual(after.accounts.work, before.accounts.work);
+  assert.deepEqual(Object.keys(after.accounts).sort(), ['personal', 'work']);
+  // The registration of `work` was not written again; only the named account was.
+  const touched = f.commands.slice(commandsBefore).filter(({ args }) => ['plugin', 'mcp'].includes(args?.[0]));
+  assert.ok(touched.length > 0);
+  assert.ok(touched.every(({ env }) => env[FOLDER_VARIABLE] === f.personal), JSON.stringify(touched));
+});
+
+test('codex: the folder of the account (with a space and an apostrophe) reaches every command of the client', async (t) => {
+  for (const platform of ['linux', 'win32']) {
+    const f = await fixture(t, platform);
+    const dir = join(f.home, "O'Brien codex work");
+    const saved = JSON.parse(await fs.readFile(join(f.root, 'config.json'), 'utf8'));
+    saved.accounts = { codex: [{ id: 'work', label: 'Work', configDir: dir }] };
+    await fs.writeFile(join(f.root, 'config.json'), JSON.stringify(saved));
+    assert.equal(await main(['install', '--client', 'codex', '--account', 'work'], f.io), 0, `${platform}: ${f.output.join('\n')}`);
+    const commands = f.commands.filter(({ args }) => ['plugin', 'mcp'].includes(args?.[0]));
+    assert.ok(commands.length > 0, platform);
+    for (const command of commands) assert.equal(command.env.CODEX_HOME, dir, platform);
+    assert.equal((await readRecord(f.destination, 'codex', fs)).accounts.work.configDir, dir);
   }
 });

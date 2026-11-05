@@ -130,6 +130,8 @@ const TEXTS = Object.freeze({
   removePurge: { en: '{path} (settings removed too)', 'pt-BR': '{path} (ajustes removidos também)' },
   accountsListed: { en: 'Accounts of {client}: {accounts}. The default account was used.', 'pt-BR': 'Contas do {client}: {accounts}. A conta default foi usada.' },
   accountsKept: { en: '{path} (kept: other accounts still use it: {accounts})', 'pt-BR': '{path} (mantido: outras contas ainda o usam: {accounts})' },
+  accountMoved: { en: 'The account {account} is registered in another folder than the one saved now; uninstall it before installing it again.', 'pt-BR': 'A conta {account} está registrada em outra pasta que não a salva agora; desinstale-a antes de instalá-la de novo.' },
+  accountsOtherVersion: { en: 'Other accounts use version {version}; run {command} update first.', 'pt-BR': 'Outras contas usam a versão {version}; rode {command} update primeiro.' },
   purgeAccounts: { en: '--purge requires no remaining accounts (still registered: {accounts})', 'pt-BR': '--purge exige que não reste nenhuma conta registrada (ainda registradas: {accounts})' },
   unlinkDone: { en: '{command} removed', 'pt-BR': '{command} removido' },
   unlinkShared: { en: '{command} kept for the other client', 'pt-BR': '{command} mantido para o outro cliente' },

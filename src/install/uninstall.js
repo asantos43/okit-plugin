@@ -17,7 +17,8 @@ export async function uninstall(record, flags, deps) {
   if (flags.purge && remaining.length && !deps.dryRun) throw new UsageError('--purge requires no remaining clients');
   // The account being removed, and the registrations that stay: while any stays, the payload and the record stay too.
   const scope = deps.accountScope;
-  const others = scope ? (deps.registered ?? []).filter(({ id }) => id !== scope.id) : [];
+  // Every registration of the record counts, also that of an account that is no longer saved.
+  const others = scope ? (deps.registeredIds ?? []).filter((id) => id !== scope.id) : [];
   if (flags.purge && others.length && !deps.dryRun) throw new UsageError('--purge requires no remaining accounts');
   const ui = presenterOf(deps);
   const bar = statuslineOf(record, deps);
@@ -34,7 +35,7 @@ export async function uninstall(record, flags, deps) {
   const quota = await undoStatusline(record, deps);
   if (quota) finish(next('quotaUndo'), quota);
   if (others.length) {
-    const kept = ui.text('accountsKept', { path: record.path, accounts: others.map(({ id }) => id).join(', ') });
+    const kept = ui.text('accountsKept', { path: record.path, accounts: others.join(', ') });
     if (deps.dryRun) { next('unregister').plan(); next('remove').plan(kept); return 0; }
     deps.stage?.('unregister');
     finish(next('unregister'), await register(record, deps, 'uninstall'));
