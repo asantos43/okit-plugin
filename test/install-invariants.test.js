@@ -61,10 +61,8 @@ const OUTPUT = new Set(['row', 'detail', 'warn', 'explain', 'note', 'summary', '
 const NOT_TEXT = new Set(['ok', 'info', 'skipped', 'failed', 'warn', 'plan', 'GET', 'operational', 'usage', 'language']);
 // Output calls that may carry a raw text (what a process or the system said) and why. The key is "file: callee: member".
 const RAW_ALLOWED = new Map([
-  ['src/install/policy.js: detail: error.message', 'the text PowerShell raised, shown only with --verbose, after our own label'],
   ['src/install/bootstrap.js: fail: result.stderr', 'what a child process (uname, curl, PowerShell) printed is passed on as it came'],
   ['src/install/bootstrap.js: fail: result.error', 'the system error of a child process that could not start'],
-  ['src/install/register.js: detail: error.message', 'the text the adapter module raised when it could not be loaded, shown only with --verbose after our own label'],
   ['src/install/index.js: failure: error.message', 'the presenter translates the reason (REASONS) and redacts it'],
   ['src/cli.js (main): err: error.message', 'an unexpected failure of any command, after the command name; the door redacts it for the installer\'s groups'],
 ]);

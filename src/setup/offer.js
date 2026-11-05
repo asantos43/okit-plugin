@@ -7,6 +7,7 @@ import process from 'node:process';
 import { readJson } from '../state.js';
 import { paths } from '../store.js';
 import { commandText } from '../install/command-token.js';
+import { localizeReason } from '../install/present.js';
 import { setupPending, DEFAULT_CONFIG } from '../profiles.js';
 import { runSetup, setupResultLines, formatUnreadable, isReadableConfig, CONFIG_UNREADABLE } from './setup.js';
 
@@ -39,8 +40,10 @@ function fill(text, values) {
 export function formatOffer(key, locale, values = {}) {
   const message = OFFER_MESSAGES[key];
   const language = locale === 'en' ? message.en : locale === 'pt-BR' ? message['pt-BR'] : null;
-  if (language !== null) return fill(language, values);
-  return `${fill(message.en, values)} / ${fill(message['pt-BR'], values)}`;
+  // The reason of a failure is told in the language of the side that shows it (REASONS).
+  const portuguese = values.reason === undefined ? values : { ...values, reason: localizeReason(values.reason, 'pt-BR') };
+  if (language !== null) return fill(language, locale === 'pt-BR' ? portuguese : values);
+  return `${fill(message.en, values)} / ${fill(message['pt-BR'], portuguese)}`;
 }
 
 /** An empty answer accepts the recommendation, like the setup wizard does. */
@@ -89,7 +92,7 @@ async function runOffer({
   try {
     answer = await ask(formatOffer('question', locale));
   } catch (error) {
-    out(formatOffer('failed', locale, { command, reason: error.message }));
+    out(formatOffer('failed', locale, { command, reason: localizeReason(error.message, locale) }));
     return { pending: true, offered: true, ran: false, failed: true };
   }
   if (!affirmative(answer)) {
@@ -113,7 +116,7 @@ async function runOffer({
     for (const message of result.messages) out(message);
     return { pending: true, offered: true, ran: true, code: result.code };
   } catch (error) {
-    out(formatOffer('failed', locale, { command, reason: error.message }));
+    out(formatOffer('failed', locale, { command, reason: localizeReason(error.message, locale) }));
     return { pending: true, offered: true, ran: false, failed: true };
   }
 }
@@ -167,7 +170,7 @@ async function runOfferRow({
     for (const message of result.messages.slice(result.cancelled || !models.length ? 1 : 0)) ui.note(message);
     return { pending: true, offered: true, ran: true, code: result.code };
   } catch (error) {
-    row('skipped', formatOffer('failed', ui.locale, { command: program, reason: error.message }));
+    row('skipped', formatOffer('failed', ui.locale, { command: program, reason: localizeReason(error.message, ui.locale) }));
     return { pending: true, offered: true, ran: false, failed: true };
   }
 }

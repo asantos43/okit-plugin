@@ -9,7 +9,7 @@ import { cliScript, hookScript, hookNode, isAnotherNode, isOurHook } from './reg
 import { mcpPlan, quotedWord, shown } from './mcp-register.js';
 import { clientRoot } from './config.js';
 import { depsFor, hasAccounts, registeredTargets, viewOf } from './account-scope.js';
-import { presenterOf, clientLabel, powershellLiteral, redact, controlReason } from './present.js';
+import { presenterOf, clientLabel, powershellLiteral, redact, controlReason, localizeReason } from './present.js';
 import { extraText } from './texts.js';
 import { installationOf, isEphemeral, missingFile, programWords } from './where.js';
 
@@ -517,14 +517,14 @@ function probeReason(ui, error, { stderr = '', folder, hide = [] } = {}) {
   const temporary = [folder, ...hide];
   let sentence;
   if (error === null || error === undefined || error === '') sentence = ui.text('selfcheckError');
-  else if (typeof error === 'string') sentence = `${ui.text('selfcheckError')}: ${redact(error, temporary)}`;
+  else if (typeof error === 'string') sentence = `${ui.text('selfcheckError')}: ${localizeReason(redact(error, temporary), ui.locale)}`;
   else {
     const key = PROBE_TEXTS[String(error.code ?? '')];
     sentence = key
       ? ui.text(key, { ms: error.ms, why: error.code === 'control-error'
         ? controlReason(ui, { code: error.cause, error: redact(error.why, temporary) })
-        : redact(error.why, temporary), limit: error.limit })
-      : `${ui.text('selfcheckError')}: ${redact(error.code ?? error.why ?? 'unknown', temporary)}`;
+        : localizeReason(redact(error.why, temporary), ui.locale), limit: error.limit })
+      : `${ui.text('selfcheckError')}: ${localizeReason(redact(error.code ?? error.why ?? 'unknown', temporary), ui.locale)}`;
   }
   const tail = ui.verbose ? redact(String(stderr ?? '').trim(), temporary) : '';
   return tail === '' ? sentence : `${sentence} (${ui.text('selfcheckProbeStderr', { tail: tail.slice(-400) })})`;

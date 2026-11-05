@@ -1,6 +1,6 @@
 import { join, normalize } from 'node:path';
 import { DEFAULT_CONFIG } from '../profiles.js';
-import { clientLabel, powershellLiteral, presenterOf } from './present.js';
+import { clientLabel, powershellLiteral, presenterOf, localizeReason } from './present.js';
 import { detect } from './menu.js';
 
 // The MCP server of the plugin, registered in the client with the client's own `mcp` commands: the installer never
@@ -598,5 +598,6 @@ const reasonOf = (failure) => {
 /** A command that failed: the reason and the command the person can run by hand, quoted for the shell. */
 const failure = (ui, client, reason, words, platform = process.platform) => ({
   status: 'failed', reason,
-  detail: ui.text('mcpFailed', { client, reason, command: shown(words, platform) }),
+  // The reason is told in the language of the run (REASONS); what the system said, as it said it.
+  detail: ui.text('mcpFailed', { client, reason: localizeReason(reason, ui.locale), command: shown(words, platform) }),
 });

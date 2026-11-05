@@ -541,7 +541,8 @@ function controlReason(ui, { code, error = '' } = {}) {
   const sentence = ui.text(key, { ms: String(error).match(/did not answer in (\d+) ms/)?.[1] ?? '?' });
   if (key !== 'controlFailed' && key !== 'controlArguments') return sentence;
   const detail = key === 'controlArguments' ? String(error).replace(/^the arguments cannot be sent:\s*/, '') : error;
-  return detail ? `${sentence} (${ui.text('controlDetail', { reason: detail })})` : sentence;
+  // The detail is a reason of ours (REASONS) or a text of the system: it is told in the language of the run.
+  return detail ? `${sentence} (${ui.text('controlDetail', { reason: localizeReason(detail, ui.locale) })})` : sentence;
 }
 
 /**
