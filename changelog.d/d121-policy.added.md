@@ -1,0 +1,1 @@
+Add pure, deterministic account choice with eligibility filters, weekly pacing, session pinning, review preference and English/Brazilian Portuguese reasons; only logged-out bars login, while unknown or absent login ranks last; expose preparatory settings without launch integration.

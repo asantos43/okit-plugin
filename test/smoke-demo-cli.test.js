@@ -118,22 +118,22 @@ test('no-cost client without tokens and absent or wrong confirmation never launc
 });
 
 const previewBaselines = {
-  'claude-code/en': ['642fbf723ba0873e8a5115d90296452cdf308274aa53f557a8938e4a3dbe176b',
+  'claude-code/en': ['230d5c1f14be3961375b250cabf653082bcfce9174d47eabb291e057a010aee7',
     '1cf99ad4c76186b5bee0fec56f578a11f1a687a191322456786c7f96a47352e3'],
-  'claude-code/pt-BR': ['05e42a3df639b5a5e5f4c32c1ae5597c95465155ce991799672cb092dcc79361',
+  'claude-code/pt-BR': ['bb425b50322aaafe36be908fc3c59e8432df328942aa6dbeaa5fa489cdcb520a',
     '6d6707128ce3371f4a077ce349d167d46aa2ce9d90978386a53f0b4c43e902ad'],
-  'codex/en': ['467bd024998fd0f438a08b0657dccd2167488803264bdff3736d944f96eb47f9',
+  'codex/en': ['3b92b0fac746327bf7e22d17e5b95ee5b2457e4d1e3ba21a3457a3c4d08ca357',
     '1c582c29c3ee7725e802c44c318a22a15cbf35545688b9e55c6096abb6aca265'],
-  'codex/pt-BR': ['5b84da5334c2027868af80a60a812597893ea7d7acd4f5f2237c1e78fd09d559',
+  'codex/pt-BR': ['1f567828f058224c963f168d574ec829e51b033dab7a746be9369b706034a46e',
     '6a2b20d5da03b3b26593e1040d6944c95960b3566c3015f96b2f9c6c29ab4fe7'],
-  'opencode/en': ['6533feca1c26d2d7478604a8a7e43f96eb58a432e3aa51deb24c09fe295427d2',
+  'opencode/en': ['239cb3d367e41ba62b7b49b7bc72e1af39d635e7f1921b254d077c8784cc5785',
     '5283f1e03cd4b0107dce473db5c159502bd6bba7b5fd0d42c9f962bc2372baf4'],
-  'opencode/pt-BR': ['93520129f9de9fab3023d921034269205b20f53c7534dcde9e71e3c97a2b9d09',
+  'opencode/pt-BR': ['fe8b8d401e0167a6f6e278db703ca06ede59626d9062189f0abe5fb9296201d6',
     'a669aa1edf1fcd28201f78a933ed3b03b800b91d42724d6be8c88e78d41a3b52'],
 };
 
 test('dry-run hash and text match the committed entry without launching', async (t) => {
-  // SHA-256 of plan (it embeds the whole config, so it moves when a default does: D98 step 1 changed release.architectures, step 2 added install.selfcheck, D103 added its `login` launch forms, D109 added install.selfcheck.probeMs, D99 added the two smoke runners to release.include) and exact preview text from the pre-D84 entry,
+  // SHA-256 of plan, including D121 accountPolicy defaults, and unchanged exact preview text from the pre-D84 entry,
   // with the confirmed fixture and a fixed quota timestamp. No git subprocess.
   const baseline = previewBaselines;
   for (const client of ['claude-code', 'codex', 'opencode']) {
@@ -145,7 +145,6 @@ test('dry-run hash and text match the committed entry without launching', async 
     for (const locale of ['en', 'pt-BR']) {
       const args = { dryRun: true, locale };
       const result = await smokeDemo(args, deps), [hash, textHash] = baseline[`${client}/${locale}`];
-      console.log('H', client, locale, result.planHash);
       assert.equal(result.planHash, hash);
       assert.equal(createHash('sha256').update(result.text).digest('hex'), textHash);
       assert.equal(result.status, 'preview'); assert.equal(result.exitCode, 0);

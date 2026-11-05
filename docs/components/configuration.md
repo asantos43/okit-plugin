@@ -13,7 +13,6 @@ Ask your assistant for the settings: `config_get` reads every entry of the schem
 
 <a id="schema"></a>
 ## Keys you can change
-
 client is a configured client; class is simple, normal or hard. Each field default appears in the inventory. Without limits.clients overrides, limits.global applies; profiles.<client>.<class> accepts only null to disable. limits.perClient is a legacy alias of limits.global.
 
 | Key pattern | Effect |
@@ -34,6 +33,7 @@ client is a configured client; class is simple, normal or hard. Each field defau
 | `profiles.<client>.<class>.effort` | Reasoning effort used for this client and work class. |
 | `profiles.<client>.<class>.maxTurns` | Maximum number of turns for this client and work class. |
 | `lowQuotaPct` | Profiles are lowered when the remaining quota is below this percentage. |
+| `accountPolicy.minQuotaPct`; `accountPolicy.paceMarginPct`; `accountPolicy.enforcePace` | Pure account policy: known windows must exceed 0%; pace margin is 15 points; enforcement defaults to false. Not connected to launches yet. |
 | `daemon.minQuotaPct` | The daemon does not open demands when the remaining quota is below this percentage. |
 | `smoke.quotaFloorPct` | Smoke refuses to start when the remaining quota is below this percentage. |
 | `codexQuota.sessionsDirectory` | Codex automatic quota reading setting. |
