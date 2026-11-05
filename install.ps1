@@ -492,6 +492,7 @@ const REASONS = [
   [/^unsafe symlink$/, 'link simbólico inseguro', 'unsafe symlink'],
   [/^executor did not complete$/, 'o executor não completou', 'executor did not complete'],
   [/^environment snapshot required$/, 'o retrato do ambiente é obrigatório', 'environment snapshot required'],
+  [/^injected actor and critic required$/, 'o ator e o crítico injetados são obrigatórios', 'injected actor and critic required'],
   [/^real mode requires quota confirmation$/, 'o modo real exige a confirmação da cota', 'real mode requires quota confirmation'],
   [/^explicit quota confirmation required$/, 'a confirmação da cota é obrigatória', 'explicit quota confirmation required'],
   // The settings of the demo that are refused by their value (src/smoke/demo/budget.js): the key is one of ours, so
