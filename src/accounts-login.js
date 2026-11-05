@@ -3,6 +3,8 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { defaultFolderOf, homeOf } from './install/config.js';
 import { accountOfConfigDir } from './accounts.js';
+import { quotedWord } from './install/mcp-register.js';
+import { clientLabel, fill, powershellLiteral } from './install/present.js';
 
 /**
  * Detect credential markers without opening credentials. Unreadable state is unknown.
@@ -33,6 +35,42 @@ export async function loginState({ client, account, install, config = { install 
 }
 
 const CONFIG_ENV = { 'claude-code': 'CLAUDE_CONFIG_DIR', codex: 'CODEX_HOME' };
+
+const LOGIN_TEXTS = {
+  en: { claude: 'The {client} account "{label}" ({id}) is not logged in, so nothing was started. Log it in with: {login} and then type /login.',
+    codex: 'The {client} account "{label}" ({id}) is not logged in, so nothing was started. Log it in with: {login}' },
+  'pt-BR': { claude: 'A conta "{label}" ({id}) do {client} não está logada, então nada foi iniciado. Para entrar, rode: {login} e depois digite /login.',
+    codex: 'A conta "{label}" ({id}) do {client} não está logada, então nada foi iniciado. Para entrar, rode: {login}' },
+};
+
+/**
+ * The command that logs an account in, as one line for the shell of the platform: the account's own folder variable
+ * and the client's own command. An extra names its folder; the default is the folder the client uses with no override.
+ */
+export function loginCommand(client, account, platform = process.platform) {
+  const executable = client === 'codex' ? 'codex login' : 'claude';
+  if (!account?.configDir) return executable;
+  const variable = CONFIG_ENV[client];
+  return platform === 'win32' ? `$env:${variable}=${powershellLiteral(account.configDir)}; ${executable}`
+    : `${variable}=${quotedWord(account.configDir, 'linux')} ${executable}`;
+}
+
+/**
+ * A launch that stops before any process starts because the account is not logged in. It carries the account (its id,
+ * never a credential path or a token) and the login command, so a caller can show the reason or choose another account.
+ */
+export class AccountNotLoggedIn extends Error {
+  constructor({ client, account, locale = 'en', platform = process.platform }) {
+    const command = loginCommand(client, account, platform);
+    const side = LOGIN_TEXTS[locale] ?? LOGIN_TEXTS.en;
+    super(fill(client === 'codex' ? side.codex : side.claude, { client: clientLabel(client), label: account?.label ?? account?.id, id: account?.id, login: command }));
+    this.name = 'AccountNotLoggedIn';
+    this.code = 'account-not-logged-in';
+    this.client = client;
+    this.account = account?.id;
+    this.loginCommand = command;
+  }
+}
 const CREDENTIAL_ENV = { 'claude-code': ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'] };
 
 /** Whether a credential variable of the client is set: a run authenticates through it, whatever the login marker says. */

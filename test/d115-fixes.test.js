@@ -95,6 +95,9 @@ const accounts = { [client]: [{ id: 'work', label: 'Work', configDir: '/work' }]
 const round3Accounts = { accounts: Object.fromEntries(['codex', 'claude-code'].map(name =>
   [name, [{ id: 'work', label: 'Renamed label', configDir: `/accounts/${name}/work` }]])) };
 const childStub = () => Object.assign(new EventEmitter(), { pid: 123, unref() {} });
+// The login marker of every account exists: these launches are about the environment, not the login (D124).
+const loggedIn = { async stat() { return { isFile: () => true }; },
+  async readFile() { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); } };
 test('round 4: account guidance targets stable ids and can be followed without changing default quota', async t => {
   const root = await temporary(t);
   const config = { accounts: { codex: [{ id: 'work', label: 'Production', configDir: '/work' }] },
@@ -216,7 +219,7 @@ test('round 3: reserved account survives process capture, export, list and traje
   await fs.writeFile(join(root, 'config.json'), JSON.stringify({ ...round3Accounts, trajectory: { enabled: true } }));
   await acquireSlot(root, 'captured', { client: 'codex', account: 'work', config: round3Accounts });
   const child = childStub();
-  await makeSpawner({ logDir: join(root, 'runs'), cwd: root, env: {}, spawn: () => child })(
+  await makeSpawner({ logDir: join(root, 'runs'), cwd: root, env: {}, fs: loggedIn, spawn: () => child })(
     { title: 'hello' }, { client: 'codex', runId: 'captured', profile: { model: 'm' } });
   child.emit('close', 0);
   let saved;
@@ -233,15 +236,21 @@ test('round 3: adapters forward account selection to process spawning and model 
   const root = await temporary(t);
   for (const adapter of [codex, claude]) {
     const variable = adapter.CLIENT === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR';
+    // The adapters use the real file system, so the account folder is a real one with its login marker (D124).
+    const folder = join(root, 'accounts', adapter.CLIENT, 'work');
+    await fs.mkdir(folder, { recursive: true });
+    await fs.writeFile(join(folder, adapter.CLIENT === 'codex' ? 'auth.json' : '.credentials.json'), '{}');
+    const config = { accounts: { ...round3Accounts.accounts,
+      [adapter.CLIENT]: [{ id: 'work', label: 'Renamed label', configDir: folder }] } };
     let received;
     await adapter.spawn({ model: 'm' }, 'Role: Executor\ntest', { mode: 'PROCESS', runId: adapter.CLIENT,
-      config: round3Accounts, account: 'work', logDir: join(root, 'runs'), cwd: root, env: {},
+      config, account: 'work', logDir: join(root, 'runs'), cwd: root, env: {},
       spawn: (_command, _args, options) => { received = options.env; return childStub(); } });
-    assert.equal(received[variable], `/accounts/${adapter.CLIENT}/work`);
-    await adapter.listModels({ config: round3Accounts, account: 'work', env: {},
+    assert.equal(received[variable], folder);
+    await adapter.listModels({ config, account: 'work', env: {},
       run: async ({ env }) => { received = env; return { code: 0, stdout: '[]' }; } });
-    assert.equal(received[variable], `/accounts/${adapter.CLIENT}/work`);
-    await assert.rejects(adapter.listModels({ config: round3Accounts, account: 'ghost', env: {} }), /Unknown account/);
+    assert.equal(received[variable], folder);
+    await assert.rejects(adapter.listModels({ config, account: 'ghost', env: {} }), /Unknown account/);
   }
 });
 
@@ -253,7 +262,7 @@ test('round 3: spawn uses the selected or reserved account environment for both 
   const root = await temporary(t), calls = [];
   await fs.writeFile(join(root, 'config.json'), JSON.stringify(round3Accounts));
   const env = { HOME: root, CODEX_HOME: '/default/codex', CLAUDE_CONFIG_DIR: '/default/claude', KEEP: 'same' };
-  const spawn = makeSpawner({ logDir: join(root, 'runs'), cwd: root, env,
+  const spawn = makeSpawner({ logDir: join(root, 'runs'), cwd: root, env, fs: loggedIn,
     spawn: (_command, _args, options) => { calls.push(options.env); return childStub(); } });
   for (const client of ['codex', 'claude-code']) {
     for (const [index, account] of [undefined, 'default', 'work'].entries()) {
@@ -466,7 +475,7 @@ test('writing process metadata preserves the account of an existing slot', async
   const root = await temporary(t);
   await fs.writeFile(join(root, 'config.json'), JSON.stringify({ accounts }));
   await acquireSlot(root, 'reserved', { client, account: 'work' });
-  const spawn = makeSpawner({ logDir: join(root, 'runs'), cwd: root,
+  const spawn = makeSpawner({ logDir: join(root, 'runs'), cwd: root, fs: loggedIn,
     spawn: () => ({ pid: 123, on() {}, unref() {} }) });
   await spawn({ title: 'Account metadata' }, { client, runId: 'reserved', profile: { model: 'm' } });
   assert.equal((await readJson(join(root, 'runs/reserved.json'))).account, 'work');
@@ -1211,7 +1220,7 @@ test('round 9: the role context lists every account of a client with its own quo
 test('round 10: a default run with saved accounts never inherits the folder variable of the client', async (t) => {
   const root = await temporary(t), calls = [];
   const env = { HOME: root, CODEX_HOME: '/acc2', CLAUDE_CONFIG_DIR: '/acc2', KEEP: 'same' };
-  const spawn = (dir) => makeSpawner({ logDir: join(root, dir, 'runs'), cwd: root, env,
+  const spawn = (dir) => makeSpawner({ logDir: join(root, dir, 'runs'), cwd: root, env, fs: loggedIn,
     spawn: (_command, _args, options) => { calls.push(options.env); return childStub(); } });
   await fs.mkdir(join(root, 'with'), { recursive: true });
   await fs.mkdir(join(root, 'without'), { recursive: true });

@@ -183,7 +183,8 @@ async function delegate(root, item, deps, settings, cache) {
     });
   } catch (error) {
     await releaseSlot(root, runId);
-    return { skip: `the spawner failed: ${error.message}` };
+    // An account that is not logged in is a plain reason with the command that fixes it, not a failure of the spawner.
+    return { skip: error.code === 'account-not-logged-in' ? error.message : `the spawner failed: ${error.message}` };
   }
   const returned = spawned?.runId ?? runId;
   if (returned === runId) return { runId };

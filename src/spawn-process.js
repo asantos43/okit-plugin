@@ -13,6 +13,8 @@ import { readJson, writeJsonAtomic } from './state.js';
 import { paths, stateRoot } from './store.js';
 import { capture } from './trajectory/capture.js';
 import { accountEnv, requireAccount } from './accounts.js';
+import { AccountNotLoggedIn, credentialInEnv, loginState } from './accounts-login.js';
+import { resolveLocale } from './install/present.js';
 
 export const CLIENTS = ['claude-code', 'codex', 'opencode'];
 
@@ -203,11 +205,15 @@ const runFile = (runs, runId) => join(runs, `${runId}.json`);
  * `error` that stopped it. A `maxMinutes` timer sends the default `SIGTERM`
  * through `child.kill()`; the spawner never kills a run on its own.
  *
- * @param {{spawn?: Function, now?: () => number, logDir?: string,
- *   env?: object, cwd?: string, transient?: Function, faults?: Function}} [options]
+ * `platform`, `home` and `fs` are the world the login check reads (a test injects them). An account that is not
+ * logged in is refused with `AccountNotLoggedIn` before anything is created or started.
+ *
+ * @param {{spawn?: Function, now?: () => number, logDir?: string, env?: object, cwd?: string,
+ *   transient?: Function, faults?: Function, platform?: string, home?: string, fs?: object}} [options]
  * @returns {(demand: object, opts: object) => Promise<{runId: string, pid: number|null, mode: string}>}
  */
-export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDir, env = process.env, cwd, transient = NO_TRANSIENT, faults = NO_TRANSIENT } = {}) {
+export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDir, env = process.env, cwd, transient = NO_TRANSIENT, faults = NO_TRANSIENT,
+  platform = process.platform, home, fs } = {}) {
   const runs = logDir ?? paths(stateRoot(env)).runs;
   const fallbackCwd = cwd ?? process.cwd();
 
@@ -226,6 +232,15 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
       : accountId === undefined ? await readJson(configFile, {}).catch(() => ({})) : await readJson(configFile, {}));
     const selected = options.client === 'opencode' ? null : requireAccount(config, options.client, accountId);
     const childEnv = selected ? accountEnv(options.client, selected, env, undefined, config) : env;
+    // An account that is not logged in stops here, before any file or process: `unknown` (a marker the folder cannot
+    // show, as on macOS) and a credential in the environment never block. The default with no saved accounts is
+    // the client as it always was.
+    if (selected && (!selected.isDefault || Object.hasOwn(config?.accounts ?? {}, options.client))
+      && !credentialInEnv(options.client, env)
+      && await loginState({ client: options.client, account: selected, config, env: childEnv, platform, ...home ? { home } : {}, ...fs ? { fs } : {} }) === 'logged-out') {
+      const saved = resolveLocale({ env, saved: config?.language }).locale;
+      throw new AccountNotLoggedIn({ client: options.client, account: selected, locale: options.locale ?? saved, platform });
+    }
     const dir = await demandCwd(demand?.appliesTo, fallbackCwd);
     const built = buildCommand(options.client, {
       briefing: briefingOf(demand),
