@@ -4,7 +4,7 @@ import { finiteNumber, windowsOf } from './quota-fields.js';
 
 const WEEK = 10080 * 60_000;
 const compareId = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-const pct = (value) => finiteNumber(value) !== null && value >= 0 && value <= 100;
+const pct = (value) => finiteNumber(value) !== null && value <= 100;
 
 function inspect(account, actor, runs, now, settings) {
   const quota = quotaOf(account.reading, now);
@@ -22,7 +22,7 @@ function inspect(account, actor, runs, now, settings) {
   } else if (quota.weekly && quota.weekly.remainingPct <= minimum) {
     reason = { code: 'weekly', remaining: quota.weekly.remainingPct, minimum };
   } else if (live >= cap) reason = { code: 'busy', running: live, limit: cap };
-  const last = Math.max(0, account.lastLaunchedAt ?? 0, ...ownRuns.map((r) => finiteNumber(r.startedAt) ?? 0));
+  const last = Math.max(0, finiteNumber(account.lastLaunchedAt) ?? 0, ...ownRuns.map((r) => finiteNumber(r.startedAt) ?? 0));
   return { account, ...quota, live, last, reason,
     unknown: account.login !== 'logged-in' || !quota.session || !quota.weekly || quota.headroom === null };
 }
@@ -32,7 +32,8 @@ function quotaOf(reading, now) {
   if (!windows.length && pct(reading?.remainingPct)) windows.push({ ...reading });
   const widest = (short) => windows.filter((w) => pct(w.remainingPct)
     && ((w.windowMinutes ?? w.minutes ?? 10080) <= 300) === short)
-    .sort((a, b) => (b.windowMinutes ?? b.minutes ?? 10080) - (a.windowMinutes ?? a.minutes ?? 10080))[0];
+    .sort((a, b) => (b.windowMinutes ?? b.minutes ?? 10080) - (a.windowMinutes ?? a.minutes ?? 10080)
+      || a.remainingPct - b.remainingPct)[0];
   const session = widest(true);
   const weekly = widest(false);
   const parsedReset = weekly?.resetsAt ? Date.parse(weekly.resetsAt) : null;
@@ -74,16 +75,16 @@ export function chooseAccount({ client, actorClass, accounts = [], runs = [], no
     || (b.headroom ?? -Infinity) - (a.headroom ?? -Infinity)
     || (b.session?.remainingPct ?? -Infinity) - (a.session?.remainingPct ?? -Infinity)
     || a.live - b.live || a.last - b.last || compareId(a.account, b.account));
-  return decision(eligible[0], actor, settings, now);
+  return decision(eligible[0], actor, settings, now, pin !== undefined);
 }
 
-function decision(chosen, actor, settings, now) {
+function decision(chosen, actor, settings, now, pinned) {
   const margin = settings.accountPolicy?.paceMarginPct ?? 15;
   const ahead = chosen.headroom !== null && chosen.headroom < -margin;
   const reason = { code: ahead ? 'ahead' : chosen.unknown ? 'unknown' : 'chosen',
     weeklyHeadroom: chosen.headroom, sessionRemaining: chosen.session?.remainingPct ?? null,
     running: chosen.live, margin };
-  if (ahead && settings.accountPolicy?.enforcePace === true && actor.name === 'hard' && actor.urgent !== true) {
+  if (!pinned && ahead && settings.accountPolicy?.enforcePace === true && actor.name === 'hard' && actor.urgent !== true) {
     const wait_until = Math.min(chosen.reset, Math.max(now, Math.ceil(chosen.reset
       - (chosen.weekly.remainingPct + margin) / 100 * WEEK)));
     return { wait_until, reason: { ...reason, code: 'deferred', wait_until } };

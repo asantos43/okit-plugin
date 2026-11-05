@@ -3,6 +3,7 @@ import { configOf } from './profiles.js';
 import { ageOf, labelsOf, quotaOrigin } from './env/quota.js';
 import { environmentSnapshot } from './env/snapshot.js';
 import { accountRows, accountName, shownWarnings, warningText } from './env/account-rows.js';
+import { accountReasonText } from './accounts-choose.js';
 
 const fill = (text, values) => text.replace(/\{(\w+)\}/g, (_, key) => values[key]);
 const cell = (value) => String(value).replaceAll('|', '\\|').replace(/[\r\n]+/g, ' ');
@@ -68,7 +69,10 @@ export async function listActors(deps = {}) {
       notes.push(fill(messages.gap, { client, size, alternative: alternative ?? messages.none }));
     }
   }
-  const result = { columns: messages.columns, actors, notes, clients: snapshot.clients.map((row) => row.client), missing: snapshot.plugin.missing };
+  const accountChoices = snapshot.accountChoices ?? [];
+  for (const choice of accountChoices) notes.push(`${choice.client} (${choice.actorClass}): ${choice.account ?? '—'}. ${accountReasonText(choice.reason, deps.locale)}`);
+  const result = { columns: messages.columns, actors, notes, accountChoices,
+    clients: snapshot.clients.map((row) => row.client), missing: snapshot.plugin.missing };
   result.markdown = formatActors(result);
   return result;
 }

@@ -443,7 +443,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/daemon.js', arg: /^(logFile\(root, now\)|lines\[lines\.length - 1\]|pidFile\(root\))$/, excluded: 'the daemon\'s own log and pid file (the daemon command is outside this inventory)' },
   { file: 'src/demand-ref.js', arg: /^paths\(root\)\.project$/, excluded: STATE_OF_OTHER_COMMANDS },
   { file: 'src/inbox.js', arg: /^file$/, excluded: STATE_OF_OTHER_COMMANDS },
-  { file: 'src/limits.js', arg: /^(join\(runsDir\(root\), name\)|file)$/, excluded: STATE_OF_OTHER_COMMANDS },
+  { file: 'src/limits.js', arg: /^(join\(runsDir\(root\), name\)|file)$/, excluded: 'run records shared by slot counting, account policy and read-only diagnostics; ' + STATE_OF_OTHER_COMMANDS },
   { file: 'src/orders.js', arg: /^(legacy|file)$/, excluded: STATE_OF_OTHER_COMMANDS },
   { file: 'src/templates.js', arg: /^file$/, excluded: STATE_OF_OTHER_COMMANDS },
   { file: 'src/todo/', arg: /^(path\.file|paths\(root\)\.inbox)$/, excluded: 'the project TODO the tool of the assistant reads (a command outside this inventory), and the orchestration inbox' },

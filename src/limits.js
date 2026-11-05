@@ -3,6 +3,10 @@
 import { readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { requireAccount, requireBareClient, accountsOf, accountKey } from './accounts.js';
+import { accountEnv } from './accounts.js';
+import { credentialInEnv, loginState } from './accounts-login.js';
+import { chooseAccount } from './accounts-choose.js';
+import { confirmedActor, detectClients } from './env/models.js';
 
 import { DEFAULT_CONFIG, configOf } from './profiles.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
@@ -28,7 +32,7 @@ function isLive(run, staleMs, now) {
   return now - run.startedAt <= staleMs;
 }
 
-async function readLiveRuns(root, staleMinutes) {
+export async function readRunRecords(root) {
   let names;
   try {
     names = await readdir(runsDir(root));
@@ -37,15 +41,40 @@ async function readLiveRuns(root, staleMinutes) {
     throw new Error(`Cannot read ${runsDir(root)}: ${error.message}`, { cause: error });
   }
 
-  const now = Date.now();
-  const staleMs = staleMinutes * 60_000;
-  const runs = [];
-  for (const name of names) {
-    if (!name.endsWith('.json')) continue;
-    const run = await readJson(join(runsDir(root), name), null);
-    if (isLive(run, staleMs, now)) runs.push(run);
-  }
-  return runs;
+  return (await Promise.all(names.filter((name) => name.endsWith('.json'))
+    .map((name) => readJson(join(runsDir(root), name), null)))).filter(Boolean);
+}
+
+async function readLiveRuns(root, staleMinutes) {
+  return (await readRunRecords(root)).filter((run) => isLive(run, staleMinutes * 60_000, Date.now()));
+}
+
+/** Assemble observations once; launch callers supply the records already read by the slot lock. */
+export async function accountChoice({ client, actorClass, config, runs, now = Date.now(), quota,
+  env = process.env, platform, home, fs, actors, run } = {}) {
+  const accounts = await Promise.all(accountsOf(config, client).map(async (account) => {
+    const login = !Object.hasOwn(config.accounts ?? {}, client) ? 'unknown'
+      : credentialInEnv(client, env) ? 'logged-in' : await loginState({ client, account, config,
+      env: accountEnv(client, account, env, undefined, config), platform, home, fs });
+    if (login === 'logged-out') return { ...account, login, actors: [], reading: null };
+    const [available, reading] = await Promise.all([
+      actors ? actors(client, account.id) : launchActors(client, account, config, env, run),
+      quota?.(client, account.isDefault ? undefined : account.id),
+    ]);
+    return { ...account, login, actors: available, reading };
+  }));
+  return chooseAccount({ client, actorClass, accounts, runs, now, settings: config });
+}
+
+async function launchActors(client, account, config, env, run) {
+  const profiles = Object.values(config.profiles?.[client] ?? {}).filter(Boolean);
+  if (!Object.hasOwn(config.accounts ?? {}, client)) return profiles;
+  const observed = await detectClients({ client, onlyClient: client, account: account.id, config, run,
+    env: accountEnv(client, account, env, undefined, config) });
+  const reading = observed.clients.find((entry) => entry.client === client);
+  // Setup's fallback belongs to the default. An extra needs its own listing.
+  const evidence = account.isDefault || reading?.source === 'listing' ? reading : { source: 'listing', models: [] };
+  return profiles.filter((actor) => confirmedActor(config, client, evidence, reading?.installed, actor));
 }
 
 // A run with no account is the default's. A run of an account that is not (or no longer) saved keeps its own key, so it
@@ -124,8 +153,7 @@ export async function canSpawn(root, { client, account, config } = {}) {
  * @param {{client: string, account?: string, config?: object, waitMs?: number}} input
  * @returns {Promise<{ok: boolean, reason?: string, runId?: string, client?: string, global?: number, perClient?: number}>}
  */
-export async function acquireSlot(root, runId, { client, account, config, waitMs = 0 } = {}) {
-  const identity = account === undefined || account === 'default' ? {} : { account };
+export async function acquireSlot(root, runId, { client, account, config, waitMs = 0, prepare } = {}) {
   const deadline = Date.now() + Math.max(0, waitMs);
 
   for (;;) {
@@ -133,12 +161,19 @@ export async function acquireSlot(root, runId, { client, account, config, waitMs
     const result = await withLock(runsDir(root), async () => {
       const settings = await settingsOf(root, config);
       const { limits } = settings;
+      const runs = await readRunRecords(root);
+      const prepared = await prepare?.({ runs, settings });
+      if (prepared?.ok === false) return prepared;
+      account = prepared?.account ?? account;
+      const identity = account === undefined || account === 'default' ? {} : { account };
       const key = account === undefined ? requireBareClient(client) : requireAccount(settings, client, account).key;
-      const counts = await liveCounts(root, key, settings);
+      const live = tally(runs.filter((run) => isLive(run, settings.staleMinutes * 60_000, Date.now())), settings);
+      const counts = { global: live.global, perClient: live.byClient[key] ?? 0 };
       const room = checkCaps(counts, limits, client);
       if (!room.ok) return room;
       await writeJsonAtomic(runFile(root, runId), {
         runId, client, ...identity, status: 'live', startedAt: Date.now(),
+        ...prepared?.accountReason ? { chosenAccount: account, accountReason: prepared.accountReason } : {},
       });
       return { ok: true, runId, client, ...identity };
     });

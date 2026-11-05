@@ -1,4 +1,5 @@
-import { capOf } from '../limits.js';
+import { capOf, readRunRecords } from '../limits.js';
+import { chooseAccount } from '../accounts-choose.js';
 import { accountsOf, accountEnv, accountFiles, defaultEnv } from '../accounts.js';
 import { loginState, accountWarnings, credentialInEnv } from '../accounts-login.js';
 import { configOf, DEFAULT_CONFIG, normalizeLimits } from '../profiles.js';
@@ -201,6 +202,7 @@ export async function environmentSnapshot(deps = {}) {
   await Promise.all(clients.flatMap((client) => accountsOfClient(client).map(async (account) => {
     logins.set(account.key, await loginState({ ...deps, client, account, install: config.install, config }));
   })));
+  const policyAccounts = new Map();
   const rows = clients.map((client) => {
     const accounts = accountsOfClient(client);
     const accountRows = accounts.map((account) => {
@@ -267,6 +269,10 @@ export async function environmentSnapshot(deps = {}) {
       slots: { total: cap, available: free },
       slotEvidence: { running: deps.limits?.byClient?.[account.key] ?? 0, source } };
     });
+    policyAccounts.set(client, accountRows.map((account) => ({ ...account,
+      ...!Object.hasOwn(config.accounts ?? {}, client) ? { actors: Object.values(config.profiles[client] ?? {}).filter(Boolean) } : {},
+      login: !Object.hasOwn(config.accounts ?? {}, client) ? 'unknown'
+        : credentialInEnv(client, deps.env) ? 'logged-in' : account.login })));
     const { id: _id, key: _key, label: _label, isDefault: _default, configDir: _dir, account: _account,
       login: _login, warnings, ...row } = accountRows[0];
     // One account is the row as it always was; the list of accounts appears only when there are several. The one
@@ -282,7 +288,17 @@ export async function environmentSnapshot(deps = {}) {
       client: row.client, state: account.quota.status, ...account.isDefault ? {} : { account: account.id },
     });
   }
-  return { now, inUse, config, detected, proposals: proposeProfiles(detected, config), clients: rows,
+  const runs = deps.runs ?? (deps.root ? await readRunRecords(deps.root) : []);
+  const accountChoices = rows.flatMap((row) => Object.entries(config.profiles[row.client] ?? {})
+    .filter(([, actor]) => actor?.model && ['claude-code', 'codex'].includes(row.client))
+    .map(([name, actor]) => {
+      const result = chooseAccount({ client: row.client, actorClass: { ...actor, name,
+        executorAccount: deps.executorAccount }, now, settings: config, runs,
+      accounts: policyAccounts.get(row.client) });
+      return { client: row.client, actorClass: name, account: result.account?.id ?? null,
+        reason: result.reason, ...result.wait_until !== undefined ? { wait_until: result.wait_until } : {} };
+    }));
+  return { now, inUse, config, detected, proposals: proposeProfiles(detected, config), clients: rows, accountChoices,
     plugin: { ...deps.plugin, statusline: await statuslineState(deps, config, command),
       statePath: deps.root, configured, missing } };
 }

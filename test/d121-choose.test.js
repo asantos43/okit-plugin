@@ -3,6 +3,18 @@ import { test } from 'node:test';
 import { chooseAccount, accountReasonText, ACCOUNT_REASON_TEXTS } from '../src/accounts-choose.js';
 import { configOf } from '../src/profiles.js';
 import { CONFIG_SCHEMA, entryAccepts } from '../src/config-schema.js';
+import { mkdtemp, mkdir, writeFile, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawn as realSpawn } from 'node:child_process';
+import { tick } from '../src/daemon.js';
+import { inboxAdd } from '../src/inbox.js';
+import { makeSpawner } from '../src/spawn-process.js';
+import { readJson, writeJsonAtomic } from '../src/state.js';
+import { accountChoice, readRunRecords } from '../src/limits.js';
+import { environmentSnapshot } from '../src/env/snapshot.js';
+import { listActors } from '../src/actors.js';
+import { readinessRows } from '../src/doctor/ready-rows.js';
 
 const now = Date.UTC(2026, 10, 5);
 const week = 10080 * 60_000;
@@ -17,6 +29,140 @@ const freeze = (value) => {
   if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); }
   return value;
 };
+
+test('real daemon launches the roomiest saved account, then another at its cap; logged-out never launches', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'd121-wiring-'));
+  const children = [], launched = [], checked = [];
+  t.after(async () => {
+    for (const child of children) { child.removeAllListeners('close'); child.kill(); }
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const runs = await readRunRecords(root);
+      if (runs.every((run) => run.endedAt)) break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  const accounts = ['a', 'b', 'out'].map((id) => ({ id, label: id, configDir: join(root, id) }));
+  for (const entry of accounts) {
+    await mkdir(join(entry.configDir, 'sessions'), { recursive: true });
+    if (entry.id !== 'out') await writeFile(join(entry.configDir, 'auth.json'), '');
+    await writeFile(join(entry.configDir, 'sessions', 'rollout-quota.jsonl'), JSON.stringify({
+      timestamp: new Date(now).toISOString(), type: 'event_msg', payload: { type: 'token_count', rate_limits: {
+        primary: { used_percent: 10, window_minutes: 300, resets_at: (now + week / 2) / 1000 },
+        secondary: { used_percent: entry.id === 'a' ? 20 : 5, window_minutes: 10080, resets_at: (now + week / 2) / 1000 },
+      } },
+    }) + '\n');
+  }
+  await writeJsonAtomic(join(root, 'config.json'), { accounts: { codex: accounts }, limits: { global: 1 },
+    profiles: { codex: { normal: { model: 'm', effort: 'high' } } },
+    setup: { done: { profiles: { codex: { normal: { model: 'm', effort: 'high' } } } } },
+    telemetry: { enabled: true, dir: 'telemetry', kitExecutable: 'd121-no-kit' } });
+  const spawn = makeSpawner({ logDir: join(root, 'runs'), cwd: root, env: { HOME: root },
+    spawn(_command, _args, options) {
+      launched.push(options.env.CODEX_HOME);
+      const child = realSpawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], options);
+      children.push(child);
+      return child;
+    } });
+  await spawn({ title: 'boundary probe' }, { client: 'codex', account: 'a', runId: 'probe', profile: { model: 'm', effort: 'high' } });
+  assert.ok(children[0].pid > 0, 'real subprocess started before policy assertions');
+  await writeJsonAtomic(join(root, 'runs', 'probe.json'), { runId: 'probe', status: 'done', client: 'codex', account: 'a' });
+  launched.length = 0;
+  const preflight = spawn.preflight;
+  spawn.preflight = async (item, options) => { checked.push({ ...options }); return preflight(item, options); };
+  const deps = { spawn, now: () => now, env: { HOME: root },
+    run: async () => ({ stdout: JSON.stringify([{ slug: 'm', visibility: 'list' }]), code: 0 }) };
+  for (let index = 0; index < 3; index++) {
+    await inboxAdd(root, { title: `demand ${index}`, client: 'codex', effort: 'normal' });
+    await tick(root, deps);
+  }
+  assert.deepEqual(launched, [accounts[1].configDir, accounts[0].configDir]);
+  assert.deepEqual(checked.map((options) => options.account), ['b', 'a']);
+  assert.ok(checked.every((options) => options.accountReason === 'chosen'));
+  const runs = (await readRunRecords(root)).filter((run) => run.runId !== 'probe');
+  assert.deepEqual(runs.map((run) => [run.chosenAccount, run.accountReason]).sort(), [['a', 'chosen'], ['b', 'chosen']]);
+  const events = await Promise.all((await readdir(join(root, 'telemetry'))).map((file) => readJson(join(root, 'telemetry', file))));
+  const choices = events.flatMap((event) => event.resourceMetrics[0].scopeMetrics[0].metrics)
+    .filter((metric) => metric.name === 'okit.plugin.quota.check').map((metric) => Object.fromEntries(
+      metric.sum.dataPoints[0].attributes.map(({ key, value }) => [key, value.stringValue]))).filter((event) => event.reason === 'chosen');
+  assert.deepEqual(choices.map((event) => event.account), ['b', 'a']);
+  assert.ok(children.every((child) => child.pid > 0), 'crosses the real subprocess boundary');
+});
+
+async function policyScene(t, extra = {}) {
+  const root = await mkdtemp(join(tmpdir(), 'd121-policy-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const accounts = ['a', 'b'].map((id) => ({ id, label: id, configDir: join(root, id) }));
+  for (const entry of accounts) { await mkdir(entry.configDir); await writeFile(join(entry.configDir, 'auth.json'), ''); }
+  const config = { accounts: { codex: accounts },
+    profiles: { codex: Object.fromEntries(['simple', 'normal', 'hard'].map((name) => [name, { model: 'm', effort: 'high' }])) }, ...extra };
+  await writeJsonAtomic(join(root, 'config.json'), config);
+  const launches = [], checked = [];
+  const spawn = Object.assign(async (_item, options) => { launches.push({ ...options }); return { runId: options.runId }; },
+    { preflight: async (_item, options) => { checked.push({ ...options }); } });
+  const deps = { spawn, env: { HOME: root }, now: () => now, actors: async () => [{ model: 'm', effort: 'high' }],
+    quota: async (_client, id) => account(id, id === 'b' ? 60 : 90).reading };
+  return { root, config, deps, launches, checked };
+}
+
+test('daemon reviews receive the executor account and preflight uses the launch decision', async (t) => {
+  for (const role of ['critic', 'verifier']) {
+    const { root, deps, launches, checked } = await policyScene(t);
+    await writeJsonAtomic(join(root, 'runs', 'executor.json'), {
+      runId: 'executor', client: 'codex', account: 'a', status: 'done', startedAt: now - 100,
+    });
+    await inboxAdd(root, { title: role, client: 'codex', effort: 'normal', ext: { role, critic_of: 'executor' } });
+    const result = await tick(root, deps);
+    assert.equal(result.spawned.length, 1);
+    assert.equal(launches[0].executorAccount, 'a');
+    assert.equal(launches[0].account, 'b', 'eligible review account differs from executor even with less quota');
+    assert.equal(checked[0].account, launches[0].account);
+    assert.equal(checked[0].accountReason, launches[0].accountReason);
+  }
+});
+
+test('enforced pace defers before any run, waits for the instant, and leaves named accounts and continuations fixed', async (t) => {
+  const { root, deps, launches, checked } = await policyScene(t, { language: 'pt-BR', accountPolicy: { enforcePace: true } });
+  deps.quota = async () => account('a', 20).reading;
+  const demand = await inboxAdd(root, { title: 'hard work', client: 'codex', effort: 'hard' });
+  const first = await tick(root, deps);
+  assert.match(first.skipped[0].reason, /trabalho difícil deve esperar/);
+  assert.equal(launches.length, 0);
+  assert.equal(checked.length, 0);
+  assert.deepEqual(await readRunRecords(root), []);
+  const store = await readJson(join(root, 'inbox.json'));
+  const waiting = store.items.find((item) => item.id === demand.id);
+  assert.equal(waiting.ext.wait_until, now + week * .15);
+  await tick(root, deps);
+  assert.equal(launches.length, 0);
+  for (const ext of [{ account: 'b' }, { resumeSession: { account: 'a' } }]) {
+    await inboxAdd(root, { title: 'fixed', client: 'codex', effort: 'hard', ext });
+    await tick(root, deps);
+  }
+  assert.deepEqual(launches.map((options) => options.account), ['b', 'a']);
+  deps.now = () => waiting.ext.wait_until;
+  await tick(root, deps);
+  assert.equal(launches.length, 3);
+});
+
+test('doctor and actors expose the current policy choice and its reason in both languages', async (t) => {
+  const { root, config, deps } = await policyScene(t);
+  const snapshot = await environmentSnapshot({ root, config, env: deps.env, now: deps.now, client: 'codex',
+    readQuota: deps.quota, plugin: {}, versions: { codex: { installed: true } },
+    detectClients: async () => ({ clients: [{ client: 'codex', installed: true, source: 'listing', models: ['m'] }] }) });
+  const choice = snapshot.accountChoices.find((choice) => choice.actorClass === 'normal');
+  assert.equal(choice.account, 'a');
+  assert.equal(choice.reason.code, 'chosen');
+  for (const locale of ['en', 'pt-BR']) {
+    const actors = await listActors({ snapshot, locale });
+    assert.deepEqual(actors.accountChoices, snapshot.accountChoices);
+    assert.ok(actors.markdown.includes(accountReasonText(choice.reason, locale)));
+    const doctor = readinessRows({ snapshot, ui: { locale }, program: 'okit-plugin' });
+    assert.ok(doctor.rows.some((row) => row.id === 'account-policy' && row.account === 'a'
+      && row.detail.includes(accountReasonText(choice.reason, locale))));
+    assert.doesNotMatch(doctor.rows.filter((row) => row.id === 'account-policy').map((row) => row.detail).join(' '), /--|okit-plugin|\bkit\b/);
+  }
+});
 
 test('one account passes without changing inputs or reading credentials', () => {
   const accounts = freeze([account()]);
@@ -145,6 +291,46 @@ test('run accounting follows live status, stale timeout and legacy default accou
   runs[0].startedAt = now;
   assert.equal(choose([account()], { runs, settings: { limits: { global: 1 } } }).reason.code, 'busy');
   assert.equal(choose([{ ...account(), parallelLimit: 1 }], { runs }).reason.code, 'busy');
+});
+
+test('recency rejects non-finite values; equal windows use the tightest quota; negatives are exhausted', () => {
+  for (const lastLaunchedAt of [NaN, Infinity, 'yesterday', {}]) {
+    assert.equal(choose([{ ...account('a'), lastLaunchedAt }, account('b')]).account.id, 'a');
+  }
+  for (const minutes of [300, 10080]) {
+    const entry = account();
+    entry.reading.windows.push(window(-1, minutes));
+    assert.equal(choose([entry]).reason.code, minutes === 300 ? 'session' : 'weekly');
+    entry.reading.windows.reverse();
+    assert.equal(choose([entry]).reason.code, minutes === 300 ? 'session' : 'weekly');
+  }
+  assert.equal(choose([account('a', 20)], { resumeSession: { account: 'a' },
+    settings: { accountPolicy: { enforcePace: true } } }).reason.code, 'ahead');
+  assert.throws(() => configOf({ accountPolicy: { minQuotaPct: -1 } }), /accountPolicy.minQuotaPct.*0–100/);
+  assert.throws(() => configOf({ accountPolicy: { enforcePace: 1 } }), /accountPolicy.enforcePace.*true \| false/);
+});
+
+test('assembling and choosing 20 accounts reuses 500 pre-read run records within 20 ms', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'd121-budget-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'runs'));
+  await Promise.all(Array.from({ length: 500 }, (_, index) => writeJsonAtomic(join(root, 'runs', `${index}.json`), {
+    client: 'codex', account: `a-${index % 20}`, status: 'done', startedAt: index,
+  })));
+  const runs = await readRunRecords(root);
+  assert.equal(runs.length, 500);
+  const config = configOf({ accounts: { codex: Array.from({ length: 19 }, (_, index) => ({
+    id: `a-${index}`, label: `Account ${index}`, configDir: join(root, `a-${index}`),
+  })) } });
+  const input = { client: 'codex', config, runs, now, actorClass: 'normal',
+    actors: async () => Object.values(config.profiles.codex),
+    quota: async () => account().reading, fs: { stat: async () => ({ isFile: () => true }),
+      readFile: async () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); } } };
+  const start = performance.now();
+  assert.ok((await accountChoice(input)).account);
+  const elapsed = performance.now() - start;
+  t.diagnostic(`20 accounts + 500 runs: ${elapsed.toFixed(2)} ms (records reused)`);
+  assert.ok(elapsed < 20, `assembly + chooseAccount took ${elapsed} ms`);
 });
 
 const golden = [

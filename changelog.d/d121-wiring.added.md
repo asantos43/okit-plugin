@@ -1,0 +1,1 @@
+- Route unnamed daemon launches through account policy before slot reservation, share the decision with preflight, defer paced work without runs, expose bilingual doctor/actor choices, and record account ids and reason codes.

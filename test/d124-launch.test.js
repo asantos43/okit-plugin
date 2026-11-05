@@ -240,11 +240,9 @@ test('the daemon shows the refusal as a plain reason and command, not as a failu
   const { root, dirs, calls, launch } = await scene(t);
   await writeJsonAtomic(paths(root).config, { accounts: { 'claude-code': [{ id: 'work', label: 'Work', configDir: dirs['claude-code'] }] },
     profiles: { 'claude-code': { simple: { model: 'm' }, normal: { model: 'm' }, hard: { model: 'm' } } } });
-  await inboxAdd(root, { title: 'first demand', client: 'claude-code' });
+  await inboxAdd(root, { title: 'first demand', client: 'claude-code', ext: { account: 'work' } });
   const spawner = launch();
-  // The daemon does not choose accounts yet (D121): the account of the pass is the one the spawner is told.
-  const spawn = Object.assign((item, given) => spawner(item, { ...given, account: 'work' }),
-    { preflight: (item, given) => spawner.preflight(item, { ...given, account: 'work' }) });
+  const spawn = spawner;
   const deps = { now: () => Date.now(), quota: () => ({ remainingPct: 80 }), idle: () => true, spawn };
   const record = await tick(root, deps);
   assert.deepEqual(record.spawned, []);
@@ -318,11 +316,11 @@ test('the adapters forward the language of the run to the refusal of an account 
   assert.deepEqual(calls, []);
 });
 
-test('the daemon with the real spawner: the default account of a client with saved accounts is refused before the slot', async (t) => {
+test('the daemon with the real spawner: a named default account is refused before the slot', async (t) => {
   const { root, dirs, calls, launch } = await scene(t);
   await writeJsonAtomic(paths(root).config, { accounts: { codex: [{ id: 'work', label: 'Work', configDir: dirs.codex }] },
     profiles: { codex: { simple: { model: 'm' }, normal: { model: 'm' }, hard: { model: 'm' } } } });
-  await inboxAdd(root, { title: 'first demand', client: 'codex' });
+  await inboxAdd(root, { title: 'first demand', client: 'codex', ext: { account: 'default' } });
   const record = await tick(root, { now: () => Date.now(), quota: () => ({ remainingPct: 80 }), idle: () => true, spawn: launch({ fs: absent }) });
   assert.match(record.skipped[0].reason, /Log it in with: env -u CODEX_HOME codex login$/);
   assert.equal(calls.length, 0);

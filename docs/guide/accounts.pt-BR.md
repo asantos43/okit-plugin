@@ -4,7 +4,9 @@
 
 Claude Code e Codex podem ter várias contas. Cada uma tem id estável, nome editável e pasta de configuração própria. OpenCode está fora deste recurso. A conta implícita `default` não sobrescreve a pasta e mantém o ambiente atual do cliente.
 
-A lista de ajustes também inclui `accountPolicy.minQuotaPct` (0), `accountPolicy.paceMarginPct` (15) e `accountPolicy.enforcePace` (false). Eles preparam a escolha de conta e o ritmo; ainda não mudam os lançamentos.
+O daemon agora escolhe a conta do trabalho que não nomeia uma. Ele compara login, modelo e esforço, janelas de cota e vagas de cada conta; depois prefere folga semanal, folga de sessão, menos trabalhos em execução e o lançamento mais antigo. Crítico e verificador preferem outra conta elegível que a do executor. Contas nomeadas e continuações de sessão resolvidas ficam fixas.
+
+Os ajustes incluem `accountPolicy.minQuotaPct` (0), `accountPolicy.paceMarginPct` (15) e `accountPolicy.enforcePace` (false). O padrão informa uso adiantado sem adiar trabalho. A aplicação do ritmo adia trabalho difícil e não urgente até o ritmo alcançar o uso; trabalho simples, urgência explícita e continuações de sessão fixadas ficam isentos. A demanda adiada fica pendente até esse instante, sem criar execução ou ocupar vaga. Doctor e lista de atores explicam a escolha atual no seu idioma.
 
 <a id="manage"></a>
 ## Gerenciar uma conta

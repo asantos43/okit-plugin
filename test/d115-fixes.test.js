@@ -194,10 +194,12 @@ test('round 3: native adapter captures retain the account id', async t => {
   }
 });
 
-test('round 3: telemetry preserves stable account ids on execution events, omitting default', () => {
+test('telemetry preserves stable ids; quota.check also records the selected default account', () => {
   for (const event of ['profile.choice', 'role.choice', 'demand.status', 'quota.check']) {
     assert.deepEqual(redact(event, { client: 'codex', account: 'work' }), { client: 'codex', account: 'work' });
-    for (const account of ['default', '/private/path', 'Display name', {}, 'x'.repeat(33)]) {
+    assert.deepEqual(redact(event, { client: 'codex', account: 'default' }),
+      event === 'quota.check' ? { client: 'codex', account: 'default' } : { client: 'codex' });
+    for (const account of ['/private/path', 'Display name', {}, 'x'.repeat(33)]) {
       assert.deepEqual(redact(event, { client: 'codex', account }), { client: 'codex' });
     }
   }

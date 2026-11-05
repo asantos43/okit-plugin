@@ -4,7 +4,9 @@
 
 Claude Code and Codex can have multiple accounts. Each has a stable id, an editable label and its own configuration folder. OpenCode is outside this feature. The implicit `default` account has no folder override and keeps the client's current environment.
 
-The settings list also includes `accountPolicy.minQuotaPct` (0), `accountPolicy.paceMarginPct` (15) and `accountPolicy.enforcePace` (false). These prepare account choice and pacing; they do not change launches yet.
+The daemon now chooses an account for work that names none. It compares each account's login, model and effort, quota windows and free slots, then prefers weekly headroom, session headroom, fewer running jobs and the oldest launch. Critic and verifier prefer an eligible account other than the executor's. Named accounts and resolved session continuations stay fixed.
+
+The settings include `accountPolicy.minQuotaPct` (0), `accountPolicy.paceMarginPct` (15) and `accountPolicy.enforcePace` (false). The default reports use ahead of pace without delaying work. Enforcement delays hard, non-urgent work until the pace catches up; simple work, explicit urgency and fixed session continuations are exempt. A deferred demand stays pending until that instant and creates no execution or slot. Doctor and the actor list explain the current choice in your language.
 
 <a id="manage"></a>
 ## Manage an account

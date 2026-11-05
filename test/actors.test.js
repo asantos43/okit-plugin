@@ -213,7 +213,7 @@ test('the markdown of the actors has one line per actor and no line breaks', asy
   const deps = await fixture(t);
   const actors = await listActors({ ...deps, client: 'codex' });
   const out = actors.markdown.split('\n');
-  assert.equal(out.length, 6);
+  assert.equal(out.length, 6 + actors.accountChoices.length);
   assert.ok(out.every((line) => !line.includes('\n')));
   assert.match(out[0], /^\| Client \|/);
   assert.equal(out.filter((line) => line.startsWith('| codex |')).length, 4);

@@ -660,7 +660,7 @@ export function configuredClientsOf(config) {
 // refusal is raised in English (the message of the error) and shown by `localizeReason` (src/install/present.js),
 // which reads this catalog; no refusal of a setting carries both languages in one line.
 export const CONFIG_MESSAGES = Object.freeze({
-  accountPolicy: { en: 'Invalid account policy settings', 'pt-BR': 'Ajustes da política de contas inválidos' },
+  accountPolicy: { en: 'Invalid {key}: expected {range}.', 'pt-BR': '{key} inválida: esperado {range}.' },
   accountsSetting: { en: 'Accounts setting {key} is not valid: use unique account ids, valid labels and absolute config directories; default has no directory.', 'pt-BR': 'A configuração de contas {key} não é válida: use ids de conta únicos, nomes válidos e pastas de configuração absolutas; a conta default não tem pasta.' },
   language: { kind: 'language', en: 'Choose a language: {languages}.', 'pt-BR': 'Escolha um idioma: {languages}.' },
   limitsObject: { en: 'limits must be an object', 'pt-BR': 'limits deve ser um objeto' },
@@ -758,11 +758,14 @@ export function configOf(config) {
   }
   const merged = { ...DEFAULT_CONFIG, ...(config ?? {}) };
   merged.accountPolicy = { ...DEFAULT_CONFIG.accountPolicy, ...config?.accountPolicy };
-  if ((config?.accountPolicy !== undefined && (!config.accountPolicy || typeof config.accountPolicy !== 'object'
-    || Array.isArray(config.accountPolicy))) || typeof merged.accountPolicy.enforcePace !== 'boolean'
-    || ['minQuotaPct', 'paceMarginPct'].some((key) => typeof merged.accountPolicy[key] !== 'number'
-      || !Number.isFinite(merged.accountPolicy[key]) || merged.accountPolicy[key] < 0 || merged.accountPolicy[key] > 100)) {
-    throw new ConfigError('accountPolicy');
+  if (config?.accountPolicy !== undefined && (!config.accountPolicy || typeof config.accountPolicy !== 'object'
+    || Array.isArray(config.accountPolicy))) throw new ConfigError('accountPolicy', { key: 'accountPolicy', range: 'object / objeto' });
+  for (const key of ['enforcePace', 'minQuotaPct', 'paceMarginPct']) {
+    const value = merged.accountPolicy[key];
+    const valid = key === 'enforcePace' ? typeof value === 'boolean'
+      : typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100;
+    if (!valid) throw new ConfigError('accountPolicy', { key: `accountPolicy.${key}`,
+      range: key === 'enforcePace' ? 'true | false' : '0–100' });
   }
   merged.trajectory = { ...DEFAULT_CONFIG.trajectory, ...config?.trajectory };
   merged.telemetry = { ...DEFAULT_CONFIG.telemetry, ...config?.telemetry,

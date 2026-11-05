@@ -1,5 +1,6 @@
 import { readiness } from '../env/ready.js';
 import { accountRows, loginWord, shownWarnings, warningText } from '../env/account-rows.js';
+import { accountReasonText } from '../accounts-choose.js';
 
 // The rows of the doctor that answer "can the executors be launched?": the models and the quota of each client that is
 // installed, the status bar collector and the kit. They are told from the environment snapshot, which the doctor takes
@@ -68,6 +69,12 @@ export function readinessRows({ snapshot, kit, ui, program }) {
           : ` with the client ${row.client} and the account ${row.account}`) : '') } });
   }
   const line = snapshot?.plugin?.statusline;
+  for (const choice of snapshot?.accountChoices ?? []) rows.push({
+    id: 'account-policy', client: choice.client, account: choice.account,
+    label: ui.locale === 'pt-BR' ? 'Escolha de conta' : 'Account choice',
+    status: choice.account ? 'ok' : 'warn',
+    detail: `${choice.actorClass}: ${choice.account ?? '—'}. ${accountReasonText(choice.reason, ui.locale)}`,
+  });
   if (line) {
     const detail = line.active === null ? words.collectorUnknown : line.active
       ? (line.received === false ? words.collectorNoReading : words.collectorOn) : words.collectorOff;

@@ -160,6 +160,7 @@ export async function spawn(actor, briefing, opts = {}) {
   const spawner = makeSpawner({ spawn: opts.spawn, logDir: opts.logDir, env: opts.env, cwd: opts.cwd });
   return spawner({ title: prompt, id: opts.demand, appliesTo: opts.appliesTo }, {
     runId, client: CLIENT, profile: { model, effort }, maxMinutes: opts.maxMinutes,
+    executorAccount: opts.executorAccount, resumeSession: opts.resumeSession,
     role: delivery.context.role.toLowerCase(), critic_of: opts.critic_of, step: opts.step,
   });
 }

@@ -154,6 +154,7 @@ export async function spawn(actor, briefing, opts = {}) {
     env: { ...(opts.env ?? process.env), CODEX_HOME: configRoot(opts) } });
   return spawner({ title: prompt, id: opts.demand, appliesTo: opts.appliesTo }, {
     runId, client: CLIENT, account: opts.account, config: opts.config, locale: opts.locale,
+    accountReason: opts.accountReason, executorAccount: opts.executorAccount, resumeSession: opts.resumeSession,
     profile: { model, effort, sandbox: opts.sandbox ?? actor.sandbox },
     role: delivery.context.role.toLowerCase(), critic_of: opts.critic_of, step: opts.step,
     maxMinutes: opts.maxMinutes,

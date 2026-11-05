@@ -220,12 +220,13 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
   // The account of a launch and its login, decided without creating or starting anything: the one place that both the
   // spawner and a caller that reserves state first (the daemon, through `spawnDemand.preflight`) go through.
   async function prepare(options) {
-    const file = options.runId === undefined ? null : runFile(runs, text(options.runId, 'runId'));
+    const file = options.account !== undefined || options.resumeSession?.account !== undefined || options.runId === undefined
+      ? null : runFile(runs, text(options.runId, 'runId'));
     const reserved = file === null ? null : await readJson(file, null).catch((error) => {
       if (error.cause?.code === 'EISDIR') return null;
       throw error;
     });
-    const accountId = options.account ?? reserved?.account;
+    const accountId = options.resumeSession?.account ?? options.account ?? reserved?.account;
     // A default run reads the saved accounts too (they decide whether it keeps the client's folder variable); an
     // unreadable file there changes nothing for it, while a run that names an account still needs the file.
     const configFile = join(dirname(runs), 'config.json');
@@ -281,7 +282,9 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
     try {
       await writeJsonAtomic(file, {
         runId, client: options.client, pid: child.pid ?? null, mode: 'PROCESS', status: 'live', startedAt,
+        demand: demand.id ?? null, role: options.role ?? demand.role ?? 'executor',
         ...selected && !selected.isDefault ? { account: selected.id } : {},
+        ...options.accountReason ? { chosenAccount: selected?.id, accountReason: options.accountReason } : {},
       });
     } catch (error) {
       reportRunFile(error);
