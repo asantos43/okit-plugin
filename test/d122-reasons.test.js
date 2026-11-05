@@ -2,15 +2,21 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+import { diagnose } from '../src/doctor/diagnose.js';
 import { installConfig } from '../src/install/config.js';
 import { createPresenter } from '../src/install/present.js';
 import { registerMcp } from '../src/install/mcp-register.js';
 import { executionPolicyStep } from '../src/install/policy.js';
 import { mcpStep, register } from '../src/install/register.js';
+import { selfCheck } from '../src/install/selfcheck.js';
 import { reportText } from '../src/smoke/demo/report.js';
 import { offerSetup } from '../src/setup/offer.js';
+import { configOf } from '../src/profiles.js';
+import { fixture } from './helpers/install-fixture.js';
+import { readySnapshot } from './helpers/ready-snapshot.js';
 
 // D122: the reason of a caught error is told in the language of the run.
 //
@@ -30,10 +36,13 @@ import { offerSetup } from '../src/setup/offer.js';
 
 const CONFIG = installConfig({});
 const RECORD = { client: 'claude-code', path: join('/opt', 'okit-plugin', '1.0.0-claude-code') };
+const REPO = fileURLToPath(new URL('../', import.meta.url));
 const DENIED = 'permission denied';
 const PT = 'permissão negada';
 const ADAPTERS = [{ CLIENT: 'codex',
   listModels: async () => ({ client: 'codex', installed: true, models: ['sol', 'astra'], source: 'listing' }) }];
+/** The process of the probe of the MCP server (the one of the installation, never the shell of a check). */
+const isProbe = (spec) => (spec.args ?? []).some((argument) => String(argument).endsWith('selfcheck-probe.js'));
 
 /** A presenter of the run and the lines it wrote. */
 function presenter(locale, { verbose = false } = {}) {
@@ -76,6 +85,38 @@ function asking(refuse) {
 
 /** The settings of an installer whose MCP block cannot be read at all. */
 const brokenConfig = () => ({ ...CONFIG, get mcp() { throw new Error(DENIED); } });
+
+/** The row of the session of the doctor: the detail of a control failure (`controlReason`). */
+async function doctorSessionText(locale, t) {
+  const f = await fixture(t);
+  const result = await diagnose({ ...f.io, root: f.root, records: [],
+    ui: createPresenter({ locale, write: () => {} }),
+    readers: { nodeVersion: () => 'v99.0.0', readText: (file) => fs.readFile(file, 'utf8'),
+      servers: async () => [{ pid: 1, startedAt: 0 }],
+      callRead: async () => ({ ok: false, code: 'failed', error: DENIED }),
+      daemon: async () => ({ running: false }), snapshot: async () => readySnapshot(),
+      kit: async () => ({ state: 'absent' }) } });
+  return result.rows.find((row) => row.id === 'session').detail;
+}
+
+/** The row of the probe of the MCP server: the reason of a probe that could not start (`probeReason`). */
+async function probeReasonText(locale, t, error = { code: 'start-failed', why: DENIED }) {
+  const home = await fs.mkdtemp(join(tmpdir(), 'd122-probe-'));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const temporary = join(home, 'tmp');
+  await fs.mkdir(temporary);
+  const answer = { mcp: { ok: false, tools: 0, error }, api: { ok: false, error: null } };
+  const deps = { config: installConfig({}), fs,
+    run: async (spec) => (isProbe(spec) ? { stdout: `${JSON.stringify(answer)}\n` } : { stdout: '' }),
+    env: { HOME: home, OKWORK_HOME: join(home, 'real-state') }, platform: 'linux', out: () => {},
+    statuslineConfig: configOf({}).statuslineRegistration, collectorConfig: configOf({}).statuslineCollector,
+    destination: join(home, 'data'), home, bin: join(home, 'bin'), temporary, root: join(home, 'state'),
+    clientRoot: join(home, 'client'), now: () => 1700000000000,
+    ui: createPresenter({ locale, write: () => {} }) };
+  const record = { client: 'claude-code', path: REPO, version: '1.0.0', destination: deps.destination, link: true };
+  const rows = await selfCheck(record, '1.0.0', deps);
+  return rows.find((row) => row.id === 'mcp').reason;
+}
 
 // The places where a reason of a caught error reaches a message of the run.
 const SITES = [
@@ -134,12 +175,20 @@ const SITES = [
     run: async (locale) => reportText({ mode: 'test', events: [], reasons: [], status: 'partial',
       demands: [{ title: 'A task', verdict: 'skipped', reworkRounds: 0, costKnown: true, costUsd: 0,
         skipReason: DENIED }] }, locale) },
+  { name: 'src/install/present.js:485 — the detail of a control failure (the row of the session)',
+    run: (locale, t) => doctorSessionText(locale, t) },
+  { name: 'src/install/selfcheck.js:526 — the reason of the probe of the MCP server',
+    run: (locale, t) => probeReasonText(locale, t) },
+  { name: 'src/install/selfcheck.js:520 — the error of a probe that answered with a text',
+    run: (locale, t) => probeReasonText(locale, t, DENIED) },
+  { name: 'src/install/selfcheck.js:527 — the code of a probe that is not known',
+    run: (locale, t) => probeReasonText(locale, t, { code: DENIED }) },
 ];
 
 for (const site of SITES) {
   for (const locale of ['en', 'pt-BR']) {
-    test(`${site.name} (${locale})`, async () => {
-      const text = await site.run(locale);
+    test(`${site.name} (${locale})`, async (t) => {
+      const text = await site.run(locale, t);
       assert.ok(text.length > 0, `${site.name}: nothing was told`);
       if (locale === 'pt-BR') {
         assert.ok(text.includes(PT), `${site.name}: ${text}`);

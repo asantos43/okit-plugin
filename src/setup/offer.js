@@ -36,7 +36,12 @@ function fill(text, values) {
   return text.replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ''));
 }
 
-/** The text of one message in one language; `both` shows the two of them. */
+/**
+ * The text of one message in one language; `both` shows the two of them.
+ *
+ * The reason of a failure is told here, once: the Portuguese side says it in Portuguese (REASONS),
+ * the English side says it as the system said it. The caller never translates the reason itself.
+ */
 export function formatOffer(key, locale, values = {}) {
   const message = OFFER_MESSAGES[key];
   const language = locale === 'en' ? message.en : locale === 'pt-BR' ? message['pt-BR'] : null;
@@ -92,7 +97,7 @@ async function runOffer({
   try {
     answer = await ask(formatOffer('question', locale));
   } catch (error) {
-    out(formatOffer('failed', locale, { command, reason: localizeReason(error.message, locale) }));
+    out(formatOffer('failed', locale, { command, reason: error.message }));
     return { pending: true, offered: true, ran: false, failed: true };
   }
   if (!affirmative(answer)) {
@@ -116,7 +121,7 @@ async function runOffer({
     for (const message of result.messages) out(message);
     return { pending: true, offered: true, ran: true, code: result.code };
   } catch (error) {
-    out(formatOffer('failed', locale, { command, reason: localizeReason(error.message, locale) }));
+    out(formatOffer('failed', locale, { command, reason: error.message }));
     return { pending: true, offered: true, ran: false, failed: true };
   }
 }
@@ -170,7 +175,7 @@ async function runOfferRow({
     for (const message of result.messages.slice(result.cancelled || !models.length ? 1 : 0)) ui.note(message);
     return { pending: true, offered: true, ran: true, code: result.code };
   } catch (error) {
-    row('skipped', formatOffer('failed', ui.locale, { command: program, reason: localizeReason(error.message, ui.locale) }));
+    row('skipped', formatOffer('failed', ui.locale, { command: program, reason: error.message }));
     return { pending: true, offered: true, ran: false, failed: true };
   }
 }
