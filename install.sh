@@ -485,13 +485,24 @@ const REASONS = [
   [/^slot unavailable$/, 'vaga indisponível', 'slot unavailable'],
   [/^unsafe artifact$/, 'artefato inseguro', 'unsafe artifact'],
   [/^blocked dependencies$/, 'dependências bloqueadas', 'blocked dependencies'],
+  // The refusals of the scenario of the demo (src/smoke/demo/scenario.js): the reason of the validation itself.
+  [/^invalid scenario$/, 'cenário inválido', 'invalid scenario'],
+  [/^invalid files or acceptance$/, 'arquivos ou aceitação inválidos', 'invalid files or acceptance'],
+  [/^unsafe path$/, 'caminho inseguro', 'unsafe path'],
+  [/^duplicate or unsafe key$/, 'chave repetida ou insegura', 'duplicate or unsafe key'],
+  [/^unexpected class$/, 'classe inesperada', 'unexpected class'],
+  [/^missing or cyclic dependency$/, 'dependência faltando ou cíclica', 'missing or cyclic dependency'],
+  [/^unsafe acceptance$/, 'aceitação insegura', 'unsafe acceptance'],
+  [/^unsafe fault$/, 'falha insegura', 'unsafe fault'],
+  [/^unsafe symlink$/, 'link simbólico inseguro', 'unsafe symlink'],
   [/^executor did not complete$/, 'o executor não completou', 'executor did not complete'],
   [/^environment snapshot required$/, 'o retrato do ambiente é obrigatório', 'environment snapshot required'],
   [/^real mode requires quota confirmation$/, 'o modo real exige a confirmação da cota', 'real mode requires quota confirmation'],
   [/^explicit quota confirmation required$/, 'a confirmação da cota é obrigatória', 'explicit quota confirmation required'],
-  [/^invalid (.+)$/, 'valor inválido: $1', 'invalid maxUsd'],
-  // A reason the demo prefixes with its own label: the label stays, the reason is translated.
-  [/^(narration|report export|cleanup): (.+)$/, '$1: $2', 'narration: budget or turn ceiling'],
+  // The settings of the demo that are refused by their value (src/smoke/demo/budget.js): the key is one of ours, so
+  // the reason is ours too. A name of a person that begins with "invalid" is not a reason and stays as it was raised.
+  [/^invalid (maxUsd|maxMinutes|checkTimeoutMs|quotaFloorPct|quotaMaxAgeMinutes|quotaExpireMinutes|maxTurns|maxTokens)$/, 'valor inválido: $1', 'invalid maxUsd'],
+  [/^invalid quota limits$/, 'limites de cota inválidos', 'invalid quota limits'],
 ];
 
 // The refusals of the settings (CONFIG_MESSAGES in profiles.js): each English text with its {name} placeholders is a
@@ -503,6 +514,24 @@ const CONFIG_REASONS = Object.values(CONFIG_MESSAGES).map((entry) => {
     .join('');
   return [new RegExp('^' + source + '$'), entry['pt-BR']];
 });
+
+// The reasons the demo prefixes with its own label (src/smoke/demo/index.js): the label stays as it is and the text
+// behind it is told in the language of the run only when the catalog knows that exact text. Any other text behind a
+// label is a name, a path or a message of the system, and it stays as it was raised, byte for byte.
+const LABELS = /^(narration|report export|cleanup): ([^]*)$/;
+
+/** The text of a reason of the catalog that is a whole text: no capture and no wildcard. */
+const literalOf = (pattern) => {
+  const source = pattern.source.startsWith('^') ? pattern.source.slice(1) : pattern.source;
+  const body = source.endsWith('$') ? source.slice(0, -1) : source;
+  return pattern.flags.includes('i') || /[\\^$.|?*+()[\]{}]/.test(body) ? null : body;
+};
+
+/** The exact phrases of the catalog: the only texts that may be told in the language of the run behind a label. */
+const EXACT_REASONS = new Map(REASONS.flatMap(([pattern, text]) => {
+  const literal = literalOf(pattern);
+  return literal === null ? [] : [[literal, text]];
+}));
 
 /** A reason in the language of the run: the installer's own (REASONS), a refusal of the settings (CONFIG_MESSAGES), or as raised. */
 function localizeReason(reason, locale) {
@@ -521,6 +550,10 @@ function localizeReason(reason, locale) {
     // so that no line carries both languages. Text that is not a reason (a name, a system error) stays as it is.
     if (pattern.test(value)) return value.replace(pattern, (...match) => text.replace(/\$(\d)/g, (_, index) => localizeReason(match[Number(index)], locale)));
   }
+  // A reason behind a label of the demo: the text is not translated by a pattern (a pattern could catch a name of a
+  // person); it is translated only when it is one of the exact phrases of the catalog, and it stays as it is otherwise.
+  const labeled = LABELS.exec(value);
+  if (labeled) return `${labeled[1]}: ${EXACT_REASONS.get(labeled[2]) ?? labeled[2]}`;
   return value;
 }
 

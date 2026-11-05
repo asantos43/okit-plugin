@@ -1,10 +1,35 @@
-import { localizeReason, pick } from '../../install/present.js';
+import { localizeReason } from '../../install/present.js';
+
+// The bilingual phrases of the demo (src/smoke/demo/driver.js, src/smoke/demo/index.js): the side of the language of
+// the run is shown. Any other text is not a phrase of ours: it is a path, a message of the system or a name, and it is
+// shown whole, byte for byte. The delimiter " / " only separates the languages of a phrase of this table.
+const BILINGUAL = new Map([
+  ['Could not check the files. / Não foi possível conferir os arquivos.', 'Não foi possível conferir os arquivos.'],
+  ['Provide a helper launcher. / Informe como iniciar o ajudante.', 'Informe como iniciar o ajudante.'],
+  ['Set smoke.maxTokens to a positive whole number before starting. / Defina smoke.maxTokens como um número inteiro positivo antes de começar.',
+    'Defina smoke.maxTokens como um número inteiro positivo antes de começar.'],
+  ['Work interrupted. / Trabalho interrompido.', 'Trabalho interrompido.'],
+  ['Work took too long. / O trabalho demorou demais.', 'O trabalho demorou demais.'],
+  ['The helper exceeded the text allowance. / O ajudante ultrapassou o limite de texto.', 'O ajudante ultrapassou o limite de texto.'],
+  ['The helper wrote outside the allowed files. / O ajudante escreveu fora dos arquivos permitidos.', 'O ajudante escreveu fora dos arquivos permitidos.'],
+  ['The output must be a regular file of at most 128 KiB. / A saída deve ser um arquivo comum de até 128 KiB.', 'A saída deve ser um arquivo comum de até 128 KiB.'],
+  ['The review answer could not be read. / Não foi possível ler a resposta da revisão.', 'Não foi possível ler a resposta da revisão.'],
+  ['PATH is missing from the environment, so the helper cannot be found. / O PATH não está no ambiente, então o ajudante não pode ser encontrado.',
+    'O PATH não está no ambiente, então o ajudante não pode ser encontrado.'],
+]);
+
+/** The side of the language of the run of a phrase of ours; any other text is shown whole. */
+const sideOf = (text, locale) => {
+  const known = BILINGUAL.get(text);
+  if (known === undefined) return text;
+  return locale === 'pt-BR' ? known : text.slice(0, text.indexOf(' / '));
+};
 
 /**
- * The reason as the language of the run shows it: the side of a bilingual phrase ("EN / PT", the way the driver
- * writes them) and then the catalog of the reasons (REASONS). A reason the catalog does not know stays as it was raised.
+ * The reason as the language of the run shows it: the side of a bilingual phrase (the way the driver writes them)
+ * and then the catalog of the reasons (REASONS). A reason the catalog does not know stays as it was raised.
  */
-const reasonText = (reason, locale) => localizeReason(pick(reason, locale), locale);
+const reasonText = (reason, locale) => localizeReason(sideOf(reason, locale), locale);
 
 export function reportText(result, locale = 'en') {
   const pt = locale === 'pt-BR', partial = pt ? 'PARCIAL' : 'PARTIAL';

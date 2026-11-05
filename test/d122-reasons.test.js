@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -354,4 +355,89 @@ test('translating a reason twice gives the same text, and a text the catalog doe
   // A text the catalog does not know stays as it was raised.
   const unknown = 'spawn claude ENOENT: the helper is not on this machine';
   assert.equal(localizeReason(unknown, 'pt-BR'), unknown);
+});
+
+// The corpus of the critic: a name of a person that begins with "invalid" is not a reason, and the reason behind a
+// label of the demo is told only when the catalog knows it. Translating twice gives the same text, always.
+//
+// | reason | must pass | must refuse |
+// | a name that begins with "invalid" | the name as it was raised | a translation of the name |
+// | a reason behind a label | the label and the reason in pt-BR | the reason in English |
+// | a text behind a label that is not a reason | the text as it was raised | a translation of it |
+test('a name that begins with "invalid" is not a reason and stays as it was raised', () => {
+  for (const text of ['Invalid JSON in invalid settings.json', 'Unknown client invalid bob', 'invalid settings.json']) {
+    const translated = localizeReason(text, 'pt-BR');
+    assert.ok(!translated.includes('valor inválido'), `${text}: ${translated}`);
+    assert.ok(translated.includes('invalid'), `${text}: ${translated}`);
+    assert.equal(localizeReason(translated, 'pt-BR'), translated, `${text}: translating twice changes the text`);
+    assert.equal(localizeReason(text, 'en'), text);
+  }
+  // The settings the demo refuses by their value (src/smoke/demo/budget.js) are reasons of ours and are told.
+  for (const key of ['maxUsd', 'maxMinutes', 'checkTimeoutMs', 'quotaFloorPct', 'quotaMaxAgeMinutes',
+    'quotaExpireMinutes', 'maxTurns', 'maxTokens']) {
+    assert.notEqual(localizeReason(`invalid ${key}`, 'pt-BR'), `invalid ${key}`, `invalid ${key}: no pt-BR text`);
+  }
+});
+
+test('the reason behind a label of the demo is told only when the catalog knows that exact text', () => {
+  // The catalog knows the phrase: it is told in the language of the run.
+  const known = localizeReason('narration: budget or turn ceiling', 'pt-BR');
+  assert.ok(known.includes('teto de orçamento ou de voltas'), known);
+  assert.ok(!known.includes('budget or turn ceiling'), known);
+  // The text behind the label is a name and a message of the system: it stays as it was raised, byte for byte.
+  const reason = 'narration: Cannot read invalid settings.json: permission denied';
+  const once = localizeReason(reason, 'pt-BR');
+  assert.equal(localizeReason(once, 'pt-BR'), once, 'translating twice changes the text');
+  assert.equal(localizeReason(reason, 'en'), reason);
+});
+
+test('the reasons of the validation of the scenario are in the catalog', () => {
+  for (const reason of ['unsafe symlink', 'unsafe path', 'duplicate or unsafe key', 'unexpected class',
+    'missing or cyclic dependency', 'unsafe acceptance', 'unsafe fault', 'invalid scenario',
+    'invalid files or acceptance']) {
+    const translated = localizeReason(reason, 'pt-BR');
+    assert.notEqual(translated, reason, `${reason}: no pt-BR text`);
+    assert.equal(localizeReason(translated, 'pt-BR'), translated, `${reason}: translating twice changes the text`);
+    assert.equal(localizeReason(reason, 'en'), reason, `${reason}: the English text changed`);
+  }
+});
+
+test('the demo says the refusal of a symlink in the language of the run', async () => {
+  for (const locale of ['en', 'pt-BR']) {
+    // The real refusal: the helper leaves a symbolic link where a file of the practice root was expected.
+    const world = demoWorld({ run: async (briefing) => {
+      const sentinel = join(briefing.root, 'home/untouched.txt');
+      await fs.writeFile(sentinel, 'untouched');
+      const target = join(briefing.root, briefing.allowedOutputPaths[0]);
+      await fs.unlink(target);
+      await fs.symlink(sentinel, target);
+      return { status: 'completed', summary: 'done',
+        artifacts: briefing.demand.files.map((file, index) => ({ path: briefing.allowedOutputPaths[index], content: file.content })),
+        usage: { costUsd: 0, tokens: 0, turns: 1 } };
+    } });
+    const result = await runDemo({ ...world, locale });
+    assert.ok(result.reasons.includes('unsafe symlink'), result.reasons.join(' | '));
+    const text = reportText(result, locale);
+    if (locale === 'pt-BR') {
+      assert.ok(text.includes('link simbólico inseguro'), text);
+      assert.ok(!text.includes('unsafe symlink'), text);
+    } else {
+      assert.ok(text.includes('unsafe symlink'), text);
+    }
+  }
+});
+
+test('a reason that carries a path with " / " in it is shown whole, in the language of the run', async () => {
+  const path = join(tmpdir(), 'd122-absent / file');
+  for (const locale of ['en', 'pt-BR']) {
+    // The real ENOENT of the system: the narration reads a file whose path holds the delimiter of the languages.
+    const world = demoWorld();
+    const result = await runDemo({ ...world, locale, mode: 'real', confirmed: true,
+      onNarration: () => readFileSync(path) });
+    const reason = result.reasons.find((one) => one.startsWith('narration: '));
+    assert.ok(reason, result.reasons.join(' | '));
+    assert.ok(reason.includes(path), reason);
+    const text = reportText(result, locale);
+    assert.ok(text.includes(reason), text);
+  }
 });
