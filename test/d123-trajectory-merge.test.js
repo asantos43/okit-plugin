@@ -56,6 +56,8 @@ test('OpenCode empty messages becoming content preserve A and B in both save ord
 // | previous file | stat before bounded JSON read | reading oversized content |
 // | shared timestamp | reserve B before empty -> A; prefix updates | losing A, duplicate usage |
 // | call identity | same text with different IDs stays distinct | consuming call-1 for call-2 |
+// | reserved slot | exact occurrence plus a distinct prefix | consuming the exact slot twice |
+// | cross-group match | a known cut version may cross groups | merging intact timed/clockless prefixes |
 // | ambiguity/order | keep both in canonical order | claiming chronological order without clocks |
 // | work budget | 4000+4000 steps under 1 second | repeated unbounded candidate/payload scans |
 // | quarantine | release lock after 1000 collisions | deleting the bad source on exhaustion |
@@ -89,6 +91,27 @@ test('same message with distinct call IDs reserves the correct occurrence', () =
   const after = trajectory(context, [{ message: 'completed', tool_calls: [call], metrics: { prompt_tokens: 6 } }]);
   assert.equal(mergeRuns(before, after).steps.length, 1);
   assert.equal(mergeRuns(before, after).final_metrics.total_prompt_tokens, 6);
+});
+
+test('reserved exact occurrences cannot consume another prefix occurrence', () => {
+  const a = trajectory(context, ['AB', 'Z', 'Q'].map(step));
+  const b = trajectory(context, ['A', 'AB'].map(step));
+  for (const pair of [[a, b], [b, a]]) {
+    const merged = mergeRuns(...pair);
+    assert.deepEqual(merged.steps.map(item => item.message), ['AB', 'Z', 'Q', 'A']);
+    assert.deepEqual(merged.steps.map(item => item.step_id), [1, 2, 3, 4]);
+  }
+});
+
+test('intact prefixes in clockless and timestamped groups stay separate', () => {
+  const a = trajectory(context, [step('A'), step('Z')]);
+  const b = trajectory(context, [{ message: 'AB', timestamp: '2026-01-01T00:00:00Z' }]);
+  for (const pair of [[a, b], [b, a]]) {
+    const merged = mergeRuns(...pair);
+    assert.deepEqual(merged.steps.map(item => [item.message, item.timestamp]),
+      [['A', null], ['Z', null], ['AB', '2026-01-01T00:00:00Z']]);
+    assert.deepEqual(merged.steps.map(item => item.step_id), [1, 2, 3]);
+  }
 });
 
 test('incompatible groups never consume a timestamped event via a clockless slot', () => {
