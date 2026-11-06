@@ -3,17 +3,20 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
+import * as filesystem from 'node:fs/promises';
 import { configOf } from '../profiles.js';
 import { readJson } from '../state.js';
 import { configMtime, configSetMany, mutateState } from '../core/config.js';
 import { Refusal } from '../core/refusal.js';
-import { UsageError } from '../install/exit.js';
+import { UsageError, OperationalError } from '../install/exit.js';
+import { localizeReason } from '../install/present.js';
+import { changeAccount } from '../accounts-cli.js';
 import { withAccountRenamed, accountFiles, accountsOf, accountEnv, ACCOUNT_CLIENTS } from '../accounts.js';
 import { defaultFolderOf } from '../install/config.js';
 import { detectClients, confirmedModels } from '../env/models.js';
 import { environmentSnapshot } from '../env/snapshot.js';
 import { limitsStatus } from '../limits.js';
-import { buildState, redact, sensitive } from './state.js';
+import { buildState, describeAccount, redact, sensitive } from './state.js';
 import { renderPage } from './page.js';
 
 const fail = (status, reason) => Object.assign(new Error(reason), { status });
@@ -104,7 +107,9 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
           (!onlyClient || entry.client === onlyClient) && (entry.account ?? 'default') === (account ?? 'default')) }),
         readQuota: (client, id) => ACCOUNT_CLIENTS.includes(client)
           ? readJson(join(root, 'quota', accountFiles(client, id).reading), null) : null });
-    return buildState({ ...loaded, observations: readings, snapshot, locale: chosenLocale });
+    const accountStates = await Promise.all(ACCOUNT_CLIENTS.flatMap((client) => accountsOf(loaded.raw, client))
+      .map((account) => describeAccount(account, loaded.raw, { env })));
+    return buildState({ ...loaded, observations: readings, snapshot, accountStates, locale: chosenLocale });
   }
   function authorize(request, url) {
     const hosts = [`127.0.0.1:${port}`, `localhost:${port}`];
@@ -149,7 +154,8 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
     if (url.pathname !== '/api/keepalive') clearTimeout(graceTimer);
     touch();
     const routes = { '/': 'GET', '/api/state': 'GET', '/api/config': 'PUT',
-      '/api/account-label': 'PUT', '/api/models/refresh': 'POST', '/api/close': 'POST', '/api/keepalive': 'POST' };
+      '/api/account-label': 'PUT', '/api/account-add': 'POST', '/api/account-remove': 'POST',
+      '/api/models/refresh': 'POST', '/api/close': 'POST', '/api/keepalive': 'POST' };
     if (!Object.hasOwn(routes, url.pathname)) throw fail(404, 'Not found.');
     if (request.method !== routes[url.pathname]) throw fail(405, 'Method not allowed.');
     if (url.pathname === '/') return page(response, url.searchParams.get('locale'));
@@ -177,6 +183,9 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
       return send(response, 200, redact(await refresh(config, input.client)));
     }
     if (url.pathname === '/api/account-label') return rename(input, response);
+    if (url.pathname === '/api/account-add' || url.pathname === '/api/account-remove') {
+      return change(input, response, url.pathname === '/api/account-add' ? 'add' : 'remove');
+    }
     if (!object(input) || !Object.hasOwn(input, 'expectedMtime')) throw fail(422, 'expectedMtime is required.');
     if (input.expectedMtime !== null && (typeof input.expectedMtime !== 'number' || !Number.isFinite(input.expectedMtime))) {
       throw fail(422, 'expectedMtime must be a number or null.');
@@ -201,6 +210,23 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
           && change.confirm !== true) throw fail(422, 'Model is not confirmed by the client; confirm this change explicitly.');
       } });
     send(response, result.conflict ? 409 : 200, result.conflict ? { reason: 'Configuration changed on disk.' } : redact({ changes: result.changes }));
+  }
+  async function change(input, response, action) {
+    try {
+      if (!object(input) || typeof input.client !== 'string' || !ACCOUNT_CLIENTS.includes(input.client)) {
+        throw new UsageError('Unsupported account client.');
+      }
+      if (action === 'remove' && typeof input.id !== 'string') throw new UsageError('Invalid account id.');
+      const result = await changeAccount({ root, env, platform: process.platform, fs: filesystem }, action,
+        { client: input.client, name: action === 'add' ? input.label : input.id, directory: input.configDir },
+        async (next) => ({ expectedMtime: await configMtime(root),
+          ...(action === 'add' ? { account: await describeAccount(accountsOf(next, input.client).at(-1), next, { env }) }
+            : { client: input.client, id: input.id }) }));
+      send(response, 200, redact(result));
+    } catch (error) {
+      if (!(error instanceof UsageError || error instanceof OperationalError)) throw error;
+      send(response, 422, { reason: localizeReason(redact(error.message), locale) });
+    }
   }
   async function rename(input, response) {
     if (!object(input) || typeof input.client !== 'string' || typeof input.id !== 'string') throw fail(422, 'Client and account id are required.');

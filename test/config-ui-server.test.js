@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import http from 'node:http';
 import net from 'node:net';
-import { mkdtemp, readFile, writeFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, readdir, rm, stat, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { startConfigServer } from '../src/config-ui/server.js';
 import { configSet, configMtime, configSetMany, schemaEntries } from '../src/core/config.js';
-import { withAccountRenamed } from '../src/accounts.js';
+import { withAccountAdded, withAccountRemoved, withAccountRenamed } from '../src/accounts.js';
+import { localizeReason } from '../src/install/present.js';
 
 async function filesOnly(root) {
   const entries = await readdir(root, { recursive: true, withFileTypes: true });
@@ -42,6 +43,165 @@ function request(session, path, { method = 'GET', headers = {}, value, raw } = {
     req.end(raw ?? (value === undefined ? undefined : JSON.stringify(value)));
   });
 }
+
+test('account add returns login help and mtime; removal preserves folder, login and history', async t => {
+  const session = await fixture(t);
+  const configDir = join(session.root, 'work');
+  const add = await request(session, '/api/account-add', { method: 'POST', value: { client: 'codex', label: 'Work', configDir } });
+  assert.equal(add.status, 200, add.text);
+  assert.deepEqual(add.json().account, { client: 'codex', id: 'work', label: 'Work', configDir,
+    login: 'logged-out', loginCommand: `CODEX_HOME=${configDir} codex login` });
+  assert.equal(add.json().expectedMtime, await configMtime(session.root));
+  if (process.platform !== 'win32') assert.equal((await stat(configDir)).mode & 0o777, 0o700);
+  await writeFile(join(configDir, 'auth.json'), 'PRIVATE-CREDENTIAL');
+  await writeFile(join(configDir, 'history.jsonl'), 'history');
+  const state = (await request(session, '/api/state')).json();
+  assert.equal(state.accounts.find(account => account.id === 'work').login, 'logged-in');
+  const remove = await request(session, '/api/account-remove', { method: 'POST', value: { client: 'codex', id: 'work' } });
+  assert.equal(remove.status, 200, remove.text);
+  assert.equal(remove.json().expectedMtime, await configMtime(session.root));
+  assert.notEqual(remove.json().expectedMtime, add.json().expectedMtime);
+  assert.deepEqual(JSON.parse(await readFile(join(session.root, 'config.json'), 'utf8')).accounts.codex, []);
+  assert.equal(await readFile(join(configDir, 'auth.json'), 'utf8'), 'PRIVATE-CREDENTIAL');
+  assert.equal(await readFile(join(configDir, 'history.jsonl'), 'utf8'), 'history');
+});
+
+// | Corpus | Must pass | Must refuse |
+// | account changes | supported client, unique label/folder | relative/duplicate folders, invalid/duplicate labels |
+// | transport | authorized POST JSON | missing/wrong token, Host, Origin, method, type, malformed/oversize JSON |
+test('account routes refuse invalid unknown inputs without changing config', async t => {
+  const session = await fixture(t);
+  const value = { client: 'codex', label: 'Work', configDir: join(session.root, 'work') };
+  assert.equal((await request(session, '/api/account-add', { method: 'POST', value })).status, 200);
+  const before = await readFile(join(session.root, 'config.json'), 'utf8');
+  for (const patch of [{ configDir: 'relative' }, { configDir: null }, { configDir: {} },
+    { label: '' }, { label: 'x'.repeat(41) }, { label: {} }, { label: 'a\nb' }, { label: 'Work' },
+    { configDir: value.configDir }, { configDir: join(session.root, 'work', '..', 'work') },
+    { configDir: join(session.root, '.codex') }, { client: 'opencode' }, { client: {} }]) {
+    const result = await request(session, '/api/account-add', { method: 'POST', value: {
+      ...value, label: 'Other', configDir: join(session.root, 'other'), ...patch } });
+    assert.equal(result.status, 422, result.text);
+    assert.ok(result.json().reason);
+    assert.doesNotMatch(result.text, /stack|profiles|PRIVATE-CREDENTIAL/);
+    assert.equal(await readFile(join(session.root, 'config.json'), 'utf8'), before);
+  }
+  for (const value of [{ client: 'codex', id: 'default' }, { client: 'codex', id: 'missing' },
+    { client: 'codex', id: {} }, { client: 'opencode', id: 'work' }]) {
+    assert.equal((await request(session, '/api/account-remove', { method: 'POST', value })).status, 422);
+    assert.equal(await readFile(join(session.root, 'config.json'), 'utf8'), before);
+  }
+});
+
+test('account removal rejects non-string ids with the exact reason and preserves config bytes', async t => {
+  const session = await fixture(t);
+  const configPath = join(session.root, 'config.json');
+  await writeFile(configPath, '{ "future": true }\n');
+  const before = await readFile(configPath);
+  for (const id of [123, null, {}]) {
+    const result = await request(session, '/api/account-remove', {
+      method: 'POST', value: { client: 'codex', id } });
+    assert.equal(result.status, 422, result.text);
+    assert.deepEqual(result.json(), { reason: 'Invalid account id.' });
+    assert.deepEqual(await readFile(configPath), before);
+  }
+});
+
+test('account add redacts a sensitive accepted label just as account state does', async t => {
+  const session = await fixture(t);
+  const label = 'token=abc123';
+  const added = await request(session, '/api/account-add', { method: 'POST',
+    value: { client: 'codex', label, configDir: join(session.root, 'redacted-label') } });
+  assert.equal(added.status, 200, added.text);
+  assert.equal(added.json().account.label, '[Redacted]');
+  const raw = JSON.parse(await readFile(join(session.root, 'config.json'), 'utf8'));
+  assert.equal(raw.accounts.codex[0].label, label);
+  const state = await request(session, '/api/state');
+  assert.equal(state.status, 200, state.text);
+  const account = state.json().accounts.find(account => account.client === 'codex'
+    && account.id === added.json().account.id);
+  assert.equal(account.label, '[Redacted]');
+});
+
+test('both account routes enforce authorization, method and JSON transport before writing', async t => {
+  const session = await fixture(t);
+  for (const route of ['/api/account-add', '/api/account-remove']) {
+    const value = { client: 'codex', label: 'Work', configDir: join(session.root, 'work'), id: 'work' };
+    for (const headers of [{ 'x-okit-token': null }, { 'x-okit-token': 'a'.repeat(64) },
+      { host: 'attacker.invalid' }, { origin: 'http://attacker.invalid' }, { origin: null }]) {
+      assert.equal((await request(session, route, { method: 'POST', value, headers })).status, 403);
+    }
+    assert.equal((await request(session, route, { method: 'PUT', value })).status, 405);
+    assert.equal((await request(session, route, { method: 'POST', value,
+      headers: { 'content-type': 'text/plain' } })).status, 415);
+    for (const [raw, status] of [['{', 422], ['x'.repeat(65537), 413]]) {
+      assert.equal((await request(session, route, { method: 'POST', raw,
+        headers: { 'content-type': 'application/json' } })).status, status);
+    }
+  }
+  assert.equal(await configMtime(session.root), null);
+});
+
+test('concurrent account adds serialize without losing either saved entry', async t => {
+  const session = await fixture(t);
+  const results = await Promise.all(['First', 'Second'].map(label => request(session, '/api/account-add', {
+    method: 'POST', value: { client: 'codex', label, configDir: join(session.root, label) } })));
+  assert.deepEqual(results.map(result => result.status), [200, 200]);
+  const raw = JSON.parse(await readFile(join(session.root, 'config.json'), 'utf8'));
+  assert.deepEqual(raw.accounts.codex.map(account => account.label).sort(), ['First', 'Second']);
+  assert.deepEqual(await readdir(join(session.root, 'locks')), []);
+});
+
+test('account state uses install folders, saved default commands and unknown login without credentials', async t => {
+  const session = await fixture(t);
+  const configDir = join(session.root, 'extra');
+  const defaultDir = join(session.root, 'custom-default');
+  await mkdir(defaultDir);
+  await writeFile(join(defaultDir, 'auth.json'), 'PRIVATE-CREDENTIAL');
+  await mkdir(configDir);
+  await writeFile(join(configDir, 'config.toml'), 'cli_auth_credentials_store = "keyring"');
+  await writeFile(join(session.root, 'config.json'), JSON.stringify({ install: { clients: { codex: { rootParts: ['custom-default'] } } },
+    accounts: { codex: [{ id: 'work', label: 'Work', configDir }] } }));
+  const response = await request(session, '/api/state');
+  assert.equal(response.status, 200, response.text);
+  const rows = response.json().accounts.filter(account => account.client === 'codex');
+  assert.deepEqual(rows, [{ client: 'codex', id: 'default', label: 'default', configDir: null,
+    login: 'logged-in', loginCommand: process.platform === 'win32'
+      ? 'Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue; codex login' : 'env -u CODEX_HOME codex login' },
+  { client: 'codex', id: 'work', label: 'Work', configDir, login: 'unknown', loginCommand: `CODEX_HOME=${configDir} codex login` }]);
+  assert.doesNotMatch(response.text, /PRIVATE-CREDENTIAL/);
+});
+
+test('new account refusals use the exact shared CLI reasons in both locales', async t => {
+  for (const locale of ['en', 'pt-BR']) {
+    const session = await fixture(t, { locale });
+    for (const client of ['claude-code', 'codex']) {
+      const value = { client, label: 'Work', configDir: join(session.root, client) };
+      const added = await request(session, '/api/account-add', { method: 'POST', value });
+      assert.equal(added.status, 200, added.text);
+      const raw = JSON.parse(await readFile(join(session.root, 'config.json'), 'utf8'));
+      for (const patch of [{ configDir: 'relative' }, { label: '' }, { label: 'x'.repeat(41) },
+        { label: 'Work' }, { configDir: value.configDir }, { client: 'unknown' }]) {
+        const input = { ...value, label: 'Other', configDir: join(session.root, 'other'), ...patch };
+        let reason;
+        assert.throws(() => withAccountAdded(raw, input.client, input.label, input.configDir), error => {
+          reason = localizeReason(error.message, locale); return true;
+        });
+        const refused = await request(session, '/api/account-add', { method: 'POST', value: input });
+        assert.equal(refused.status, 422);
+        assert.deepEqual(refused.json(), { reason });
+      }
+      for (const id of ['default', 'missing']) {
+        let reason;
+        assert.throws(() => withAccountRemoved(raw, client, id), error => {
+          reason = localizeReason(error.message, locale); return true;
+        });
+        const refused = await request(session, '/api/account-remove', { method: 'POST', value: { client, id } });
+        assert.equal(refused.status, 422);
+        assert.deepEqual(refused.json(), { reason });
+      }
+    }
+  }
+});
 
 test('same-length incorrect tokens must refuse every authenticated route', async t => {
   const session = await fixture(t);

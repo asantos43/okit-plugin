@@ -1,6 +1,7 @@
 import { configOf, PROFILE_EFFORTS } from '../profiles.js';
 import { schemaEntries, effectiveValue } from '../core/config.js';
 import { accountsOf, ACCOUNT_CLIENTS } from '../accounts.js';
+import { loginState, loginCommand } from '../accounts-login.js';
 import { confirmedModels } from '../env/models.js';
 import { readiness, readyLine } from '../env/ready.js';
 
@@ -18,7 +19,16 @@ export function redact(value, path = '') {
   return value;
 }
 
-export function buildState({ raw = {}, observations = [], snapshot, locale = 'en', expectedMtime = null } = {}) {
+/** Login probing checks markers only and reports unreadable client state as unknown. */
+export async function describeAccount(account, config, context = {}) {
+  return { client: account.client, id: account.id, label: account.label, configDir: account.configDir,
+    login: await loginState({ ...context, client: account.client, account, install: config.install, config }),
+    loginCommand: loginCommand(account.client, account, context.platform,
+      { saved: Object.hasOwn(config.accounts ?? {}, account.client) }) };
+}
+
+export function buildState({ raw = {}, observations = [], snapshot, locale = 'en', expectedMtime = null,
+  accountStates = [], platform = process.platform } = {}) {
   const config = configOf(raw);
   const defaults = configOf({});
   const local = (text) => text?.[locale] ?? text?.en;
@@ -31,7 +41,10 @@ export function buildState({ raw = {}, observations = [], snapshot, locale = 'en
       isDefault: JSON.stringify(current.value) === JSON.stringify(fallback) };
   });
   const accounts = Object.keys(config.profiles).flatMap((client) => ACCOUNT_CLIENTS.includes(client)
-    ? accountsOf(config, client).map(({ id, label }) => ({ client, id, label: redact(label) })) : []);
+    ? accountsOf(config, client).map((account) => ({ client, id: account.id, label: redact(account.label),
+      configDir: account.configDir,
+      login: accountStates.find((entry) => entry.client === client && entry.id === account.id)?.login ?? 'unknown',
+      loginCommand: loginCommand(client, account, platform, { saved: Object.hasOwn(config.accounts ?? {}, client) }) })) : []);
   const actors = Object.keys(config.profiles).flatMap((client) => {
     const identities = accounts.filter((account) => account.client === client);
     return (identities.length ? identities : [{ id: null }]).map((account) => {
