@@ -3,7 +3,7 @@ import test from 'node:test';
 import { clientMain, clientSource } from '../src/config-ui/client.js';
 import { labels } from '../src/config-ui/labels.js';
 
-function fixture(responses = [], controls = [], actors = [], hash = '') {
+function fixture(responses = [], controls = [], actors = [], hash = '', summaries = []) {
   const handlers = {}, calls = [];
   const nodes = Object.fromEntries(['error', 'review', 'changes', 'reload'].map(id => [id, { hidden: true, textContent: '' }]));
   nodes.review.scrolls = []; nodes.review.focuses = [];
@@ -22,7 +22,8 @@ function fixture(responses = [], controls = [], actors = [], hash = '') {
   const win = { location: { hash, search: '?token=abc%2B123&locale=en', reload: () => { reloads++; } },
     history: { replaceState: (_state, _title, value) => { win.location.hash = value; } },
     document: { getElementById: id => nodes[id], querySelectorAll: selector =>
-      selector === '[role="tab"]' ? tabs : selector === '[role="tabpanel"]' ? panels : controls,
+      selector === '[role="tab"]' ? tabs : selector === '[role="tabpanel"]' ? panels
+        : selector === 'details.section > summary' ? summaries : controls,
       addEventListener: (name, handler) => { handlers[name] = handler; },
       defaultView: { addEventListener: (name, handler) => { handlers[name] = handler; } } },
     fetch: async (path, options) => { calls.push({ path, ...options });
@@ -216,6 +217,26 @@ test('tab keys with modifiers are ignored so browser shortcuts keep working', ()
   f.handlers.keydown({ target: f.tabs[0], key: 'ArrowRight', preventDefault: () => { prevented = true; } });
   assert.equal(prevented, true);
   assert.equal(f.tabs[1].attributes['aria-selected'], 'true');
+});
+
+test('collapsed section edits and resets mark ancestor summaries and tab, then clear', async () => {
+  const field = { dataset: { path: 'codexQuota.fields.used', type: 'string' }, value: 'old', panel: 'limits' };
+  const summaries = [true, true, false].map(contains => ({
+    parentElement: { open: false, contains: control => contains && control === field },
+    classList: { toggle(name, value) { this[name] = value; } },
+  }));
+  const f = fixture([], [field], [], '', summaries);
+  const check = dirty => {
+    assert.equal(f.tabs[1].classList['has-edits'], dirty);
+    assert.deepEqual(summaries.map(summary => summary.classList['has-edits']), [dirty, dirty, false]);
+    assert.ok(summaries.every(summary => !summary.parentElement.open));
+  };
+  field.value = 'new'; f.handlers.input({ target: field }); check(true);
+  field.value = 'old'; f.handlers.change({ target: field }); check(false);
+  await f.click('reset', { reset: field.dataset.path }); check(true);
+  await f.click('review'); await f.click('apply');
+  assert.deepEqual(JSON.parse(f.calls[0].body).changes, [{ path: field.dataset.path, unset: true }]);
+  f.handlers.change({ target: field }); check(false);
 });
 
 test('clicking Reset marks the tab of that field as edited', async () => {

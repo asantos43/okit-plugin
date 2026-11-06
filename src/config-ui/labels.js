@@ -9,6 +9,12 @@ export const labels = {
     apply: 'Apply changes', cancel: 'Cancel', before: 'Before', after: 'After',
     reload: 'Reload', closed: 'You can close this tab', confirmModel: 'Confirm this unconfirmed model?',
     unconfirmed: 'Unconfirmed', yes: 'Yes', no: 'No', error: 'Request failed',
+    groupTitles: {
+      limits: 'Executor limits', lowQuotaPct: 'Low-quota threshold', daemon: 'Daemon',
+      smoke: 'Smoke test', accountPolicy: 'Account policy', codexQuota: 'Codex quota reading',
+      language: 'Language', profiles: 'Profiles', telemetry: 'Telemetry', todo: 'Task list',
+      'codexQuota.fields': 'Codex log field names', 'telemetry.rede': 'Network sending',
+    },
   },
   'pt-BR': {
     title: 'Configuração', actors: 'Atores', settings: 'Ajustes', close: 'Fechar',
@@ -20,5 +26,11 @@ export const labels = {
     apply: 'Aplicar alterações', cancel: 'Cancelar', before: 'Antes', after: 'Depois',
     reload: 'Recarregar', closed: 'Você pode fechar esta aba', confirmModel: 'Confirmar este modelo não confirmado?',
     unconfirmed: 'Não confirmado', yes: 'Sim', no: 'Não', error: 'Falha na solicitação',
+    groupTitles: {
+      limits: 'Limites do executor', lowQuotaPct: 'Limiar de cota baixa', daemon: 'Daemon',
+      smoke: 'Teste de fumaça', accountPolicy: 'Política de contas', codexQuota: 'Leitura de cota do Codex',
+      language: 'Idioma', profiles: 'Perfis', telemetry: 'Telemetria', todo: 'Lista de tarefas',
+      'codexQuota.fields': 'Nomes dos campos de log do Codex', 'telemetry.rede': 'Envio pela rede',
+    },
   },
 };

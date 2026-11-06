@@ -30,5 +30,11 @@
   "unconfirmed": "Unconfirmed",
   "yes": "Yes",
   "no": "No",
-  "error": "Request failed"
+  "error": "Request failed",
+  "groupTitles": {
+    "limits": "Executor limits", "lowQuotaPct": "Low-quota threshold", "daemon": "Daemon",
+    "smoke": "Smoke test", "accountPolicy": "Account policy", "codexQuota": "Codex quota reading",
+    "language": "Language", "profiles": "Profiles", "telemetry": "Telemetry", "todo": "Task list",
+    "codexQuota.fields": "Codex log field names", "telemetry.rede": "Network sending"
+  }
 }

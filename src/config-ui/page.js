@@ -28,8 +28,31 @@ export function renderPage(state, { locale = 'en', nonce, token, instance }) {
     .map(([id, names]) => [id, names ? names.split(' ') : []]);
   const other = groups.filter(group => !tabs.some(([, names]) => names.includes(group)));
   if (other.length) tabs.push(['other', other]);
-  const settings = names => names.filter(group => groups.includes(group)).map(group => `<section class="settings-group"><h3>${e(group)}</h3>${state.fields.filter(field => field.path.split('.')[0] === group).map(field =>
-    `<div class="field"><div><label for="field-${e(field.path)}">${e(field.path)}</label><p>${e(field.description)} ${e(field.constraint)}</p><small>${e(text.defaultValue)}: ${e(JSON.stringify(field.default))}</small></div><div class="field-control">${fieldControl(field)} ${field.value === '[Redacted]' ? '' : button('reset', text.reset, `data-reset="${e(field.path)}"`)}</div></div>`).join('')}</section>`).join('');
+  const fieldsHtml = fields => fields.map(field =>
+    `<div class="field"><div><label for="field-${e(field.path)}">${e(field.path)}</label><p>${e(field.description)} ${e(field.constraint)}</p><small>${e(text.defaultValue)}: ${e(JSON.stringify(field.default))}</small></div><div class="field-control">${fieldControl(field)} ${field.value === '[Redacted]' ? '' : button('reset', text.reset, `data-reset="${e(field.path)}"`)}</div></div>`).join('');
+  const section = (path, fields, content, sub = false, first = false) => {
+    const title = text.groupTitles?.[path] ?? path.split('.').at(-1);
+    const open = (!sub && first && fields.length <= 4)
+      || fields.some(field => JSON.stringify(field.value) !== JSON.stringify(field.default));
+    return `<details class="section${sub ? ' sub' : ''}" data-section="${e(path)}"${open ? ' open' : ''}><summary>${e(title)} <span class="count">(${fields.length})</span></summary>${content}</details>`;
+  };
+  const settings = names => {
+    const present = names.filter(group => groups.includes(group));
+    return present.map((group, index) => {
+      const fields = state.fields.filter(field => field.path.split('.')[0] === group);
+      const candidates = [...new Set(fields.map(field => field.path.split('.')[1]).filter(Boolean))];
+      const subsections = fields.length > 4 ? candidates.filter(segment => {
+        const children = fields.filter(field => field.path.split('.')[1] === segment);
+        return children.length >= 4 || children.some(field => field.type === 'object');
+      }) : [];
+      const content = fieldsHtml(fields.filter(field => !subsections.includes(field.path.split('.')[1])))
+        + subsections.map(segment => {
+          const children = fields.filter(field => field.path.split('.')[1] === segment);
+          return section(`${group}.${segment}`, children, fieldsHtml(children), true);
+        }).join('');
+      return present.length === 1 ? content : section(group, fields, content, false, index === 0);
+    }).join('');
+  };
   const clients = [...new Set(state.actors.map(actor => actor.client))];
   const actors = clients.map(client => `<section class="actor-card"><h3>${e(client)}</h3>${button('refresh', text.refresh, `data-client="${e(client)}"`)}${state.actors.filter(actor => actor.client === client).map(actor => {
     const account = state.accounts.find(account => account.client === client && account.id === actor.account);
@@ -58,7 +81,8 @@ export function renderPage(state, { locale = 'en', nonce, token, instance }) {
     :focus-visible{outline:3px solid var(--accent);outline-offset:3px}input[type=number]{width:7rem}input[type=checkbox]{accent-color:var(--accent)}
     .tabs{display:flex;flex-wrap:nowrap;gap:.35rem;overflow-x:auto;max-width:100%;min-width:0;padding:.5rem 0 1rem;scroll-snap-type:x proximity;scrollbar-width:thin}.tabs button{flex:0 0 auto;white-space:nowrap;border-radius:2rem;scroll-snap-align:start}.tabs [aria-selected=true]{background:var(--soft);border-color:var(--accent);color:var(--accent)}
     .has-edits::after{content:"";display:inline-block;width:.45rem;height:.45rem;border-radius:50%;background:var(--accent);margin-left:.5rem;vertical-align:middle}
-    .panel,#review{background:var(--card);border:1px solid var(--border);border-radius:1rem;padding:1.25rem;margin-bottom:1rem}.actor-card{overflow-x:auto;margin-bottom:1.5rem}.actor-card:last-child{margin-bottom:0}.settings-group+ .settings-group{border-top:1px solid var(--border);margin-top:1.5rem}
+    .panel,#review{background:var(--card);border:1px solid var(--border);border-radius:1rem;padding:1.25rem;margin-bottom:1rem}.actor-card{overflow-x:auto;margin-bottom:1.5rem}.actor-card:last-child{margin-bottom:0}
+    .section{border:1px solid var(--border);border-radius:.75rem;padding:.5rem .75rem;margin:.75rem 0;min-width:0;max-width:100%}.section.sub{margin-left:.5rem}.section>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:.5rem;padding:.5rem;border-radius:.5rem;overflow-wrap:anywhere}.section>summary::-webkit-details-marker{display:none}.section>summary::before{content:"";width:.45rem;height:.45rem;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);flex-shrink:0}.section[open]>summary::before{transform:rotate(45deg)}.section>summary:hover{background:var(--soft)}.section>summary:focus-visible{outline:3px solid var(--accent);outline-offset:2px}.count{color:var(--muted);background:var(--soft);border-radius:1rem;padding:0 .4rem;font-size:.85rem}.section>summary.has-edits::after{flex-shrink:0}
     .actor-card{padding:1rem;border:1px solid var(--border);border-radius:.75rem;max-width:100%;min-width:0}.table-scroll{max-width:100%;overflow-x:auto}.table-scroll select{max-width:100%;min-width:0}main>*,.panel>*{min-width:0;max-width:100%}
     .field{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1.5rem;padding:1rem 0;border-bottom:1px solid var(--border)}label{font-weight:600;overflow-wrap:anywhere}small{color:var(--muted)}.field-control{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
     table{border-collapse:collapse;width:100%;margin:1rem 0}th,td{text-align:left;padding:.65rem;border-bottom:1px solid var(--border)}tbody tr:nth-child(odd){background:var(--soft)}.badge{display:inline-block;border-radius:2rem;padding:.2rem .65rem;font-size:.85rem;white-space:nowrap}.ready{color:var(--green);background:var(--green-bg)}.waiting{color:var(--amber);background:var(--amber-bg)}

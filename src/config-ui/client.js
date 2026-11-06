@@ -25,15 +25,16 @@ export function clientMain(win) {
     win.history.replaceState(null, '', `#tab=${tab.dataset.tab}`);
   };
   const updateDots = () => {
-    for (const tab of tabs) {
-      const panel = doc.getElementById(tab.getAttribute('aria-controls'));
+    for (const marker of [...tabs, ...all('details.section > summary')]) {
+      const container = tabs.includes(marker)
+        ? doc.getElementById(marker.getAttribute('aria-controls')) : marker.parentElement;
       const dirty = controls.some(control => {
-        if (!panel.contains(control)) return false;
+        if (!container.contains(control)) return false;
         const path = control.dataset.path ?? control.dataset.actorPath ?? control.dataset.actor;
         try { return resets.has(path) || JSON.stringify(read(control)) !== JSON.stringify(initial.get(control)); }
         catch { return true; }
       });
-      tab.classList.toggle('has-edits', dirty);
+      marker.classList.toggle('has-edits', dirty);
     }
   };
   if (tabs.length) selectTab(tabs.find(tab => win.location.hash === `#tab=${tab.dataset.tab}`) ?? tabs[0]);
