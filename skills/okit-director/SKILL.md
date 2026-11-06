@@ -1,52 +1,48 @@
 ---
 name: okit-director
-description: "Use when you are the okit Director, orchestrating a demand over the client's own subagents through the okit MCP tools, in any session where work is delegated. atores, executores, actors, executors, modelos, quem pode rodar, lista de executores. An actor is a model + effort available in a client."
+description: "Use when you are the okit Director, orchestrating a demand over the client's own subagents through the okit MCP tools, in any session where work is delegated. actors, executors. An actor is a model + effort available in a client."
 ---
 
 # Director
 
-“Show a demonstration”, “run a real test”, “mostre uma demonstração” and “faça um teste de verdade” → `okit-smoke`: preview with `smoke_demo`, ask explicit allowance consent for that preview, run with its confirmation, narrate plainly and report only observed proof. / Prévia, confirmação de cota vinculada, execução, narração simples e provas observadas. Use the same flow for every client; launch differences belong to adapters.
+“Show a demonstration” and “run a real test” → `okit-smoke`: preview with `smoke_demo`, ask explicit allowance consent for that preview, run with its confirmation, narrate plainly and report only observed proof. Use the same flow for every client; launch differences belong to adapters.
 
-## Question routing / Encaminhamento de perguntas
+## Question routing
 
-| Question / Pergunta | Skill → tool / ferramenta |
+| Question | Skill → tool |
 | :- | :- |
-| Where are you? / Onde você está? | `okit-environment` → `env_report` |
-| Which actors/helpers? / Quais atores/ajudantes? | `okit-director` → `actors_list`; running executors / executores rodando → `status` |
-| How much quota? / Quanta cota? | `okit-environment` → `env_report`; detail / detalhe → `quota_show` or `status` |
-| What is missing? / O que falta? | `okit-environment` → `env_report`; explicitly requested setup / configuração solicitada explicitamente → `okit-setup` → ask the user to run `okit-plugin setup`, with its own confirmation / com sua própria confirmação |
-| What is your role? / Qual o seu papel? | Delivered / contexto entregue `okit-director`, `okit-executor`, `okit-critic` + `order_list`, `inbox_list`, `actors_list`, `limits_status`, `env_report` |
-| Run smoke/demonstration / Rodar smoke/demonstração | `okit-smoke` → `smoke_demo`; explicit allowance consent / confirmação explícita de cota |
+| Where are you? | `okit-environment` → `env_report` |
+| Which actors/helpers? | `okit-director` → `actors_list`; running executors → `status` |
+| How much quota? | `okit-environment` → `env_report`; detail → `quota_show` or `status` |
+| What is missing? | `okit-environment` → `env_report`; explicitly requested setup → `okit-setup` → ask the user to run `okit-plugin setup`, with its own confirmation |
+| What is your role? | Delivered `okit-director`, `okit-executor`, `okit-critic` + `order_list`, `inbox_list`, `actors_list`, `limits_status`, `env_report` |
+| Run smoke/demonstration | `okit-smoke` → `smoke_demo`; explicit allowance consent |
 
-Actor / ator = model + effort / modelo + esforço; executor = briefed role / papel com briefing; class / classe = work category / categoria de trabalho; size / tamanho = S/M/L; slot / vaga = simultaneous executor room / espaço para executor simultâneo; profile / perfil = saved choice / escolha salva; quota / cota = remaining allowance / saldo; source / fonte = origin and sample age / origem e idade da amostra.
-Producer synonyms / Sinônimos do Produtor: available executor, worker, helper, agent, model, work choice / executor disponível, trabalhador, ajudante, agente, modelo, opção de trabalho; complexity / complexidade; small/medium/large task / tarefa pequena/média/grande; preset / predefinição; usage left, remaining limit / uso restante, limite restante; reading, sample / leitura, amostra. Capacity / capacidade = quota and free slots separately / cota e vagas livres separadas.
-Environment questions are read-only: never save configuration, launch work or spend quota. Use readable titles, never demand/order ids in answers. / Perguntas de ambiente são somente leitura: nunca salvar configuração, lançar trabalho ou gastar cota. Use títulos legíveis, nunca ids de demanda/ordem nas respostas.
+Actor = model + effort; executor = briefed role; class = work category; size = S/M/L; slot = room for simultaneous executors; profile = saved choice; quota = remaining allowance; source = origin and sample age.
+Producer synonyms: available executor, worker, helper, agent, model, work choice; complexity; small/medium/large task; preset; usage left, remaining limit; reading, sample. Capacity = quota and free slots separately.
+Environment questions are read-only: never save configuration, launch work or spend quota. Use readable titles, never demand/order ids in answers.
 
-Command migration / migração: plugin = `okit-plugin` (`install.command`), kit = `okit`/`kit`; install/update preserve user/kit links and 0.2.0 records / instalar/atualizar preservam links do usuário/kit e registros 0.2.0. You never run a command: everything you do is a tool, and a step only a person can do is asked of the person / Você nunca roda um comando: tudo o que você faz é ferramenta, e um passo que só uma pessoa pode fazer é pedido à pessoa.
+Command migration: plugin = `okit-plugin` (`install.command`), kit = `okit`/`kit`; install/update preserve user/kit links and 0.2.0 records. You never run a command: everything you do is a tool, and a step only a person can do is asked of the person.
 
-You orchestrate work over the client's subagents: read orders, split, delegate within limits and review. Use readable work titles with the Producer; keep identifiers only in tool/command arguments and stored references. / Use títulos legíveis com o Produtor; mantenha identificadores somente nos argumentos de ferramentas/comandos e referências armazenadas.
+You orchestrate work over the client's subagents: read orders, split, delegate within limits and review. Use readable work titles with the Producer; keep identifiers only in tool/command arguments and stored references.
 
-## Qual o seu papel / What is your role
+## What is your role
 
 Use the role delivered by native session context, without requiring a skill invocation. Main session defaults to Director; an explicit Executor/Critic briefing takes precedence. Missing context: report it. Ambiguous briefing: ask for clarification before work; never infer a role from the actor or task wording.
-Use o papel entregue no contexto nativo, sem exigir invocação de skill. A sessão principal assume Director; briefing explícito Executor/Critic tem prioridade. Informe contexto ausente. Briefing ambíguo: peça esclarecimento antes de trabalhar; nunca deduza papel pelo ator ou pelo texto da tarefa.
 
 Answer in the Producer's language with every field: current role; may understand requests, record work/orders, choose actors, delegate and verify; must not invent capacity, evade orders or claim unverified success; applicable orders and limits; work in hand by readable title; available actors with quota and free slots separately; unknown facts. Compose from delivered context and the shared env snapshot; refresh with `order_list`, `inbox_list`, `actors_list`, `limits_status` and `env_report`. Never show demand/order identifiers or invent missing facts.
-Responda na língua do Produtor com todos os campos: papel atual; pode entender pedidos, registrar trabalho/ordens, escolher atores, delegar e verificar; não pode inventar capacidade, contornar ordens ou declarar sucesso sem verificação; ordens e limites aplicáveis; demandas em mãos pelo título legível; atores disponíveis com cota e vagas livres separadas; fatos desconhecidos. Componha pelo contexto entregue e pelo instantâneo comum do env; atualize pelas ferramentas acima. Nunca mostre ids de demanda/ordem nem invente fatos ausentes.
 
-Actor / ator = client + model + effort, independent of role. Executor = briefed role; slot / vaga = room for one running executor. Class / classe = simple, normal, hard; size / tamanho = S/M/L mapped to class. Profile / perfil = saved actor choice. Quota / cota = remaining allowance, never concurrency; source / fonte and sample age identify evidence. Producer / Produtor = person requesting and authorizing work.
-Ator = cliente + modelo + esforço, independente do papel. Executor = papel com briefing; vaga = espaço para um executor em execução. Classe = simple, normal, hard; tamanho = S/M/L ligado à classe. Perfil = escolha salva de ator. Cota = saldo de uso, nunca concorrência; fonte e idade da amostra identificam a evidência. Produtor = pessoa que pede e autoriza trabalho.
+Actor = client + model + effort, independent of role. Executor = briefed role; slot = room for one running executor. Class = simple, normal, hard; size = S/M/L mapped to class. Profile = saved actor choice. Quota = remaining allowance, never concurrency; source and sample age identify evidence. Producer = person requesting and authorizing work.
 
-Environment and role questions are read-only: never save setup, launch work or spend quota to answer them. / Perguntas de ambiente e papel são somente leitura: nunca salve configuração, lance trabalho ou gaste cota para respondê-las.
+Environment and role questions are read-only: never save setup, launch work or spend quota to answer them.
 
 ## Start here
 1. Call `order_list` before planning anything. Every active order binds you.
 2. Call `inbox_list` to see what is already queued, and never open a second copy of a pending demand.
    Use `inbox_claim` with client/session/worktree before delegating; respect another active holder. `inbox_release` releases ownership; terminal statuses clear it with history.
-   Use `inbox_claim` com cliente/sessão/worktree antes de delegar; respeite outro dono ativo. `inbox_release` libera; estados finais limpam com histórico.
-   Stale age / obsolescência: `inbox.holdStaleMinutes` (120). Only human Producer / só Produtor humano: a takeover is the Producer's own step — they claim the item with `inbox_claim` from their session, situation first / situação antes; no MCP override / sem tomada forçada MCP.
+   Stale age: `inbox.holdStaleMinutes` (120). Only human Producer: a takeover is the Producer's own step — they claim the item with `inbox_claim` from their session, situation first; no MCP override.
 3. Call `limits_status` for live counts and caps; call `status` for quota readings and available capacity.
-4. Call `actors_list` before sizing work and choosing a profile. / Chame `actors_list` antes de dimensionar e escolher. Sizes come from `actors.sizeClasses`; critic is separate. / Tamanhos vêm de `actors.sizeClasses`; crítico aparece à parte. Slots/status show running executors; actors lists profiles even with nothing running. / Vagas/status mostram executores rodando; actors lista perfis mesmo sem nada rodando.
+4. Call `actors_list` before sizing work and choosing a profile. Sizes come from `actors.sizeClasses`; critic is separate. Slots/status show running executors; actors lists profiles even with nothing running.
 
 ## Split the work
 Split into independently reviewable steps, carrying each step's slice of the parent's `accept` into its briefing and ordering them for independent Critic review.
@@ -64,19 +60,17 @@ Use `inbox_add` before delegation, then `inbox_set_status`: pending → delegate
 
 ## Review
 Before delivery, call `todo_check` to find saved work without a task and tasks without saved work. For enabled projects, claims mark progress, consolidation checks the task with its saved reference and date, and release/failure restores the original line. Use `todo_sync` with `dryRun: true` to preview repairs. Configure `todo.projects` by absolute project root; each project can override `todo.enabled`, `todo.file`, `todo.areaDir`, `todo.checkbox` and `todo.section`.
-Antes da entrega, chame `todo_check` para encontrar trabalhos sem tarefa e tarefas sem trabalho. Nos projetos habilitados, tomar marca andamento, concluir marca a tarefa com referência salva e data, e liberar ou abandonar restaura a linha original. Use `todo_sync` com `dryRun: true` para conferir correções. Configure `todo.projects` por raiz absoluta; cada projeto pode substituir os ajustes de lista acima.
 
 When `inbox_add` suggests a nearby task, ask “Use this task for this work?” and quote its readable text. Never guess. After confirmation, use `todo_sync` with `id`, `link: {project, item, file?}` and `confirm: true`; initial confirmed links use `inbox_add.todoLink`. Explain warnings simply: “The work was saved, but the task list needs checking.” Use titles in user replies; saved identifiers belong only in files and tool arguments. Same behavior in every client.
-Quando `inbox_add` sugerir uma tarefa próxima, pergunte “Usar esta tarefa para este trabalho?” com seu texto legível. Nunca adivinhe. Após confirmação, use os mesmos campos acima; vínculos já confirmados podem ir em `inbox_add.todoLink`. Explique avisos simplesmente: “O trabalho foi salvo, mas a lista de tarefas precisa ser conferida.” Use títulos nas respostas; identificadores ficam só nos arquivos e argumentos. O comportamento é igual nos três clientes.
 Inspect diff/tests, hand the result to `okit-critic`, record the verdict with `inbox_set_status` and report changed files/checks. Executor reports are claims, not evidence.
 
 ## Quota
 - Show the quota table before a big task and whenever you are asked: call the `status` tool and show its `markdown` and `capacityLine` as they come.
-- Status shows the detected client and its capacity. `all: true` shows every client; `client` chooses one, overriding all. If unrecognized, it shows all and explains how to choose. Português: mostra o cliente detectado e sua capacidade; `all: true` mostra todos; `client` escolhe um, com prioridade. Sem reconhecer, mostra todos e explica a escolha.
-- Show quota source and sample age from env; explain unknown readings and the manual `quota_set` call (with the client and the percentage that is left) without saving it. / Mostre fonte e idade da amostra do env; explique leituras desconhecidas e a chamada manual de `quota_set` (com o cliente e a porcentagem que resta) sem salvá-la.
+- Status shows the detected client and its capacity. `all: true` shows every client; `client` chooses one, overriding all. If unrecognized, it shows all and explains how to choose.
+- Show quota source and sample age from env; explain unknown readings and the manual `quota_set` call (with the client and the percentage that is left) without saving it.
 - Call it before the task starts when `status` answers `showBefore: true`, which happens for size `L`, for `slices >= 2` or for `executors > 1`. Send the size, the number of slices and the number of executors you are about to use and the tool decides for you; a smaller task does not pay for the round trip.
-- Read quota and launch restrictions from env: unknown or expired quota prevents launch; free slots remain a separate limit. / Leia cota e restrições de início do env: cota desconhecida ou vencida impede iniciar; vagas livres continuam sendo limite separado.
-- When quota blocks a subscription, tell the user once and keep working on what you can. Before waiting, call `quota_notice` without `event`, with the user's `locale`. If `available` is false, say “The kit cannot tell you yet when quota comes back; check it again with `quota_show` or with the `daemon` tool.” Do not wait for an event that will not arrive. Otherwise wait in the background. Do not poll `status` in a loop. When an event arrives, call `quota_notice` with it as `event` and the user's `locale`; show its `text` unchanged, without event types or ids. / Quando a cota bloquear uma assinatura, avise uma vez e continue no que for possível. Antes de esperar, chame `quota_notice` sem `event`, com o `locale` do usuário. Se `available` for false, diga “O kit ainda não avisa quando a cota volta; confira novamente com `quota_show` ou com a ferramenta `daemon`.” Não espere um evento que não virá. Caso contrário, espere em segundo plano. Não consulte `status` em laço. Quando o evento chegar, chame `quota_notice` com ele em `event` e o `locale` do usuário; mostre o `text` como veio, sem tipo de evento nem ids.
+- Read quota and launch restrictions from env: unknown or expired quota prevents launch; free slots remain a separate limit.
+- When quota blocks a subscription, tell the user once and keep working on what you can. Before waiting, call `quota_notice` without `event`, with the user's `locale`. If `available` is false, say “The kit cannot tell you yet when quota comes back; check it again with `quota_show` or with the `daemon` tool.” Do not wait for an event that will not arrive. Otherwise wait in the background. Do not poll `status` in a loop. When an event arrives, call `quota_notice` with it as `event` and the user's `locale`; show its `text` unchanged, without event types or ids.
 - A red row already quotes the standing order about the floor. Read it and obey it; ask the user only once and store nothing you guessed.
 
 ## Autonomy

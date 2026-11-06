@@ -23,28 +23,60 @@ assert.ok(TOOLS.size > 0, 'the server publishes its tools');
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
 const OLD_CLI = /\bkit\s+(?:daemon|autostart|status|inbox|smoke|client-smoke|hook)\b/;
 
+const PORTUGUESE_TEXT = /[\u00e1\u00e0\u00e2\u00e3\u00e9\u00ea\u00ed\u00f3\u00f4\u00f5\u00fa\u00e7\u00c1\u00c9\u00cd\u00d3\u00da\u00c7]|\b(?:nao|voce|uma|para o|sessao|teste|cota|ajudante|ajudantes|configuracao|disponivel|obrigado|como|ordem)\b/i;
+
+// | Corpus | Must pass | Must refuse |
+// | English and locale identifiers | English text, pt-BR | - |
+// | Portuguese text | - | accented text, unaccented request words |
+test('the scoped language check accepts English and refuses Portuguese samples', () => {
+  for (const text of ['Show a demonstration', 'Use pt-BR for runtime localization']) {
+    assert.doesNotMatch(text, PORTUGUESE_TEXT);
+  }
+  for (const text of ['\u00e1', '\u00e7', 'nao', 'voce', 'uma', 'para o', 'sessao', 'teste',
+    'cota', 'ajudante', 'ajudantes', 'configuracao', 'disponivel', 'obrigado', 'como', 'ordem']) {
+    assert.match(text, PORTUGUESE_TEXT);
+  }
+});
+
+test('scoped skills, adapters and scripts stay English', async () => {
+  const root = fileURLToPath(new URL('../', import.meta.url));
+  async function check(path) {
+    const text = await readFile(join(root, path), 'utf8');
+    for (const [index, line] of text.split('\n').entries()) {
+      assert.doesNotMatch(line, PORTUGUESE_TEXT, `${path}:${index + 1}: ${line}`);
+    }
+  }
+  async function walk(folder) {
+    for (const entry of await readdir(join(root, folder), { withFileTypes: true })) {
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) await walk(path);
+      else if (!/^README/i.test(entry.name) && !entry.name.includes('.pt-BR.')) await check(path);
+    }
+  }
+  for (const folder of EXPECTED_SKILLS) await check(join('skills', folder, 'SKILL.md'));
+  await walk('adapters');
+  await walk('scripts');
+});
+
 // | Input | Must pass | Must refuse |
-// | bilingual demo requests | smoke skill, preview and bound consent | automatic spending |
-test('demonstration requests route to the smoke skill in both languages', async () => {
+// | English demo requests | smoke skill, preview and bound consent | automatic spending |
+test('English demonstration requests route to the smoke skill', async () => {
   const smoke = await readSkill('okit-smoke'), director = await readSkill('okit-director');
-  for (const phrase of ['show a demonstration', 'run a real test', 'mostre uma demonstração', 'faça um teste de verdade']) {
+  for (const phrase of ['show a demonstration', 'run a real test']) {
     assert.ok(smoke.fields.description.includes(phrase), phrase);
     assert.ok(director.body.toLowerCase().includes(phrase), phrase);
   }
   for (const term of ['smoke_demo', 'planHash', 'Never approve automatically', 'measured usage']) assert.ok(smoke.body.includes(term));
 });
 
-test('all six skills share bilingual routing, glossary and read-only boundaries', async () => {
+test('all six skills share English routing, glossary and read-only boundaries', async () => {
   for (const name of EXPECTED_SKILLS) {
     const { body } = await readSkill(name);
-    for (const phrase of ['Where are you?', 'Onde você está?', 'Which actors/helpers?',
-      'Quais atores/ajudantes?', 'How much quota?', 'Quanta cota?', 'What is missing?',
-      'O que falta?', 'What is your role?', 'Qual o seu papel?', 'Run smoke/demonstration',
-      'Rodar smoke/demonstração', 'with its own confirmation', 'com sua própria confirmação',
-      'never save configuration, launch work or spend quota', 'somente leitura',
-      'Actor / ator', 'executor', 'class / classe', 'size / tamanho', 'slot / vaga',
-      'profile / perfil', 'quota / cota', 'source / fonte', 'worker', 'ajudante',
-      'remaining limit', 'limite restante', 'sample', 'amostra']) assert.ok(body.includes(phrase), `${name}: ${phrase}`);
+    for (const phrase of ['Where are you?', 'Which actors/helpers?', 'How much quota?',
+      'What is missing?', 'What is your role?', 'Run smoke/demonstration',
+      'with its own confirmation', 'never save configuration, launch work or spend quota',
+      'Actor =', 'executor', 'class =', 'size =', 'slot =', 'profile =', 'quota =',
+      'source =', 'worker', 'remaining limit', 'sample']) assert.ok(body.includes(phrase), `${name}: ${phrase}`);
     for (const [question, routes] of [
       ['Where are you?', ['okit-environment', 'env_report']],
       ['Which actors/helpers?', ['okit-director', 'actors_list', 'status']],
@@ -69,7 +101,7 @@ test('actor routing preserves skill triggers and executor boundaries', async () 
   for (const [name, trigger] of Object.entries(triggers)) {
     const { fields } = await readSkill(name);
     assert.ok(fields.description.startsWith(`${trigger} `));
-    assert.ok(fields.description.includes('atores, executores, actors, executors, modelos, quem pode rodar, lista de executores.'));
+    assert.ok(fields.description.includes('actors, executors.'));
     assert.ok(fields.description.endsWith('An actor is a model + effort available in a client.'));
   }
   const { body } = await readSkill('okit-executor');
@@ -81,12 +113,10 @@ test('actor routing preserves skill triggers and executor boundaries', async () 
   assert.ok(source.trimEnd().endsWith('- Stop at the edge of the step. Merging, pushing, opening a pull request or editing an order happens only when the briefing says so.'));
 });
 
-test('Director requires readable work titles and internal-only identifiers in both languages', async () => {
+test('Director requires readable work titles and internal-only identifiers', async () => {
   const { body } = await readSkill('okit-director');
   assert.match(body, /readable work titles with the Producer/);
-  assert.match(body, /títulos legíveis com o Produtor/);
   assert.match(body, /identifiers only in tool\/command arguments/);
-  assert.match(body, /identificadores somente nos argumentos de ferramentas\/comandos/);
 });
 
 function fail(message) {
@@ -339,18 +369,16 @@ test('installSkillFiles never overwrites a file the user changed', async (t) => 
   assert.deepEqual(result.written, ['refs/extra.md']);
 });
 
-test('environment skill routes bilingual questions to the report and explains remedies', async () => {
+test('environment skill routes English questions to the report and explains remedies', async () => {
   const { fields, body } = await readSkill('okit-environment');
-  for (const trigger of ['where you are', 'what you have here', 'which environment',
-    'onde você está', 'o que você tem aqui', 'qual ambiente']) assert.ok(fields.description.includes(trigger));
+  for (const trigger of ['where you are', 'what you have here', 'which environment']) assert.ok(fields.description.includes(trigger));
   assert.match(body, /env_report/);
   assert.match(body, /language` is used automatically/);
   assert.match(body, /config_set/);
   assert.match(body, /pt-BR/);
   assert.match(body, /`locale` only to choose another language for one call/);
   assert.match(body, /each missing item/);
-  assert.match(body, /cada item que falta/);
-  assert.match(body, /o que corrige/);
+  assert.match(body, /what fixes it/);
   // The report is a tool: the skill never tells the model to run a command.
   assert.doesNotMatch(body, /okit-plugin env report/);
   assert.doesNotMatch(body, /CLAUDE_PLUGIN_ROOT/);

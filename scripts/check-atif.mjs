@@ -31,7 +31,7 @@ function generator(seed) {
   const costs = [0, 0.01, 2.5, -0.5, '1', null, undefined, NaN, {}];
   const versions = [undefined, null, 7, 1.5, '', '1.2.3', {}, ['x'], true];
   const huge = 'lorem '.repeat(40000);
-  const messages = ['', 'Hello', 'Olá, ação ✓ 日本語', null, undefined, 5, { text: 'json' }, ['a'], true,
+  const messages = ['', 'Hello', 'Ol\u00e1, a\u00e7\u00e3o \u2713 \u65e5\u672c\u8a9e', null, undefined, 5, { text: 'json' }, ['a'], true,
     '-----BEGIN PRIVATE KEY-----\n'.repeat(500)];
   const ids = ['a', 'b', 'c', 'call-1', 'call-2-1', null, undefined, '', '  ', 7];
   const args = [{ path: 'a' }, '{"x":1}', 'plain', null, undefined, [], 7, '[]', {}];

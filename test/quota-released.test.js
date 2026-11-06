@@ -148,13 +148,9 @@ test('invalid quota_notice events are refused in the requested language', async 
 test('the Director probes without an event before waiting and explains the quota fallback', async () => {
   const skill = await readFile(new URL('../skills/okit-director/SKILL.md', import.meta.url), 'utf8');
   assert.match(skill, /Before waiting, call `quota_notice` without `event`, with the user's `locale`/);
-  assert.match(skill, /Antes de esperar, chame `quota_notice` sem `event`, com o `locale` do usuário/);
   assert.match(skill, /If `available` is false, say “The kit cannot tell you yet when quota comes back/);
-  assert.match(skill, /Se `available` for false, diga “O kit ainda não avisa quando a cota volta/);
   for (const tool of ['quota_show', 'daemon']) assert.ok(skill.includes(`\`${tool}\``));
   assert.match(skill, /Do not wait for an event that will not arrive/);
-  assert.match(skill, /Não espere um evento que não virá/);
   assert.ok(skill.indexOf('Before waiting, call') < skill.indexOf('When an event arrives, call'));
   assert.match(skill, /Do not poll/);
-  assert.match(skill, /Não consulte/);
 });
