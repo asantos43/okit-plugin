@@ -98,7 +98,7 @@ test('unknown client and disabled profiles give actionable explanations', async 
     const result = await listActors({ ...deps, profiles: {}, client: 'codex', locale });
     assert.equal(result.actors.length, 0);
     assert.deepEqual(result.notes, [messages.empty.replace('{client}', 'codex')]);
-    assert.match(messages.empty, locale === 'en' ? /Check the profiles in the plugin configuration/ : /Confira os perfis na configuração do plugin/);
+    assert.match(messages.empty, locale === 'en' ? /Check the profiles in the plugin configuration/ : /Confira os perfis na configuração do plugin/); // locale:pt-BR
     assert.doesNotMatch(JSON.stringify(messages), /D50|O30|Producer|Produtor/);
     assert.doesNotMatch(result.markdown, /D50|O30|Producer|Produtor/);
   }
@@ -106,7 +106,7 @@ test('unknown client and disabled profiles give actionable explanations', async 
 
 test('actors descriptions provide Portuguese configuration and one bilingual MCP listing', () => {
   const messages = DEFAULT_CONFIG.actors.messages;
-  assert.match(messages['pt-BR'].description, /Somente leitura: atores.*modelo \+ esforço/);
+  assert.match(messages['pt-BR'].description, /Somente leitura: atores.*modelo \+ esforço/); // locale:pt-BR
   assert.doesNotMatch(messages['pt-BR'].description, /Read-only|actors|executors|remedies/);
   assert.equal(TOOLS.find((tool) => tool.name === 'actors_list').description, messages.en.description);
 });

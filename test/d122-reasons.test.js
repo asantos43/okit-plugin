@@ -33,7 +33,7 @@ import { readySnapshot } from './helpers/ready-snapshot.js';
 // same as before, byte for byte.
 //
 // | case | must pass | must refuse |
-// | a known reason, in pt-BR | 'permissão negada' | the English reason in the same text |
+// | a known reason, in pt-BR | 'permissão negada' | the English reason in the same text | // locale:pt-BR
 // | the same reason, in en | 'permission denied' | the Portuguese reason |
 // | a system error that is not a reason | the text of the system | a translation of it |
 //
@@ -45,7 +45,7 @@ const CONFIG = installConfig({});
 const RECORD = { client: 'claude-code', path: join('/opt', 'okit-plugin', '1.0.0-claude-code') };
 const REPO = fileURLToPath(new URL('../', import.meta.url));
 const DENIED = 'permission denied';
-const PT = 'permissão negada';
+const PT = 'permissão negada'; // locale:pt-BR
 const ADAPTERS = [{ CLIENT: 'codex',
   listModels: async () => ({ client: 'codex', installed: true, models: ['sol', 'astra'], source: 'listing' }) }];
 /** The process of the probe of the MCP server (the one of the installation, never the shell of a check). */
@@ -214,7 +214,7 @@ test('a system error that is not a reason stays as the system said it', async ()
     const result = await registerMcp(RECORD, { config: CONFIG, ui,
       run: async () => { throw new Error('spawn claude ENOENT'); } }, 'install');
     assert.ok(result.detail.includes('spawn claude ENOENT'), result.detail);
-    assert.ok(!result.detail.includes('permissão'), result.detail);
+    assert.ok(!result.detail.includes('permissão'), result.detail); // locale:pt-BR
   }
 });
 
@@ -222,7 +222,7 @@ test('the offer of the two languages tells the reason in the language of each si
   const text = await withRoot(async (root) => offerText('both', root,
     async () => { throw new Error(DENIED); }));
   assert.ok(text.includes(`Setup could not run: ${DENIED}.`), text);
-  assert.ok(text.includes(`O setup não pôde rodar: ${PT}.`), text);
+  assert.ok(text.includes(`O setup não pôde rodar: ${PT}.`), text); // locale:pt-BR
 });
 
 // The demo with helpers of its own: the snapshot of the client, the executor and the critic that answer as the
@@ -263,7 +263,7 @@ test('the demo says the ceiling of the real ledger in the language of the run', 
     const result = await runDemo({ ...world, locale });
     const text = demoText(result, locale);
     if (locale === 'pt-BR') {
-      assert.ok(text.includes('teto de orçamento ou de voltas'), text);
+      assert.ok(text.includes('teto de orçamento ou de voltas'), text); // locale:pt-BR
       assert.ok(!text.includes('budget or turn ceiling'), text);
     } else {
       assert.ok(text.includes('budget or turn ceiling'), text);
@@ -295,7 +295,7 @@ test('the demo says that the executor did not finish in the language of the run'
     const result = await runDemo({ ...world, locale });
     const text = demoText(result, locale);
     if (locale === 'pt-BR') {
-      assert.ok(text.includes('o executor não completou'), text);
+      assert.ok(text.includes('o executor não completou'), text); // locale:pt-BR
       assert.ok(!text.includes('executor did not complete'), text);
     } else {
       assert.ok(text.includes('executor did not complete'), text);
@@ -304,18 +304,18 @@ test('the demo says that the executor did not finish in the language of the run'
 });
 
 test('the demo says the failure of the helper in the language of the run, not the whole bilingual phrase', async () => {
-  const phrase = 'The helper exceeded the text allowance. / O ajudante ultrapassou o limite de texto.';
+  const phrase = 'The helper exceeded the text allowance. / O ajudante ultrapassou o limite de texto.'; // locale:pt-BR
   for (const locale of ['en', 'pt-BR']) {
     // The real driver: the helper answers with the failure it raised.
     const world = demoWorld({ run: async () => { throw new Error(phrase); } });
     const result = await runDemo({ ...world, locale });
     const text = demoText(result, locale);
     if (locale === 'pt-BR') {
-      assert.ok(text.includes('O ajudante ultrapassou o limite de texto.'), text);
+      assert.ok(text.includes('O ajudante ultrapassou o limite de texto.'), text); // locale:pt-BR
       assert.ok(!text.includes('The helper exceeded the text allowance'), text);
     } else {
       assert.ok(text.includes('The helper exceeded the text allowance.'), text);
-      assert.ok(!text.includes('O ajudante ultrapassou o limite de texto'), text);
+      assert.ok(!text.includes('O ajudante ultrapassou o limite de texto'), text); // locale:pt-BR
     }
   }
 });
@@ -370,7 +370,7 @@ test('translating a reason twice gives the same text, and a text the catalog doe
 test('a name that begins with "invalid" is not a reason and stays as it was raised', () => {
   for (const text of ['Invalid JSON in invalid settings.json', 'Unknown client invalid bob', 'invalid settings.json']) {
     const translated = localizeReason(text, 'pt-BR');
-    assert.ok(!translated.includes('valor inválido'), `${text}: ${translated}`);
+    assert.ok(!translated.includes('valor inválido'), `${text}: ${translated}`); // locale:pt-BR
     assert.ok(translated.includes('invalid'), `${text}: ${translated}`);
     assert.equal(localizeReason(translated, 'pt-BR'), translated, `${text}: translating twice changes the text`);
     assert.equal(localizeReason(text, 'en'), text);
@@ -385,7 +385,7 @@ test('a name that begins with "invalid" is not a reason and stays as it was rais
 test('the reason behind a label of the demo is told only when the catalog knows that exact text', () => {
   // The catalog knows the phrase: it is told in the language of the run.
   const known = localizeReason('narration: budget or turn ceiling', 'pt-BR');
-  assert.ok(known.includes('teto de orçamento ou de voltas'), known);
+  assert.ok(known.includes('teto de orçamento ou de voltas'), known); // locale:pt-BR
   assert.ok(!known.includes('budget or turn ceiling'), known);
   // The text behind the label is a name and a message of the system: the name stays as it was raised, byte for byte,
   // and the message of the system is told when it is an exact phrase of the catalog.
@@ -419,7 +419,7 @@ test('the rule of the path that could not be read takes only a prefix with the s
 test('a reason inside a reason is told when it is one of the exact phrases of the catalog', () => {
   // The capture is a whole reason of the catalog: both parts are said in the language of the run.
   const reason = 'Invalid --from package: Missing CLI';
-  assert.equal(localizeReason(reason, 'pt-BR'), 'Pacote de --from inválido: CLI ausente');
+  assert.equal(localizeReason(reason, 'pt-BR'), 'Pacote de --from inválido: CLI ausente'); // locale:pt-BR
   assert.equal(localizeReason(reason, 'en'), reason);
 });
 
@@ -466,7 +466,7 @@ test('the demo says the refusal of a symlink in the language of the run', async 
     assert.ok(result.reasons.includes('unsafe symlink'), result.reasons.join(' | '));
     const text = reportText(result, locale);
     if (locale === 'pt-BR') {
-      assert.ok(text.includes('link simbólico inseguro'), text);
+      assert.ok(text.includes('link simbólico inseguro'), text); // locale:pt-BR
       assert.ok(!text.includes('unsafe symlink'), text);
     } else {
       assert.ok(text.includes('unsafe symlink'), text);
@@ -508,7 +508,7 @@ test('a name of a client that is not a reason stays as it was raised', async (t)
   assert.equal(result.code, 2);
   const text = lines.join('\n');
   assert.ok(text.includes('invalid maxUsd'), text);
-  assert.ok(!text.includes('valor inválido'), text);
+  assert.ok(!text.includes('valor inválido'), text); // locale:pt-BR
 });
 
 test('the name of a file that is not a reason stays as it was raised', async (t) => {
@@ -520,11 +520,11 @@ test('the name of a file that is not a reason stays as it was raised', async (t)
   await assert.rejects(readJson(file, null), (error) => {
     const shown = localizeReason(error.message, 'pt-BR');
     assert.ok(shown.includes('invalid maxUsd'), shown);
-    assert.ok(!shown.includes('valor inválido'), shown);
+    assert.ok(!shown.includes('valor inválido'), shown); // locale:pt-BR
     return true;
   });
   // The same refusal with the name of the file alone (the message of the critic).
-  assert.equal(localizeReason('Invalid JSON in invalid maxUsd', 'pt-BR'), 'JSON inválido em invalid maxUsd');
+  assert.equal(localizeReason('Invalid JSON in invalid maxUsd', 'pt-BR'), 'JSON inválido em invalid maxUsd'); // locale:pt-BR
 });
 
 // The rule of a refusal of a setting is fixed text of the catalog (the rule of the schema, with the values of the node
@@ -537,11 +537,11 @@ test('the name of a file that is not a reason stays as it was raised', async (t)
 // | every rule the schema can name | the phrase in the table | a phrase missing from it |
 test('the rule of a refused setting is told in the language of the run', () => {
   const reason = 'Invalid install.kit.executables: a non-empty list of a name without slashes';
-  assert.equal(localizeReason(reason, 'pt-BR'), 'install.kit.executables inválido: uma lista não vazia de um nome sem barras');
+  assert.equal(localizeReason(reason, 'pt-BR'), 'install.kit.executables inválido: uma lista não vazia de um nome sem barras'); // locale:pt-BR
   assert.equal(localizeReason(reason, 'en'), reason);
   // The name of the person is not a rule: it stays as it was raised, byte for byte.
   const name = 'Invalid install.kit.executables: the name of the person';
-  assert.equal(localizeReason(name, 'pt-BR'), 'install.kit.executables inválido: the name of the person');
+  assert.equal(localizeReason(name, 'pt-BR'), 'install.kit.executables inválido: the name of the person'); // locale:pt-BR
   assert.equal(localizeReason(name, 'en'), name);
 });
 

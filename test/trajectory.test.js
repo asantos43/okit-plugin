@@ -153,18 +153,18 @@ test('show and export through the core and the MCP retain step details and expla
   const root = await rootOf(t, {});
   await save(root, claude(claudeFixture, context));
   const summary = await show(root, 'attempt-1');
-  assert.match(summary, /Stopped at step \/ Parou no passo: 1/);
-  assert.match(summary, /Failed tool \/ Ferramenta que falhou: read_file/);
-  assert.match(summary, /Tokens in \/ entrada: 12/);
+  assert.match(summary, /Stopped at step: 1/);
+  assert.match(summary, /Failed tool: read_file/);
+  assert.match(summary, /Tokens in: 12/);
   const listed = await list(root);
   assert.ok(listed.some((entry) => entry.session_id === 'attempt-1'), 'the saved run must be listed');
   const exported = await exportTrajectory(root, 'attempt-1');
   assert.equal(exported.agent.model_name, 'example-model');
   const state = await status(root);
   assert.equal(typeof state.enabled, 'boolean');
-  assert.match(state.what, /somente neste computador/);
+  assert.match(state.what, /on this computer only/);
   assert.deepEqual(await prune(root), { removed: 0 });
-  assert.match(await configure(root, true), /somente neste computador/);
+  assert.match(await configure(root, true), /on this computer only/);
   const tool = TOOLS.find(item => item.name === 'trajectory_show');
   assert.equal(JSON.parse(await tool.handler({ run: 'attempt-1' }, { root })), summary);
   await assert.rejects(exportTrajectory(root, '../config'));
@@ -231,7 +231,7 @@ test('export and show refuse oversized saved files even when their JSON is valid
   await writeFile(file, oversized);
   for (const reader of [exportTrajectory, show]) {
     await assert.rejects(reader(root, context.session_id),
-      /^Error: Saved run exceeds limit \/ Execução salva excede o limite$/);
+      /^Error: Saved run exceeds limit$/);
   }
 });
 test('recording limits accept positive values and refuse zero with a bilingual error', async t => {
@@ -239,7 +239,7 @@ test('recording limits accept positive values and refuse zero with a bilingual e
     const validRoot = await rootOf(t, { [key]: 1 });
     assert.equal((await settings(validRoot))[key], 1);
     const invalidRoot = await rootOf(t, { [key]: 0 });
-    await assert.rejects(settings(invalidRoot), /^Error: Invalid recording settings \/ Ajustes de gravação inválidos$/);
+    await assert.rejects(settings(invalidRoot), /^Error: Invalid recording settings$/);
     assert.deepEqual(await readdir(invalidRoot), ['config.json']);
   }
 });
@@ -259,7 +259,7 @@ test('process close records the transcript and links the critic to its executor 
   assert.equal(data?.agent.extra.critic_of, 'executor-1');
   assert.equal(data.agent.extra.role, 'critic');
   assert.equal(data.final_metrics.total_prompt_tokens, 12);
-  assert.match(data.steps.at(-1).message, /Código de saída: 1/);
+  assert.match(data.steps.at(-1).message, /Exit code: 1/);
 });
 test('smoke attempts save both roles and link the reviewed executor', async t => {
   const root = await rootOf(t, {}), client = 'codex';

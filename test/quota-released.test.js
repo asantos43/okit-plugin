@@ -68,7 +68,7 @@ test('ignoring the event fails: no event or another kind of event is never repor
       assert.equal(notice.available, false);
       assert.equal(notice.released, false);
       assert.doesNotMatch(notice.text, locale === 'en' ? /is back/ : /voltou/);
-      assert.match(notice.text, locale === 'en' ? /not available/ : /não está disponível/);
+      assert.match(notice.text, locale === 'en' ? /not available/ : /não está disponível/); // locale:pt-BR
     }
   }
 });
@@ -124,7 +124,7 @@ test('the quota_notice tool says the notice is not available when the kit sent n
     const answer = await callTool(args);
     assert.equal(answer.available, false);
     assert.equal(answer.released, false);
-    assert.match(answer.text, /not available|não está disponível/);
+    assert.match(answer.text, /not available|não está disponível/); // locale:pt-BR
   }
 });
 
@@ -138,7 +138,7 @@ test('invalid quota_notice events are refused in the requested language', async 
   for (const event of ['quota.released', [], 3]) {
     for (const [locale, message] of [
       ['en', 'quota_notice: event must be an object when given'],
-      ['pt-BR', 'quota_notice: o evento deve ser um objeto quando informado'],
+      ['pt-BR', 'quota_notice: o evento deve ser um objeto quando informado'], // locale:pt-BR
     ]) {
       await assert.rejects(() => callTool({ event, locale }), { name: 'TypeError', message });
     }

@@ -13,8 +13,8 @@ export * from './install/present.js';
 export const presentAccount = (row, locale) => [row.client, row.id, row.label, row.configDir ?? 'default',
   loginWord(row.login, locale)].join('\t');
 export const accountChanged = (action, locale) => action === 'remove'
-  ? (locale === 'pt-BR' ? 'Conta removida da configuração. A pasta e o login permanecem.' : 'Account removed from configuration. The folder and login remain.')
-  : (locale === 'pt-BR' ? 'Conta renomeada. O id e o histórico permanecem.' : 'Account renamed. The id and history remain.');
+  ? (locale === 'pt-BR' ? 'Conta removida da configuração. A pasta e o login permanecem.' : 'Account removed from configuration. The folder and login remain.') // locale:pt-BR
+  : (locale === 'pt-BR' ? 'Conta renomeada. O id e o histórico permanecem.' : 'Account renamed. The id and history remain.'); // locale:pt-BR
 
 export function accountInstructions(row, { locale, platform, command, root }) {
   const pt = locale === 'pt-BR';
@@ -23,9 +23,9 @@ export function accountInstructions(row, { locale, platform, command, root }) {
   const assignment = (key, value, shell) => shell === 'win32'
     ? `$env:${key}=${powershellLiteral(value)}; ` : `${key}=${quotedWord(value, 'linux')} `;
   const lines = [];
-  if (row.login !== 'logged-in') lines.push(`${pt ? 'O login é manual. Execute' : 'Login is manual. Run'}: ${assignment(variable, row.configDir, platform)}${executable}`);
+  if (row.login !== 'logged-in') lines.push(`${pt ? 'O login é manual. Execute' : 'Login is manual. Run'}: ${assignment(variable, row.configDir, platform)}${executable}`); // locale:pt-BR
   if (row.client === 'claude-code') {
-    lines.push(pt ? 'Na pasta desta conta, registre em settings.json → statusLine (type: command) o comando:'
+    lines.push(pt ? 'Na pasta desta conta, registre em settings.json → statusLine (type: command) o comando:' // locale:pt-BR
       : 'In this account folder, register in settings.json → statusLine (type: command) the command:');
     // Claude runs statusLine commands in a POSIX shell, including Git Bash on Windows.
     lines.push(`${assignment(variable, row.configDir, 'linux')}${assignment('OKWORK_HOME', root, 'linux')}${shownCommand([command, 'statusline-collector'], 'linux')}`);
@@ -52,10 +52,10 @@ export const TEXTS = Object.freeze({ ...BASE_TEXTS,
 const normalizeClientLabel = (name) => name === 'Opencode' ? 'OpenCode' : name;
 export const clientLabel = (name) => normalizeClientLabel(baseClientLabel(name));
 export const commandTitle = (command, locale, action) => `${command} — ${locale === 'pt-BR'
-  ? { setup: 'Configuração', doctor: 'Verificação da instalação' }[action]
+  ? { setup: 'Configuração', doctor: 'Verificação da instalação' }[action] // locale:pt-BR
   : { setup: 'Setup', doctor: 'Installation check' }[action]}`;
 export const catalogFallback = (locale) => locale === 'pt-BR'
-  ? 'Não foi possível ler a lista de modelos; estas opções vêm da lista incluída no plugin.'
+  ? 'Não foi possível ler a lista de modelos; estas opções vêm da lista incluída no plugin.' // locale:pt-BR
   : 'The model list could not be read; these choices come from the built-in list.';
 export function createPresenter(options = {}) {
   const ui = basePresenter(options);
@@ -113,7 +113,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
   const resolve = (line) => resolveTokens(line, (words, { later, program }) => (words.length ? type(words, { later, program }) : program ?? launcher(later)));
   let menu = false, titled = false, pathHint, modelsConfirmed = false;
   const title = () => { if (titled) return; titled = true; emit(`${command} — ${pt
-    ? { install: 'Instalação', update: 'Atualização', uninstall: 'Desinstalação' }[operation]
+    ? { install: 'Instalação', update: 'Atualização', uninstall: 'Desinstalação' }[operation] // locale:pt-BR
     : { install: 'Install', update: 'Update', uninstall: 'Uninstall' }[operation]}`); };
   const original = { ...ui };
   ui.humanOutput = true;
@@ -159,7 +159,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
   ui.explain = (lines) => {
     if (lines[0] === ui.text('clientChoose')) {
       title(); menu = true;
-      emit(pt ? 'Escolha um cliente de programação antes de instalar.' : 'Choose a coding client before installing.');
+      emit(pt ? 'Escolha um cliente de programação antes de instalar.' : 'Choose a coding client before installing.'); // locale:pt-BR
       for (const line of lines.slice(1)) emit(line.trimStart().replace(/^(\d+\. )(\S+)(.*)$/, (_, number, client, state) => {
         offered.push(client);
         return `${number}${clientLabel(client)}${state}`;
@@ -208,22 +208,22 @@ export function createInstallerView({ operation, command, locale, write, verbose
     const doctor = (id) => type(['doctor', ...withClient(id)], { later: true });
     const check = doctor(sole ? ids[0] : undefined);
     // A rollback names its client when the installation holds several, so the others keep their version.
-    const rollbackLine = (id) => `${pt ? 'Volte à versão guardada' : 'Return to the retained version'}${multiple ? ` (${clientLabel(id)})` : ''}: ${type(['update', '--rollback', ...(known.length > 1 ? withClient(id) : [])], { later: true })}`;
+    const rollbackLine = (id) => `${pt ? 'Volte à versão guardada' : 'Return to the retained version'}${multiple ? ` (${clientLabel(id)})` : ''}: ${type(['update', '--rollback', ...(known.length > 1 ? withClient(id) : [])], { later: true })}`; // locale:pt-BR
     const scopes = asked ? [asked] : operation === 'install' ? ids : [undefined];
     const once = new Set();
     const say = (line) => { if (!once.has(line)) { once.add(line); emit(line); } };
     if (menu && !selected) {
       for (const failure of failures.filter(({ reason }) => reason !== ui.text('clientNoTty'))) say(resolve(localizeReason(failure.reason, ui.locale)));
-      for (const id of offered) say(`${pt ? 'Instale para' : 'Install for'} ${clientLabel(id)}: ${replay({ client: id })}`);
+      for (const id of offered) say(`${pt ? 'Instale para' : 'Install for'} ${clientLabel(id)}: ${replay({ client: id })}`); // locale:pt-BR
       return;
     }
     const absent = failures.some(({ reason }) => reason === 'No installation record found' || reason.startsWith('Client not registered:'));
     if (absent && operation !== 'install') {
-      say(pt ? `Nenhuma instalação do plugin encontrada. Nada foi ${operation === 'update' ? 'atualizado' : 'removido'}.`
+      say(pt ? `Nenhuma instalação do plugin encontrada. Nada foi ${operation === 'update' ? 'atualizado' : 'removido'}.` // locale:pt-BR
         : `No plugin installation was found. Nothing was ${operation === 'update' ? 'updated' : 'removed'}.`);
       for (const failure of failures.filter(({ reason }) => reason.startsWith('Client not registered:'))) say(resolve(localizeReason(failure.reason, ui.locale)));
       // Without a client the run was told about, the first install is the one the program asks about; none is guessed.
-      say(operation === 'update' ? `${pt ? 'Instale primeiro' : 'Install first'}: ${type(['install', ...withClient(asked)])}`
+      say(operation === 'update' ? `${pt ? 'Instale primeiro' : 'Install first'}: ${type(['install', ...withClient(asked)])}` // locale:pt-BR
         : `${pt ? 'Confira o estado local' : 'Check the local state'}: ${type(['doctor'])}`);
       return;
     }
@@ -233,9 +233,9 @@ export function createInstallerView({ operation, command, locale, write, verbose
       const failed = ids.filter((id) => ownFailures(id).length);
       const alone = sole && operation === 'install' && ownFailures(ids[0]).some(({ step }) => step === download);
       if (operation === 'install' && multiple && failed.some(unplaced)) {
-        say(ids.every(unplaced) ? (pt ? 'Nenhum cliente foi instalado.' : 'No client was installed.')
-          : (pt ? 'Alguns clientes foram instalados. Outros precisam de atenção.' : 'Some clients were installed. Others need attention.'));
-      } else if (alone) say(pt ? 'Não foi possível baixar a versão. Nada foi instalado.' : 'The release could not be downloaded. Nothing was installed.');
+        say(ids.every(unplaced) ? (pt ? 'Nenhum cliente foi instalado.' : 'No client was installed.') // locale:pt-BR
+          : (pt ? 'Alguns clientes foram instalados. Outros precisam de atenção.' : 'Some clients were installed. Others need attention.')); // locale:pt-BR
+      } else if (alone) say(pt ? 'Não foi possível baixar a versão. Nada foi instalado.' : 'The release could not be downloaded. Nothing was installed.'); // locale:pt-BR
       const causes = new Map();
       // The first failure of each client is its cause; the rows that follow it are told by the notes.
       for (const failure of [...failed.map((id) => ownFailures(id)[0]), ...failures.filter((failure) => !failure.client && !sole)]) {
@@ -256,7 +256,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
       const purging = operation === 'uninstall' && Boolean(options.purge || purge);
       for (const scope of purging ? [asked] : failed.length ? failed : scopes) {
         const stuck = scope && ownFailures(scope).some(({ step }) => step === download);
-        const verb = stuck ? (pt ? 'Confira sua conexão e tente' : 'Check your connection, then retry') : (pt ? 'Tente novamente' : 'Try again');
+        const verb = stuck ? (pt ? 'Confira sua conexão e tente' : 'Check your connection, then retry') : (pt ? 'Tente novamente' : 'Try again'); // locale:pt-BR
         say(`${verb}${multiple && scope ? ` (${clientLabel(scope)})` : ''}: ${replay({ client: scope })}`);
       }
       if (operation === 'update') {
@@ -268,22 +268,22 @@ export function createInstallerView({ operation, command, locale, write, verbose
       return;
     }
     if (dryRun) {
-      say(pt ? 'Somente prévia. Nada mudou.' : 'Preview only. Nothing changed.');
+      say(pt ? 'Somente prévia. Nada mudou.' : 'Preview only. Nothing changed.'); // locale:pt-BR
       renderSteps(say);
       for (const scope of scopes) say(`${pt ? 'Para aplicar' : 'Apply'}${scopes.length > 1 ? ` (${clientLabel(scope)})` : ''}: ${replay({ omit: ['dry-run'], client: scope })}`);
       flushNotes(say);
       return;
     }
     if (operation === 'update' && ids.length && ids.every((id) => stateOf(id)?.current)) {
-      say(pt ? `${names(ids)} ${multiple ? 'estão' : 'está'} em dia. Nada mudou.` : `${names(ids)} ${multiple ? 'are' : 'is'} up to date. Nothing changed.`);
+      say(pt ? `${names(ids)} ${multiple ? 'estão' : 'está'} em dia. Nada mudou.` : `${names(ids)} ${multiple ? 'are' : 'is'} up to date. Nothing changed.`); // locale:pt-BR
       renderSteps(say);
-      say(`${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`);
+      say(`${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`); // locale:pt-BR
       flushNotes(say);
       return;
     }
     if (checkOnly) {
       for (const id of ids.filter((id) => stateOf(id)?.newer)) {
-        say(`${pt ? 'Nova versão disponível' : 'New version available'}${multiple ? ` (${clientLabel(id)})` : ''}: ${headers.find((header) => header.client === clientLabel(id))?.version}`);
+        say(`${pt ? 'Nova versão disponível' : 'New version available'}${multiple ? ` (${clientLabel(id)})` : ''}: ${headers.find((header) => header.client === clientLabel(id))?.version}`); // locale:pt-BR
       }
       for (const scope of scopes) say(`${pt ? 'Para atualizar' : 'Update'}: ${replay({ omit: ['check'], client: scope })}`);
       flushNotes(say);
@@ -292,18 +292,18 @@ export function createInstallerView({ operation, command, locale, write, verbose
     if (operation === 'uninstall') {
       const remaining = Object.keys(after);
       if (remaining.length) {
-        say(pt ? `Integração do ${names(ids)} removida. O comando foi mantido para ${names(remaining)}.`
+        say(pt ? `Integração do ${names(ids)} removida. O comando foi mantido para ${names(remaining)}.` // locale:pt-BR
           : `Removed ${names(ids)} integration. The command is kept for ${names(remaining)}.`);
         // Nothing that runs is left (the command and the CLI of the kept installations are gone): the doctor cannot be
         // started, and the installer of the release puts the command back.
         if (launch.program === null) {
-          for (const id of remaining) say(`${pt ? 'Instale novamente para restaurar o comando' : 'Install again to restore the command'}${remaining.length > 1 ? ` (${clientLabel(id)})` : ''}: ${type(['install', ...withClient(id)])}`);
-        } else say(`${pt ? 'Verifique a instalação restante' : 'Check the remaining installation'}: ${doctor(remaining.length === 1 ? remaining[0] : undefined)}`);
+          for (const id of remaining) say(`${pt ? 'Instale novamente para restaurar o comando' : 'Install again to restore the command'}${remaining.length > 1 ? ` (${clientLabel(id)})` : ''}: ${type(['install', ...withClient(id)])}`); // locale:pt-BR
+        } else say(`${pt ? 'Verifique a instalação restante' : 'Check the remaining installation'}: ${doctor(remaining.length === 1 ? remaining[0] : undefined)}`); // locale:pt-BR
       } else {
         say(pt ? `Plugin removido do ${names(ids)}.${purge ? '' : ' Seus ajustes foram mantidos.'}`
           : `Removed the plugin from ${names(ids)}.${purge ? '' : ' Your settings were kept.'}`);
-        if (purge) say(pt ? 'Os ajustes também foram removidos.' : 'Settings were also removed.');
-        for (const id of ids) say(`${pt ? 'Instale novamente quando precisar' : 'Install again when needed'}${multiple ? ` (${clientLabel(id)})` : ''}: ${type(['install', ...withClient(id)], { later: true })}`);
+        if (purge) say(pt ? 'Os ajustes também foram removidos.' : 'Settings were also removed.'); // locale:pt-BR
+        for (const id of ids) say(`${pt ? 'Instale novamente quando precisar' : 'Install again when needed'}${multiple ? ` (${clientLabel(id)})` : ''}: ${type(['install', ...withClient(id)], { later: true })}`); // locale:pt-BR
       }
       renderSteps(say);
       flushNotes(say);
@@ -312,25 +312,25 @@ export function createInstallerView({ operation, command, locale, write, verbose
     for (const id of ids) {
       const name = clientLabel(id), record = after[id];
       say(operation === 'install'
-        ? (pt ? `Instalado para ${name}.${modelsConfirmed ? '' : ' Falta confirmar os modelos.'}` : `Installed for ${name}.${modelsConfirmed ? '' : ' Model choices still need confirmation.'}`)
-        : stateOf(id)?.current ? (pt ? `${name} está em dia.` : `${name} is up to date.`)
+        ? (pt ? `Instalado para ${name}.${modelsConfirmed ? '' : ' Falta confirmar os modelos.'}` : `Installed for ${name}.${modelsConfirmed ? '' : ' Model choices still need confirmation.'}`) // locale:pt-BR
+        : stateOf(id)?.current ? (pt ? `${name} está em dia.` : `${name} is up to date.`) // locale:pt-BR
           : (pt ? `${name} atualizado de ${before[id]?.version} para ${record?.version}.` : `Updated ${name} from ${before[id]?.version} to ${record?.version}.`));
     }
     renderSteps(say);
     const changed = ids.filter((id) => !stateOf(id)?.current);
     // Not ready to launch executors yet (the models are not confirmed): the next step names the doctor, which tells the gaps.
     const notReady = !modelsConfirmed && !custom;
-    say(operation === 'install' ? `${pt ? 'Próximo' : 'Next'}: ${type(['setup'], { later: true })}${notReady
-      ? (pt ? `; depois rode ${check} para ver se está pronto para lançar executores` : `; then run ${check} to see if you are ready to launch executors`) : ''}`
-      : (pt ? `Próximo: reinicie ${names(changed)} e rode: ${check}` : `Next: restart ${names(changed)}, then run: ${check}`));
+    say(operation === 'install' ? `${pt ? 'Próximo' : 'Next'}: ${type(['setup'], { later: true })}${notReady // locale:pt-BR
+      ? (pt ? `; depois rode ${check} para ver se está pronto para lançar executores` : `; then run ${check} to see if you are ready to launch executors`) : ''}` // locale:pt-BR
+      : (pt ? `Próximo: reinicie ${names(changed)} e rode: ${check}` : `Next: restart ${names(changed)}, then run: ${check}`)); // locale:pt-BR
     // The doctor reads the folder of the settings and takes no folder of its own: for an install into a custom folder
     // the output says where the installation is instead of a check that would look somewhere else.
     if (operation === 'install') {
-      say(custom ? `${pt ? 'Pasta da instalação' : 'Installation folder'}: ${destination ?? options.dest} ${pt ? '(o doctor só lê a pasta dos ajustes)' : '(the doctor reads only the folder of the settings)'}`
-        : `${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`);
+      say(custom ? `${pt ? 'Pasta da instalação' : 'Installation folder'}: ${destination ?? options.dest} ${pt ? '(o doctor só lê a pasta dos ajustes)' : '(the doctor reads only the folder of the settings)'}` // locale:pt-BR
+        : `${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`); // locale:pt-BR
     }
     if (pathHint) {
-      say(pt ? 'PATH é a lista de pastas onde o terminal procura comandos.' : 'PATH is the list of folders your terminal searches for commands.');
+      say(pt ? 'PATH é a lista de pastas onde o terminal procura comandos.' : 'PATH is the list of folders your terminal searches for commands.'); // locale:pt-BR
       say(pathHint);
     }
     if (operation === 'update') for (const id of changed.filter((id) => after[id]?.previous)) say(rollbackLine(id));
@@ -345,7 +345,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
       if (completed && step.status !== 'ok' && !(step.status === 'skipped' && hasCommand(step.detail))) continue;
       const name = step.key === 'register' ? `${pt ? 'Conectar' : 'Connect'} ${step.client}` : step.label;
       const complete = step.status === 'ok' && step.detail !== ui.text('registerMarketplaceManual');
-      const result = complete ? (pt ? 'concluído' : 'complete') : resolve(step.detail || (step.status === 'plan' ? ui.text('stepPlanned') : ''));
+      const result = complete ? (pt ? 'concluído' : 'complete') : resolve(step.detail || (step.status === 'plan' ? ui.text('stepPlanned') : '')); // locale:pt-BR
       const detail = complete && step.detail && !['get', 'local', 'files', 'register'].includes(step.key) ? ` — ${resolve(step.detail)}` : '';
       say(`${index + 1}. ${multiple ? `${step.client} — ` : ''}${name}${result || detail ? `: ${result}${detail}` : ''}`);
     }
@@ -358,23 +358,23 @@ export function createInstallerView({ operation, command, locale, write, verbose
 
 export function presentDiagnosis(result, { ui, command, client, clients, verbose = false, out, program = command, platform = process.platform }) {
   const pt = ui.locale === 'pt-BR';
-  out(`${command} — ${pt ? 'Verificação da instalação' : 'Installation check'}`);
+  out(`${command} — ${pt ? 'Verificação da instalação' : 'Installation check'}`); // locale:pt-BR
   const { failed, warnings } = result;
   if (!failed && !warnings) out(pt
-    ? `Pronto. ${result.rows.length === 1 ? 'A verificação passou' : `As ${result.rows.length} verificações passaram`}.`
+    ? `Pronto. ${result.rows.length === 1 ? 'A verificação passou' : `As ${result.rows.length} verificações passaram`}.` // locale:pt-BR
     : `Ready. ${result.rows.length === 1 ? 'The check passed' : `All ${result.rows.length} checks passed`}.`);
   else {
-    const failures = pt ? `${failed} ${failed === 1 ? 'verificação falhou' : 'verificações falharam'}` : `${failed} failed ${failed === 1 ? 'check' : 'checks'}`;
+    const failures = pt ? `${failed} ${failed === 1 ? 'verificação falhou' : 'verificações falharam'}` : `${failed} failed ${failed === 1 ? 'check' : 'checks'}`; // locale:pt-BR
     const alerts = pt ? `${warnings} ${warnings === 1 ? 'aviso' : 'avisos'}` : `${warnings} ${warnings === 1 ? 'warning' : 'warnings'}`;
-    out(`${pt ? 'Precisa de atenção' : 'Needs attention'}: ${failed ? failures : alerts}${failed && warnings ? `; ${alerts}` : ''}; ${pt ? 'as demais passaram' : 'other checks passed'}.`);
+    out(`${pt ? 'Precisa de atenção' : 'Needs attention'}: ${failed ? failures : alerts}${failed && warnings ? `; ${alerts}` : ''}; ${pt ? 'as demais passaram' : 'other checks passed'}.`); // locale:pt-BR
   }
   const shown = result.rows.filter((row) => !row.quiet || verbose);
   // The rows of a client name it, so two clients are told apart. The labels share one width, so every mark of the run
   // is in the same column.
   const labels = shown.map((row) => row.id === 'registration'
-    ? (pt ? `Conexão com ${clientLabel(row.client)}` : `${clientLabel(row.client)} connection`)
+    ? (pt ? `Conexão com ${clientLabel(row.client)}` : `${clientLabel(row.client)} connection`) // locale:pt-BR
     : (row.client ? `${clientLabel(row.client)}: ${row.accountLabel ? `${row.accountLabel}: ` : ''}${row.label}` : row.label));
-  out(pt ? '| Verificação | Resultado |' : '| Check | Result |');
+  out(pt ? '| Verificação | Resultado |' : '| Check | Result |'); // locale:pt-BR
   out('| --- | --- |');
   const cell = (value) => String(value).replaceAll('|', '\\|').replaceAll('\n', ' ');
   for (const [index, row] of shown.entries()) {
@@ -383,18 +383,18 @@ export function presentDiagnosis(result, { ui, command, client, clients, verbose
   const check = `${program} doctor${client ? ` --client ${quotedWord(client, platform)}` : ''}`;
   const fixes = [...new Set(shown.filter((row) => ['failed', 'warn'].includes(row.status) && row.fix).map((row) => row.fix))];
   for (const fix of fixes) {
-    out(`${pt ? 'Correção' : 'Fix'}: ${fix}`);
+    out(`${pt ? 'Correção' : 'Fix'}: ${fix}`); // locale:pt-BR
     // One verification command is enough when several checks need repair.
   }
-  if (fixes.length) out(`${pt ? 'Depois confira' : 'Then check'}: ${check}`);
+  if (fixes.length) out(`${pt ? 'Depois confira' : 'Then check'}: ${check}`); // locale:pt-BR
   if (shown.some((row) => row.id === 'session' && row.status === 'warn' && !row.fix)) {
     const open = (client ? [client] : clients?.length ? clients : [...new Set(result.rows.map((row) => row.client).filter(Boolean))])
       .map(clientLabel).join(', ');
     // With no client in evidence, none is named.
-    out(pt ? `Nenhuma sessão de cliente aberta. Abra ${open || 'seu cliente'} e rode: ${check}` : `No client session is open. Open ${open || 'your client'}, then run: ${check}`);
+    out(pt ? `Nenhuma sessão de cliente aberta. Abra ${open || 'seu cliente'} e rode: ${check}` : `No client session is open. Open ${open || 'your client'}, then run: ${check}`); // locale:pt-BR
   }
   if (labels.some((label) => /MCP/.test(label)) || shown.some((row) => /MCP/.test(`${row.detail} ${row.fix ?? ''}`))) out(pt
-    ? 'MCP é a conexão usada pelo assistente para chamar ferramentas do plugin.'
+    ? 'MCP é a conexão usada pelo assistente para chamar ferramentas do plugin.' // locale:pt-BR
     : 'MCP is the connection your assistant uses to call plugin tools.');
   if (!fixes.length) out(`${pt ? 'Verifique novamente quando precisar' : 'Check again when needed'}: ${check}`);
   if (result.gaps) out(readyLine(result, ui.locale));
@@ -404,19 +404,19 @@ export async function askNumberedModel({ ask, locale, client, className, candida
   out(`\n${workLabel(className, locale)} — ${clientLabel(client)}`);
   candidates.forEach((model, index) => out(`${index + 1}. ${model}${index === 0 ? (pt ? ' (recomendado)' : ' (recommended)') : ''}`));
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const answer = await ask(pt ? 'Escolha um modelo [1]:' : 'Choose a model [1]:');
+    const answer = await ask(pt ? 'Escolha um modelo [1]:' : 'Choose a model [1]:'); // locale:pt-BR
     if (answer == null) return { cancelled: true };
     const clean = String(answer).trim();
     const index = clean === '' ? 0 : /^[1-9]\d*$/.test(clean) ? Number(clean) - 1 : -1;
     if (candidates[index]) return { value: candidates[index] };
     const options = candidates.map((_, i) => i + 1).join(pt ? ' ou ' : ' or ');
-    out(pt ? `Escolha ${options}.` : `Choose ${options}.`);
+    out(pt ? `Escolha ${options}.` : `Choose ${options}.`); // locale:pt-BR
   }
   return { invalid: true };
 }
 export function workLabel(name, locale) {
   const labels = locale === 'pt-BR'
-    ? { simple: 'Tarefas pequenas', normal: 'Tarefas do dia a dia', hard: 'Tarefas complexas' }
+    ? { simple: 'Tarefas pequenas', normal: 'Tarefas do dia a dia', hard: 'Tarefas complexas' } // locale:pt-BR
     : { simple: 'Small tasks', normal: 'Everyday tasks', hard: 'Complex tasks' };
   return labels[name] ?? name;
 }
@@ -427,7 +427,7 @@ export function workLabel(name, locale) {
  */
 export function setupResultLines(result, locale, command, { doctor = true } = {}) {
   const pt = locale === 'pt-BR';
-  if (result.cancelled) return [pt ? 'Cancelado. Nada foi salvo.' : 'Cancelled. Nothing was saved.',
+  if (result.cancelled) return [pt ? 'Cancelado. Nada foi salvo.' : 'Cancelled. Nothing was saved.', // locale:pt-BR
     pt ? `Tente novamente quando quiser: ${command} setup` : `Try again when ready: ${command} setup`];
   const clients = [...new Set([...result.changes, ...result.skipped].map((entry) => entry.client))];
   const check = `${command} doctor${clients.length === 1 ? ` --client ${clients[0]}` : ''}`;
@@ -443,50 +443,50 @@ export function setupResultLines(result, locale, command, { doctor = true } = {}
     if (result.changes.length) {
       const saved = several ? who(result.changes) : '';
       lines.push(saved
-        ? (pt ? `${result.changes.length} escolhas de modelos salvas: ${saved}.` : `Saved ${result.changes.length} model choices: ${saved}.`)
-        : (pt ? `${result.changes.length} escolhas de modelos salvas para ${clients.map(clientLabel).join(', ')}.`
+        ? (pt ? `${result.changes.length} escolhas de modelos salvas: ${saved}.` : `Saved ${result.changes.length} model choices: ${saved}.`) // locale:pt-BR
+        : (pt ? `${result.changes.length} escolhas de modelos salvas para ${clients.map(clientLabel).join(', ')}.` // locale:pt-BR
           : `Saved ${result.changes.length} model choices for ${clients.map(clientLabel).join(', ')}.`));
     }
     if (result.skipped.length) {
       const already = several ? who(result.skipped) : '';
-      lines.push(already ? (pt ? `Já salvas, sem mudança: ${already}.` : `Already saved, unchanged: ${already}.`)
-        : (pt ? 'Todas as escolhas de modelos já estão salvas. Nada mudou.' : 'All model choices are already saved. Nothing changed.'));
+      lines.push(already ? (pt ? `Já salvas, sem mudança: ${already}.` : `Already saved, unchanged: ${already}.`) // locale:pt-BR
+        : (pt ? 'Todas as escolhas de modelos já estão salvas. Nada mudou.' : 'All model choices are already saved. Nothing changed.')); // locale:pt-BR
     }
     if (kept.length) {
       const newer = who(kept);
-      lines.push(pt ? `As escolhas mais novas foram mantidas${newer ? ` para ${newer}: elas mudaram enquanto você escolhia` : ''}. Confira: MCP config_get {}`
+      lines.push(pt ? `As escolhas mais novas foram mantidas${newer ? ` para ${newer}: elas mudaram enquanto você escolhia` : ''}. Confira: MCP config_get {}` // locale:pt-BR
         : `Newer choices were kept${newer ? ` for ${newer}: they changed while you were choosing` : ''}. Check them: MCP config_get {}`);
     }
     if (omitted.length) {
       const unmatched = several ? who(omitted) : '';
-      lines.push(pt ? `Nenhuma escolha de modelo foi salva${unmatched ? ` para ${unmatched}` : ''}: os modelos ativos não correspondem às escolhas recomendadas.`
+      lines.push(pt ? `Nenhuma escolha de modelo foi salva${unmatched ? ` para ${unmatched}` : ''}: os modelos ativos não correspondem às escolhas recomendadas.` // locale:pt-BR
         : `No model choices were saved${unmatched ? ` for ${unmatched}` : ''}: the active models did not match the recommended choices.`);
     }
     lines.push(...advice);
-    if (result.changes.length) { if (doctor) lines.push(`${pt ? 'Próximo' : 'Next'}: ${check}`); }
+    if (result.changes.length) { if (doctor) lines.push(`${pt ? 'Próximo' : 'Next'}: ${check}`); } // locale:pt-BR
     else if (result.skipped.length) {
-      if (doctor) lines.push(`${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`);
-      lines.push(`${pt ? 'Altere os modelos' : 'Change models'}: ${command} setup --again`);
+      if (doctor) lines.push(`${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`); // locale:pt-BR
+      lines.push(`${pt ? 'Altere os modelos' : 'Change models'}: ${command} setup --again`); // locale:pt-BR
     }
     return lines;
   }
-  return [pt ? 'Nenhum cliente com modelo ativo foi encontrado. Nada foi salvo.' : 'No client with an active model was found. Nothing was saved.',
-    pt ? `Instale ou ative um modelo no seu cliente de programação e rode: ${command} setup` : `Install or enable a model in your coding client, then run: ${command} setup`,
-    `${pt ? 'Confira os clientes disponíveis' : 'Check which clients are available'}: MCP env_report {"locale":"${locale}"}`];
+  return [pt ? 'Nenhum cliente com modelo ativo foi encontrado. Nada foi salvo.' : 'No client with an active model was found. Nothing was saved.', // locale:pt-BR
+    pt ? `Instale ou ative um modelo no seu cliente de programação e rode: ${command} setup` : `Install or enable a model in your coding client, then run: ${command} setup`, // locale:pt-BR
+    `${pt ? 'Confira os clientes disponíveis' : 'Check which clients are available'}: MCP env_report {"locale":"${locale}"}`]; // locale:pt-BR
 }
 
 export function presentModelChoices({ locale, changes, command, out }) {
   const pt = locale === 'pt-BR';
-  out(pt ? '\nEscolhas de modelos' : '\nModel choices');
+  out(pt ? '\nEscolhas de modelos' : '\nModel choices'); // locale:pt-BR
   const several = new Set(changes.map((change) => change.client)).size > 1;
-  out(`| ${several ? `${pt ? 'Cliente' : 'Client'} | ` : ''}${pt ? 'Trabalho | Modelo' : 'Work | Model'} |`);
+  out(`| ${several ? `${pt ? 'Cliente' : 'Client'} | ` : ''}${pt ? 'Trabalho | Modelo' : 'Work | Model'} |`); // locale:pt-BR
   out(`| ${several ? '--- | ' : ''}--- | --- |`);
   for (const change of changes) out(`| ${several ? `${clientLabel(change.client)} | ` : ''}${workLabel(change.class, locale)} | ${change.model} |`);
   out(pt
-    ? `\nAs escolhas valem para trabalhos futuros. Para alterá-las: ${command} setup --again`
+    ? `\nAs escolhas valem para trabalhos futuros. Para alterá-las: ${command} setup --again` // locale:pt-BR
     : `\nThese choices apply to future work. You can change them with: ${command} setup --again`);
-  return pt ? 'Salvar estas escolhas? [s/N]:' : 'Save these choices? [y/N]:';
+  return pt ? 'Salvar estas escolhas? [s/N]:' : 'Save these choices? [y/N]:'; // locale:pt-BR
 }
 export const setupIntroduction = (locale, names) => locale === 'pt-BR'
-  ? `Escolha modelos para ${names}; nada é salvo até sua confirmação.`
+  ? `Escolha modelos para ${names}; nada é salvo até sua confirmação.` // locale:pt-BR
   : `Choose models for ${names}; nothing is saved until you confirm.`;

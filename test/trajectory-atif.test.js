@@ -307,7 +307,7 @@ test('review 10: show and trajectory_show resolve repeated IDs in their own step
   assert.ok(validate(data)); assert.deepEqual(normalize(data), data); await save(root, data);
   const tool = TOOLS.find(item => item.name === 'trajectory_show');
   for (const output of [await show(root, 'atif'), JSON.parse(await tool.handler({ run: 'atif' }, { root }))]) {
-    assert.match(output, /Result \/ Resultado: write: written/);
+    assert.match(output, /Result: write: written/);
   }
 });
 // | Review 9 | Must pass | Must refuse |

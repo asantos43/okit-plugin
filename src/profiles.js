@@ -30,8 +30,8 @@ export const DEFAULT_CONFIG = {
   trajectory: {
     enabled: false, dir: 'trajectory', retentionDays: 7,
     maxBytes: 10 * 1024 * 1024, maxFileBytes: 1024 * 1024,
-    truncationMarker: '[Content shortened / Conteúdo reduzido]',
-    redactionMarker: '[Hidden / Oculto]',
+    truncationMarker: '[Content shortened]',
+    redactionMarker: '[Hidden]',
     redactionPatterns: [
       '(?:sk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]+',
       '(?:Bearer\\s+)[A-Za-z0-9._~+/-]+=*',
@@ -103,16 +103,16 @@ export const DEFAULT_CONFIG = {
         powershell: "$env:Path = {bin} + ';' + $env:Path",
       },
       messages: {
-        link: 'Command link / Link do comando: {value}',
-        existing: 'Already in PATH / Já estava no PATH: {value}',
-        changed: 'PATH updated / PATH atualizado: {value}',
-        manual: 'Add to PATH / Adicione ao PATH: {value}',
-        restart: 'Open a new terminal and restart your AI client. / Abra um terminal novo e reinicie o cliente de IA.',
-        activate: 'To use the command in this terminal, run {value} / Para usar o comando neste terminal, rode {value}',
-        activateTerminal: 'Open a new terminal and the command will work there / Abra um terminal novo e o comando funcionará lá',
-        resolved: 'PATH verification / Verificação do PATH: {value}',
-        missing: 'Command not found / Comando não encontrado', user: 'User environment / Ambiente do usuário',
-        edited: 'Managed PATH block was edited / Bloco de PATH gerenciado foi editado: {value}',
+        link: { en: 'Command link', 'pt-BR': 'Link do comando: {value}' },
+        existing: { en: 'Already in PATH', 'pt-BR': 'Já estava no PATH: {value}' },
+        changed: { en: 'PATH updated', 'pt-BR': 'PATH atualizado: {value}' },
+        manual: { en: 'Add to PATH', 'pt-BR': 'Adicione ao PATH: {value}' },
+        restart: { en: 'Open a new terminal and restart your AI client.', 'pt-BR': 'Abra um terminal novo e reinicie o cliente de IA.' },
+        activate: { en: 'To use the command in this terminal, run {value}', 'pt-BR': 'Para usar o comando neste terminal, rode {value}' },
+        activateTerminal: { en: 'Open a new terminal and the command will work there', 'pt-BR': 'Abra um terminal novo e o comando funcionará lá' },
+        resolved: { en: 'PATH verification', 'pt-BR': 'Verificação do PATH: {value}' },
+        missing: { en: 'Command not found', 'pt-BR': 'Comando não encontrado' }, user: { en: 'User environment', 'pt-BR': 'Ambiente do usuário' },
+        edited: { en: 'Managed PATH block was edited', 'pt-BR': 'Bloco de PATH gerenciado foi editado: {value}' },
       },
     },
     systems: { linux: 'linux', darwin: 'macos', win32: 'windows' },
@@ -191,9 +191,9 @@ export const DEFAULT_CONFIG = {
     },
   },
   profileMessages: {
-    unknownClient: 'Client "{client}" has no default profile. Define the profile in the plugin configuration or use one of the known clients: {clients}. / O cliente "{client}" não tem perfil padrão. Defina o perfil na configuração do plugin ou use um dos clientes conhecidos: {clients}.',
-    unknownClass: 'Unknown profile class "{class}". Use one of: {classes}. / Classe de perfil desconhecida "{class}". Use uma das classes: {classes}.',
-    missingProfile: 'Client "{client}" has no profile for class "{class}". Define it in the plugin configuration. / O cliente "{client}" não tem perfil para a classe "{class}". Defina-o na configuração do plugin.',
+    unknownClient: 'Client "{client}" has no default profile. Define the profile in the plugin configuration or use one of the known clients: {clients}.',
+    unknownClass: 'Unknown profile class "{class}". Use one of: {classes}.',
+    missingProfile: 'Client "{client}" has no profile for class "{class}". Define it in the plugin configuration.',
   },
   // D61: how each client lists the models it offers. The command, its
   // arguments, the deadline, the interpreter of the output and the message of
@@ -216,7 +216,7 @@ export const DEFAULT_CONFIG = {
         // the common prefix of the rest must reach for two names to be of the
         // same family. A different provider is never of the same family.
         family: { separator: '/', minimumPrefix: 5 },
-        notFoundMessage: 'Claude Code was not found on this machine, so the built-in catalog is used. / O Claude Code não foi encontrado nesta máquina, então o catálogo interno é usado.',
+        notFoundMessage: 'Claude Code was not found on this machine, so the built-in catalog is used.',
       },
       codex: {
         // `codex debug models` prints the raw catalog as JSON; `--bundled`
@@ -229,7 +229,7 @@ export const DEFAULT_CONFIG = {
         activeValues: ['list'],
         candidates: [],
         family: { separator: '/', minimumPrefix: 5 },
-        notFoundMessage: 'Codex was not found on this machine, so the built-in catalog is used. / O Codex não foi encontrado nesta máquina, então o catálogo interno é usado.',
+        notFoundMessage: 'Codex was not found on this machine, so the built-in catalog is used.',
       },
       opencode: {
         // `opencode models` prints one `provider/model` per line.
@@ -241,7 +241,7 @@ export const DEFAULT_CONFIG = {
         activeValues: null,
         candidates: [],
         family: { separator: '/', minimumPrefix: 5 },
-        notFoundMessage: 'opencode was not found on this machine, so the built-in catalog is used. / O opencode não foi encontrado nesta máquina, então o catálogo interno é usado.',
+        notFoundMessage: 'opencode was not found on this machine, so the built-in catalog is used.',
       },
     },
   },
@@ -260,7 +260,7 @@ export const DEFAULT_CONFIG = {
         busy: 'All slots are occupied. Wait for a running executor to finish.',
         gap: '{client}: no actor available for {size}; nearest alternative: {alternative}.',
         none: 'none available now; follow the launch remedies or ask the person who maintains okit to set up models',
-        description: 'Read-only actors (model + effort available in a client), sizes, slots, quota and remedies. atores, executores, actors, executors, modelos, quem pode rodar, lista de executores. Somente leitura: ator = modelo + esforço disponível em um cliente; tamanhos, vagas, cota e soluções.',
+        description: 'Read-only actors (model + effort available in a client), sizes, slots, quota and remedies. Actors, executors, models, who can run, list of executors.',
       },
       'pt-BR': {
         columns: ['Cliente', 'Modelo', 'Esforço', 'Tamanhos / papel', 'Vagas livres', 'Cota', 'Pode iniciar', 'Motivo / solução'],
@@ -541,20 +541,20 @@ export const DEFAULT_CONFIG = {
 };
 
 // D61: the reasons a model listing answers with. Every one of them says in
-// plain words what happened, in English and in Portuguese, and none of them
+// plain words what happened, in English, and none of them
 // carries a demand or an order id.
 export const LIST_MESSAGES = Object.freeze({
-  listed: 'The model list came from the client command: {listed} models listed, {active} active, {hidden} hidden. / A lista de modelos veio do comando do cliente: {listed} modelos listados, {active} ativos, {hidden} ocultos.',
-  noCommand: 'No model-listing command is configured for {client}, so the built-in catalog is used. / Nenhum comando de listagem de modelos está configurado para {client}, então o catálogo interno é usado.',
-  notFound: '{client} was not found on this machine, so the built-in catalog is used. / O {client} não foi encontrado nesta máquina, então o catálogo interno é usado.',
-  timeout: 'The model list did not answer in time, so the built-in catalog is used. / A lista de modelos não respondeu a tempo, então o catálogo interno é usado.',
-  failed: 'The model list could not be read, so the built-in catalog is used. / A lista de modelos não pôde ser lida, então o catálogo interno é usado.',
-  unknownOutput: 'The model list output was not understood, so the built-in catalog is used. / A saída da lista de modelos não foi entendida, então o catálogo interno é usado.',
-  emptyList: 'The client answered and listed no model. / O cliente respondeu e não listou nenhum modelo.',
-  noneActive: 'The client answered and listed {listed} models, but none of them is active. / O cliente respondeu e listou {listed} modelos, mas nenhum deles está ativo.',
-  unknownParser: 'The configured output interpreter "{parse}" is unknown, so the built-in catalog is used. / O interpretador de saída "{parse}" configurado é desconhecido, então o catálogo interno é usado.',
-  badTimeout: 'The configured deadline for the model list of {client} is not a valid number, so the built-in catalog is used. / O prazo configurado para a lista de modelos de {client} não é um número válido, então o catálogo interno é usado.',
-  error: 'The model list could not be read, so the built-in catalog is used. / A lista de modelos não pôde ser lida, então o catálogo interno é usado.',
+  listed: 'The model list came from the client command: {listed} models listed, {active} active, {hidden} hidden.',
+  noCommand: 'No model-listing command is configured for {client}, so the built-in catalog is used.',
+  notFound: '{client} was not found on this machine, so the built-in catalog is used.',
+  timeout: 'The model list did not answer in time, so the built-in catalog is used.',
+  failed: 'The model list could not be read, so the built-in catalog is used.',
+  unknownOutput: 'The model list output was not understood, so the built-in catalog is used.',
+  emptyList: 'The client answered and listed no model.',
+  noneActive: 'The client answered and listed {listed} models, but none of them is active.',
+  unknownParser: 'The configured output interpreter "{parse}" is unknown, so the built-in catalog is used.',
+  badTimeout: 'The configured deadline for the model list of {client} is not a valid number, so the built-in catalog is used.',
+  error: 'The model list could not be read, so the built-in catalog is used.',
 });
 
 // One step down the effort scale. Nothing goes back up.
@@ -708,6 +708,7 @@ export class ConfigError extends UsageError {
 }
 
 function fill(text, values) {
+  if (text && typeof text === 'object') text = text.en;
   return text.replace(/\{(\w+)\}/g, (_, key) => values[key]);
 }
 
@@ -759,7 +760,7 @@ export function configOf(config) {
   const merged = { ...DEFAULT_CONFIG, ...(config ?? {}) };
   merged.accountPolicy = { ...DEFAULT_CONFIG.accountPolicy, ...config?.accountPolicy };
   if (config?.accountPolicy !== undefined && (!config.accountPolicy || typeof config.accountPolicy !== 'object'
-    || Array.isArray(config.accountPolicy))) throw new ConfigError('accountPolicy', { key: 'accountPolicy', range: 'object / objeto' });
+    || Array.isArray(config.accountPolicy))) throw new ConfigError('accountPolicy', { key: 'accountPolicy', range: 'object' });
   for (const key of ['enforcePace', 'minQuotaPct', 'paceMarginPct']) {
     const value = merged.accountPolicy[key];
     const valid = key === 'enforcePace' ? typeof value === 'boolean'

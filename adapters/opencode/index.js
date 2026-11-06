@@ -31,7 +31,7 @@ export async function installRole(opts = {}) {
   if (delivery.status !== 'ready') return delivery;
   // Command frontmatter selects the native agent; the installed plugin supplies its definition.
   return roleBlock(join(configRoot(opts), 'commands', 'okit.md'),
-    `${delivery.native.agent.prompt}\nUse the okit-director agent. / Use o agente okit-director.`);
+    `${delivery.native.agent.prompt}\nUse the okit-director agent.`);
 }
 export function removeRole(opts = {}) {
   return roleBlock(join(configRoot(opts), 'commands', 'okit.md'), '', { remove: true });

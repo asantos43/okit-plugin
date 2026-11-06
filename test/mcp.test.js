@@ -322,7 +322,7 @@ test('profile_pick uses the profiles in config.json', async () => {
   const unknown = await server.call('profile_pick', { client: 'ghost', effort: 'normal' });
   assert.equal(unknown.result.isError, true);
   assert.match(server.text(unknown), /Client "ghost" has no default profile/);
-  assert.match(server.text(unknown), /O cliente "ghost" não tem perfil padrão/);
+  assert.match(server.text(unknown), /Client "ghost" has no default profile/);
   await server.stop();
 });
 

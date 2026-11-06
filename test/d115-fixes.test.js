@@ -46,7 +46,7 @@ import { labelsOf } from '../src/env/quota.js';
 test('round 4: MCP localizes unknown and invalid accounts for every account tool', async t => {
   const root = await temporary(t);
   for (const name of ['quota_show', 'quota_set', 'acquire_slot', 'limits_status']) {
-    for (const [account, expected] of [['ghost', 'Conta desconhecida.'], ['../bad', 'Id de conta inválido.']]) {
+    for (const [account, expected] of [['ghost', 'Conta desconhecida.'], ['../bad', 'Id de conta inválido.']]) { // locale:pt-BR
       const args = { client: 'codex', account, ...(name === 'quota_set' ? { pct: 50 } : {}),
         ...(name === 'acquire_slot' ? { runId: 'round4' } : {}) };
       const response = await respond({ jsonrpc: '2.0', id: 4, method: 'tools/call',
@@ -61,18 +61,18 @@ test('round 4: every account refusal uses the CLI localizer at the MCP boundary'
   const root = await temporary(t);
   const reasons = [
     ['Unknown account.', 'Conta desconhecida.'],
-    ['Invalid account id.', 'Id de conta inválido.'],
-    ['Unsupported account client.', 'Cliente de conta não suportado.'],
-    ['Account folder must be absolute on this system.', 'A pasta da conta deve ser absoluta neste sistema.'],
-    ['Account folders must be unique within the client.', 'As pastas das contas devem ser únicas no cliente.'],
-    ['Account label must be non-empty text of at most 40 characters without controls.', 'O nome da conta deve ser um texto não vazio de até 40 caracteres sem controles.'],
-    ['Account labels must be unique within the client.', 'Os nomes das contas devem ser únicos no cliente.'],
-    ['Use unique account ids, valid labels and absolute config directories; default has no directory.', 'Utilize ids de conta únicos, nomes válidos e pastas de configuração absolutas; default não tem pasta.'],
-    ['The default account cannot be removed.', 'A conta default não pode ser removida.'],
-    ['Account configuration must be an object with readable profiles.', 'A configuração de contas deve ser um objeto com perfis legíveis.'],
-    ['Cannot update settings (EACCES).', 'Não foi possível atualizar os ajustes (EACCES).'],
-    ['Cannot update settings (ENOSPC).', 'Não foi possível atualizar os ajustes (ENOSPC).'],
-    ['Settings could not be read. Inspect them: MCP config_get {}', 'Não foi possível ler os ajustes. Confira: MCP config_get {}'],
+    ['Invalid account id.', 'Id de conta inválido.'], // locale:pt-BR
+    ['Unsupported account client.', 'Cliente de conta não suportado.'], // locale:pt-BR
+    ['Account folder must be absolute on this system.', 'A pasta da conta deve ser absoluta neste sistema.'], // locale:pt-BR
+    ['Account folders must be unique within the client.', 'As pastas das contas devem ser únicas no cliente.'], // locale:pt-BR
+    ['Account label must be non-empty text of at most 40 characters without controls.', 'O nome da conta deve ser um texto não vazio de até 40 caracteres sem controles.'], // locale:pt-BR
+    ['Account labels must be unique within the client.', 'Os nomes das contas devem ser únicos no cliente.'], // locale:pt-BR
+    ['Use unique account ids, valid labels and absolute config directories; default has no directory.', 'Utilize ids de conta únicos, nomes válidos e pastas de configuração absolutas; default não tem pasta.'], // locale:pt-BR
+    ['The default account cannot be removed.', 'A conta default não pode ser removida.'], // locale:pt-BR
+    ['Account configuration must be an object with readable profiles.', 'A configuração de contas deve ser um objeto com perfis legíveis.'], // locale:pt-BR
+    ['Cannot update settings (EACCES).', 'Não foi possível atualizar os ajustes (EACCES).'], // locale:pt-BR
+    ['Cannot update settings (ENOSPC).', 'Não foi possível atualizar os ajustes (ENOSPC).'], // locale:pt-BR
+    ['Settings could not be read. Inspect them: MCP config_get {}', 'Não foi possível ler os ajustes. Confira: MCP config_get {}'], // locale:pt-BR
   ];
   for (const [en, pt] of reasons) {
     const tools = [{ name: 'refusal', handler: async () => { throw new Error(en); } }];
@@ -232,7 +232,7 @@ test('round 3: reserved account survives process capture, export, list and traje
   assert.equal(saved?.agent.extra.account, 'work');
   assert.equal(validate(saved), true);
   assert.equal((await trajectoryList(root))[0].account, 'work');
-  assert.match(await show(root, 'captured'), /Account \/ Conta: work/);
+  assert.match(await show(root, 'captured'), /Account: work/);
 });
 test('round 3: adapters forward account selection to process spawning and model listing', async t => {
   const root = await temporary(t);
@@ -454,7 +454,7 @@ test('account list localizes invalid JSON without exposing contents or parser er
   });
   assert.equal(code, 1);
   const output = [...stdout, ...stderr].join('\n');
-  assert.match(output, /Não foi possível ler os ajustes/);
+  assert.match(output, /Não foi possível ler os ajustes/); // locale:pt-BR
   assert.doesNotMatch(output, /SECRET_D115|Unexpected|token|valid JSON|Settings could not/);
   await assert.rejects(readJson(join(root, 'config.json')), (error) => {
     assert.doesNotMatch(error.message, /SECRET_D115|Unexpected|token|not valid JSON/);
@@ -584,7 +584,7 @@ test('round 2: CLI add refuses the known default folder and lexical aliases of e
     const output = [];
     assert.equal(await main(['account', 'add', 'codex', 'Two', '--config-dir', folder, '--locale', 'pt-BR'],
       { root, env: { HOME: root }, stdout() {}, stderr: (line) => output.push(line) }), 2);
-    assert.match(output.join('\n'), /pastas das contas devem ser únicas/);
+    assert.match(output.join('\n'), /pastas das contas devem ser únicas/); // locale:pt-BR
     assert.deepEqual(await readJson(join(root, 'config.json')), saved);
   }
 });
@@ -636,7 +636,7 @@ test('round 2: account add localizes mkdir failures without OS text or paths', a
   const code = await main(['account', 'add', 'codex', 'Work', '--config-dir', join(blocker, 'work'), '--locale', 'pt-BR'],
     { root, env: { HOME: root }, stdout() {}, stderr: (line) => output.push(line) });
   assert.equal(code, 1);
-  assert.match(output.join('\n'), /Não foi possível criar a pasta da conta \(E(?:NOTDIR|EXIST)\)/);
+  assert.match(output.join('\n'), /Não foi possível criar a pasta da conta \(E(?:NOTDIR|EXIST)\)/); // locale:pt-BR
   assert.doesNotMatch(output.join('\n'), /PRIVATE_PATH|mkdir|not a directory|Cannot update|ajustes/);
   assert.equal(await readJson(join(root, 'config.json'), null), null);
 });
@@ -656,7 +656,7 @@ test('round 2: all account mutations sanitize write and lock-directory failures'
       const args = action === 'add' ? ['New', '--config-dir', join(root, 'new')]
         : ['work', ...(action === 'rename' ? ['Renamed'] : [])];
       assert.equal(await main(['account', action, client, ...args, '--locale', 'pt-BR'], io), 1);
-      assert.match(output.join('\n'), /Não foi possível atualizar os ajustes \(EACCES\)/);
+      assert.match(output.join('\n'), /Não foi possível atualizar os ajustes \(EACCES\)/); // locale:pt-BR
       assert.doesNotMatch(output.join('\n'), /PRIVATE_PATH|raw filesystem/);
       assert.deepEqual((await readJson(join(root, 'config.json'))).accounts, accounts);
     }
@@ -668,7 +668,7 @@ test('round 2: config_set sanitizes writer and lock-directory errors', async (t)
   const error = Object.assign(new Error('PRIVATE_PATH: raw filesystem text'), { code: 'ENOSPC' });
   await assert.rejects(configSet(root, { key: 'language', value: 'en' }, { write: async () => { throw error; } }), (failure) => {
     assert.equal(failure.message, 'Cannot update settings (ENOSPC).');
-    assert.equal(localizeReason(failure.message, 'pt-BR'), 'Não foi possível atualizar os ajustes (ENOSPC).');
+    assert.equal(localizeReason(failure.message, 'pt-BR'), 'Não foi possível atualizar os ajustes (ENOSPC).'); // locale:pt-BR
     return true;
   });
   await assert.rejects(configSet(root, { key: 'language', value: 'en' }, { write: async () => {
@@ -809,7 +809,7 @@ test('round 5: the configured entries of the environment name the account of eac
     [['claude-code', undefined], ['claude-code', 'work']]);
   for (const locale of ['en', 'pt-BR']) {
     const text = formatEnvironmentReport(snapshot, locale);
-    const [item, account] = locale === 'pt-BR' ? ['Modelos ativos', 'conta work'] : ['Active models', 'account work'];
+    const [item, account] = locale === 'pt-BR' ? ['Modelos ativos', 'conta work'] : ['Active models', 'account work']; // locale:pt-BR
     assert.match(text, new RegExp(`${item} \\(claude-code, ${account}\\)`), text);
     assert.equal(text.split(`${item} (claude-code)`).length - 1, 1, 'the default is listed once');
   }
@@ -928,9 +928,9 @@ test('round 7: saved accounts and a variable naming an unregistered folder keep 
     const row = doctor.rows.find((entry) => entry.id === 'config-dir-unregistered' && entry.account === 'default');
     assert.ok(row, locale);
     assert.match(row.detail, /CLAUDE_CONFIG_DIR/);
-    assert.match(row.detail, locale === 'en' ? /Register that folder as an account/ : /Cadastre essa pasta como uma conta/);
+    assert.match(row.detail, locale === 'en' ? /Register that folder as an account/ : /Cadastre essa pasta como uma conta/); // locale:pt-BR
     assert.equal(row.detail.includes(unknown), false);
-    assert.match(row.detail, locale === 'en' ? /neither the default account's nor a saved account's/ : /não é da conta default nem de uma conta salva/);
+    assert.match(row.detail, locale === 'en' ? /neither the default account's nor a saved account's/ : /não é da conta default nem de uma conta salva/); // locale:pt-BR
     assert.match(formatEnvironmentReport(snapshot, locale), /CLAUDE_CONFIG_DIR/);
   }
 });
@@ -1055,7 +1055,7 @@ test('round 8: the warnings of the environment show once per client, however man
       assert.equal(rows.filter((row) => row.id === id).length, 1, `${locale}: ${id}`);
     }
     const [folder, credential] = locale === 'en' ? ['Register that folder as an account', 'overrides the stored login']
-      : ['Cadastre essa pasta como uma conta', 'sobrepõe o login guardado'];
+      : ['Cadastre essa pasta como uma conta', 'sobrepõe o login guardado']; // locale:pt-BR
     const { capacityLine } = await statusTable('', { snapshot, all: true, demands: [], locale });
     for (const text of [formatEnvironmentReport(snapshot, locale), capacityLine]) {
       assert.equal(text.split(folder).length - 1, 1, text);
@@ -1205,8 +1205,8 @@ test('round 9: the role context lists every account of a client with its own quo
   const en = formatRoleContext(context), pt = formatRoleContext(context, 'pt-BR');
   assert.match(en, /claude-code: Work \(work\): m-work \+ high; quota 5%; free slots 0; restrictions: low/);
   assert.match(en, /claude-code: default: m-default \+ high; quota 80%; free slots 2; restrictions: none/);
-  assert.match(pt, /claude-code: Work \(work\): m-work \+ high; cota 5%; vagas livres 0; restrições: low/);
-  assert.match(pt, /claude-code: default: m-default \+ high; cota 80%; vagas livres 2; restrições: nenhum/);
+  assert.match(pt, /claude-code: Work \(work\): m-work \+ high; cota 5%; vagas livres 0; restrições: low/); // locale:pt-BR
+  assert.match(pt, /claude-code: default: m-default \+ high; cota 80%; vagas livres 2; restrições: nenhum/); // locale:pt-BR
   // One account: the line it always was.
   const single = roleContext({ snapshot: { now: 1, clients: [{ client: 'codex', actors: [{ model: 'c', effort: 'low', restrictions: [] }],
     quota: { remainingPct: 70 }, slots: { available: 1 } }] }, items: [], orders: [], limits: {} });

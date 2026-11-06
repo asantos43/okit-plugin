@@ -66,7 +66,7 @@ export const LABELS = {
     missing: MISSING,
     optional: 'não instalado (opcional)',
     noQuota: (client, account) => `Nenhum valor de cota registrado. Chame \`quota_set\` com o cliente "${client}"${account && account !== 'default' ? ` e a conta ${account}` : ''} e a porcentagem que resta.`,
-    // A mesma solução para a pessoa: o setup é um passo da pessoa, então ela pede a ferramenta ao assistente.
+    // Setup is a manual step, so the person asks the assistant to call the tool.
     noQuotaAsk: (client, account) => `Nenhum valor de cota registrado. Peça ao seu assistente para chamar \`quota_set\` com o cliente "${client}"${account && account !== 'default' ? ` e a conta ${account}` : ''} e a porcentagem que resta.`,
     unknownClient: 'Mostrando todos os clientes; passe o argumento `client` para escolher um.',
     views: 'Uma vaga permite executar um executor por vez.\nUm ator é um modelo e seu esforço de raciocínio em um cliente de programação.',

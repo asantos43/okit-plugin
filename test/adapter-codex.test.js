@@ -35,7 +35,7 @@ test('native role instructions and prompt preserve user configuration and actor'
     assert.match(result.agentCall.prompt, new RegExp(`Role: ${role}`));
     assert.equal(result.agentCall.model, 'chosen');
     assert.equal(result.agentCall.effort, 'high');
-    for (const field of ['Orders:', 'Limits:', 'Work in hand:', 'Available actors:', 'Unknown facts:', 'Ordens:', 'Fatos desconhecidos:']) assert.ok(result.agentCall.prompt.includes(field));
+    for (const field of ['Orders:', 'Limits:', 'Work in hand:', 'Available actors:', 'Unknown facts:']) assert.ok(result.agentCall.prompt.includes(field));
   }
   for (let n = 0; n < 2; n++) await adapter.removeRole({ root });
   assert.equal(await readFile(join(root, 'AGENTS.md'), 'utf8'), `${user}\nLater user instructions.`);
@@ -137,7 +137,7 @@ test('status displays automatic source, real windows and age in both languages',
   const { root, directory, opts } = await quotaFixture();
   await writeFile(join(directory, 'rollout-status.jsonl'), quotaEvent(42));
   const read = adapterQuotaReader(opts);
-  for (const [locale, words] of [['en', 'automatic (1 minute ago)'], ['pt-BR', 'automática (há 1 minuto)']]) {
+  for (const [locale, words] of [['en', 'automatic (1 minute ago)'], ['pt-BR', 'automática (há 1 minuto)']]) { // locale:pt-BR
     const table = await statusTable(root, { clients: ['codex'], readQuota: read,
       now: opts.now, locale, cache: new Map() });
     assert.equal(table.rows[0].fiveHour, 58);
@@ -205,7 +205,7 @@ test('empty sessions fall back to manual; newer manual and equal timestamps win'
   const sample = { remainingPct: 77, recordedAt: new Date(QUOTA_TIME).toISOString() };
   await writeFile(file, JSON.stringify(sample));
   assert.deepEqual(await readQuota(opts), { source: 'manual', ...sample, ageMinutes: 1 });
-  for (const [locale, words] of [['en', 'manual (1 minute ago)'], ['pt-BR', 'manual (há 1 minuto)']]) {
+  for (const [locale, words] of [['en', 'manual (1 minute ago)'], ['pt-BR', 'manual (há 1 minuto)']]) { // locale:pt-BR
     const table = await statusTable(root, { clients: ['codex'], readQuota: adapterQuotaReader(opts),
       now: opts.now, locale, cache: new Map() });
     assert.ok(table.markdown.includes(words));
@@ -222,7 +222,7 @@ test('empty sessions fall back to manual; newer manual and equal timestamps win'
   const [reading] = shown.clients;
   assert.equal(reading.reading.source, 'manual');
   assert.equal(reading.reading.ageMinutes, 121);
-  for (const [locale, words] of [['en', 'manual \\(121 minutes ago\\)'], ['pt-BR', 'manual \\(há 121 minutos\\)']]) {
+  for (const [locale, words] of [['en', 'manual \\(121 minutes ago\\)'], ['pt-BR', 'manual \\(há 121 minutos\\)']]) { // locale:pt-BR
     assert.match(quotaOrigin(reading.reading, shown.now, LABELS[locale]), new RegExp(words));
   }
 });

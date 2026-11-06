@@ -129,7 +129,7 @@ test('bootstrap selects the refusal language before validating flags', async (t)
         const f = await bootstrapRuntime(t, ['install', ...args], { env });
         // A refusal is told the way the installed command tells it: its head, the reason, what to do next.
         await assert.rejects(f.run(), { code: 2,
-          message: locale === 'en' ? /^Refused: Unknown flag: --unknown\n +Next: / : /^Recusado: Opção desconhecida: --unknown\n +O que fazer: / });
+          message: locale === 'en' ? /^Refused: Unknown flag: --unknown\n +Next: / : /^Recusado: Opção desconhecida: --unknown\n +O que fazer: / }); // locale:pt-BR
         assert.deepEqual(f.calls, [], 'refuse before any external command');
       }
     }
@@ -183,7 +183,7 @@ test('POSIX bootstrap loopback corpus', async (t) => {
   result = await f.run(['--client', 'claude-code', '--dry-run', '--locale', 'pt-BR']);
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout, /Baixar e verificar\s+faria\s+\S+\.tar\.gz/);
-  assert.match(result.stdout, /Simulação: nada foi alterado\./);
+  assert.match(result.stdout, /Simulação: nada foi alterado\./); // locale:pt-BR
   assert.doesNotMatch(result.stdout, /Download and verify|Dry run/);
   await assert.rejects(fs.stat(f.dest), { code: 'ENOENT' });
   f.state.bad = true;
@@ -220,7 +220,7 @@ test('unsupported architecture refuses before requesting a package', async (t) =
 test('bootstrap dry-run shows the chosen destination and the numbered steps of the installed command', async (t) => {
   for (const [locale, steps, no] of [
     ['en', ['[1/5] Download and verify', '[2/5] Install files', '[3/5] Register in Claude Code', '[4/5] Command and PATH', '[5/5] Quota recording'], 'Dry run: nothing was changed.'],
-    ['pt-BR', ['[1/5] Baixar e verificar', '[2/5] Instalar arquivos', '[3/5] Registrar no Claude Code', '[4/5] Comando e PATH', '[5/5] Registro de cota'], 'Simulação: nada foi alterado.'],
+    ['pt-BR', ['[1/5] Baixar e verificar', '[2/5] Instalar arquivos', '[3/5] Registrar no Claude Code', '[4/5] Comando e PATH', '[5/5] Registro de cota'], 'Simulação: nada foi alterado.'], // locale:pt-BR
   ]) {
     const home = await fs.mkdtemp(join(tmpdir(), 'bootstrap-dry-'));
     t.after(() => fs.rm(home, { recursive: true, force: true }));
@@ -258,14 +258,14 @@ test('the installed command and the bootstrap dry-run use the same step labels',
 
 test('a --locale that is not a language is refused in one language by the bootstrap', async (t) => {
   for (const [env, locale, expected] of [
-    ['pt-BR', 'fr', 'Escolha um idioma: en, pt-BR.'],
+    ['pt-BR', 'fr', 'Escolha um idioma: en, pt-BR.'], // locale:pt-BR
     ['en', 'fr', 'Choose a language: en, pt-BR.'],
     [undefined, 'fr', 'Choose a language: en, pt-BR.'],
-    ['pt-BR', 'xx', 'Escolha um idioma: en, pt-BR.'],
+    ['pt-BR', 'xx', 'Escolha um idioma: en, pt-BR.'], // locale:pt-BR
   ]) {
     const f = await bootstrapRuntime(t, ['install', '--locale', locale], { env: env ? { OKIT_LANGUAGE: env } : {} });
     await assert.rejects(f.run(), (error) => {
-      assert.match(error.message, new RegExp(`^${expected === 'Escolha um idioma: en, pt-BR.' ? 'Recusado' : 'Refused'}: ${expected.replace(/[.]/g, '\\.')}\n`));
+      assert.match(error.message, new RegExp(`^${expected === 'Escolha um idioma: en, pt-BR.' ? 'Recusado' : 'Refused'}: ${expected.replace(/[.]/g, '\\.')}\n`)); // locale:pt-BR
       assert.doesNotMatch(error.message, / \/ /);
       return error.code === 2;
     });
@@ -287,7 +287,7 @@ test('install.sh and install.ps1 say Node is missing in the language --locale or
   for (const [env, args, language] of cases) {
     const result = spawnSync('/bin/sh', ['install.sh', ...args], { encoding: 'utf8', env: { PATH: '/nonexistent', ...env } });
     assert.equal(result.status, 2, `${JSON.stringify(env)} ${args}`);
-    assert.equal(result.stderr.trim(), language === 'pt' ? 'Node.js é necessário: https://nodejs.org/' : 'Node required: https://nodejs.org/', `${JSON.stringify(env)} ${args}`);
+    assert.equal(result.stderr.trim(), language === 'pt' ? 'Node.js é necessário: https://nodejs.org/' : 'Node required: https://nodejs.org/', `${JSON.stringify(env)} ${args}`); // locale:pt-BR
     assert.equal(result.stdout, '');
   }
   // The PowerShell wrapper has the same two messages and the same precedence (pwsh is not always installed).
@@ -304,7 +304,7 @@ test('R12-1: the bootstrap: no release and a release without the asset are failu
     await assert.rejects(none.run(), (error) => {
       assert.equal(error.kind, 'operational');
       assert.equal(error.code, 1);
-      assert.match(error.message, locale === 'en' ? /No published releases found/ : /Nenhuma versão publicada encontrada/);
+      assert.match(error.message, locale === 'en' ? /No published releases found/ : /Nenhuma versão publicada encontrada/); // locale:pt-BR
       assert.doesNotMatch(error.message, / \/ |TypeError/);
       return true;
     });
@@ -312,7 +312,7 @@ test('R12-1: the bootstrap: no release and a release without the asset are failu
     await assert.rejects(bare.run(), (error) => {
       assert.equal(error.kind, 'operational');
       assert.equal(error.code, 1);
-      assert.match(error.message, locale === 'en' ? /Missing release asset/ : /Arquivo ausente na versão/);
+      assert.match(error.message, locale === 'en' ? /Missing release asset/ : /Arquivo ausente na versão/); // locale:pt-BR
       return true;
     });
   }

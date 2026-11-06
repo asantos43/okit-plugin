@@ -20,7 +20,7 @@ import { fixture } from './helpers/install-fixture.js';
 
 const LANGUAGES = ['en', 'pt-BR'];
 // What only Portuguese has (an accent, or a word) and what only English has, in the refusals of the settings.
-const PORTUGUESE = /[áàâãéêíóôõúç]|\b(deve|pastas|um só)\b/i;
+const PORTUGUESE = /[áàâãéêíóôõúç]|\b(deve|pastas|um só)\b/i; // locale:pt-BR
 const ENGLISH = /\b(Refused|Invalid|must be|Choose|Use a|object|non-empty|absolute|boolean|one character|text)\b/;
 
 test('R12-1: the class of an error is its kind, never its type or its text', () => {

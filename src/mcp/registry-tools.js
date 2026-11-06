@@ -78,9 +78,7 @@ function checkCliOnly(entry, args) {
 export function toolsFromRegistry(operations = OPERATIONS) {
   return operations.map((entry) => ({
     name: entry.name,
-    description: entry.description['pt-BR'] === undefined
-      ? entry.description.en
-      : `${entry.description.en} / ${entry.description['pt-BR']}`,
+    description: entry.description.en,
     inputSchema: publishedSchema(entry),
     handler: async (args, ctx) => {
       checkCliOnly(entry, args);

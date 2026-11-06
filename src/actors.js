@@ -45,8 +45,8 @@ export async function listActors(deps = {}) {
     const freeSlots = observation.slots.available;
     const pairs = new Map(observation.candidates.map((candidate) => {
       const reasons = candidate.restrictions.map((reason) => messages[reason] ?? ({
-        'unknown-install': deps.locale === 'pt-BR' ? 'Instalação não confirmada. Rode setup.' : 'Installation unconfirmed. Run setup.',
-        unconfirmed: deps.locale === 'pt-BR' ? 'Modelo não confirmado. Rode setup.' : 'Model unconfirmed. Run setup.',
+        'unknown-install': deps.locale === 'pt-BR' ? 'Instalação não confirmada. Rode setup.' : 'Installation unconfirmed. Run setup.', // locale:pt-BR
+        unconfirmed: deps.locale === 'pt-BR' ? 'Modelo não confirmado. Rode setup.' : 'Model unconfirmed. Run setup.', // locale:pt-BR
         'unknown-quota': labelsOf(deps.locale).noQuota(observation.client, observation.account),
         'expired-quota': deps.locale === 'pt-BR' ? 'Cota expirada.' : 'Quota expired.',
         'not-logged-in': deps.locale === 'pt-BR' ? 'Conta deslogada.' : 'Account logged out.',

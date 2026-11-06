@@ -1,6 +1,6 @@
 {
   "trajectory_show": {
-    "description": "Read a saved run step by step on this computer. / Leia uma execução salva passo a passo neste computador.",
+    "description": "Read a saved run step by step on this computer.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -15,7 +15,7 @@
     }
   },
   "telemetry_status": {
-    "description": "See what measurements are saved and where. / Veja quais medições são salvas e onde.",
+    "description": "See what measurements are saved and where.",
     "inputSchema": {
       "type": "object",
       "properties": {},
@@ -23,7 +23,7 @@
     }
   },
   "telemetry_export": {
-    "description": "Export saved measurements, optionally from a date. / Exporte medições salvas, opcionalmente a partir de uma data.",
+    "description": "Export saved measurements, optionally from a date.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -35,7 +35,7 @@
     }
   },
   "todo_sync": {
-    "description": "Synchronize project tasks; preview with dryRun. Confirm suggested links explicitly. / Sincronize tarefas; veja antes com dryRun. Confirme vínculos sugeridos.",
+    "description": "Synchronize project tasks; preview with dryRun. Confirm suggested links explicitly.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -59,199 +59,8 @@
       "additionalProperties": false
     }
   },
-  "acquire_slot": {
-    "description": "Reserves a run slot for a client/account. Call release_slot when work ends; the client cap applies per account.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "runId": {
-          "type": "string",
-          "description": "Run owning the slot."
-        },
-        "client": {
-          "type": "string",
-          "description": "Client the run belongs to."
-        },
-        "account": {
-          "type": "string",
-          "pattern": "^[a-z0-9-]{1,32}$",
-          "description": "Stable id; default if omitted."
-        },
-        "waitMs": {
-          "type": "number",
-          "description": "Wait in milliseconds; 0 refuses at once."
-        }
-      },
-      "required": [
-        "runId",
-        "client"
-      ],
-      "additionalProperties": false
-    }
-  },
-  "release_slot": {
-    "description": "Frees the slot of a run, so the next one fits under the cap.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "runId": {
-          "type": "string",
-          "description": "Identifier of the run to free."
-        }
-      },
-      "required": [
-        "runId"
-      ],
-      "additionalProperties": false
-    }
-  },
-  "limits_status": {
-    "description": "Reports caps and live runs by account. Optional client/account select one; live sums all runs.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "client": {
-          "type": "string",
-          "description": "Client."
-        },
-        "account": {
-          "type": "string",
-          "pattern": "^[a-z0-9-]{1,32}$",
-          "description": "Stable id; requires client. Default if omitted."
-        }
-      },
-      "required": [],
-      "additionalProperties": false
-    }
-  },
-  "status": {
-    "description": "Shows recorded quota, its age and available executors for the detected client. Use all for every client or client to choose one. If no value is recorded, shows the command to record it. Send size, slices and executors to also receive showBefore.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "locale": {
-          "type": "string",
-          "enum": [
-            "en",
-            "pt-BR"
-          ],
-          "default": "en",
-          "description": "Language / Idioma; language (en) when omitted / quando omitido."
-        },
-        "all": {
-          "type": "boolean",
-          "description": "Show every client."
-        },
-        "client": {
-          "type": "string",
-          "enum": [
-            "claude-code",
-            "codex",
-            "opencode"
-          ],
-          "description": "Choose a client; overrides all and detection."
-        },
-        "size": {
-          "type": "string",
-          "enum": [
-            "S",
-            "M",
-            "L"
-          ],
-          "description": "Size of the task about to start."
-        },
-        "slices": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "How many steps the demand was split into."
-        },
-        "executors": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "How many executors would run at once."
-        }
-      },
-      "required": [],
-      "additionalProperties": false
-    }
-  },
-  "quota_notice": {
-    "description": "Turns the kit's quota-back event into a plain sentence for the user, in their language. Without that event, says the notice is not available. / Transforma o evento de cota liberada do kit em uma frase simples para o usuário, no idioma dele. Sem esse evento, diz que o aviso não está disponível.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "locale": {
-          "type": "string",
-          "enum": [
-            "en",
-            "pt-BR"
-          ],
-          "default": "en",
-          "description": "Language / Idioma; language (en) when omitted / quando omitido."
-        },
-        "event": {
-          "type": "object",
-          "description": "The quota-back event the kit delivered. / O evento de cota liberada entregue pelo kit."
-        }
-      },
-      "required": [],
-      "additionalProperties": false
-    }
-  },
-  "actors_list": {
-    "description": "Read-only actors (model + effort available in a client), sizes, slots, quota and remedies. atores, executores, actors, executors, modelos, quem pode rodar, lista de executores. Somente leitura: ator = modelo + esforço disponível em um cliente; tamanhos, vagas, cota e soluções.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "locale": {
-          "type": "string",
-          "enum": [
-            "en",
-            "pt-BR"
-          ],
-          "default": "en",
-          "description": "Language / Idioma; language (en) when omitted / quando omitido."
-        },
-        "all": {
-          "type": "boolean"
-        },
-        "client": {
-          "type": "string",
-          "enum": [
-            "claude-code",
-            "codex",
-            "opencode"
-          ]
-        }
-      },
-      "required": [],
-      "additionalProperties": false
-    }
-  },
-  "env_report": {
-    "description": "Shows which environment is in use, installed clients, active models, quota, folders and what is missing with commands to fix it. / Mostra o ambiente em uso e o que falta com comandos para corrigir.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "client": {
-          "type": "string"
-        },
-        "locale": {
-          "type": "string",
-          "enum": [
-            "en",
-            "pt-BR"
-          ],
-          "default": "en",
-          "description": "Language / Idioma; language (en) when omitted / quando omitido."
-        }
-      },
-      "required": [],
-      "additionalProperties": false
-    }
-  },
   "smoke_demo": {
-    "description": "Preview practice work and confirm its allowance ceiling. / Veja os trabalhos de exemplo e confirme o teto de cota.",
+    "description": "Preview practice work and confirm its allowance ceiling.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -273,7 +82,7 @@
             "pt-BR"
           ],
           "default": "en",
-          "description": "Language / Idioma; language (en) when omitted / quando omitido."
+          "description": "Language; language (en) when omitted."
         },
         "confirm": {
           "type": "string"
@@ -282,74 +91,133 @@
       "additionalProperties": false
     }
   },
-  "classify": {
-    "description": "Classifies a demand as simple, normal or hard and says why.",
+  "config_get": {
+    "description": "Reads the settings of a root: every entry of the schema, or one of them when a key is given.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "title": {
+        "key": {
           "type": "string",
-          "description": "What the demand is about."
+          "description": "The key of one entry; every entry when it is absent."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "config_set": {
+    "description": "Writes one setting of a root and says what it was and what it is now; without a value the setting is removed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "The key of the entry to write."
         },
-        "body": {
+        "value": {
           "type": "string",
-          "description": "The demand in full."
-        },
-        "kind": {
-          "type": "string",
-          "description": "Free text: research, writing, code, data, ..."
+          "description": "The new value; the entry is removed when it is absent."
         }
       },
       "required": [
-        "title"
+        "key"
       ],
       "additionalProperties": false
     }
   },
-  "profile_pick": {
-    "description": "Chooses an assistant for the work, using built-in choices before setup. Low allowance selects a lighter choice. / Escolhe um assistente para o trabalho, usando as escolhas incluídas antes da configuração. Com pouca cota, usa uma escolha mais leve.",
+  "quota_show": {
+    "description": "Reads quota for all clients or one client/account.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "client": {
           "type": "string",
-          "description": "Client the work runs on."
+          "description": "Client; omitted selects all."
         },
-        "effort": {
+        "account": {
           "type": "string",
-          "enum": [
-            "simple",
-            "normal",
-            "hard"
-          ],
-          "description": "Effort class to pick the profile for."
+          "pattern": "^[a-z0-9-]{1,32}$",
+          "description": "Stable id; requires client. Default if omitted."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "quota_set": {
+    "description": "Records remaining quota percentage for a client/account and optional window.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "client": {
+          "type": "string",
+          "description": "Client name."
         },
-        "quota": {
-          "description": "Quota reading: the percent left, or {source, remainingPct}.",
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "object",
-              "properties": {
-                "source": {
-                  "type": "string"
-                },
-                "remainingPct": {
-                  "type": "number"
-                }
-              },
-              "required": [],
-              "additionalProperties": false
-            }
-          ]
+        "account": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{1,32}$",
+          "description": "Stable id; default if omitted."
+        },
+        "pct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Quota percentage remaining."
+        },
+        "windowMinutes": {
+          "type": "number",
+          "description": "Quota window in minutes."
         }
       },
       "required": [
         "client",
-        "effort"
+        "pct"
       ],
+      "additionalProperties": false
+    }
+  },
+  "daemon": {
+    "description": "The state of the daemon of a root: whether it runs, whether it is paused, the last pass it made, or one pass now.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "status",
+            "pause",
+            "resume",
+            "run-once"
+          ],
+          "description": "What to do with the daemon."
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "kit_detect": {
+    "description": "Probes the orchestration kit of a root: whether it is installed, which version it is, and why it is broken.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "todo_check": {
+    "description": "Compares the task lists of a project with the work a root holds: the work without a task and the tasks without work.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "The absolute folder of the project; every project of the root when it is absent."
+        }
+      },
+      "required": [],
       "additionalProperties": false
     }
   },
@@ -440,7 +308,7 @@
             "pt-BR"
           ],
           "default": "en",
-          "description": "Language / Idioma; language (en) when omitted / quando omitido."
+          "description": "Language; language (en) when omitted."
         }
       },
       "required": [],
@@ -604,48 +472,60 @@
       "additionalProperties": false
     }
   },
-  "config_get": {
-    "description": "Reads the settings of a root: every entry of the schema, or one of them when a key is given. / Lê os ajustes de uma raiz: todas as entradas do esquema, ou uma delas quando a chave é informada.",
+  "acquire_slot": {
+    "description": "Reserves a run slot for a client/account. Call release_slot when work ends; the client cap applies per account.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "key": {
+        "runId": {
           "type": "string",
-          "description": "The key of one entry; every entry when it is absent."
-        }
-      },
-      "required": [],
-      "additionalProperties": false
-    }
-  },
-  "config_set": {
-    "description": "Writes one setting of a root and says what it was and what it is now; without a value the setting is removed. / Grava um ajuste de uma raiz e diz o que era e o que passou a ser; sem valor o ajuste é removido.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "key": {
-          "type": "string",
-          "description": "The key of the entry to write."
+          "description": "Run owning the slot."
         },
-        "value": {
+        "client": {
           "type": "string",
-          "description": "The new value; the entry is removed when it is absent."
+          "description": "Client the run belongs to."
+        },
+        "account": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{1,32}$",
+          "description": "Stable id; default if omitted."
+        },
+        "waitMs": {
+          "type": "number",
+          "description": "Wait in milliseconds; 0 refuses at once."
         }
       },
       "required": [
-        "key"
+        "runId",
+        "client"
       ],
       "additionalProperties": false
     }
   },
-  "quota_show": {
-    "description": "Reads quota for all clients or one client/account. / Lê a cota de todos os clientes ou de um cliente/conta.",
+  "release_slot": {
+    "description": "Frees the slot of a run, so the next one fits under the cap.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "description": "Identifier of the run to free."
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "limits_status": {
+    "description": "Reports caps and live runs by account. Optional client/account select one; live sums all runs.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "client": {
           "type": "string",
-          "description": "Client; omitted selects all."
+          "description": "Client."
         },
         "account": {
           "type": "string",
@@ -657,80 +537,200 @@
       "additionalProperties": false
     }
   },
-  "quota_set": {
-    "description": "Records remaining quota percentage for a client/account and optional window. / Registra a porcentagem de cota restante de um cliente/conta e a janela opcional.",
+  "status": {
+    "description": "Shows recorded quota, its age and available executors for the detected client. Use all for every client or client to choose one. If no value is recorded, shows the command to record it. Send size, slices and executors to also receive showBefore.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "locale": {
+          "type": "string",
+          "enum": [
+            "en",
+            "pt-BR"
+          ],
+          "default": "en",
+          "description": "Language; language (en) when omitted."
+        },
+        "all": {
+          "type": "boolean",
+          "description": "Show every client."
+        },
+        "client": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "opencode"
+          ],
+          "description": "Choose a client; overrides all and detection."
+        },
+        "size": {
+          "type": "string",
+          "enum": [
+            "S",
+            "M",
+            "L"
+          ],
+          "description": "Size of the task about to start."
+        },
+        "slices": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many steps the demand was split into."
+        },
+        "executors": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many executors would run at once."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "quota_notice": {
+    "description": "Turns the kit's quota-back event into a plain sentence for the user, in their language. Without that event, says the notice is not available.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "locale": {
+          "type": "string",
+          "enum": [
+            "en",
+            "pt-BR"
+          ],
+          "default": "en",
+          "description": "Language; language (en) when omitted."
+        },
+        "event": {
+          "type": "object",
+          "description": "The quota-back event the kit delivered."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "actors_list": {
+    "description": "Read-only actors (model + effort available in a client), sizes, slots, quota and remedies. Actors, executors, models, who can run, list of executors.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "locale": {
+          "type": "string",
+          "enum": [
+            "en",
+            "pt-BR"
+          ],
+          "default": "en",
+          "description": "Language; language (en) when omitted."
+        },
+        "all": {
+          "type": "boolean"
+        },
+        "client": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "opencode"
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "env_report": {
+    "description": "Shows which environment is in use, installed clients, active models, quota, folders and what is missing with commands to fix it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "client": {
+          "type": "string"
+        },
+        "locale": {
+          "type": "string",
+          "enum": [
+            "en",
+            "pt-BR"
+          ],
+          "default": "en",
+          "description": "Language; language (en) when omitted."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "classify": {
+    "description": "Classifies a demand as simple, normal or hard and says why.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "What the demand is about."
+        },
+        "body": {
+          "type": "string",
+          "description": "The demand in full."
+        },
+        "kind": {
+          "type": "string",
+          "description": "Free text: research, writing, code, data, ..."
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "profile_pick": {
+    "description": "Chooses an assistant for the work, using built-in choices before setup. Low allowance selects a lighter choice.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "client": {
           "type": "string",
-          "description": "Client name."
+          "description": "Client the work runs on."
         },
-        "account": {
+        "effort": {
           "type": "string",
-          "pattern": "^[a-z0-9-]{1,32}$",
-          "description": "Stable id; default if omitted."
+          "enum": [
+            "simple",
+            "normal",
+            "hard"
+          ],
+          "description": "Effort class to pick the profile for."
         },
-        "pct": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 100,
-          "description": "Quota percentage remaining."
-        },
-        "windowMinutes": {
-          "type": "number",
-          "description": "Quota window in minutes."
+        "quota": {
+          "description": "Quota reading: the percent left, or {source, remainingPct}.",
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string"
+                },
+                "remainingPct": {
+                  "type": "number"
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          ]
         }
       },
       "required": [
         "client",
-        "pct"
+        "effort"
       ],
-      "additionalProperties": false
-    }
-  },
-  "daemon": {
-    "description": "The state of the daemon of a root: whether it runs, whether it is paused, the last pass it made, or one pass now. / O estado do daemon de uma raiz: se roda, se está pausado, a última passagem que fez, ou uma passagem agora.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "action": {
-          "type": "string",
-          "enum": [
-            "status",
-            "pause",
-            "resume",
-            "run-once"
-          ],
-          "description": "What to do with the daemon."
-        }
-      },
-      "required": [
-        "action"
-      ],
-      "additionalProperties": false
-    }
-  },
-  "kit_detect": {
-    "description": "Probes the orchestration kit of a root: whether it is installed, which version it is, and why it is broken. / Investiga o kit de orquestração de uma raiz: se está instalado, qual versão tem e por que está com defeito.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "additionalProperties": false
-    }
-  },
-  "todo_check": {
-    "description": "Compares the task lists of a project with the work a root holds: the work without a task and the tasks without work. / Compara as listas de tarefas de um projeto com o trabalho de uma raiz: o trabalho sem tarefa e as tarefas sem trabalho.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "project": {
-          "type": "string",
-          "description": "The absolute folder of the project; every project of the root when it is absent."
-        }
-      },
-      "required": [],
       "additionalProperties": false
     }
   }

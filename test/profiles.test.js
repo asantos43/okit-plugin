@@ -98,20 +98,19 @@ test('a user profile wins per class without erasing the rest of the catalog', ()
   assert.deepEqual(profilePick({ client: 'claude-code', effort: 'hard', config }), config.profiles['claude-code'].hard);
 });
 
-test('an unknown client gets a simple bilingual message without demand or order ids', () => {
+test('an unknown client gets a simple English message without demand or order ids', () => {
   assert.throws(() => profilePick({ client: 'ghost', effort: 'normal' }), (error) => {
     assert.match(error.message, /Client "ghost" has no default profile/);
-    assert.match(error.message, /O cliente "ghost" não tem perfil padrão/);
+    assert.match(error.message, /Client "ghost" has no default profile/);
     assert.match(error.message, /claude-code, codex, opencode/);
     assert.doesNotMatch(error.message, /\b[IDOG]\d+\b/);
     return true;
   });
 });
 
-test('an unknown class gets a simple bilingual message', () => {
+test('an unknown class gets a simple English message', () => {
   assert.throws(() => profilePick({ client: 'codex', effort: 'urgent' }), (error) => {
     assert.match(error.message, /Unknown profile class "urgent"/);
-    assert.match(error.message, /Classe de perfil desconhecida "urgent"/);
     assert.match(error.message, /simple, normal, hard/);
     return true;
   });

@@ -8,12 +8,12 @@ const refuse = message => { throw new Error(message); };
 function inside(root, file) {
   const rel = relative(root, file);
   if (rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(rel)) {
-    refuse('The file is outside the project. / O arquivo está fora do projeto.');
+    refuse('The file is outside the project.');
   }
 }
 
 export async function safePath(project, name) {
-  if (!isAbsolute(project)) refuse('Use the full project folder. / Use a pasta completa do projeto.');
+  if (!isAbsolute(project)) refuse('Use the full project folder.');
   const root = await realpath(resolve(project));
   const file = resolve(root, name);
   inside(root, file);
@@ -25,10 +25,10 @@ export async function safePath(project, name) {
 export async function readSnapshot(project, name) {
   const path = await safePath(project, name);
   const before = await stat(path.file);
-  if (!before.isFile()) refuse('Choose a regular file. / Escolha um arquivo comum.');
+  if (!before.isFile()) refuse('Choose a regular file.');
   const text = await readFile(path.file, 'utf8');
   const after = await stat(path.file);
-  if (before.mtimeMs !== after.mtimeMs || before.ino !== after.ino) refuse('The file changed; try again. / O arquivo mudou; tente novamente.');
+  if (before.mtimeMs !== after.mtimeMs || before.ino !== after.ino) refuse('The file changed; try again.');
   return { ...path, text, hash: hash(text), mtime: after.mtimeMs, ino: after.ino, mode: after.mode };
 }
 
@@ -37,7 +37,7 @@ async function unchanged(snapshot) {
   const current = await readSnapshot(snapshot.root, snapshot.requested);
   if (path.file !== snapshot.file || current.hash !== snapshot.hash
     || current.mtime !== snapshot.mtime || current.ino !== snapshot.ino) {
-    refuse('The file changed; review it and try again. / O arquivo mudou; confira e tente novamente.');
+    refuse('The file changed; review it and try again.');
   }
 }
 

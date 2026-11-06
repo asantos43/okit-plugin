@@ -57,7 +57,7 @@ export async function attempt(ctx, row, demand, role, actor, profile, round, fai
       waitMs: Math.min(result.limits.checkTimeoutMs, Math.max(0,
         result.limits.maxMinutes * 60_000 - (clock() - ctx.startedAt))) });
     if (!slot.acquired.ok) { budget.settle(ticket, null, false); settled = true; throw new Error('slot unavailable'); }
-    say(`A helper has a place to work on ${row.title}.`, `Um ajudante tem uma vaga para ${row.title}.`);
+    say(`A helper has a place to work on ${row.title}.`, `Um ajudante tem uma vaga para ${row.title}.`); // locale:pt-BR
     if (controller.signal.aborted) throw new Error('run interrupted');
     const remainingMs = result.limits.maxMinutes * 60_000 - (clock() - ctx.startedAt);
     if (remainingMs <= 0) throw new Error('time ceiling');
@@ -75,12 +75,12 @@ export async function attempt(ctx, row, demand, role, actor, profile, round, fai
         result.limits.maxTurns - budget.snapshot().turns + 1), timeoutMs: Math.min(remainingMs, result.limits.checkTimeoutMs) },
       remainingBudget: room, signal: controller.signal,
       requiredResult: role === 'Executor' ? '{status, summary, artifacts, usage}' : '{verdict, criteria, feedback, usage}',
-      text: `${locale === 'pt-BR' ? 'Papel' : 'Role'}: ${role}\n${row.title}\n${demand.body[locale]}\n${locale === 'pt-BR' ? 'Trabalhe só na pasta de exemplo. Devolva arquivos e verificações.' : 'Work only in the practice folder. Return files and checks.'}` };
+      text: `${locale === 'pt-BR' ? 'Papel' : 'Role'}: ${role}\n${row.title}\n${demand.body[locale]}\n${locale === 'pt-BR' ? 'Trabalhe só na pasta de exemplo. Devolva arquivos e verificações.' : 'Work only in the practice folder. Return files and checks.'}` }; // locale:pt-BR
     timer = setTimeout(() => controller.abort(new Error('time ceiling')), briefing.limits.timeoutMs);
     await before?.(); launched = true; row.attempts.push(record);
     if (role === 'Executor' && round > 0) row.reworkRounds += 1;
     say(`${role === 'Executor' ? 'A helper is working on' : 'A reviewer is checking'} ${row.title}.`,
-      `${role === 'Executor' ? 'Um ajudante está executando' : 'Um crítico está verificando'} ${row.title}.`);
+      `${role === 'Executor' ? 'Um ajudante está executando' : 'Um crítico está verificando'} ${row.title}.`); // locale:pt-BR
     const response = role === 'Executor' ? await driver.run(briefing)
       : await driver.review({ briefing, result: review.execution, artifacts: review.execution.artifacts, checks: review.checks });
     transcript = response.transcript ?? null;
@@ -120,7 +120,7 @@ export async function attempt(ctx, row, demand, role, actor, profile, round, fai
     }
     if (slot.acquired?.ok) {
       slot.released = await releaseSlot(scratch.state, runId);
-      say(`The helper's place for ${row.title} is free again.`, `A vaga do ajudante para ${row.title} está livre de novo.`);
+      say(`The helper's place for ${row.title} is free again.`, `A vaga do ajudante para ${row.title} está livre de novo.`); // locale:pt-BR
     }
   }
 }

@@ -317,7 +317,7 @@ test('arguments that cannot be sent are refused without throwing', async () => {
 test('an answer cut in the middle of a character keeps its text', async () => {
   const root = await tempRoot();
   await openControlDir(root);
-  const line = `${JSON.stringify({ id: 1, ok: true, text: 'ação' })}\n`;
+  const line = `${JSON.stringify({ id: 1, ok: true, text: 'caf\u00e9' })}\n`;
   const bytes = Buffer.from(line, 'utf8');
   // The cut is in the middle of the two bytes of the first accent.
   const cut = bytes.indexOf(0xc3) + 1;
@@ -336,7 +336,7 @@ test('an answer cut in the middle of a character keeps its text', async () => {
 
   const answer = await callControl({ root, tool: 'first', arguments: {}, isAlive: () => true });
   assert.equal(answer.ok, true);
-  assert.equal(answer.text, 'ação');
+  assert.equal(answer.text, 'caf\u00e9');
 });
 
 

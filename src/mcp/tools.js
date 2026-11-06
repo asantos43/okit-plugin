@@ -41,7 +41,7 @@ const reply = (value) => JSON.stringify(value);
 // what the rest of the plugin calls.
 const smokeDemoTool = {
   name: 'smoke_demo',
-  description: 'Preview practice work and confirm its allowance ceiling. / Veja os trabalhos de exemplo e confirme o teto de cota.',
+  description: 'Preview practice work and confirm its allowance ceiling.',
   inputSchema: { type: 'object', properties: {
     dryRun: { type: 'boolean' }, client: { type: 'string', enum: CLIENTS },
     locale: LOCALE_SCHEMA, confirm: { type: 'string' },
@@ -59,7 +59,7 @@ const smokeDemoTool = {
 };
 
 function todoTool(name) {
-  return { name, description: 'Synchronize project tasks; preview with dryRun. Confirm suggested links explicitly. / Sincronize tarefas; veja antes com dryRun. Confirme vínculos sugeridos.',
+  return { name, description: 'Synchronize project tasks; preview with dryRun. Confirm suggested links explicitly.',
   inputSchema: { type: 'object', properties: { project: { type: 'string' },
     dryRun: { type: 'boolean' }, id: { type: 'string' }, link: { type: 'object' }, confirm: { type: 'boolean' } },
   required: [], additionalProperties: false },
@@ -75,7 +75,7 @@ function todoTool(name) {
 export const TOOLS = [
   {
     name: 'trajectory_show',
-    description: 'Read a saved run step by step on this computer. / Leia uma execução salva passo a passo neste computador.',
+    description: 'Read a saved run step by step on this computer.',
     inputSchema: { type: 'object', properties: { run: { type: 'string' } }, required: ['run'], additionalProperties: false },
     handler: async (args, ctx) => {
       const a = argsOf('trajectory_show', args, ['run']);
@@ -85,8 +85,8 @@ export const TOOLS = [
   },
   ...[['telemetry_status', telemetryStatus], ['telemetry_export', exportTelemetry]].map(([name, handler]) => ({
     name, description: name === 'telemetry_status'
-      ? 'See what measurements are saved and where. / Veja quais medições são salvas e onde.'
-      : 'Export saved measurements, optionally from a date. / Exporte medições salvas, opcionalmente a partir de uma data.',
+      ? 'See what measurements are saved and where.'
+      : 'Export saved measurements, optionally from a date.',
     inputSchema: { type: 'object', properties: name === 'telemetry_export' ? { since: { type: 'string' } } : {}, additionalProperties: false },
     handler: async (args, ctx) => {
       const a = argsOf(name, args, name === 'telemetry_export' ? ['since'] : []);

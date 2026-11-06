@@ -80,7 +80,7 @@ function readersOf(snapshot, kit = { state: 'absent' }, extra = {}) {
     callRead: async () => ({ ok: true }), daemon: async () => ({ running: false }), snapshot, kit: async () => kit };
 }
 
-const ROWS = /^\| (Claude Code: (Models|Quota|Modelos|Cota)|Status bar collector|Coletor da barra de status|Kit|Clients|Clientes) \|/;
+const ROWS = /^\| (Claude Code: (Models|Quota|Modelos|Cota)|Status bar collector|Coletor da barra de status|Kit|Clients|Clientes) \|/; // locale:pt-BR
 
 // The rows of the readiness and the closing line, as the doctor prints them.
 async function doctorTail(t, locale, snapshot, extra = {}) {
@@ -194,9 +194,9 @@ test('record: false skips only the quota.check record of the snapshot', async (t
 test('readiness: the line in both languages', () => {
   const half = { ready: false, gaps: [{ size: 'L', reason: 'expired-quota' }, { size: 'S', reason: 'no-model' }] };
   assert.equal(readyLine({ ready: true, gaps: [] }), 'Ready to launch executors: yes.');
-  assert.equal(readyLine({ ready: true, gaps: [] }, 'pt-BR'), 'Pronto para lançar executores: sim.');
+  assert.equal(readyLine({ ready: true, gaps: [] }, 'pt-BR'), 'Pronto para lançar executores: sim.'); // locale:pt-BR
   assert.equal(readyLine(half), 'Ready to launch executors: no; gaps: L (quota expired), S (no model confirmed).');
-  assert.equal(readyLine(half, 'pt-BR'), 'Pronto para lançar executores: não; faltas: L (cota expirada), S (nenhum modelo confirmado).');
+  assert.equal(readyLine(half, 'pt-BR'), 'Pronto para lançar executores: não; faltas: L (cota expirada), S (nenhum modelo confirmado).'); // locale:pt-BR
 });
 
 test('the doctor counts the live runs as env_report does: no free slot is a gap, not a yes', async (t) => {
@@ -277,7 +277,7 @@ test('an unreadable MCP entry gives its reason in the language of the doctor', a
     rows[locale] = result.rows.find((row) => row.id === 'registration');
   }
   assert.match(rows.en.detail, /\(permission denied\)/);
-  assert.match(rows['pt-BR'].detail, /\(permissão negada\)/);
+  assert.match(rows['pt-BR'].detail, /\(permissão negada\)/); // locale:pt-BR
   assert.doesNotMatch(rows['pt-BR'].detail, /permission denied/);
 });
 
@@ -298,7 +298,7 @@ test('the smoke demo reads the automatic OpenCode quota source as the snapshot d
 
 test('a state file the disk refuses is told in the language of the doctor', async (t) => {
   const f = await fixture(t);
-  for (const [locale, word] of [['en', 'permission denied'], ['pt-BR', 'permissão negada']]) {
+  for (const [locale, word] of [['en', 'permission denied'], ['pt-BR', 'permissão negada']]) { // locale:pt-BR
     const readers = readersOf(async () => readySnapshot());
     readers.readText = async (file) => {
       if (file.endsWith('config.json')) throw new Error('permission denied');

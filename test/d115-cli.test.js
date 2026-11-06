@@ -145,7 +145,7 @@ test('help includes account commands in both languages and failures exit 1', asy
   await fs.writeFile(paths(root).config, '[]');
   const invalid = await invoke(['remove', 'codex', 'work', '--locale', 'pt-BR']);
   assert.equal(invalid.code, 1);
-  assert.match(invalid.text, /configuração de contas/);
+  assert.match(invalid.text, /configuração de contas/); // locale:pt-BR
   assert.equal(await fs.readFile(paths(root).config, 'utf8'), '[]');
 });
 
@@ -176,14 +176,14 @@ test('round 11: labelling the default is refused when it would move the default 
   assert.equal((await config()).accounts['claude-code'][0].label, 'Main');
   const ptBr = await invoke(['rename', 'codex', 'default', 'Principal', '--locale', 'pt-BR'], { platform: 'linux', env: { ...env, CODEX_HOME: join(root, 'x') } });
   assert.equal(ptBr.code, 2, ptBr.text);
-  assert.match(ptBr.text, /cadastre essa pasta como uma conta/);
+  assert.match(ptBr.text, /cadastre essa pasta como uma conta/); // locale:pt-BR
 });
 
 test('round 14: a folder that cannot be created is named as the folder, not as the settings', async (t) => {
   const { root, invoke } = await fixture(t);
   const file = join(root, 'a-file');
   await fs.writeFile(file, 'x');
-  for (const [locale, wanted] of [['en', /Cannot create the account folder \(E(EXIST|NOTDIR)\)/], ['pt-BR', /Não foi possível criar a pasta da conta \(E(EXIST|NOTDIR)\)/]]) {
+  for (const [locale, wanted] of [['en', /Cannot create the account folder \(E(EXIST|NOTDIR)\)/], ['pt-BR', /Não foi possível criar a pasta da conta \(E(EXIST|NOTDIR)\)/]]) { // locale:pt-BR
     const result = await invoke(['add', 'codex', 'Blocked', '--config-dir', locale === 'en' ? file : join(file, 'inside'), '--locale', locale], { platform: 'linux' });
     assert.equal(result.code, 1, result.text);
     assert.match(result.text, wanted);

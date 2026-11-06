@@ -34,11 +34,11 @@ function launcher(client, calls, costUsd = 0.01) {
     child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
     queueMicrotask(async () => {
       try {
-        const prompt = args.find((arg) => arg.includes('Checks to meet /'));
-        const review = prompt.includes('Review this work /');
+        const prompt = args.find((arg) => arg.includes('Checks to meet:'));
+        const review = prompt.includes('Review this work:');
         const checks = JSON.parse(prompt.match(/Checks to meet[^:]*: ([^\n]+)/)[1]);
         if (!review) for (const check of checks) await writeFile(join(options.cwd, check.path), check.text);
-        const approved = !review || JSON.parse(prompt.split('Review this work / Confira este trabalho:\n')[1]
+        const approved = !review || JSON.parse(prompt.split('Review this work:\n')[1]
           .split('\n')[0]).checks.every((check) => check.passed);
         const text = JSON.stringify({ verdict: approved ? 'approved' : 'rejected', criteria: [], feedback: 'checked' });
         emitUsage(child, client, text, costUsd);
@@ -98,9 +98,9 @@ test('MCP confirmation runs real drivers and localizes the final report', async 
     const result = JSON.parse(await tool.handler({ confirm: preview.planHash, locale: 'pt-BR' }, deps));
     assert.equal(result.exitCode, 0, result.reasons.join('; '));
     assert.equal(calls.length, 12); assert.equal(result.tokens, 180);
-    assert.match(result.text, /Este trabalho usa sua cota/);
-    assert.match(result.text, /tokens: 180 \/ máximo 1000/);
-    assert.match(result.text, client === 'codex' ? /Este cliente não informa custo em dinheiro/
+    assert.match(result.text, /Este trabalho usa sua cota/); // locale:pt-BR
+    assert.match(result.text, /tokens: 180 \/ máximo 1000/); // locale:pt-BR
+    assert.match(result.text, client === 'codex' ? /Este cliente não informa custo em dinheiro/ // locale:pt-BR
       : /Custo total medido: USD/);
   }
 });
@@ -118,22 +118,22 @@ test('no-cost client without tokens and absent or wrong confirmation never launc
 });
 
 const previewBaselines = {
-  'claude-code/en': ['230d5c1f14be3961375b250cabf653082bcfce9174d47eabb291e057a010aee7',
+  'claude-code/en': ['e25c8dd1db588b60abbc01ebe0487caca97b1075f0a3c65fd601b025a306f93b',
     '1cf99ad4c76186b5bee0fec56f578a11f1a687a191322456786c7f96a47352e3'],
-  'claude-code/pt-BR': ['bb425b50322aaafe36be908fc3c59e8432df328942aa6dbeaa5fa489cdcb520a',
+  'claude-code/pt-BR': ['eb537298f82d5d7a667c946cc8f1d49881d7fa42a4a5f864bbf80ea8103bf96d',
     '6d6707128ce3371f4a077ce349d167d46aa2ce9d90978386a53f0b4c43e902ad'],
-  'codex/en': ['3b92b0fac746327bf7e22d17e5b95ee5b2457e4d1e3ba21a3457a3c4d08ca357',
+  'codex/en': ['a8f954db7210839ced81e826d1093f940c3aa03220a41b7c93c046f08bf1fc79',
     '1c582c29c3ee7725e802c44c318a22a15cbf35545688b9e55c6096abb6aca265'],
-  'codex/pt-BR': ['1f567828f058224c963f168d574ec829e51b033dab7a746be9369b706034a46e',
+  'codex/pt-BR': ['d6e215d2aad51e34afd09c01a10299ae582ff1dde1a586f562d77da93d2c0f3b',
     '6a2b20d5da03b3b26593e1040d6944c95960b3566c3015f96b2f9c6c29ab4fe7'],
-  'opencode/en': ['239cb3d367e41ba62b7b49b7bc72e1af39d635e7f1921b254d077c8784cc5785',
+  'opencode/en': ['f15bf255b9865749ea478b2dcfd60821d4757c3ca872e915fc3aec3452020d38',
     '5283f1e03cd4b0107dce473db5c159502bd6bba7b5fd0d42c9f962bc2372baf4'],
-  'opencode/pt-BR': ['fe8b8d401e0167a6f6e278db703ca06ede59626d9062189f0abe5fb9296201d6',
+  'opencode/pt-BR': ['4f9a98afae1e8f198455b581f5a89dbb22a8f5e5504fb7d8ac72c66a3914ef57',
     'a669aa1edf1fcd28201f78a933ed3b03b800b91d42724d6be8c88e78d41a3b52'],
 };
 
 test('dry-run hash and text match the committed entry without launching', async (t) => {
-  // SHA-256 of plan, including D121 accountPolicy defaults, and unchanged exact preview text from the pre-D84 entry,
+  // SHA-256 of plan, including the D125 locale dictionaries, and unchanged exact preview text from the pre-D84 entry,
   // with the confirmed fixture and a fixed quota timestamp. No git subprocess.
   const baseline = previewBaselines;
   for (const client of ['claude-code', 'codex', 'opencode']) {
@@ -234,10 +234,10 @@ test('the smoke demo tool answers previews and refusal for all clients and langu
         if (client === 'codex') {
           assert.match(cli.text, locale === 'en'
             ? /does not report money, so no money ceiling is available/
-            : /não informa custo em dinheiro, então não há teto de dinheiro disponível/);
+            : /não informa custo em dinheiro, então não há teto de dinheiro disponível/); // locale:pt-BR
           assert.match(cli.text, locale === 'en'
             ? /set "maxTokens" under "smoke" in config.json to a positive whole number/
-            : /defina "maxTokens" dentro de "smoke" em config.json como um número inteiro positivo/);
+            : /defina "maxTokens" dentro de "smoke" em config.json como um número inteiro positivo/); // locale:pt-BR
           assert.doesNotMatch(cli.text, /USD/);
         } else {
           assert.match(cli.text, locale === 'en'
@@ -264,7 +264,7 @@ test('a missing or empty PATH refuses before any helper is built, launched or pa
         const code = result.exitCode;
         assert.equal(code, 2, label); assert.equal(result.status, 'refused', label);
         assert.equal(calls.length, 0, label);
-        assert.match(result.reasons.join('; '), /PATH is missing from the environment, so the helper cannot be found\. \/ O PATH não está no ambiente, então o ajudante não pode ser encontrado\./, label);
+        assert.match(result.reasons.join('; '), /PATH is missing from the environment, so the helper cannot be found\./, label);
         assert.equal(result.tokens, 0, label); assert.equal(result.reservedUsd, 0, label);
         assert.ok(result.demands.every((row) => row.attempts.length === 0), label);
         assert.equal(result.cleanup.removed, true, label);

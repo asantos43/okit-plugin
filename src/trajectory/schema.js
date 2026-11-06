@@ -367,7 +367,7 @@ export function normalize(data = {}, { producer = false, dir } = {}) {
     result.final_metrics = finalMetrics(result.steps, data?.final_metrics, Array.isArray(data.steps) ? data.steps.length : 0, restructured);
   }
   const output = boundedClone(result);
-  if (!validate(output)) throw new Error('Invalid saved run / Execução salva inválida');
+  if (!validate(output)) throw new Error('Invalid saved run');
   return output;
 }
 // Harbor's _is_url deliberately checks only for ://, without parsing a URL.

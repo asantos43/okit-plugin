@@ -30,7 +30,7 @@ function checkUserPage(text, budget, guide = false) {
 function checkMaintainerPage(text) {
   text = text.replace(/^(# [^\n]+\n)\n!\[[^\n]+\]\([^\n]+\.svg\)\n/, '$1');
   assert.match(text, /^# [^\n]+\n\n[^#\s<\d][^\n]*[.!?]\n\n/, 'one-line summary');
-  assert.match(text, /<a id="contents"><\/a>\n## (?:Contents|Índice)\n\n(?:- \[[^\n]+\n)+/, 'TOC');
+  assert.match(text, /<a id="contents"><\/a>\n## (?:Contents|Índice)\n\n(?:- \[[^\n]+\n)+/, 'TOC'); // locale:pt-BR
   assert.doesNotMatch(text, /[\t ]+$/m, 'no trailing spaces');
   const sections = [...text.matchAll(/<a id="(section-\d+)"><\/a>\n## ([^\n]+)/g)];
   for (const [, id, title] of sections) assert.ok(text.includes(`- [${title}](#${id})`), title);

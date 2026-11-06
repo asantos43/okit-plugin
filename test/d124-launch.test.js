@@ -75,7 +75,7 @@ test('the refusal carries no credential path and no value of the environment', a
 });
 
 test('the refusal is said in the language of the run: the environment, the saved language, or the option', async (t) => {
-  const pt = /A conta "Work" \(work\) do Claude Code não está logada, então nada foi iniciado\. Para entrar, rode: CLAUDE_CONFIG_DIR=.* claude e depois digite \/login\./;
+  const pt = /A conta "Work" \(work\) do Claude Code não está logada, então nada foi iniciado\. Para entrar, rode: CLAUDE_CONFIG_DIR=.* claude e depois digite \/login\./; // locale:pt-BR
   const fromEnvironment = await scene(t);
   const first = await failure(fromEnvironment.launch({ env: { HOME: '/h', OKIT_LANGUAGE: 'pt-BR' } })(demand, options('claude-code', 'work')));
   assert.match(first.message, pt);
@@ -305,8 +305,8 @@ test('the adapters forward the language of the run to the refusal of an account 
     account: 'work', config, platform: 'linux', fs: absent, env: { HOME: root } };
   const briefing = 'Role: Executor\nfix the bug';
   for (const [name, adapter, expected] of [
-    ['claude-code', claudeAdapter, /^A conta "Work" \(work\) do Claude Code não está logada/],
-    ['codex', codexAdapter, /^A conta "Work" \(work\) do Codex não está logada/]]) {
+    ['claude-code', claudeAdapter, /^A conta "Work" \(work\) do Claude Code não está logada/], // locale:pt-BR
+    ['codex', codexAdapter, /^A conta "Work" \(work\) do Codex não está logada/]]) { // locale:pt-BR
     const error = await failure(adapter.spawn({ model: 'm' }, briefing, { ...common, locale: 'pt-BR', runId: `${name}-pt` }));
     assert.ok(error instanceof AccountNotLoggedIn, `${name}: ${error?.message}`);
     assert.match(error.message, expected);

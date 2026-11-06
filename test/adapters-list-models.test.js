@@ -78,7 +78,6 @@ test('the listing answers the models the command printed', async () => {
     reason: result.reason,
   });
   assert.match(result.reason, /model list came from the client command/);
-  assert.match(result.reason, /lista de modelos veio do comando do cliente/);
   assert.equal(run.calls.length, 1);
   assert.equal(run.calls[0].command, 'opencode');
   assert.deepEqual(run.calls[0].args, ['models']);
@@ -95,7 +94,6 @@ test('OpenCode refuses error lines and malformed names even with exit code zero'
     assert.equal(result.installed, true);
     assert.equal(result.source, 'catalog', stdout);
     assert.match(result.reason, /output was not understood/);
-    assert.match(result.reason, /não foi entendida/);
   }
 });
 
@@ -160,7 +158,6 @@ test('the listing keeps only active models and reports the excluded ones', async
   assert.deepEqual(result.hidden, ['hidden']);
   assert.equal(result.source, 'listing');
   assert.match(result.reason, /2 models listed, 1 active, 1 hidden/);
-  assert.match(result.reason, /2 modelos listados, 1 ativos, 1 ocultos/);
 });
 
 test('the activity field and values come from the user configuration', async () => {
@@ -191,7 +188,6 @@ test('a missing executable is an answer, never an exception', async () => {
   assert.equal(result.source, 'catalog');
   assert.deepEqual(result.models, []);
   assert.match(result.reason, /Codex was not found on this machine/);
-  assert.match(result.reason, /O Codex não foi encontrado nesta máquina/);
 });
 
 test('a command that does not answer in time stops at the configured deadline', async () => {
@@ -205,7 +201,6 @@ test('a command that does not answer in time stops at the configured deadline', 
   assert.equal(result.source, 'catalog');
   assert.equal(result.installed, true);
   assert.match(result.reason, /did not answer in time/);
-  assert.match(result.reason, /não respondeu a tempo/);
   assert.doesNotMatch(result.reason, /150|\bms\b/);
   assert.equal(result.error, '150');
 });
@@ -217,7 +212,7 @@ test('a command that fails is an answer with its exit code', async () => {
   });
   assert.equal(result.source, 'catalog');
   assert.deepEqual(result.models, []);
-  assert.doesNotMatch(result.reason, /\b3\b|exit code|código de saída/);
+  assert.doesNotMatch(result.reason, /\b3\b|exit code/);
   assert.equal(result.error, '3');
 });
 
@@ -232,7 +227,6 @@ test('empty lines use the catalog while an empty JSON array is a listing', async
   assert.deepEqual(lines.models, []);
   assert.deepEqual(lines.hidden, []);
   assert.match(lines.reason, /output was not understood/);
-  assert.match(lines.reason, /não foi entendida/);
   const json = fakeRun({ code: 0, stdout: JSON.stringify({ models: [] }), stderr: '' });
   const array = await codex.listModels({
     run: json,
@@ -255,7 +249,6 @@ test('a client that answered with no active model is a listing with no model', a
   assert.deepEqual(result.models, []);
   assert.deepEqual(result.hidden, ['gpt-6-sol']);
   assert.match(result.reason, /none of them is active/);
-  assert.match(result.reason, /nenhum deles está ativo/);
 });
 
 test('only a plain zero is a success and any other code is a failure', async () => {
@@ -267,7 +260,7 @@ test('only a plain zero is a success and any other code is a failure', async () 
   });
   assert.equal(failed.source, 'catalog');
   assert.deepEqual(failed.models, []);
-  assert.doesNotMatch(failed.reason, /\b7\b|exit code|código de saída/);
+  assert.doesNotMatch(failed.reason, /\b7\b|exit code/);
   assert.equal(failed.error, '7');
   const zero = fakeRun({ code: '0', stdout: JSON.stringify(models), stderr: '' });
   const stringZero = await codex.listModels({
@@ -293,7 +286,6 @@ test('an output the plugin does not understand falls back to the catalog', async
   assert.equal(result.source, 'catalog');
   assert.deepEqual(result.models, []);
   assert.match(result.reason, /output was not understood/);
-  assert.match(result.reason, /não foi entendida/);
 });
 
 test('a client without a listing command answers with the catalog and says so', async () => {
@@ -306,7 +298,6 @@ test('a client without a listing command answers with the catalog and says so', 
   assert.equal(result.installed, null);
   assert.deepEqual(result.models, []);
   assert.match(result.reason, /No model-listing command is configured for claude-code/);
-  assert.match(result.reason, /Nenhum comando de listagem de modelos está configurado/);
 });
 
 test('the default configuration of claude-code names no listing command', async () => {
@@ -392,8 +383,8 @@ test('every adapter answers with a reason and no demand or order id', async () =
   }
   for (const reason of reasons) {
     assert.doesNotMatch(reason, /\b[IDOG]\d+\b/);
-    const [english, portuguese] = reason.split(' / ');
-    assert.ok(english.trim() !== '' && portuguese.trim() !== '', `not bilingual: ${reason}`);
+    assert.ok(reason.trim() !== '', `missing reason: ${reason}`);
+    assert.ok(!reason.includes(' / '), `mixed languages: ${reason}`);
   }
 });
 

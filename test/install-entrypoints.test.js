@@ -24,7 +24,7 @@ import { fixture } from './helpers/install-fixture.js';
 const LOCALES = ['en', 'pt-BR'];
 // Words only one language has: the text of a run is in one language when it carries the markers of just that one.
 const ENGLISH = /\b(Refused|Failed at|Done\.|Next:|Dry run|Unknown flag|Choose a language|Download and verify|Install files|Register in|Quota recording|Command and PATH|No client with|Could not)\b/;
-const PORTUGUESE = /(Recusado|Falhou em|Pronto\.|Próximo|Simulação|Opção desconhecida|Escolha um idioma|Baixar e verificar|Instalar arquivos|Registrar no|Registro de cota|Comando e PATH|Nenhum cliente|Não foi possível)/;
+const PORTUGUESE = /(Recusado|Falhou em|Pronto\.|Próximo|Simulação|Opção desconhecida|Escolha um idioma|Baixar e verificar|Instalar arquivos|Registrar no|Registro de cota|Comando e PATH|Nenhum cliente|Não foi possível)/; // locale:pt-BR
 const SOURCES = [
   { name: 'nothing', expected: 'en' },
   { name: '--locale en', args: ['--locale', 'en'], expected: 'en' },
@@ -70,8 +70,8 @@ for (const entry of ENTRY_POINTS) {
       assert.deepEqual(speaks(text), [source.expected], `the refusal is in ${source.expected} only:\n${text}`);
       for (const line of refused.output) assert.ok(speaks(line).length <= 1, `a line with both languages: ${line}`);
       // The resolved language also decides an invalid one: the refusal names the language, never the flag.
-      if (source.invalid) assert.match(text, source.expected === 'en' ? /Choose a language/ : /Escolha um idioma/);
-      else assert.match(text, source.expected === 'en' ? /Unknown flag: --unknown/ : /Opção desconhecida: --unknown/);
+      if (source.invalid) assert.match(text, source.expected === 'en' ? /Choose a language/ : /Escolha um idioma/); // locale:pt-BR
+      else assert.match(text, source.expected === 'en' ? /Unknown flag: --unknown/ : /Opção desconhecida: --unknown/); // locale:pt-BR
 
       // A good command: an invalid saved language is exit 2; every other source gives one language and not exit 2.
       const run = await ready(t, entry, source);
@@ -151,7 +151,7 @@ for (const locale of LOCALES) {
         assert.deepEqual(repeated(f.output), [], f.output.join('\n'));
         // The note is still said, once: the SHA-256 note belongs to the downloads of the run.
         assert.equal(f.output.filter((line) => /SHA-256/.test(line) && !/\[\d+\/\d+\]/.test(line)).length, 1, f.output.join('\n'));
-        if (verbose) assert.equal(f.output.filter((line) => /PATH check|Verificação do PATH/.test(line)).length, 1, f.output.join('\n'));
+        if (verbose) assert.equal(f.output.filter((line) => /PATH check|Verificação do PATH/.test(line)).length, 1, f.output.join('\n')); // locale:pt-BR
       });
     }
   }
@@ -207,7 +207,7 @@ for (const locale of LOCALES) {
       f.clear();
       assert.equal(await main(['update', '--locale', locale], f.io), 0, f.output.join('\n'));
       assert.deepEqual(dry, stepsOf(f.output));
-      assert.ok(dry.some((step) => /Command and PATH|Comando e PATH/.test(step)), dry.join('\n'));
+      assert.ok(dry.some((step) => /Command and PATH|Comando e PATH/.test(step)), dry.join('\n')); // locale:pt-BR
     });
 
     test(`uninstall: the dry run has the steps of the real run (${locale}, ${platform})`, async (t) => {
@@ -303,7 +303,7 @@ const HELP_LINES = [['--help'], ['-h'], ['setup', '--help'], ['install', '--help
   ['doctor', '--help']];
 // What only one language's usage text says: its head, the default of --locale, the state-root line and the advice.
 const USAGE_WORDS = {
-  en: { has: [/^usage: /m, /— default: language/, /OKWORK_HOME names the state root/, /Choose the language once/], not: /\buso:|padrão|OKWORK_HOME indica|Escolha o idioma/ },
+  en: { has: [/^usage: /m, /— default: language/, /OKWORK_HOME names the state root/, /Choose the language once/], not: /\buso:|padrão|OKWORK_HOME indica|Escolha o idioma/ }, // locale:pt-BR
   'pt-BR': { has: [/^uso: /m, /— padrão: language/, /OKWORK_HOME indica a pasta de estado/, /Escolha o idioma uma vez/], not: /\busage:|— default:|OKWORK_HOME names|Choose the language once| \/ Escolha/ },
 };
 const noEntry = { prepare: async () => {} };
@@ -353,7 +353,7 @@ for (const command of ['install', 'update']) {
 test('install with a bilingual kit hint shows the half of the language of the run, redacted', async (t) => {
   for (const locale of LOCALES) {
     const f = await fixture(t);
-    const install = { ...f.io.config, kit: { ...f.io.config.kit, hint: 'Read https://a:b@one.invalid/x?q=1#f / Leia https://a:b@two.invalid/y?q=2#g' } };
+    const install = { ...f.io.config, kit: { ...f.io.config.kit, hint: 'Read https://a:b@one.invalid/x?q=1#f / Leia https://a:b@two.invalid/y?q=2#g' } }; // locale:pt-BR
     await fs.writeFile(join(f.root, 'config.json'), JSON.stringify({ install, language: locale }));
     await main(['install', '--client', 'claude-code'], f.io);
     const text = f.output.join('\n');
@@ -379,13 +379,13 @@ function wrapper(args, { state, env = {} } = {}) {
 
 test('F4: the wrapper (install.sh) refuses a flag in the saved language, in the language of the run, with exit 2', async () => {
   const cases = [
-    { name: 'saved pt-BR', state: { language: 'pt-BR' }, args: ['update', '--unknown'], head: /^Recusado: Opção desconhecida: --unknown\n/ },
+    { name: 'saved pt-BR', state: { language: 'pt-BR' }, args: ['update', '--unknown'], head: /^Recusado: Opção desconhecida: --unknown\n/ }, // locale:pt-BR
     { name: 'saved pt-BR, install', state: { language: 'pt-BR' }, args: ['install', '--client'], head: /^Recusado: Falta o valor de --client\n/ },
     { name: 'nothing saved', args: ['update', '--unknown'], head: /^Refused: Unknown flag: --unknown\n/ },
     { name: 'saved en, OKIT_LANGUAGE=pt-BR', state: { language: 'en' }, env: { OKIT_LANGUAGE: 'pt-BR' }, args: ['update', '--unknown'], head: /^Recusado: / },
     { name: 'saved pt-BR, --locale en', state: { language: 'pt-BR' }, args: ['update', '--unknown', '--locale', 'en'], head: /^Refused: Unknown flag: --unknown\n/ },
     { name: 'saved language that is not one', state: { language: 'xx' }, args: ['update', '--unknown'], head: /^Refused: Choose a language: en, pt-BR\.\n/ },
-    { name: 'saved xx, --locale pt-BR', state: { language: 'xx' }, args: ['update', '--unknown', '--locale', 'pt-BR'], head: /^Recusado: Escolha um idioma: en, pt-BR\.\n/ },
+    { name: 'saved xx, --locale pt-BR', state: { language: 'xx' }, args: ['update', '--unknown', '--locale', 'pt-BR'], head: /^Recusado: Escolha um idioma: en, pt-BR\.\n/ }, // locale:pt-BR
   ];
   for (const item of cases) {
     const result = await wrapper(item.args, item);
@@ -524,7 +524,7 @@ for (const file of ['install.sh', 'install.ps1']) {
   }
 
   for (const machine of UNSUPPORTED) {
-    for (const [locale, head, list] of [['en', 'No package for system/architecture', 'Supported'], ['pt-BR', 'Não há pacote para este sistema/arquitetura', 'Com suporte']]) {
+    for (const [locale, head, list] of [['en', 'No package for system/architecture', 'Supported'], ['pt-BR', 'Não há pacote para este sistema/arquitetura', 'Com suporte']]) { // locale:pt-BR
       test(`${file} on ${machine.name} refuses with exit 2 in ${locale}, downloads nothing and names the supported pairs`, async (t) => {
         const ran = await runScript(t, file, machine, { locale });
         assert.equal(ran.code, 2, ran.text);

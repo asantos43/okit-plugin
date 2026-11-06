@@ -322,9 +322,9 @@ export async function diagnose(input) {
   if (snapshot.error !== undefined && !configUnusable) {
     // The reason is not told: it comes from the readers in one language, and the rows above say what is wrong with the files.
     const pt = ui.locale === 'pt-BR';
-    ready.rows.unshift({ id: 'readiness', status: 'warn', label: pt ? 'Prontidão' : 'Readiness',
-      detail: pt ? 'não foi possível ler os modelos e a cota' : 'the models and the quota could not be read',
-      fix: pt ? `Corrija o que as linhas acima apontam e rode: ${program} doctor` : `Fix what the rows above point to, then run: ${program} doctor` });
+    ready.rows.unshift({ id: 'readiness', status: 'warn', label: pt ? 'Prontidão' : 'Readiness', // locale:pt-BR
+      detail: pt ? 'não foi possível ler os modelos e a cota' : 'the models and the quota could not be read', // locale:pt-BR
+      fix: pt ? `Corrija o que as linhas acima apontam e rode: ${program} doctor` : `Fix what the rows above point to, then run: ${program} doctor` }); // locale:pt-BR
   }
   rows.push(...ready.rows);
 

@@ -64,7 +64,7 @@ export async function quotaNoticeOperation(root, args, deps) {
   const event = a.event === null ? undefined : a.event;
   if (event !== undefined && (typeof event !== 'object' || Array.isArray(event))) {
     fail(locale === 'pt-BR'
-      ? 'quota_notice: o evento deve ser um objeto quando informado'
+      ? 'quota_notice: o evento deve ser um objeto quando informado' // locale:pt-BR
       : 'quota_notice: event must be an object when given');
   }
   return quotaReleasedNotice(event, locale);

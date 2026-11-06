@@ -109,7 +109,7 @@ test('language can be set once, inspected and reset; invalid choices are refused
     const got = await getConfig(root, 'language');
     assert.equal(got.entries[0].value, value);
   }
-  await refusal(setConfig(root, 'language', 'fr'), /Valid values: en, pt-BR.*Valores válidos: en, pt-BR/);
+  await refusal(setConfig(root, 'language', 'fr'), /Valid values: en, pt-BR/);
   await setConfig(root, 'language');
   for (const language of ['fr', null, 42, '']) {
     await writeFile(join(root, 'config.json'), JSON.stringify({ language }));
@@ -405,7 +405,7 @@ test('reserved client and class names are refused without writes or prototype po
   });
   for (const key of keys) {
     await refusal(setConfig(root, key, 'unsafe'),
-      /Unknown configuration key.*Chave de configuração desconhecida/s);
+      /Unknown configuration key/s);
     assert.equal(await readFile(file, 'utf8'), original);
     assert.equal((await stat(file)).mtimeMs, before.mtimeMs);
   }
@@ -430,7 +430,7 @@ test('a configured client name containing a dot is refused without writing', asy
     ['profiles.codex.foo.simple.model', 'unsafe'],
   ]) {
     await refusal(setConfig(root, key, value),
-      /Unknown configuration key.*Chave de configuração desconhecida/s);
+      /Unknown configuration key/s);
     assert.equal(await readFile(file, 'utf8'), original);
     assert.equal((await stat(file)).mtimeMs, before.mtimeMs);
   }
@@ -515,7 +515,7 @@ test('a disabled profile refuses the set and says how to enable it again', async
   await utimes(file, fixedTime, fixedTime);
   const before = await stat(file);
   await refusal(setConfig(root, 'profiles.codex.simple.model', 'custom'),
-    /The profile "profiles\.codex\.simple" is disabled.*config_set` with the key "profiles\.codex\.simple" and no value.*O perfil "profiles\.codex\.simple" está desligado/s);
+    /The profile "profiles\.codex\.simple" is disabled.*config_set` with the key "profiles\.codex\.simple" and no value/s);
   assert.equal(await readFile(file, 'utf8'), original);
   assert.equal((await stat(file)).mtimeMs, before.mtimeMs);
   // The class is enabled again, and the set that follows passes.
@@ -529,14 +529,14 @@ test('a set never crosses an ancestor that is not an object', async (t) => {
   const root = await tempRoot(t, { profiles: { codex: 'not-an-object' } });
   const file = join(root, 'config.json');
   const original = await readFile(file, 'utf8');
-  await refusal(setConfig(root, 'profiles.codex.simple.model', 'custom'), /is disabled.*está desligado/s);
+  await refusal(setConfig(root, 'profiles.codex.simple.model', 'custom'), /is disabled/s);
   assert.equal(await readFile(file, 'utf8'), original);
 });
 
 test('the class key disables a class and unset brings it back', async (t) => {
   const root = await tempRoot(t);
   const file = join(root, 'config.json');
-  await refusal(setConfig(root, 'profiles.codex.simple', 'oops'), /literal "null".*Valor inválido/s);
+  await refusal(setConfig(root, 'profiles.codex.simple', 'oops'), /literal "null"/s);
   await setConfig(root, 'profiles.codex.simple', 'null');
   const saved = JSON.parse(await readFile(file, 'utf8'));
   assert.equal(saved.profiles.codex.simple, null);

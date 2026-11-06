@@ -160,7 +160,7 @@ function familyConfig(model, candidates, family) {
 /** A client that answered with the given active models. */
 function listedClient(models) {
   return { clients: [{
-    client: 'codex', models, hidden: [], source: 'listing', reason: 'listed / listado',
+    client: 'codex', models, hidden: [], source: 'listing', reason: 'listed',
   }] };
 }
 
@@ -175,7 +175,7 @@ test('a candidate of another provider never replaces the configured model', () =
   };
   const detected = { clients: [{
     client: 'opencode', models: ['moonshot/kimi-k2'], hidden: [],
-    source: 'listing', reason: 'listed / listado',
+    source: 'listing', reason: 'listed',
   }] };
   const client = clientOf(proposeProfiles(detected, config), 'opencode');
   for (const [className, profile] of Object.entries(client.profiles)) {
@@ -297,7 +297,7 @@ test('a user candidate wins a family tie without leaving the candidate set', () 
     models: ['gpt-5.1-codex', 'gpt-5.2-codex'],
     hidden: [],
     source: 'listing',
-    reason: 'listed / listado',
+    reason: 'listed',
   }] };
   const client = clientOf(proposeProfiles(detected, config), 'codex');
   assert.equal(client.profiles.simple.model, 'gpt-5.1-codex');
@@ -311,15 +311,15 @@ test('a missing client, a timeout and unknown output keep the catalog with a rea
   const cases = [
     {
       answer: () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
-      expected: /not found on this machine|não foi encontrado nesta máquina/,
+      expected: /not found on this machine|não foi encontrado nesta máquina/, // locale:pt-BR
     },
     {
       answer: () => new Promise(() => {}),
-      expected: /did not answer in time|não respondeu a tempo/,
+      expected: /did not answer in time|não respondeu a tempo/, // locale:pt-BR
     },
     {
       answer: { code: 0, stdout: 'unknown prose', stderr: '' },
-      expected: /not understood|não foi entendida/,
+      expected: /not understood|não foi entendida/, // locale:pt-BR
     },
   ];
   for (const entry of cases) {
@@ -332,7 +332,7 @@ test('a missing client, a timeout and unknown output keep the catalog with a rea
     assert.equal(client.profiles.simple.model, 'gpt-5-codex');
     assert.equal(client.profiles.simple.source, 'catalog');
     assert.match(client.profiles.simple.reason, entry.expected);
-    assert.ok(client.profiles.simple.reason.includes(' / '));
+    assert.ok(!client.profiles.simple.reason.includes(' / '));
     assert.doesNotMatch(client.profiles.simple.reason, /\b[DO]\d+\b/);
   }
 });
@@ -358,7 +358,6 @@ test('a client whose listing fails keeps the technical code out of the reason', 
   assert.equal(client.error, 'EACCES');
   assert.doesNotMatch(client.reason, /EACCES|spawn codex/);
   assert.match(client.reason, /could not be read/);
-  assert.match(client.reason, /não pôde ser lida/);
   const proposal = clientOf(proposeProfiles(detected, config), 'codex').profiles.simple;
   assert.equal(proposal.source, 'catalog');
   assert.equal(proposal.model, 'gpt-5-codex');

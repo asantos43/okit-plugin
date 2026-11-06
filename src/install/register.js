@@ -170,7 +170,7 @@ async function registerRole(record, deps, remove = false) {
     await adapter.removeRole({ ...opts, command: hookCommand(record.previous.path) });
   }
   const operation = remove ? adapter.removeRole : adapter.installRole;
-  const result = operation ? await operation(opts) : { status: 'unsupported', reason: 'Adapter has no native role delivery / Adaptador sem entrega nativa de papel' };
+  const result = operation ? await operation(opts) : { status: 'unsupported', reason: { en: 'Adapter has no native role delivery', 'pt-BR': 'Adaptador sem entrega nativa de papel' } };
   const ui = presenterOf(deps);
   if (result.status !== 'ready') ui.detail(`${ui.text('roleUnsupported')}: ${pick(result.reason, ui.locale)}`);
 }

@@ -135,9 +135,9 @@ test('refuse a stale snapshot and changes immediately before rename', async t =>
   const { project, file } = await fixture(t);
   const before = await readSnapshot(project, 'TODO.md');
   await writeFile(file, 'changed by user\n');
-  await assert.rejects(writeSnapshot(before, 'wrong\n'), /file changed|arquivo mudou/);
+  await assert.rejects(writeSnapshot(before, 'wrong\n'), /file changed/);
   const fresh = await readSnapshot(project, 'TODO.md');
-  await assert.rejects(writeSnapshot(fresh, 'wrong\n', { beforeRename: () => writeFile(file, 'another edit\n') }), /file changed|arquivo mudou/);
+  await assert.rejects(writeSnapshot(fresh, 'wrong\n', { beforeRename: () => writeFile(file, 'another edit\n') }), /file changed/);
   assert.equal(await text(file), 'another edit\n');
   assert.deepEqual(await readdir(project), ['TODO.md']);
 });
@@ -155,7 +155,7 @@ test('refuse changed content with identical size, modification time and inode', 
   assert.equal(current.mtime, before.mtime);
   assert.equal(current.ino, before.ino);
   assert.notEqual(current.hash, before.hash);
-  await assert.rejects(writeSnapshot(before, 'wrong\n'), /file changed|arquivo mudou/);
+  await assert.rejects(writeSnapshot(before, 'wrong\n'), /file changed/);
   assert.equal(await text(file), edited);
   assert.deepEqual(await readdir(project), ['TODO.md']);
 });
@@ -170,7 +170,7 @@ test('refuse identical content when only modification time or only inode changes
   assert.equal(retimed.hash, before.hash);
   assert.equal(retimed.ino, before.ino);
   assert.notEqual(retimed.mtime, before.mtime);
-  await assert.rejects(writeSnapshot(before, 'wrong\n'), /file changed|arquivo mudou/);
+  await assert.rejects(writeSnapshot(before, 'wrong\n'), /file changed/);
   assert.equal(await text(file), before.text);
 
   const replacement = join(project, 'replacement.tmp');
@@ -181,7 +181,7 @@ test('refuse identical content when only modification time or only inode changes
   assert.equal(replaced.hash, before.hash);
   assert.equal(replaced.mtime, before.mtime);
   assert.notEqual(replaced.ino, before.ino);
-  await assert.rejects(writeSnapshot(before, 'wrong\n'), /file changed|arquivo mudou/);
+  await assert.rejects(writeSnapshot(before, 'wrong\n'), /file changed/);
   assert.equal(await text(file), before.text);
   assert.deepEqual(await readdir(project), ['TODO.md']);
 });
@@ -221,7 +221,7 @@ test('TODO failure never rolls back an inbox transition', async t => {
   const demand = await inboxAdd(root, { title: 'Work', todoLink: { project, item: 'Add search' } });
   await rm(file);
   const result = await inboxSetStatus(root, demand.id, 'delegated');
-  assert.match(result.todoWarning, /work was saved.*trabalho foi salvo/);
+  assert.match(result.todoWarning, /work was saved/);
   assert.equal((await inboxList(root))[0].status, 'delegated');
 });
 

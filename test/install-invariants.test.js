@@ -174,7 +174,7 @@ test('I1/R12-2: every refusal the code raises is translated, in the modules the 
         sites.push({ file, code: first.v });
       } else if (first?.t === 's' || first?.t === 'tpl') {
         const text = first.t === 's' ? first.v : first.chunks.join('x');
-        // "English / Português" in one message is two languages in one line: never allowed, not skipped.
+        // Two languages in one message are never allowed, not skipped.
         if (text.includes(' / ')) bilingual.push(`${file}:${first.line}: ${text}`);
         else sites.push({ file, reason: text });
       } else {

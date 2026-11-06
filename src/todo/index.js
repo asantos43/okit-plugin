@@ -5,7 +5,7 @@ import { readJson } from '../state.js';
 import { paths } from '../store.js';
 import { readSnapshot, safePath, writeSnapshot } from './safe.js';
 
-export const TODO_WARNING = 'The work was saved, but its task list could not be updated. Review the task list and try again. / O trabalho foi salvo, mas sua lista de tarefas não pôde ser atualizada. Confira a lista e tente novamente.';
+export const TODO_WARNING = 'The work was saved, but its task list could not be updated. Review the task list and try again.';
 const plain = text => text.replace(/[\r\n]/g, ' ');
 export function validateTodoLink(link) {
   if (link === undefined) return undefined;
@@ -14,7 +14,7 @@ export function validateTodoLink(link) {
     || typeof link.item !== 'string' || !link.item.trim()
     || link.file !== undefined && (typeof link.file !== 'string' || !link.file.trim())
     || Object.keys(link).some(key => !['project', 'item', 'file'].includes(key))) {
-    throw new TypeError('Choose a project folder and task text or anchor. / Escolha a pasta do projeto e o texto ou âncora da tarefa.');
+    throw new TypeError('Choose a project folder and task text or anchor.');
   }
   return { ...link, project: resolve(link.project) };
 }
@@ -82,7 +82,7 @@ function stateOf(demand, event) {
   if (demand.status === 'consolidated') return 'done';
   return 'progress';
 }
-const confirmationMessage = 'Use this task for the saved work? Confirm the link before updating it. / Usar esta tarefa para o trabalho salvo? Confirme o vínculo antes de atualizar.';
+const confirmationMessage = 'Use this task for the saved work? Confirm the link before updating it.';
 
 function changedLine(item, demand, settings, state, date) {
   const mark = ` <!-- okit-todo:${demand.id}:${Buffer.from(item.base).toString('base64')}${item.generated ? ':new' : ''} -->`;
@@ -96,7 +96,7 @@ function addItem(snapshot, demand, settings) {
   const lines = snapshot.text.split('\n');
   const ending = snapshot.text.includes('\r\n') ? '\r' : '';
   let at = lines.findIndex(line => line.replace(/\r$/, '') === settings.section);
-  if (at < 0) throw new Error('The section for new tasks is missing. / Falta a seção para tarefas novas.');
+  if (at < 0) throw new Error('The section for new tasks is missing.');
   at += 1;
   while (at < lines.length && !/^#{1,6} /.test(lines[at])) at += 1;
   if (at === lines.length && lines.at(-1) === '') at -= 1;
@@ -105,7 +105,7 @@ function addItem(snapshot, demand, settings) {
 }
 
 export async function syncProject(project, demands, raw, { dryRun = false, check = false, event, date } = {}) {
-  if (!isAbsolute(project)) throw new TypeError('Use the full project folder. / Use a pasta completa do projeto.');
+  if (!isAbsolute(project)) throw new TypeError('Use the full project folder.');
   project = resolve(project);
   const settings = settingsOf(raw, project);
   const report = { project, enabled: settings.enabled, changes: [], suggestions: [], demandsWithoutItem: [], itemsWithoutDemand: [] };
@@ -117,9 +117,9 @@ export async function syncProject(project, demands, raw, { dryRun = false, check
   const updates = new Map();
   for (const demand of relevant) {
     const matches = matchItem(items, demand, project);
-    if (matches.length > 1) throw new Error('Several tasks match; choose one by file and text. / Várias tarefas correspondem; escolha uma por arquivo e texto.');
+    if (matches.length > 1) throw new Error('Several tasks match; choose one by file and text.');
     let item = matches[0];
-    if (item?.owner && item.owner !== demand.id || item && matched.has(item)) throw new Error('This task already belongs to other work. / Esta tarefa já pertence a outro trabalho.');
+    if (item?.owner && item.owner !== demand.id || item && matched.has(item)) throw new Error('This task already belongs to other work.');
     if (item) matched.add(item);
     else report.demandsWithoutItem.push({ title: demand.title, id: demand.id });
     const candidate = !item && !demand.ext?.todo?.item && closest(items, demand);
@@ -128,11 +128,11 @@ export async function syncProject(project, demands, raw, { dryRun = false, check
     if (check || candidate) continue;
     const state = stateOf(demand, event);
     if (!item && state === 'open') continue;
-    if (!item && demand.ext?.todo?.item) throw new Error('The linked task was not found. Review the link. / A tarefa vinculada não foi encontrada. Confira o vínculo.');
+    if (!item && demand.ext?.todo?.item) throw new Error('The linked task was not found. Review the link.');
     const destinations = snapshots.filter(file => file.text.split(/\r?\n/).includes(settings.section));
     const destination = destinations.find(file => file === snapshots[0]) ?? (destinations.length === 1 ? destinations[0] : undefined);
     const snapshot = item?.snapshot ?? destination;
-    if (!snapshot) throw new Error('Choose one section for new tasks. / Escolha uma seção para tarefas novas.');
+    if (!snapshot) throw new Error('Choose one section for new tasks.');
     const added = !item;
     item ??= addItem(snapshot, demand, settings);
     const next = changedLine(item, demand, settings, state, date ?? (demand.updatedAt ?? new Date().toISOString()).slice(0, 10));
@@ -155,14 +155,14 @@ export async function syncProject(project, demands, raw, { dryRun = false, check
 }
 
 export async function todoRun(root, { project, link, id, confirm, ...options } = {}) {
-  if (project !== undefined && (typeof project !== 'string' || !isAbsolute(project))) throw new TypeError('Use the full project folder. / Use a pasta completa do projeto.');
+  if (project !== undefined && (typeof project !== 'string' || !isAbsolute(project))) throw new TypeError('Use the full project folder.');
   const [raw, store] = await Promise.all([readJson(paths(root).config, {}), readJson(paths(root).inbox, { items: [] })]);
   if (link !== undefined || id !== undefined) {
     if (confirm !== true || !id || !link) throw new TypeError(confirmationMessage);
     const clean = validateTodoLink(link);
     const demand = store.items.find(item => item.id === id);
-    if (!demand) throw new TypeError('Saved work was not found. / O trabalho salvo não foi encontrado.');
-    if (!projectsOf(demand).includes(clean.project)) throw new TypeError('Choose a declared project. / Escolha um projeto declarado.');
+    if (!demand) throw new TypeError('Saved work was not found.');
+    if (!projectsOf(demand).includes(clean.project)) throw new TypeError('Choose a declared project.');
     demand.ext = { ...demand.ext, todo: clean };
     project = clean.project;
   }

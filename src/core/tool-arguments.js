@@ -11,7 +11,7 @@ import { DEFAULT_CONFIG, LOCALES, localeOf } from '../profiles.js';
 
 /** The schema of the `locale` argument, the same for every tool that takes it. */
 export const LOCALE_SCHEMA = { type: 'string', enum: LOCALES, default: DEFAULT_CONFIG.language,
-  description: `Language / Idioma; language (${DEFAULT_CONFIG.language}) when omitted / quando omitido.` };
+  description: `Language; language (${DEFAULT_CONFIG.language}) when omitted.` };
 
 /** Fails with the message of the tool that refused. */
 export function fail(message) {

@@ -368,7 +368,7 @@ export const OPERATIONS = [
       type: 'object',
       properties: {
         locale: LOCALE_SCHEMA,
-        event: { type: 'object', description: 'The quota-back event the kit delivered. / O evento de cota liberada entregue pelo kit.' },
+        event: { type: 'object', description: 'The quota-back event the kit delivered.' },
       },
       required: [],
       additionalProperties: false,

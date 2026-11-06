@@ -623,7 +623,7 @@ async function statusTableCheck(deps) {
   const pt = await statusTable(deps.stateRoot, { ...base, cache: new Map(), locale: 'pt-BR' });
   need(pt.markdown.includes('Assinatura'), 'pt-BR must be another word per column');
   need(!pt.markdown.includes('Subscription'), 'pt-BR must not keep the English header');
-  need(pt.capacityLine.includes('Cota mínima'), 'pt-BR must be another word on the capacity line');
+  need(pt.capacityLine.includes('Cota mínima'), 'pt-BR must be another word on the capacity line'); // locale:pt-BR
   need(pt.markdown.split('\n')[2].includes('64%'), 'the reading must reach the row');
 }
 
@@ -733,7 +733,7 @@ async function quotaBelowLaunchFloor(deps) {
       readQuota: async (client) => ({ source: 'manual', remainingPct: Math.min(floor - 1, actorFloor - 1),
         recordedAt: deps.now(), client }), limits: { global: 3, clients: {} } });
     for (const [locale, words] of [['en', ['below the floor', 'Wait for quota reset']],
-      ['pt-BR', ['Cota abaixo do piso', 'Aguarde a renovação']]]) {
+      ['pt-BR', ['Cota abaixo do piso', 'Aguarde a renovação']]]) { // locale:pt-BR
       const actors = await simulated(locale);
       need(actors.actors.length > 0 && actors.actors.every((actor) => !actor.canLaunch),
         `${locale} actors must all be refused below the configured floor`);

@@ -246,10 +246,10 @@ test('Portuguese explains, asks and confirms entirely in Portuguese', async (t) 
   const f = await world(t);
   f.io.ask = async (question) => { f.questions.push(question); return 'sim'; };
   assert.equal(await main(['setup', '--locale', 'pt-BR'], f.io), 0);
-  assert.deepEqual(f.questions, ['Serviço em segundo plano — executa trabalhos em espera enquanto o cliente está fechado. Iniciar com esta máquina? [s/N]:']);
+  assert.deepEqual(f.questions, ['Serviço em segundo plano — executa trabalhos em espera enquanto o cliente está fechado. Iniciar com esta máquina? [s/N]:']); // locale:pt-BR
   assert.deepEqual(stepLines(f), [
-    `A inicialização automática grava: ${f.plan.path}`,
-    'Início automático ligado. Verifique: okit-plugin doctor',
+    `A inicialização automática grava: ${f.plan.path}`, // locale:pt-BR
+    'Início automático ligado. Verifique: okit-plugin doctor', // locale:pt-BR
   ]);
   assert.deepEqual(f.ran, f.plan.install);
   assert.deepEqual(f.written, [{ path: f.plan.path, content: f.plan.content }]);
@@ -623,11 +623,11 @@ for (const locale of ['en', 'pt-BR']) {
       assert.equal(await main(['setup', '--locale', locale], f.io), 1);
       assert.equal(errors.length, 1);
       const reason = failure === 'preflight'
-        ? (locale === 'en' ? 'No installation record found' : 'Nenhuma instalação encontrada')
-        : (locale === 'en' ? 'permission denied' : 'permissão negada');
+        ? (locale === 'en' ? 'No installation record found' : 'Nenhuma instalação encontrada') // locale:pt-BR
+        : (locale === 'en' ? 'permission denied' : 'permissão negada'); // locale:pt-BR
       assert.ok(errors[0].includes(reason), errors[0]);
       if (locale === 'pt-BR') {
-        assert.match(errors[0], /^Não foi possível configurar o início automático\.\n/);
+        assert.match(errors[0], /^Não foi possível configurar o início automático\.\n/); // locale:pt-BR
         assert.doesNotMatch(errors[0], /permission denied|No installation record found|was kept|taken back/);
       }
     });

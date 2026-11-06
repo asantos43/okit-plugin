@@ -43,7 +43,7 @@ test('native agent/config and command delivery preserve user configuration', asy
     assert.ok(calls[0][1].includes('p/model'));
     assert.ok(calls[0][1].includes('high'));
     assert.match(calls[0][1].at(-1), new RegExp(`Role: ${role}`));
-    for (const field of ['Orders:', 'Limits:', 'Work in hand:', 'Available actors:', 'Unknown facts:', 'Ordens:', 'Fatos desconhecidos:']) assert.ok(delivery.native.agent.prompt.includes(field));
+    for (const field of ['Orders:', 'Limits:', 'Work in hand:', 'Available actors:', 'Unknown facts:']) assert.ok(delivery.native.agent.prompt.includes(field));
   }
   for (let n = 0; n < 2; n++) await adapter.removeRole({ root });
   assert.equal(await readFile(file, 'utf8'), 'User command instructions\n');

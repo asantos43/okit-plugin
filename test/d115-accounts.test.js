@@ -29,13 +29,13 @@ test('implicit default, stable ids, immutable changes and default protection', (
   const original = { language: 'en' };
   assert.deepEqual(accountsOf(original, 'codex'), [{ client: 'codex', id: 'default', label: 'default',
     configDir: null, isDefault: true, key: 'codex' }]);
-  const added = withAccountAdded(original, 'codex', 'Produção', '/tmp/production');
+  const added = withAccountAdded(original, 'codex', 'Production', '/tmp/production');
   assert.deepEqual(original, { language: 'en' });
   const id = accountsOf(added, 'codex')[1].id;
-  assert.equal(id, 'producao');
+  assert.equal(id, 'production');
   const renamed = withAccountRenamed(added, 'codex', id, 'New name');
   assert.equal(accountsOf(renamed, 'codex')[1].id, id);
-  assert.equal(accountsOf(added, 'codex')[1].label, 'Produção');
+  assert.equal(accountsOf(added, 'codex')[1].label, 'Production');
   const defaults = withAccountRenamed(renamed, 'codex', 'default', 'Personal');
   assert.equal(accountsOf(defaults, 'codex')[0].configDir, null);
   assert.equal(accountsOf(defaults, 'codex')[0].label, 'Personal');
@@ -55,7 +55,7 @@ test('implicit default, stable ids, immutable changes and default protection', (
 // | config dir lookup  | normalized POSIX/Windows      | unknown dir becoming an extra    |
 test('label validation has localized reasons and client-scoped uniqueness', () => {
   const accounts = [{ client: 'codex', id: 'x', label: 'Work' }];
-  for (const label of ['A', 'A'.repeat(40), 'Produção']) assert.equal(validateLabel(label).ok, true);
+  for (const label of ['A', 'A'.repeat(40), 'Production']) assert.equal(validateLabel(label).ok, true);
   for (const label of ['', '  ', 'A'.repeat(41), 'a\nb', 'a\0b', 'a\tb', 'a\x7fb', 'a\u0085b']) {
     const result = validateLabel(label);
     assert.equal(result.ok, false);
@@ -205,8 +205,8 @@ test('a refused accounts setting is shown in Portuguese and does not take over t
   const { localizeReason } = await import('../src/install/present.js');
   let error;
   try { configOf({ accounts: { codex: [{ id: 'default', label: 'x', configDir: '/tmp/x' }] } }); } catch (caught) { error = caught; }
-  assert.match(localizeReason(error.message, 'pt-BR'), /^A configuração de contas accounts\.codex não é válida: use ids de conta únicos/);
-  assert.match(localizeReason('Invalid install.clients.codex.xdgParts: use both or neither.', 'pt-BR'), /^install\.clients\.codex\.xdgParts inválido: /);
+  assert.match(localizeReason(error.message, 'pt-BR'), /^A configuração de contas accounts\.codex não é válida: use ids de conta únicos/); // locale:pt-BR
+  assert.match(localizeReason('Invalid install.clients.codex.xdgParts: use both or neither.', 'pt-BR'), /^install\.clients\.codex\.xdgParts inválido: /); // locale:pt-BR
 });
 
 test('every refusal of the account model is translated into Portuguese', async () => {

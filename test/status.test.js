@@ -59,7 +59,7 @@ for (const locale of ['en', 'pt-BR']) test(`MCP display text and refusals (${loc
     const frame = await server.call(name, { locale });
     assert.equal(frame.result.isError, false);
     const data = server.data(frame);
-    assert.doesNotMatch(data.markdown, /Client not recognized|Cliente não reconhecido/);
+    assert.doesNotMatch(data.markdown, /Client not recognized|Cliente não reconhecido/); // locale:pt-BR
     assert.match(data.markdown, locale === 'en' ? /Showing all clients.*`client`/ : /Mostrando todos os clientes.*`client`/);
     if (name === 'actors_list') {
       assert.ok(data.actors.length > 0);
@@ -92,11 +92,11 @@ for (const locale of ['en', 'pt-BR']) test(`capacity has an explicit empty state
   const data = server.data(await server.call('status', { locale }));
   assert.equal(data.capacityLine, locale === 'en'
     ? 'No coding client was found.\nMinimum quota to launch: 15%.'
-    : 'Nenhum cliente de programação foi encontrado.\nCota mínima para iniciar: 15%.');
+    : 'Nenhum cliente de programação foi encontrado.\nCota mínima para iniciar: 15%.'); // locale:pt-BR
   assert.doesNotMatch(data.capacityLine, /:\s*;/);
   assert.match(data.markdown, locale === 'en'
     ? /A slot allows one executor to run at a time\.\nAn actor is a model and its reasoning effort/
-    : /Uma vaga permite executar um executor por vez\.\nUm ator é um modelo e seu esforço de raciocínio/);
+    : /Uma vaga permite executar um executor por vez\.\nUm ator é um modelo e seu esforço de raciocínio/); // locale:pt-BR
 });
 
 test('client marker table must pass session markers and must refuse configuration alone', () => {
@@ -229,7 +229,7 @@ test('recorded quota keeps its real value and age across cache refreshes', async
 test('missing quota tells how to record it in each language', async (t) => {
   const root = await tempRoot(t);
   for (const [locale, words] of [['en', 'No quota value recorded. Call `quota_set` with the client "claude-code"'],
-    ['pt-BR', 'Nenhum valor de cota registrado. Chame `quota_set` com o cliente "claude-code"']]) {
+    ['pt-BR', 'Nenhum valor de cota registrado. Chame `quota_set` com o cliente "claude-code"']]) { // locale:pt-BR
     const table = await statusTable(root, { env: { CLAUDECODE: '1' }, locale, readQuota: async () => null, cache: new Map() });
     assert.ok(table.markdown.includes(words));
     assert.ok(table.markdown.includes('percentage that is left') === (locale === 'en'));
@@ -398,7 +398,7 @@ test('status translates client sources and legacy configuration warnings', async
   assert.match(en.capacityLine, /deprecated; used as limits.global/);
   assert.match(en.capacityLine, /unknown client: future/);
   const pt = await statusTable(root, { ...deps, locale: 'pt-BR' });
-  assert.match(pt.capacityLine, /codex: 0\/100 \(própria\)/);
+  assert.match(pt.capacityLine, /codex: 0\/100 \(própria\)/); // locale:pt-BR
   assert.match(pt.capacityLine, /obsoleto; usado como limits.global/);
   assert.match(pt.capacityLine, /cliente desconhecido: future/);
 });
@@ -464,9 +464,9 @@ test('pt-BR translates the same table, and an unknown locale falls back to en', 
 
   const pt = await statusTable(root, { ...deps, locale: 'pt-BR' });
   assert.ok(pt.markdown.startsWith('| Assinatura | Restante 5h | Restante semana |'), pt.markdown);
-  assert.ok(pt.markdown.includes('| alpha | 12% | - | 3m | vermelho: lowQuotaPct é 15% | api (0s) |'), pt.markdown);
-  assert.equal(pt.capacityLine, 'Vagas de executores (em execução/limite; um executor por vez): alpha: 0/3 (padrão), 3 disponíveis.\nCota mínima para iniciar: 15%.');
-  assert.equal(pt.rows[0].order, 'lowQuotaPct é 15%', 'the floor is quoted in the same language');
+  assert.ok(pt.markdown.includes('| alpha | 12% | - | 3m | vermelho: lowQuotaPct é 15% | api (0s) |'), pt.markdown); // locale:pt-BR
+  assert.equal(pt.capacityLine, 'Vagas de executores (em execução/limite; um executor por vez): alpha: 0/3 (padrão), 3 disponíveis.\nCota mínima para iniciar: 15%.'); // locale:pt-BR
+  assert.equal(pt.rows[0].order, 'lowQuotaPct é 15%', 'the floor is quoted in the same language'); // locale:pt-BR
 
   const unknown = await statusTable(root, { ...deps, locale: 'fr' });
   const en = await statusTable(root, deps);

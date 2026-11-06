@@ -145,7 +145,7 @@ export function capped(data, config) {
     run.final_metrics.total_steps = run.steps.length;
   }
   if (!data.steps.length || bytes(data) > limit) {
-    throw new Error('Recording limit is too small / Limite de gravação pequeno demais');
+    throw new Error('Recording limit is too small');
   }
   return data;
 }
@@ -174,7 +174,7 @@ export function capped(data, config) {
 // step_id is output numbering, never identity across captures.
 const canonical = value => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
   ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item) ?? '';
-const defaultMarker = '[Content shortened / Conteúdo reduzido]';
+const defaultMarker = '[Content shortened]';
 function truncated(item, marker = defaultMarker) {
   const pending = [item];
   while (pending.length) {
@@ -361,7 +361,7 @@ export function mergeRuns(existing, incoming, marker = defaultMarker) {
 }
 const corruptSuffix = '.corrupt-';
 // The refusal of a lock that did not free up, in plain words.
-const busy = 'Recording is busy right now. Try again in a moment. / A gravação está ocupada agora. Tente de novo em instantes.';
+const busy = 'Recording is busy right now. Try again in a moment.';
 const previousDefaults = { stat, readJson, rename, rm, open };
 async function quarantine(file, now, io) {
   let backup, reserved = false;
@@ -371,7 +371,7 @@ async function quarantine(file, now, io) {
       try { const handle = await io.open(backup, 'wx'); reserved = true; await handle.close(); break; }
       catch (error) { if (error.code !== 'EEXIST') throw error; }
     }
-    if (!reserved) throw Object.assign(new Error('Cannot quarantine recording: 1000 backup name collisions / Não foi possível isolar a gravação: 1000 colisões'),
+    if (!reserved) throw Object.assign(new Error('Cannot quarantine recording: 1000 backup name collisions'),
       { code: 'EQUARANTINEFULL' });
     await io.rename(file, backup);
   } catch (error) {
@@ -381,7 +381,7 @@ async function quarantine(file, now, io) {
       if (reserved) await rm(backup, { force: true });
       await io.rm(file, { force: true });
     }
-    catch { throw new Error('Cannot replace recording. Try again. / Não foi possível substituir a gravação. Tente de novo.'); }
+    catch { throw new Error('Cannot replace recording. Try again.'); }
   }
 }
 // The contract of the file that is already there:
@@ -417,7 +417,7 @@ export async function save(root, data, { lockTimeoutMs = 5000, now = Date.now(),
   if (config.enabled !== true) return false;
   if (!safeId(data?.session_id)) return false;
   const prepared = normalize(redact(boundedClone(data), config), { dir: config.dir });
-  if (!validate(prepared)) throw new Error('Invalid saved run / Execução salva inválida');
+  if (!validate(prepared)) throw new Error('Invalid saved run');
   await mkdir(config.dir, { recursive: true });
   const file = join(config.dir, `${prefix}${data.session_id}.json`);
   try {
@@ -425,7 +425,7 @@ export async function save(root, data, { lockTimeoutMs = 5000, now = Date.now(),
       const previous = await readPrevious(file, now, config, previousIO);
       const merged = previous ? mergeRuns(previous, prepared, config.truncationMarker) : prepared;
       const safe = capped(previous ? normalize(merged, { dir: config.dir }) : merged, config);
-      if (!validate(safe)) throw new Error('Invalid saved run / Execução salva inválida');
+      if (!validate(safe)) throw new Error('Invalid saved run');
       await writeJsonAtomic(file, safe);
       await pruneFiles(config);
     }, { timeoutMs: lockTimeoutMs });

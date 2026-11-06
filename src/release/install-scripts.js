@@ -40,7 +40,7 @@ export async function embeddedPresenter(root) {
 // environment. The language of the system is the first non-empty of LC_ALL, LC_MESSAGES, LANG (the UI culture on
 // Windows): `pt` followed by the end, `_`, `-` or `.` is pt-BR, anything else is English.
 const NODE_MISSING = 'Node required: https://nodejs.org/';
-const NODE_MISSING_PT = 'Node.js é necessário: https://nodejs.org/';
+const NODE_MISSING_PT = 'Node.js é necessário: https://nodejs.org/'; // locale:pt-BR
 // Windows PowerShell 5.1 reads a script without a BOM as ANSI, so the accents are code points there.
 const NODE_MISSING_PT_PS = `'Node.js '+[char]0xE9+' necess'+[char]0xE1+'rio: https://nodejs.org/'`;
 const SH_NODE_CHECK = [

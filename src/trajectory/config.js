@@ -5,7 +5,7 @@ import { DEFAULT_CONFIG } from '../profiles.js';
 
 export async function settings(root) {
   const config = { ...DEFAULT_CONFIG.trajectory, ...(await readJson(paths(root).config, {})).trajectory };
-  const invalid = () => new Error('Invalid recording settings / Ajustes de gravação inválidos');
+  const invalid = () => new Error('Invalid recording settings');
   if (typeof config.dir !== 'string' || !config.dir.trim()) throw invalid();
   for (const key of ['maxBytes', 'maxFileBytes', 'retentionDays']) {
     if (!Number.isSafeInteger(config[key]) || config[key] <= 0) throw invalid();

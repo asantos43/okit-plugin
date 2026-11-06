@@ -229,7 +229,7 @@ test('update --account is refused, in the language of the run', async (t) => {
   assert.match(f.output.join('\n'), /An update moves every registered account; run it without --account\./);
   f.output.length = 0;
   assert.equal(await f.run('update', '--client', CLIENT, '--account', 'work', '--locale', 'pt-BR'), exitCodeFor('usage'));
-  assert.match(f.output.join('\n'), /Uma atualização move todas as contas registradas; rode sem --account\./);
+  assert.match(f.output.join('\n'), /Uma atualização move todas as contas registradas; rode sem --account\./); // locale:pt-BR
 });
 
 test('an unknown id, a client without accounts and a missing client are refused with pt-BR text', async (t) => {
@@ -244,8 +244,8 @@ test('an unknown id, a client without accounts and a missing client are refused 
     assert.ok(!said.includes(f.home), said);
   };
   await refused(['install', '--client', CLIENT, '--account', 'nobody'], /Conta desconhecida\./);
-  await refused(['install', '--client', CLIENT, '--account', 'Bad Id!'], /Id de conta inválido\./);
-  await refused(['install', '--client', 'opencode', '--account', 'work'], /Contas não são suportadas para este cliente\./);
+  await refused(['install', '--client', CLIENT, '--account', 'Bad Id!'], /Id de conta inválido\./); // locale:pt-BR
+  await refused(['install', '--client', 'opencode', '--account', 'work'], /Contas não são suportadas para este cliente\./); // locale:pt-BR
   await refused(['install', '--account', 'work'], /Informe o cliente da conta com --client\./);
   await refused(['uninstall', '--account', 'work'], /Informe o cliente da conta com --client\./);
   await refused(['install', '--client', 'all', '--account', 'work'], /Informe o cliente da conta com --client\./);
@@ -550,7 +550,7 @@ test('an id saved again with another folder is refused until the account is unin
   const elsewhere = join(f.home, 'accounts', 'work-moved');
   await saveAccounts(f, [{ id: 'work', label: 'Work', configDir: elsewhere }, { id: 'personal', label: 'Personal', configDir: f.personal }]);
   const commandsBefore = f.commands.length;
-  for (const [locale, text] of [['en', /registered in another folder/], ['pt-BR', /registrada em outra pasta/]]) {
+  for (const [locale, text] of [['en', /registered in another folder/], ['pt-BR', /registrada em outra pasta/]]) { // locale:pt-BR
     f.output.length = 0;
     assert.equal(await f.run('install', '--client', CLIENT, '--account', 'work', '--statusline', '--locale', locale), exitCodeFor('usage'));
     assert.match(f.output.join('\n'), text);
@@ -579,7 +579,7 @@ test('an install of one account does not move the others to another version', as
   const commandsBefore = f.commands.length;
   f.setVersion('1.0.1');
   for (const [locale, text] of [['en', /Other accounts use version 1\.0\.0; run \S+ update first\./],
-    ['pt-BR', /Outras contas usam a versão 1\.0\.0; rode \S+ update primeiro\./]]) {
+    ['pt-BR', /Outras contas usam a versão 1\.0\.0; rode \S+ update primeiro\./]]) { // locale:pt-BR
     f.output.length = 0;
     assert.equal(await f.run('install', '--client', CLIENT, '--account', 'personal', '--locale', locale), exitCodeFor('usage'));
     assert.match(f.output.join('\n'), text);
