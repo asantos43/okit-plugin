@@ -3,6 +3,13 @@
   "actors": "Actors",
   "settings": "Settings",
   "close": "Close",
+  "tabactors": "Actors",
+  "tablimits": "Limits and quota",
+  "tablanguage": "Language",
+  "tabprofiles": "Profiles",
+  "tabtelemetry": "Telemetry",
+  "tabtodo": "Task list",
+  "tabother": "Other",
   "enabled": "On",
   "model": "Model",
   "effort": "Effort",
@@ -23,5 +30,11 @@
   "unconfirmed": "Unconfirmed",
   "yes": "Yes",
   "no": "No",
-  "error": "Request failed"
+  "error": "Request failed",
+  "groupTitles": {
+    "limits": "Executor limits", "lowQuotaPct": "Low-quota threshold", "daemon": "Daemon",
+    "smoke": "Smoke test", "accountPolicy": "Account policy", "codexQuota": "Codex quota reading",
+    "language": "Language", "profiles": "Profiles", "telemetry": "Telemetry", "todo": "Task list",
+    "codexQuota.fields": "Codex log field names", "telemetry.rede": "Network sending"
+  }
 }

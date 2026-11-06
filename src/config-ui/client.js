@@ -14,6 +14,31 @@ export function clientMain(win) {
   const controls = all('[data-path], [data-actor-path], [data-actor]');
   const initial = new Map(controls.map(control => [control, read(control)]));
   const resets = new Set();
+  const tabs = all('[role="tab"]');
+  const panels = all('[role="tabpanel"]');
+  const selectTab = tab => {
+    for (const item of tabs) {
+      item.setAttribute('aria-selected', String(item === tab));
+      item.tabIndex = item === tab ? 0 : -1;
+    }
+    for (const panel of panels) panel.hidden = panel.id !== tab.getAttribute('aria-controls');
+    win.history.replaceState(null, '', `#tab=${tab.dataset.tab}`);
+  };
+  const updateDots = () => {
+    for (const marker of [...tabs, ...all('details.section > summary')]) {
+      const container = tabs.includes(marker)
+        ? doc.getElementById(marker.getAttribute('aria-controls')) : marker.parentElement;
+      const dirty = controls.some(control => {
+        if (!container.contains(control)) return false;
+        const path = control.dataset.path ?? control.dataset.actorPath ?? control.dataset.actor;
+        try { return resets.has(path) || JSON.stringify(read(control)) !== JSON.stringify(initial.get(control)); }
+        catch { return true; }
+      });
+      marker.classList.toggle('has-edits', dirty);
+    }
+  };
+  if (tabs.length) selectTab(tabs.find(tab => win.location.hash === `#tab=${tab.dataset.tab}`) ?? tabs[0]);
+  doc.addEventListener('input', updateDots);
   let pending = [];
   doc.addEventListener('change', event => {
     const source = event.target;
@@ -27,8 +52,15 @@ export function clientMain(win) {
         else control.value = source.value;
       }
     }
+    updateDots();
   });
   const error = reason => { doc.getElementById('error').textContent = reason; };
+  const showReview = () => {
+    const review = doc.getElementById('review');
+    review.hidden = false;
+    review.scrollIntoView?.({ block: 'nearest' });
+    review.focus?.({ preventScroll: true });
+  };
   const request = async (path, method, value, keepalive = false) => {
     const response = await win.fetch(path, { method, credentials: 'same-origin', keepalive,
       headers: { 'x-okit-token': params.token ?? '', ...(value === undefined ? {} : { 'Content-Type': 'application/json' }) },
@@ -69,12 +101,25 @@ export function clientMain(win) {
           && !row.modelChoices.some(choice => choice.model === change.value && choice.confirmed)))));
       if (!change) return;
       error(text.confirmModel);
-      doc.getElementById('review').hidden = false;
+      showReview();
       pending = pending.map(item => item === change ? { ...item, confirm: true } : item);
       return;
     }
   };
+  doc.addEventListener('keydown', event => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const index = tabs.indexOf(event.target);
+    if (index < 0) return;
+    const next = { ArrowLeft: (index + tabs.length - 1) % tabs.length,
+      ArrowRight: (index + 1) % tabs.length, Home: 0, End: tabs.length - 1 }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    selectTab(tabs[next]);
+    tabs[next].focus();
+  });
   doc.addEventListener('click', async event => {
+    const tab = event.target.closest('[role="tab"]');
+    if (tabs.includes(tab)) { selectTab(tab); return; }
     const target = event.target.closest('[data-action]');
     if (!target) return;
     try {
@@ -85,11 +130,11 @@ export function clientMain(win) {
           const control = controls.find(item => (item.dataset.path ?? item.dataset.actorPath ?? item.dataset.actor) === change.path);
           return `${change.path}\n${text.before}: ${JSON.stringify(initial.get(control))}\n${text.after}: ${change.unset ? text.defaultValue : JSON.stringify(change.value)}`;
         }).join('\n\n');
-        doc.getElementById('review').hidden = false;
+        showReview();
       } else if (action === 'apply') await save();
       else if (action === 'cancel') { pending = []; doc.getElementById('review').hidden = true; }
       else if (action === 'reload') win.location.reload();
-      else if (action === 'reset') { resets.add(target.dataset.reset); error(text.defaultValue); }
+      else if (action === 'reset') { resets.add(target.dataset.reset); updateDots(); error(text.defaultValue); }
       else if (action === 'close') {
         const result = await request('/api/close', 'POST', {});
         error(result.status === 200 ? text.closed : result.value.reason);

@@ -3,6 +3,13 @@
   "actors": "Atores",
   "settings": "Ajustes",
   "close": "Fechar",
+  "tabactors": "Atores",
+  "tablimits": "Limites e cota",
+  "tablanguage": "Idioma",
+  "tabprofiles": "Perfis",
+  "tabtelemetry": "Telemetria",
+  "tabtodo": "Lista de tarefas",
+  "tabother": "Outros",
   "enabled": "Ativo",
   "model": "Modelo",
   "effort": "Esforço",
@@ -23,5 +30,11 @@
   "unconfirmed": "Não confirmado",
   "yes": "Sim",
   "no": "Não",
-  "error": "Falha na solicitação"
+  "error": "Falha na solicitação",
+  "groupTitles": {
+    "limits": "Limites do executor", "lowQuotaPct": "Limiar de cota baixa", "daemon": "Daemon",
+    "smoke": "Teste de fumaça", "accountPolicy": "Política de contas", "codexQuota": "Leitura de cota do Codex",
+    "language": "Idioma", "profiles": "Perfis", "telemetry": "Telemetria", "todo": "Lista de tarefas",
+    "codexQuota.fields": "Nomes dos campos de log do Codex", "telemetry.rede": "Envio pela rede"
+  }
 }
