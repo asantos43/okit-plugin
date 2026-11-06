@@ -373,6 +373,7 @@ const STATE_OF_OTHER_COMMANDS = 'state of a command outside this inventory (I9 l
  * FILE_RULES row; `excluded` says why the file is not an input of this inventory.
  */
 export const READ_POINTS = Object.freeze([
+  { file: 'adapters/claude-code/panel/panel.js', arg: /^stdout$/, excluded: 'stdout of the fixed read-only okit-plugin panel-state --json --client claude command; bounded before parsing and validated as schema 1, with failures rendered as messages (test/panel-mod.test.js)' },
   { file: 'src/spawn-process.js', arg: /^(join\(dirname\(runs\), 'config\.json'\)|configFile)$/, rule: CONFIG_JSON },
   // The plugin's own configuration, wherever it is read.
   { file: 'src/', arg: /^(paths\([\w.]+\)\.config|join\(root, 'config\.json'\)|join\(ctx\.root, 'config\.json'\)|join\(stateRoot, 'config\.json'\)|target\.config|files\.config|join\(context\.root, 'config\.json'\))$/, rule: CONFIG_JSON },

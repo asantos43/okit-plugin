@@ -1,0 +1,1 @@
+Add an opt-in Claude Code panel with account-grouped runs (20 per account), quota bars, wrapped readiness and progress, isolated unreadable runs and refresh timeouts / Adiciona painel opcional do Claude Code com execuções por conta (20 por conta), barras de cotas, prontidão e progresso em múltiplas linhas, isolamento de execuções ilegíveis e timeout de atualização.
