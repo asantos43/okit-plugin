@@ -3,13 +3,26 @@ import test from 'node:test';
 import { clientMain, clientSource } from '../src/config-ui/client.js';
 import { labels } from '../src/config-ui/labels.js';
 
-function fixture(responses = [], controls = [], actors = []) {
+function fixture(responses = [], controls = [], actors = [], hash = '') {
   const handlers = {}, calls = [];
   const nodes = Object.fromEntries(['error', 'review', 'changes', 'reload'].map(id => [id, { hidden: true, textContent: '' }]));
+  nodes.review.scrolls = []; nodes.review.focuses = [];
+  nodes.review.scrollIntoView = options => { nodes.review.scrolls.push(options); };
+  nodes.review.focus = options => { nodes.review.focuses.push(options); };
   nodes.state = { textContent: JSON.stringify({ expectedMtime: 42, actors, labels: labels.en, locale: 'en', instance: 'page-instance' }) };
   let reloads = 0;
-  const win = { location: { search: '?token=abc%2B123&locale=en', reload: () => { reloads++; } },
-    document: { getElementById: id => nodes[id], querySelectorAll: () => controls,
+  const tabs = ['actors', 'limits', 'language', 'profiles', 'telemetry', 'todo'].map(id => ({
+    dataset: { tab: id }, attributes: {}, classList: { toggle(name, value) { this[name] = value; } },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    getAttribute: () => `panel-${id}`, focus() { this.focused = true; },
+  }));
+  const panels = tabs.map(tab => (nodes[`panel-${tab.dataset.tab}`] = {
+    id: `panel-${tab.dataset.tab}`, contains: control => control.panel === tab.dataset.tab,
+  }));
+  const win = { location: { hash, search: '?token=abc%2B123&locale=en', reload: () => { reloads++; } },
+    history: { replaceState: (_state, _title, value) => { win.location.hash = value; } },
+    document: { getElementById: id => nodes[id], querySelectorAll: selector =>
+      selector === '[role="tab"]' ? tabs : selector === '[role="tabpanel"]' ? panels : controls,
       addEventListener: (name, handler) => { handlers[name] = handler; },
       defaultView: { addEventListener: (name, handler) => { handlers[name] = handler; } } },
     fetch: async (path, options) => { calls.push({ path, ...options });
@@ -18,7 +31,8 @@ function fixture(responses = [], controls = [], actors = []) {
   clientMain(win);
   const startup = calls.splice(0);
   const click = (action, dataset = {}) => handlers.click({ target: { closest: () => ({ dataset: { action, ...dataset } }) } });
-  return { win, nodes, calls, startup, handlers, click, reloads: () => reloads };
+  const tabClick = index => handlers.click({ target: { closest: () => tabs[index] } });
+  return { win, nodes, calls, startup, handlers, click, tabs, panels, tabClick, reloads: () => reloads };
 }
 
 test('keepalive registers the instance on start and only persisted pageshow', () => {
@@ -39,6 +53,29 @@ test('keepalive registers the instance on start and only persisted pageshow', ()
   check(f.calls[0]);
 });
 
+test('tabs select one panel, persist the hash and follow keyboard navigation', async () => {
+  const f = fixture();
+  const selected = index => {
+    assert.deepEqual(f.panels.map(panel => panel.hidden), f.panels.map((_, i) => i !== index));
+    assert.deepEqual(f.tabs.map(tab => tab.attributes['aria-selected']), f.tabs.map((_, i) => String(i === index)));
+    assert.deepEqual(f.tabs.map(tab => tab.tabIndex), f.tabs.map((_, i) => i === index ? 0 : -1));
+    assert.equal(f.win.location.hash, `#tab=${f.tabs[index].dataset.tab}`);
+  };
+  selected(0);
+  await f.tabClick(1); selected(1);
+  for (const [from, key, to] of [[1, 'ArrowRight', 2], [2, 'End', 5], [5, 'ArrowRight', 0],
+    [0, 'ArrowLeft', 5], [5, 'Home', 0]]) {
+    let prevented = false;
+    f.handlers.keydown({ target: f.tabs[from], key, preventDefault: () => { prevented = true; } });
+    selected(to); assert.equal(prevented, true); assert.equal(f.tabs[to].focused, true);
+  }
+  for (const [hash, expected] of [['#tab=telemetry', 4], ['#tab=unknown', 0], ['', 0]]) {
+    const g = fixture([], [], [], hash);
+    assert.equal(g.panels[expected].hidden, false);
+    assert.equal(g.panels.filter(panel => !panel.hidden).length, 1);
+  }
+});
+
 test('only changed controls are sent with token and mtime; save refreshes state', async () => {
   const a = { dataset: { path: 'language', type: 'string' }, value: 'en' };
   const b = { dataset: { path: 'limits.global', type: 'integer' }, value: '2' };
@@ -53,6 +90,29 @@ test('only changed controls are sent with token and mtime; save refreshes state'
   assert.equal(f.calls[1].path, '/api/state?locale=en');
   assert.equal(f.reloads(), 1);
   assert.match(clientSource(), /^\(function clientMain/);
+});
+
+test('hidden tab edits keep dots, review changes and saved values across tab switches', async () => {
+  const control = { dataset: { path: 'limits.global', type: 'integer' }, value: '2', panel: 'limits' };
+  const f = fixture([], [control]);
+  assert.equal(f.panels[1].hidden, true);
+  control.value = '3'; f.handlers.input({ target: control });
+  assert.equal(f.tabs[1].classList['has-edits'], true);
+  control.value = '2'; f.handlers.change({ target: control });
+  assert.equal(f.tabs[1].classList['has-edits'], false);
+  await f.tabClick(1);
+  control.value = '4'; f.handlers.change({ target: control });
+  await f.tabClick(2);
+  assert.equal(f.panels[1].hidden, true);
+  assert.equal(f.tabs[1].classList['has-edits'], true);
+  await f.click('review');
+  assert.match(f.nodes.changes.textContent, /limits.global\nBefore: 2\nAfter: 4/);
+  await f.click('apply');
+  assert.deepEqual(JSON.parse(f.calls[0].body).changes, [{ path: 'limits.global', value: 4 }]);
+  assert.equal(f.reloads(), 1);
+  assert.equal(f.win.location.hash, '#tab=language');
+  const restored = fixture([], [], [], f.win.location.hash);
+  assert.equal(restored.panels[2].hidden, false);
 });
 
 test('untouched empty number and text controls yield no changes', async () => {
@@ -122,4 +182,47 @@ test('shared account and critic controls stay synchronized; reset emits unset', 
   await f.click('reset', { reset: 'language' });
   await f.click('review'); await f.click('apply');
   assert.deepEqual(JSON.parse(f.calls[0].body).changes, [{ path, value: 'new' }, { path: 'language', unset: true }]);
+});
+
+test('review scrolls to and focuses the review panel, also for model confirmation', async () => {
+  const f = fixture();
+  await f.click('review');
+  assert.equal(f.nodes.review.hidden, false);
+  assert.deepEqual(f.nodes.review.scrolls, [{ block: 'nearest' }]);
+  assert.deepEqual(f.nodes.review.focuses, [{ preventScroll: true }]);
+  const model = { dataset: { path: 'limits.model', type: 'string' }, value: 'old' };
+  const g = fixture([{ status: 422, value: { reason: 'Model is not confirmed by the client; confirm this change explicitly.' } }], [model]);
+  model.value = 'new';
+  await g.click('review'); g.nodes.review.scrolls.length = 0; g.nodes.review.focuses.length = 0;
+  await g.click('apply');
+  assert.equal(g.nodes.review.scrolls.length, 1);
+  assert.equal(g.nodes.review.focuses.length, 1);
+  const bare = fixture();
+  delete bare.nodes.review.scrollIntoView; delete bare.nodes.review.focus;
+  await bare.click('review');
+  assert.equal(bare.nodes.review.hidden, false);
+});
+
+test('tab keys with modifiers are ignored so browser shortcuts keep working', () => {
+  const f = fixture();
+  for (const modifier of ['altKey', 'ctrlKey', 'metaKey', 'shiftKey']) {
+    let prevented = false;
+    f.handlers.keydown({ target: f.tabs[0], key: 'ArrowRight', [modifier]: true, preventDefault: () => { prevented = true; } });
+    assert.equal(prevented, false);
+    assert.equal(f.tabs[0].attributes['aria-selected'], 'true');
+    assert.equal(f.tabs[1].attributes['aria-selected'], 'false');
+  }
+  let prevented = false;
+  f.handlers.keydown({ target: f.tabs[0], key: 'ArrowRight', preventDefault: () => { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(f.tabs[1].attributes['aria-selected'], 'true');
+});
+
+test('clicking Reset marks the tab of that field as edited', async () => {
+  const field = { dataset: { path: 'limits.global', type: 'integer' }, value: '2', panel: 'limits' };
+  const f = fixture([], [field]);
+  assert.notEqual(f.tabs[1].classList['has-edits'], true);
+  await f.click('reset', { reset: 'limits.global' });
+  assert.equal(f.tabs[1].classList['has-edits'], true);
+  assert.notEqual(f.tabs[0].classList['has-edits'], true);
 });

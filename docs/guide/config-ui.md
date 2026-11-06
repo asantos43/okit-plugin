@@ -13,8 +13,9 @@ Edit settings and actor profiles in a local browser page.
 ## Edit
 
 2. Review the readiness line and actor tables. Each client account has its own table; account labels can be saved inline. Profiles are shared by the client's accounts. Refresh models to ask the client for its current list.
-3. Turn actors on or off, choose model, effort and maximum turns, or expand a settings group. Settings come from the configuration schema; reset restores a setting's default. Redacted fields are read-only.
+3. Use Actors, Limits and quota, Language, Profiles, Telemetry and Task list tabs; future settings groups appear in Other. Turn actors on or off, choose model, effort and maximum turns, or edit a settings group. Settings come from the configuration schema; reset restores a setting's default. Redacted fields are read-only.
 Unset text and number settings appear empty; leaving them untouched does not add a change.
+An edited tab shows a dot until its values return to their initial state. Switching tabs keeps edits for review, and the selected tab survives the reload after saving. Use Left/Right arrows, Home or End on the tab bar; without JavaScript all panels remain visible.
 
 4. Review the before/after list and apply the changes. Unconfirmed models require an additional explicit confirmation. Validation failures show the same reason as the command line. If the file changed on disk, reload before retrying.
 

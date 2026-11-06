@@ -6,6 +6,40 @@ import { labels } from '../src/config-ui/labels.js';
 import { buildState } from '../src/config-ui/state.js';
 import { schemaEntries } from '../src/core/config.js';
 
+test('tabs link six visible panels and retain 88 fields and 48 actor controls without script', () => {
+  for (const locale of ['en', 'pt-BR']) {
+    const html = renderPage(buildState(), { locale, nonce: 'test', token: 'token' }).replace(/<script\b[\s\S]*?<\/script>/g, '');
+    const ids = ['actors', 'limits', 'language', 'profiles', 'telemetry', 'todo'];
+    assert.equal((html.match(/role="tab"/g) ?? []).length, 6);
+    assert.equal((html.match(/role="tabpanel"/g) ?? []).length, 6);
+    for (const [index, id] of ids.entries()) {
+      assert.ok(html.includes(`id="tab-${id}" data-tab="${id}" aria-controls="panel-${id}" aria-selected="${index === 0}" tabindex="${index === 0 ? 0 : -1}">${labels[locale][`tab${id}`]}</button>`));
+      assert.ok(html.includes(`role="tabpanel" id="panel-${id}" aria-labelledby="tab-${id}">`));
+    }
+    assert.equal((html.match(/ data-path="/g) ?? []).length, 88);
+    assert.equal((html.match(/ data-(?:actor-path|actor)="/g) ?? []).length, 48);
+    const paths = [...html.matchAll(/ data-path="([^"]+)"/g)].map(match => match[1]);
+    assert.deepEqual(paths.sort(), buildState().fields.map(field => field.path).sort());
+    assert.doesNotMatch(html, /<details| style="|\son\w+=/);
+    const panels = [...html.matchAll(/role="tabpanel"[^>]*>([\s\S]*?)(?=<section class="panel"|<section id="review")/g)];
+    for (const [index, id] of ids.entries()) {
+      const expected = buildState().fields.filter(field => id === 'limits'
+        ? ['limits', 'lowQuotaPct', 'daemon', 'smoke', 'accountPolicy', 'codexQuota'].includes(field.path.split('.')[0])
+        : field.path.split('.')[0] === id);
+      for (const field of expected) assert.ok(panels[index][1].includes(`data-path="${field.path}"`));
+    }
+  }
+});
+
+test('review section is focusable and the sticky bar follows the main width', () => {
+  const html = renderPage(buildState(), { nonce: 'test', token: 'token' });
+  assert.match(html, /<section id="review" tabindex="-1" hidden>/);
+  const css = html.match(/<style[^>]*>([\s\S]*?)<\/style>/)[1];
+  assert.match(css, /header,main,\.action-bar\{max-width:1100px;margin:auto\}/);
+  assert.doesNotMatch(css, /\.action-bar\{max-width:100%\}/);
+  assert.match(css, /\*\{box-sizing:border-box\}/);
+});
+
 test('schema fields render once, including future fields and redacted values', () => {
   const state = buildState();
   state.fields.push({ path: 'future.example', value: 'new', type: 'text' });
@@ -14,6 +48,8 @@ test('schema fields render once, including future fields and redacted values', (
   const paths = [...html.matchAll(/ data-path="([^"]+)"/g)].map(match => match[1]);
   assert.deepEqual(paths.sort(), [...schemaEntries({}).map(entry => entry.path), 'future.example', 'future.hidden'].sort());
   assert.match(html, /data-path="future.hidden"[^>]*readonly/);
+  assert.match(html, /role="tabpanel" id="panel-other" aria-labelledby="tab-other">[\s\S]*<h3>future<\/h3>[\s\S]*data-path="future.example"/);
+  assert.match(html, /data-tab="other"[^>]*>Other<\/button>/);
   assert.equal((html.match(/<tbody>/g) ?? []).length, state.actors.length);
   assert.equal((html.match(/<tr data-row=/g) ?? []).length, state.actors.length * 4);
 });
@@ -71,4 +107,18 @@ test('locale goldens share keys and rendering changes only localized labels', as
     return html;
   };
   assert.equal(normalized('en'), normalized('pt-BR'));
+});
+
+test('actor tables sit in horizontal scroll wrappers; tab list and wrapper scroll horizontally', () => {
+  const html = renderPage(buildState(), { nonce: 'test', token: 'token' });
+  const css = html.match(/<style\b[^>]*>([\s\S]*?)<\/style>/)[1];
+  const body = html.replace(/<style\b[\s\S]*?<\/style>/g, '').replace(/<script\b[\s\S]*?<\/script>/g, '');
+  const tables = body.match(/<table\b/g)?.length ?? 0;
+  assert.ok(tables > 0);
+  assert.equal(body.match(/<div class="table-scroll"><table\b/g)?.length ?? 0, tables);
+  assert.equal(body.match(/<div class="table-scroll">/g)?.length ?? 0, tables);
+  assert.match(css, /\.tabs\{[^}]*overflow-x:auto/);
+  assert.match(css, /\.tabs\{[^}]*flex-wrap:nowrap/);
+  assert.match(css, /\.table-scroll\{[^}]*overflow-x:auto/);
+  assert.match(css, /header \.badge\{[^}]*white-space:normal/);
 });

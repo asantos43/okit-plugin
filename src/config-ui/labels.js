@@ -1,6 +1,8 @@
 export const labels = {
   en: {
     title: 'Configuration', actors: 'Actors', settings: 'Settings', close: 'Close',
+    tabactors: 'Actors', tablimits: 'Limits and quota', tablanguage: 'Language',
+    tabprofiles: 'Profiles', tabtelemetry: 'Telemetry', tabtodo: 'Task list', tabother: 'Other',
     enabled: 'On', model: 'Model', effort: 'Effort', maxTurns: 'Max turns',
     launchable: 'Launchable now', refresh: 'Refresh models', saveLabel: 'Save label',
     reset: 'Reset to default', defaultValue: 'Default', save: 'Review changes',
@@ -10,6 +12,8 @@ export const labels = {
   },
   'pt-BR': {
     title: 'Configuração', actors: 'Atores', settings: 'Ajustes', close: 'Fechar',
+    tabactors: 'Atores', tablimits: 'Limites e cota', tablanguage: 'Idioma',
+    tabprofiles: 'Perfis', tabtelemetry: 'Telemetria', tabtodo: 'Lista de tarefas', tabother: 'Outros',
     enabled: 'Ativo', model: 'Modelo', effort: 'Esforço', maxTurns: 'Máximo de turnos',
     launchable: 'Pode iniciar agora', refresh: 'Atualizar modelos', saveLabel: 'Salvar nome',
     reset: 'Restaurar padrão', defaultValue: 'Padrão', save: 'Revisar alterações',

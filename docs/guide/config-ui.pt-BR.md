@@ -13,8 +13,9 @@ Edite ajustes e perfis de atores em uma página local no navegador.
 ## Editar
 
 2. Confira a linha de prontidão e as tabelas de atores. Cada conta de cliente tem sua tabela; os nomes das contas podem ser salvos na própria página. Os perfis são compartilhados pelas contas do cliente. Atualize os modelos para consultar a lista atual do cliente.
-3. Ative ou desative atores, escolha modelo, esforço e máximo de turnos, ou expanda um grupo de ajustes. Os ajustes vêm do esquema de configuração; restaurar retorna ao padrão. Campos ocultados são somente leitura.
+3. Use as abas Atores, Limites e cota, Idioma, Perfis, Telemetria e Lista de tarefas; grupos futuros aparecem em Outros. Ative ou desative atores, escolha modelo, esforço e máximo de turnos, ou edite um grupo de ajustes. Os ajustes vêm do esquema de configuração; restaurar retorna ao padrão. Campos ocultados são somente leitura.
 Ajustes de texto e número sem valor aparecem vazios; deixá-los intactos não adiciona uma alteração.
+Uma aba editada mostra um ponto até seus valores voltarem ao estado inicial. Trocar de aba mantém as edições para revisão, e a aba selecionada permanece após recarregar ao salvar. Use as setas esquerda/direita, Home ou End na barra de abas; sem JavaScript todos os painéis ficam visíveis.
 
 4. Revise a lista de antes/depois e aplique as alterações. Modelos não confirmados exigem uma confirmação explícita adicional. Falhas de validação mostram o mesmo motivo da linha de comando. Se o arquivo mudou no disco, recarregue antes de tentar novamente.
 
