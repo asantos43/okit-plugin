@@ -376,7 +376,7 @@ test('an extra cannot inherit the installed flag or catalog of the default', asy
   assert.deepEqual(snapshot.clients[0].accounts[1].models, []);
 });
 
-test('saved default catalog choices cannot confirm an extra without its own listing', async () => {
+test("a catalog client's saved confirmation lets an extra launch, but its models stay unobserved", async () => {
   const config = observation().config;
   config.profiles = { [client]: { simple: { model: 'm', effort: 'low' } } };
   config.setup = { done: { profiles: config.profiles } };
@@ -385,7 +385,7 @@ test('saved default catalog choices cannot confirm an extra without its own list
   }) });
   assert.deepEqual(snapshot.clients[0].accounts[0].models, ['m']);
   assert.deepEqual(snapshot.clients[0].accounts[1].models, []);
-  assert.equal(snapshot.clients[0].accounts[1].candidates.some((actor) => actor.canLaunch), false);
+  assert.equal(snapshot.clients[0].accounts[1].candidates.some((actor) => actor.canLaunch), true);
 });
 
 test('an absent default cannot suppress readiness of an independently installed extra', async () => {
