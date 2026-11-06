@@ -37,10 +37,11 @@
   "loggedInTitle": "Existe um indicador local de login; o acesso não foi verificado.",
   "notLoggedInTitle": "Nenhum indicador local de login foi encontrado.",
   "loginUnknownTitle": "O login pode estar onde o plugin não lê, como nas Chaves do macOS.",
-  "accountRemove": "Remover", "accountConfirmRemove": "Confirmar remoção", "accountLoginCommand": "Comando de login",
+  "accountRemove": "Remover", "accountConfirmRemove": "Confirmar remoção", "accountLoginCommand": "Entrar",
   "accountCopy": "Copiar", "accountCopied": "Copiado", "accountCheck": "Verificar login",
+  "accountCopyFallback": "Pressione Ctrl+C para copiar",
   "accountLoginHelp": "Execute este comando no terminal para entrar e verifique o login novamente.",
-  "accountAdd": "Adicionar conta", "accountLabelPlaceholder": "Trabalho", "accountFolderPlaceholder": "/home/you/.claude-work",
+  "accountAdd": "Adicionar conta", "accountLabelPlaceholder": "Trabalho", "accountFolderPlaceholderClaude": "/home/you/.claude-work", "accountFolderPlaceholderCodex": "/home/you/.codex-work",
   "accountRemoveNote": "Remover altera apenas os ajustes do plugin: a pasta, o login e o histórico permanecem",
   "groupTitles": {
     "limits": "Limites do executor", "lowQuotaPct": "Limiar de cota baixa", "daemon": "Daemon",

@@ -3,15 +3,15 @@ import test from 'node:test';
 import { clientMain, clientSource } from '../src/config-ui/client.js';
 import { labels } from '../src/config-ui/labels.js';
 
-function fixture(responses = [], controls = [], actors = [], hash = '', summaries = []) {
+function fixture(responses = [], controls = [], actors = [], hash = '', summaries = [], accounts = {}) {
   const handlers = {}, calls = [];
   const nodes = Object.fromEntries(['error', 'review', 'changes', 'reload'].map(id => [id, { hidden: true, textContent: '' }]));
   nodes.review.scrolls = []; nodes.review.focuses = [];
   nodes.review.scrollIntoView = options => { nodes.review.scrolls.push(options); };
   nodes.review.focus = options => { nodes.review.focuses.push(options); };
-  nodes.state = { textContent: JSON.stringify({ expectedMtime: 42, actors, labels: labels.en, locale: 'en', instance: 'page-instance' }) };
+  nodes.state = { textContent: JSON.stringify({ expectedMtime: 42, actors, accounts: accounts.state ?? [], labels: labels.en, locale: 'en', instance: 'page-instance' }) };
   let reloads = 0;
-  const tabs = ['actors', 'limits', 'language', 'profiles', 'telemetry', 'todo'].map(id => ({
+  const tabs = ['actors', 'limits', 'language', 'profiles', 'telemetry', 'todo', ...(accounts.rows ? ['accounts'] : [])].map(id => ({
     dataset: { tab: id }, attributes: {}, classList: { toggle(name, value) { this[name] = value; } },
     setAttribute(name, value) { this.attributes[name] = value; },
     getAttribute: () => `panel-${id}`, focus() { this.focused = true; },
@@ -19,11 +19,15 @@ function fixture(responses = [], controls = [], actors = [], hash = '', summarie
   const panels = tabs.map(tab => (nodes[`panel-${tab.dataset.tab}`] = {
     id: `panel-${tab.dataset.tab}`, contains: control => control.panel === tab.dataset.tab,
   }));
-  const win = { location: { hash, search: '?token=abc%2B123&locale=en', reload: () => { reloads++; } },
+  const win = { navigator: accounts.navigator ?? {}, getSelection: () => accounts.selection,
+    location: { hash, search: '?token=abc%2B123&locale=en', reload: () => { reloads++; } },
     history: { replaceState: (_state, _title, value) => { win.location.hash = value; } },
-    document: { getElementById: id => nodes[id], querySelectorAll: selector =>
+    document: {
+      createRange: () => ({ selectNodeContents: node => { accounts.selected = node; } }),
+      getElementById: id => nodes[id], querySelectorAll: selector =>
       selector === '[role="tab"]' ? tabs : selector === '[role="tabpanel"]' ? panels
-        : selector === 'details.section > summary' ? summaries : controls,
+        : selector === 'details.section > summary' ? summaries
+          : selector === 'tr[data-account-id]' ? accounts.rows ?? [] : controls,
       addEventListener: (name, handler) => { handlers[name] = handler; },
       defaultView: { addEventListener: (name, handler) => { handlers[name] = handler; } } },
     fetch: async (path, options) => { calls.push({ path, ...options });
@@ -35,6 +39,145 @@ function fixture(responses = [], controls = [], actors = [], hash = '', summarie
   const tabClick = index => handlers.click({ target: { closest: () => tabs[index] } });
   return { win, nodes, calls, startup, handlers, click, tabs, panels, tabClick, reloads: () => reloads };
 }
+
+function accountFixture(responses = [], login = 'logged-out', navigator = {}) {
+  const input = { value: 'New label', dataset: { renameAccount: '' } };
+  const code = { tagName: 'code', textContent: "CODEX_HOME='/home/you/.codex-work' codex login" };
+  const pre = { textContent: code.textContent, code };
+  const help = { hidden: login === 'logged-in', querySelector: selector => selector === 'pre' ? pre : paragraph };
+  const paragraph = { textContent: labels.en.accountLoginHelp }, confirm = { hidden: true }, remove = { textContent: 'Remove', hidden: false };
+  const row = { dataset: { client: 'codex', accountId: 'work' }, querySelector: selector => ({
+    'input[data-rename-account]': input,
+    '[data-account-login-help]': help, '[data-account-remove-confirm]': confirm,
+    '[data-account-remove-open]': remove, code,
+  })[selector] };
+  const fields = { '[name="label"]': { value: 'Work' }, '[name="configDir"]': { value: '/home/you/.codex-work' } };
+  const form = { querySelector: selector => fields[selector] };
+  const accounts = { rows: [row], navigator, state: [{ client: 'codex', id: 'work', login }],
+    selection: { removeAllRanges() { this.cleared = true; }, addRange(range) { this.range = range; } } };
+  const f = fixture(responses, [{ dataset: { account: 'work', client: 'codex' }, value: 'Actor label' }], [], '#tab=accounts', [], accounts);
+  const button = (action, extra = {}) => ({ dataset: { action, ...row.dataset, ...extra },
+    closest: selector => selector === 'tr[data-account-id]' ? row : selector === '[data-account-add]' ? form : null });
+  const click = target => f.handlers.click({ target: { closest: selector => selector === '[data-action]' ? target : null } });
+  return { ...f, row, input, pre, help, paragraph, confirm, remove, fields, accounts, button, accountClick: click };
+}
+
+test('Accounts add posts its fields and reloads state while preserving the tab', async () => {
+  const f = accountFixture();
+  await f.accountClick(f.button('account-add'));
+  assert.equal(f.calls[0].path, '/api/account-add');
+  assert.equal(f.calls[0].method, 'POST');
+  assert.deepEqual(JSON.parse(f.calls[0].body), { client: 'codex', label: 'Work', configDir: '/home/you/.codex-work' });
+  assert.equal(f.calls[1].path, '/api/state?locale=en');
+  assert.equal(f.reloads(), 1);
+  assert.equal(f.win.location.hash, '#tab=accounts');
+});
+
+test('Accounts add displays a 422 reason without reloading or clearing fields', async () => {
+  const f = accountFixture([{ status: 422, value: { reason: 'Folder already registered' } }]);
+  await f.accountClick(f.button('account-add'));
+  assert.equal(f.nodes.error.textContent, 'Folder already registered');
+  assert.equal(f.fields['[name="label"]'].value, 'Work');
+  assert.equal(f.fields['[name="configDir"]'].value, '/home/you/.codex-work');
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.reloads(), 0);
+});
+
+test('Accounts remove requires two clicks in the same row and then reloads', async () => {
+  const f = accountFixture(), button = f.button('account-remove');
+  await f.accountClick(button);
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.confirm.hidden, false);
+  assert.equal(f.remove.hidden, true);
+  assert.equal(f.remove.textContent, 'Remove');
+  assert.equal(f.nodes.error.textContent, '');
+  await f.accountClick(f.button('account-remove', { confirm: 'true' }));
+  assert.equal(f.calls[0].path, '/api/account-remove');
+  assert.equal(f.calls[0].method, 'POST');
+  assert.deepEqual(JSON.parse(f.calls[0].body), { client: 'codex', id: 'work' });
+  assert.equal(f.calls[1].path, '/api/state?locale=en');
+  assert.equal(f.reloads(), 1);
+});
+
+test('Escape, outside clicks and other row actions cancel remove confirmation', async () => {
+  for (const cancel of [f => f.handlers.keydown({ key: 'Escape' }),
+    f => f.accountClick(null), f => f.accountClick(f.button('account-login')),
+    f => f.accountClick(f.button('account-remove', { cancel: 'true' }))]) {
+    const f = accountFixture(), button = f.button('account-remove');
+    await f.accountClick(button); await cancel(f);
+    assert.equal(f.confirm.hidden, true);
+    assert.equal(f.remove.hidden, false);
+    assert.equal(f.remove.textContent, 'Remove');
+    await f.accountClick(button);
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+test('Accounts remove cannot confirm a different row or remove default', async () => {
+  const f = accountFixture();
+  await f.accountClick(f.button('account-remove'));
+  const other = { ...f.row, dataset: { client: 'codex', accountId: 'other' } };
+  const button = { dataset: { ...other.dataset, action: 'account-remove', confirm: 'true' },
+    closest: () => other };
+  await f.accountClick(button);
+  assert.equal(f.calls.length, 0);
+  await f.accountClick(button);
+  assert.deepEqual(JSON.parse(f.calls[0].body), { client: 'codex', id: 'other' });
+  const g = accountFixture();
+  await g.accountClick(g.button('account-remove', { accountId: 'default' }));
+  await g.accountClick(g.button('account-remove', { accountId: 'default' }));
+  assert.equal(g.calls.length, 0);
+});
+
+test('Accounts rename uses its own marked input, independently of Actors', async () => {
+  const f = accountFixture();
+  f.input.value = 'Production';
+  await f.accountClick(f.button('account-rename'));
+  assert.equal(f.calls[0].path, '/api/account-label');
+  assert.equal(f.calls[0].method, 'PUT');
+  assert.deepEqual(JSON.parse(f.calls[0].body), { client: 'codex', id: 'work', label: 'Production' });
+  assert.equal(f.calls[1].path, '/api/state?locale=en');
+  assert.equal(f.reloads(), 1);
+});
+
+test('Accounts copy writes the exact command to the clipboard', async () => {
+  const copied = [];
+  const f = accountFixture([], 'unknown', { clipboard: { writeText: async value => { copied.push(value); } } });
+  await f.accountClick(f.button('account-copy'));
+  assert.deepEqual(copied, [f.pre.textContent]);
+  assert.equal(f.pre.code.tagName, 'code');
+  assert.equal(f.nodes.error.textContent, labels.en.accountCopied);
+  assert.equal(f.accounts.selected, undefined);
+});
+
+test('Accounts copy selects the command when clipboard is missing or rejects', async () => {
+  for (const navigator of [{}, { clipboard: { writeText: async () => { throw new Error('Denied'); } } }]) {
+    const f = accountFixture([], 'unknown', navigator);
+    await f.accountClick(f.button('account-copy'));
+    assert.equal(f.accounts.selected, f.pre.code);
+    assert.equal(f.accounts.selection.cleared, true);
+    assert.ok(f.accounts.selection.range);
+    assert.equal(f.nodes.error.textContent, labels.en.accountCopyFallback);
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+test('Accounts login opens rendered help; Check login reloads', async () => {
+  for (const login of ['logged-in', 'logged-out', 'unknown']) {
+    const f = accountFixture([], login);
+    assert.equal(f.help.hidden, login === 'logged-in');
+    assert.equal(f.paragraph.textContent, labels.en.accountLoginHelp);
+    const loginButton = f.button('account-login');
+    await f.accountClick(loginButton);
+    assert.equal(f.help.hidden, false);
+    assert.equal(loginButton.hidden, true);
+    assert.equal(f.calls.length, 0);
+    await f.accountClick(f.button('account-check'));
+    assert.equal(f.calls[0].path, '/api/state?locale=en');
+    assert.equal(f.calls[0].method, 'GET');
+    assert.equal(f.reloads(), 1);
+  }
+});
 
 test('keepalive registers the instance on start and only persisted pageshow', () => {
   const f = fixture();

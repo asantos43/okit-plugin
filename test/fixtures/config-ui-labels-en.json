@@ -37,10 +37,11 @@
   "loggedInTitle": "A local login marker exists; access has not been verified.",
   "notLoggedInTitle": "No local login marker was found.",
   "loginUnknownTitle": "Login may be kept somewhere the plugin does not read, such as the macOS Keychain.",
-  "accountRemove": "Remove", "accountConfirmRemove": "Confirm remove", "accountLoginCommand": "Login command",
+  "accountRemove": "Remove", "accountConfirmRemove": "Confirm remove", "accountLoginCommand": "Log in",
   "accountCopy": "Copy", "accountCopied": "Copied", "accountCheck": "Check login",
+  "accountCopyFallback": "Press Ctrl+C to copy",
   "accountLoginHelp": "Run this command in your terminal to log in, then check login again.",
-  "accountAdd": "Add account", "accountLabelPlaceholder": "Work", "accountFolderPlaceholder": "/home/you/.claude-work",
+  "accountAdd": "Add account", "accountLabelPlaceholder": "Work", "accountFolderPlaceholderClaude": "/home/you/.claude-work", "accountFolderPlaceholderCodex": "/home/you/.codex-work",
   "accountRemoveNote": "Remove only changes the plugin's settings: the folder, the login and the history stay",
   "groupTitles": {
     "limits": "Executor limits", "lowQuotaPct": "Low-quota threshold", "daemon": "Daemon",

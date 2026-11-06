@@ -6,6 +6,53 @@ import { labels } from '../src/config-ui/labels.js';
 import { buildState } from '../src/config-ui/state.js';
 import { schemaEntries } from '../src/core/config.js';
 
+test('Accounts cells keep localized headings and client folder placeholders', () => {
+  for (const locale of ['en', 'pt-BR']) {
+    const state = buildState();
+    state.accounts = ['claude-code', 'codex'].flatMap(client =>
+      ['logged-in', 'logged-out', 'unknown'].map((login, index) => ({
+        client, id: index ? `work${index}` : 'default', label: 'Work',
+        configDir: null, login, loginCommand: 'client login',
+      })));
+    const html = renderPage(state, { nonce: 'test', token: 'token', locale });
+    const text = labels[locale];
+    const cards = [...html.matchAll(/<section class="actor-card account-card"[^]*?<\/section>/g)];
+    assert.equal(cards.length, 2);
+    for (const [index, [card]] of cards.entries()) {
+      assert.ok(card.includes(`placeholder="/home/you/.${index ? 'codex' : 'claude'}-work"`));
+      const headings = [...card.matchAll(/<th scope="col">([^<]+)<\/th>/g)].map(match => match[1]);
+      assert.deepEqual(headings, ['accountLabel', 'accountId', 'accountFolder', 'accountLogin', 'accountActions'].map(key => text[key]));
+      const rows = [...card.matchAll(/<tr data-client=[^]*?<\/tr>/g)];
+      assert.equal(rows.length, 3);
+      for (const [rowIndex, [row]] of rows.entries()) {
+        assert.deepEqual([...row.matchAll(/<td\b[^>]*data-label="([^"]+)"/g)].map(match => match[1]), headings);
+        assert.match(row, /<td class="account-id"/);
+        const loginButton = row.match(/<button[^>]*data-action="account-login"[^>]*>/)[0];
+        assert.equal(/\bhidden\b/.test(loginButton), rowIndex !== 0);
+        assert.ok(row.includes(`>${text.accountLoginCommand}</button>`));
+        const help = row.match(/<div class="account-login-help"[^>]*>/)[0];
+        assert.equal(/\bhidden\b/.test(help), rowIndex === 0);
+        assert.equal((row.match(/data-account-remove-open/g) ?? []).length, rowIndex ? 1 : 0);
+        if (rowIndex) {
+          const confirm = row.match(/<div data-account-remove-confirm hidden>([^]*?)<\/div>/)[1];
+          assert.equal((confirm.match(/data-confirm="true"/g) ?? []).length, 1);
+          assert.equal((confirm.match(/data-cancel="true"/g) ?? []).length, 1);
+          assert.ok(confirm.includes(`<small class="account-note">${text.accountRemoveNote.replaceAll("'", '&#39;')}</small>`));
+        }
+      }
+    }
+    assert.match(html, /\.account-card td\.account-id\{overflow-wrap:normal;word-break:normal;white-space:nowrap\}/);
+    assert.match(html, /@media\(max-width:699px\)/);
+    assert.match(html, /\.account-card table,\.account-card tbody,\.account-card tr,\.account-card td\{display:block;width:100%;min-width:0\}/);
+    assert.match(html, /\.account-card thead\{[^}]*clip:rect\(0,0,0,0\)[^}]*clip-path:inset\(50%\)/);
+    assert.match(html, /td::before\{content:attr\(data-label\);display:block;font-weight:bold\}/);
+    assert.match(html, /input\[data-rename-account\]\{width:100%;min-width:0\}/);
+    assert.match(html, /\.account-card,\.account-card \.table-scroll\{overflow-x:visible\}/);
+    assert.match(html, /\.account-card td\{overflow-wrap:anywhere\}/);
+    assert.match(html, /\.account-card td button\{white-space:normal;overflow-wrap:anywhere\}/);
+  }
+});
+
 function sections(html) {
   const stack = [], result = [];
   for (const match of html.matchAll(/<details\b[^>]*>|<\/details>/g)) {
@@ -118,7 +165,7 @@ test('Accounts shows both client cards with default rows and separate add forms'
     assert.equal((html.match(/class="actor-card account-card"/g) ?? []).length, 2);
     assert.equal((html.match(/<tr data-client=/g) ?? []).length, 2);
     assert.equal((html.match(/data-account-id="default"/g) ?? []).length > 0, true);
-    assert.equal((html.match(new RegExp(`<td>${labels[locale].clientDefault}</td>`, 'g')) ?? []).length, 2);
+    assert.equal((html.match(new RegExp(`<td[^>]*>${labels[locale].clientDefault}</td>`, 'g')) ?? []).length, 2);
     assert.doesNotMatch(html, /data-action="account-remove"| data-(?:path|actor-path|actor)=/);
     for (const client of ['claude-code', 'codex']) {
       assert.ok(html.includes(`data-account-client="${client}"><h3>${client}</h3>`));
@@ -127,14 +174,16 @@ test('Accounts shows both client cards with default rows and separate add forms'
     }
     assert.equal((html.match(/name="label"/g) ?? []).length, 2);
     assert.equal((html.match(/name="configDir"/g) ?? []).length, 2);
-    assert.ok(html.includes(`placeholder="${labels[locale].accountFolderPlaceholder}"`));
+    for (const key of ['accountFolderPlaceholderClaude', 'accountFolderPlaceholderCodex']) {
+      assert.ok(html.includes(`placeholder="${labels[locale][key]}"`));
+    }
     for (const key of ['accountLabel', 'accountId', 'accountFolder', 'accountLogin', 'accountActions']) {
       assert.ok(html.includes(`<th scope="col">${labels[locale][key]}</th>`));
     }
   }
 });
 
-test('account rows render all login badges, escaped values and hidden login help', () => {
+test('account rows render rename inputs, code and help hidden only when logged in', () => {
   const state = buildState(), hostile = '<script>"\'&</script>';
   state.accounts = ['logged-in', 'logged-out', 'unknown'].map((login, index) => ({
     client: 'codex', id: `work-${index}`, label: hostile, configDir: `/home/${hostile}`, login, loginCommand: `codex ${hostile}`,
@@ -144,10 +193,11 @@ test('account rows render all login badges, escaped values and hidden login help
   assert.equal(rows.length, 3);
   for (const [index, [, id, row]] of rows.entries()) {
     assert.equal(id, `work-${index}`);
+    assert.ok(row.includes(`<input data-rename-account data-client="codex" data-account-id="${id}"`));
     assert.match(row, /value="&lt;script&gt;&quot;&#39;&amp;&lt;\/script&gt;"/);
-    assert.match(row, /<td>\/home\/&lt;script&gt;&quot;&#39;&amp;&lt;\/script&gt;<\/td>/);
-    assert.match(row, /<pre>codex &lt;script&gt;&quot;&#39;&amp;&lt;\/script&gt;<\/pre>/);
-    assert.match(row, /data-account-login-help hidden/);
+    assert.match(row, /<td[^>]*>\/home\/&lt;script&gt;&quot;&#39;&amp;&lt;\/script&gt;<\/td>/);
+    assert.match(row, /<pre><code>codex &lt;script&gt;&quot;&#39;&amp;&lt;\/script&gt;<\/code><\/pre>/);
+    assert.ok(row.includes(`data-account-login-help${index === 0 ? ' hidden' : ''}><p>`));
     assert.match(row, /data-account-remove-confirm hidden/);
     for (const action of ['rename', 'remove', 'login', 'copy', 'check']) {
       assert.ok(row.includes(`type="button" data-action="account-${action}" data-client="codex" data-account-id="${id}"`));

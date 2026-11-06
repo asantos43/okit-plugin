@@ -55,6 +55,13 @@ export function clientMain(win) {
     updateDots();
   });
   const error = reason => { doc.getElementById('error').textContent = reason; };
+  let removing = null;
+  const cancelRemove = () => {
+    if (!removing) return;
+    removing.querySelector('[data-account-remove-confirm]').hidden = true;
+    removing.querySelector('[data-account-remove-open]').hidden = false;
+    removing = null;
+  };
   const showReview = () => {
     const review = doc.getElementById('review');
     review.hidden = false;
@@ -107,6 +114,7 @@ export function clientMain(win) {
     }
   };
   doc.addEventListener('keydown', event => {
+    if (event.key === 'Escape') cancelRemove();
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const index = tabs.indexOf(event.target);
     if (index < 0) return;
@@ -118,13 +126,57 @@ export function clientMain(win) {
     tabs[next].focus();
   });
   doc.addEventListener('click', async event => {
+    const target = event.target.closest('[data-action]');
+    const row = target?.closest?.('tr[data-account-id]');
+    const confirmRemove = removing && row === removing && target?.dataset.action === 'account-remove'
+      && target.dataset.confirm === 'true';
+    cancelRemove();
     const tab = event.target.closest('[role="tab"]');
     if (tabs.includes(tab)) { selectTab(tab); return; }
-    const target = event.target.closest('[data-action]');
     if (!target) return;
     try {
       const action = target.dataset.action;
-      if (action === 'review') {
+      if (action === 'account-remove') {
+        if (!row || target.dataset.accountId === 'default' || target.dataset.cancel === 'true') return;
+        if (!confirmRemove) {
+          removing = row;
+          row.querySelector('[data-account-remove-confirm]').hidden = false;
+          row.querySelector('[data-account-remove-open]').hidden = true;
+          return;
+        }
+        const result = await request('/api/account-remove', 'POST', { client: target.dataset.client, id: target.dataset.accountId });
+        if (result.status === 200) await reloadState(); else error(result.value.reason);
+      } else if (action === 'account-add' || action === 'account-rename') {
+        const value = { client: target.dataset.client };
+        if (action === 'account-add') {
+          const form = target.closest('[data-account-add]');
+          value.label = form.querySelector('[name="label"]').value;
+          value.configDir = form.querySelector('[name="configDir"]').value;
+        } else {
+          value.id = target.dataset.accountId;
+          value.label = row.querySelector('input[data-rename-account]').value;
+        }
+        const result = await request(action === 'account-add' ? '/api/account-add' : '/api/account-label',
+          action === 'account-add' ? 'POST' : 'PUT', value);
+        if (result.status === 200) await reloadState(); else error(result.value.reason);
+      } else if (action === 'account-login') {
+        row.querySelector('[data-account-login-help]').hidden = false;
+        target.hidden = true;
+      } else if (action === 'account-check') await reloadState();
+      else if (action === 'account-copy') {
+        const code = row.querySelector('code');
+        try {
+          await win.navigator.clipboard.writeText(code.textContent);
+          error(text.accountCopied);
+        } catch {
+          const range = doc.createRange();
+          range.selectNodeContents(code);
+          const selection = win.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          error(text.accountCopyFallback);
+        }
+      } else if (action === 'review') {
         pending = collect();
         doc.getElementById('changes').textContent = pending.map(change => {
           const control = controls.find(item => (item.dataset.path ?? item.dataset.actorPath ?? item.dataset.actor) === change.path);

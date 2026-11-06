@@ -71,17 +71,17 @@ export function renderPage(state, { locale = 'en', nonce, token, instance }) {
     const attrs = `data-client="${e(client)}" data-account-id="${e(account.id)}"`;
     const login = account.login === 'logged-in' ? ['ready', 'loggedIn']
       : account.login === 'logged-out' ? ['waiting', 'notLoggedIn'] : ['unknown', 'loginUnknown'];
-    return `<tr ${attrs}><td><input data-account-label ${attrs} value="${e(account.label)}" aria-label="${e(text.accountLabel)}">${button('account-rename', text.saveLabel, attrs)}</td>
-      <td>${e(account.id)}</td><td>${e(account.configDir === null ? text.clientDefault : account.configDir)}</td>
-      <td><span class="badge ${login[0]}" title="${e(text[`${login[1]}Title`])}">${e(text[login[1]])}</span></td>
-      <td>${button('account-login', text.accountLoginCommand, attrs)}${account.id === 'default' ? '' : button('account-remove', text.accountRemove, attrs)}
-      ${account.id === 'default' ? '' : `<div data-account-remove-confirm hidden>${button('account-remove', text.accountConfirmRemove, `${attrs} data-confirm="true"`)}${button('account-remove', text.cancel, `${attrs} data-cancel="true"`)}</div>`}
-      <div class="account-login-help" data-account-login-help hidden><p>${e(text.accountLoginHelp)}</p><pre>${e(account.loginCommand)}</pre>${button('account-copy', text.accountCopy, attrs)}${button('account-check', text.accountCheck, attrs)}</div></td></tr>`;
+    return `<tr ${attrs}><td data-label="${e(text.accountLabel)}"><input data-rename-account ${attrs} value="${e(account.label)}" aria-label="${e(text.accountLabel)}">${button('account-rename', text.saveLabel, attrs)}</td>
+      <td class="account-id" data-label="${e(text.accountId)}">${e(account.id)}</td><td data-label="${e(text.accountFolder)}">${e(account.configDir === null ? text.clientDefault : account.configDir)}</td>
+      <td data-label="${e(text.accountLogin)}"><span class="badge ${login[0]}" title="${e(text[`${login[1]}Title`])}">${e(text[login[1]])}</span></td>
+      <td data-label="${e(text.accountActions)}">${button('account-login', text.accountLoginCommand, `${attrs}${account.login === 'logged-in' ? '' : ' hidden'}`)}${account.id === 'default' ? '' : button('account-remove', text.accountRemove, `${attrs} data-account-remove-open`)}
+      ${account.id === 'default' ? '' : `<div data-account-remove-confirm hidden>${button('account-remove', text.accountConfirmRemove, `${attrs} data-confirm="true"`)}${button('account-remove', text.cancel, `${attrs} data-cancel="true"`)}<small class="account-note">${e(text.accountRemoveNote)}</small></div>`}
+      <div class="account-login-help" data-account-login-help${account.login === 'logged-in' ? ' hidden' : ''}><p>${e(text.accountLoginHelp)}</p><pre><code>${e(account.loginCommand)}</code></pre>${button('account-copy', text.accountCopy, attrs)}${button('account-check', text.accountCheck, attrs)}</div></td></tr>`;
   }).join('');
   const accounts = ACCOUNT_CLIENTS.map(client => `<section class="actor-card account-card" data-account-client="${e(client)}"><h3>${e(client)}</h3>
     <div class="table-scroll"><table><thead><tr>${['accountLabel', 'accountId', 'accountFolder', 'accountLogin', 'accountActions'].map(key => `<th scope="col">${e(text[key])}</th>`).join('')}</tr></thead><tbody>${accountRows(client)}</tbody></table></div>
     <form class="account-add" data-account-add data-client="${e(client)}"><label>${e(text.accountLabel)}<input name="label" placeholder="${e(text.accountLabelPlaceholder)}" maxlength="40" required></label>
-    <label>${e(text.accountFolder)}<input name="configDir" placeholder="${e(text.accountFolderPlaceholder)}" required></label>${button('account-add', text.accountAdd, `data-client="${e(client)}"`)}</form>
+    <label>${e(text.accountFolder)}<input name="configDir" placeholder="${e(text[client === 'codex' ? 'accountFolderPlaceholderCodex' : 'accountFolderPlaceholderClaude'])}" required></label>${button('account-add', text.accountAdd, `data-client="${e(client)}"`)}</form>
     <p>${e(text.accountRemoveNote)}</p></section>`).join('');
   const tabBar = `<div class="tabs" role="tablist" aria-label="${e(text.settings)}">${tabs.map(([id], index) =>
     `<button type="button" role="tab" id="tab-${e(id)}" data-tab="${e(id)}" aria-controls="panel-${e(id)}" aria-selected="${index === 0}" tabindex="${index === 0 ? '0' : '-1'}">${e(text[`tab${id}`])}</button>`).join('')}</div>`;
@@ -105,6 +105,17 @@ export function renderPage(state, { locale = 'en', nonce, token, instance }) {
     table{border-collapse:collapse;width:100%;margin:1rem 0}th,td{text-align:left;padding:.65rem;border-bottom:1px solid var(--border)}tbody tr:nth-child(odd){background:var(--soft)}.badge{display:inline-block;border-radius:2rem;padding:.2rem .65rem;font-size:.85rem;white-space:nowrap}.ready{color:var(--green);background:var(--green-bg)}.waiting{color:var(--amber);background:var(--amber-bg)}
     .action-bar{position:sticky;bottom:0;z-index:2;background:var(--card);border:1px solid var(--border);border-radius:1rem 1rem 0 0;padding:1rem;display:flex;align-items:center;gap:1rem}#error{color:var(--error);flex:1}pre{white-space:pre-wrap;overflow-wrap:anywhere}#review button+button{margin-left:.5rem}
     .unknown{color:var(--muted);background:var(--bg)}.account-card td{overflow-wrap:anywhere}.account-card td button{margin:.2rem}.account-login-help{min-width:12rem;max-width:24rem}.account-add{display:flex;flex-wrap:wrap;align-items:end;gap:.75rem}.account-add label{flex:1 1 14rem;min-width:0}.account-add input{display:block;width:100%}
+    .account-card td.account-id{overflow-wrap:normal;word-break:normal;white-space:nowrap}.account-note{display:block}
+    @media(max-width:699px){
+      .account-card,.account-card .table-scroll{overflow-x:visible}
+      .account-card table,.account-card tbody,.account-card tr,.account-card td{display:block;width:100%;min-width:0}
+      .account-card thead{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);clip-path:inset(50%);white-space:nowrap;border:0}
+      .account-card tr{border:1px solid var(--border);border-radius:.5rem;margin-bottom:1rem}
+      .account-card td::before{content:attr(data-label);display:block;font-weight:bold}
+      .account-card input[data-rename-account]{width:100%;min-width:0}
+      .account-card td button{white-space:normal;overflow-wrap:anywhere}
+      .account-login-help{min-width:0;max-width:100%}
+    }
     header .badge{min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;border-radius:1rem}#error{min-width:0;overflow-wrap:anywhere}
     [hidden]{display:none!important}@media(max-width:700px){.field{grid-template-columns:1fr;gap:.75rem}header{gap:.5rem}.panel{padding:.75rem}header .badge{order:4;width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}.action-bar{flex-wrap:wrap}.field>*{min-width:0}.field-control input[type=text],.field-control select{flex:1 1 8rem;min-width:0}}
   `;
