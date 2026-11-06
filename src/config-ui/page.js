@@ -6,7 +6,8 @@ const escape = (value) => String(value ?? '').replace(/[&<>"']/g,
 const json = (value) => JSON.stringify(value).replace(/[<>&\u2028\u2029]/g,
   (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
 
-export function renderPage(state, { locale = 'en', nonce, token }) {
+export function renderPage(state, { locale = 'en', nonce, token, instance }) {
+  state = { ...state, instance };
   const text = labels[locale] ?? labels.en;
   const e = escape;
   const button = (action, label, attrs = '') => `<button type="button" data-action="${action}" ${attrs}>${e(label)}</button>`;
@@ -18,7 +19,8 @@ export function renderPage(state, { locale = 'en', nonce, token }) {
     if (field.value === '[Redacted]') return `<input ${attrs} value="[Redacted]" readonly>`;
     if (field.allowedValues) return select(field.allowedValues.map(value => ({ value, label: value })), field.value, attrs);
     const type = field.type === 'boolean' ? 'checkbox' : ['number', 'integer'].includes(field.type) ? 'number' : 'text';
-    return `<input ${attrs} type="${type}" ${type === 'checkbox' ? (field.value ? 'checked' : '') : `value="${e(typeof field.value === 'object' ? JSON.stringify(field.value) : field.value)}"`}>`;
+    const value = field.value == null ? '' : typeof field.value === 'object' ? JSON.stringify(field.value) : field.value;
+    return `<input ${attrs} type="${type}" ${type === 'checkbox' ? (field.value ? 'checked' : '') : `value="${e(value)}"`}>`;
   };
   const groups = [...new Set(state.fields.map(field => field.path.split('.')[0]))];
   const settings = groups.map(group => `<details><summary>${e(group)}</summary>${state.fields.filter(field => field.path.split('.')[0] === group).map(field =>
