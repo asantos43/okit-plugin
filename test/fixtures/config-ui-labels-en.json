@@ -40,6 +40,8 @@
   "accountRemove": "Remove", "accountConfirmRemove": "Confirm remove", "accountLoginCommand": "Log in",
   "accountCopy": "Copy", "accountCopied": "Copied", "accountCheck": "Check login",
   "accountCopyFallback": "Press Ctrl+C to copy",
+  "accountSaveFirst": "Save or reset your other changes first: this action reloads the page.",
+  "accountTerminalOpenedClaude": "A terminal window was opened for this account. Type /login there if it asks, then choose Check login.",
   "accountLoginHelp": "Run this command in your terminal to log in, then check login again.",
   "accountTerminal": "Log in in a terminal",
   "accountTerminalHint": "Opens the client's own login in a terminal window for this account; the plugin never sees your password.",

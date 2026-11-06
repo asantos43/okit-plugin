@@ -8,7 +8,7 @@ const TERMINALS = [
   ['gnome-terminal', '--'], ['konsole', '-e'], ['xfce4-terminal', '-x'],
   ['xterm', '-e'], ['x-terminal-emulator', '-e'],
 ];
-const SAFE_FOLDER = /^[A-Za-z0-9_ ./@+:\\~-]+$/;
+const SAFE_FOLDER = /^[\p{L}\p{N}_ ./@+:\\~-]+$/u;
 
 async function onPath(name, env) {
   for (const directory of (env.PATH ?? '').split(delimiter).filter(Boolean)) {

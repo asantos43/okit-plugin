@@ -67,6 +67,18 @@ test('accounts expose login help and actor eligibility comes from observations',
   assert.match(state.readiness, /^Ready to launch executors:/);
 });
 
+test('account descriptions and page state use the injected Windows platform', async () => {
+  const account = { client: 'codex', id: 'work', label: 'Work', configDir: 'C:\\Users\\João\\work' }; // locale:pt-BR Unicode path corpus
+  const raw = { accounts: { codex: [account] } };
+  const command = "$env:CODEX_HOME='C:\\Users\\João\\work'; codex login"; // locale:pt-BR Unicode path corpus
+  const row = await describeAccount(account, raw, { platform: 'win32', env: {}, fs: {
+    readFile: async () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
+    stat: async () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
+  } });
+  assert.equal(row.loginCommand, command);
+  assert.equal(buildState({ raw, platform: 'win32' }).accounts.find(item => item.id === 'work').loginCommand, command);
+});
+
 test('unreadable login state stays unknown and default commands reflect saved accounts', async () => {
   const account = { client: 'codex', id: 'default', label: 'default', configDir: null };
   const config = { accounts: { codex: [] } };

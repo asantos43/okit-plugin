@@ -110,8 +110,8 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
         readQuota: (client, id) => ACCOUNT_CLIENTS.includes(client)
           ? readJson(join(root, 'quota', accountFiles(client, id).reading), null) : null });
     const accountStates = await Promise.all(ACCOUNT_CLIENTS.flatMap((client) => accountsOf(loaded.raw, client))
-      .map((account) => describeAccount(account, loaded.raw, { env })));
-    return buildState({ ...loaded, observations: readings, snapshot, accountStates, locale: chosenLocale });
+      .map((account) => describeAccount(account, loaded.raw, { env, platform })));
+    return buildState({ ...loaded, observations: readings, snapshot, accountStates, platform, locale: chosenLocale });
   }
   function authorize(request, url) {
     const hosts = [`127.0.0.1:${port}`, `localhost:${port}`];
@@ -237,10 +237,10 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
         throw new UsageError('Unsupported account client.');
       }
       if (action === 'remove' && typeof input.id !== 'string') throw new UsageError('Invalid account id.');
-      const result = await changeAccount({ root, env, platform: process.platform, fs: filesystem }, action,
+      const result = await changeAccount({ root, env, platform, fs: filesystem }, action,
         { client: input.client, name: action === 'add' ? input.label : input.id, directory: input.configDir },
         async (next) => ({ expectedMtime: await configMtime(root),
-          ...(action === 'add' ? { account: await describeAccount(accountsOf(next, input.client).at(-1), next, { env }) }
+          ...(action === 'add' ? { account: await describeAccount(accountsOf(next, input.client).at(-1), next, { env, platform }) }
             : { client: input.client, id: input.id }) }));
       send(response, 200, redact(result));
     } catch (error) {

@@ -76,6 +76,28 @@ test('account login uses saved extra and default, ignoring request commands and 
   }
 });
 
+test('injected Windows platform agrees across account add, state and login launch', async t => {
+  const calls = [];
+  const session = await fixture(t, { platform: 'win32', launchLogin: async input => {
+    calls.push(input); return { launched: true };
+  } });
+  const configDir = join(session.root, 'work');
+  const command = `$env:CODEX_HOME='${configDir}'; codex login`;
+  const added = await request(session, '/api/account-add', { method: 'POST',
+    value: { client: 'codex', label: 'Work', configDir } });
+  assert.equal(added.status, 200, added.text);
+  assert.equal(added.json().account.loginCommand, command);
+  const state = await request(session, '/api/state');
+  assert.equal(state.status, 200, state.text);
+  assert.equal(state.json().accounts.find(account => account.id === 'work').loginCommand, command);
+  const login = await request(session, '/api/account-login', { method: 'POST',
+    value: { client: 'codex', id: 'work' } });
+  assert.equal(login.status, 200, login.text);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].platform, 'win32');
+  assert.equal(calls[0].account.configDir, configDir);
+});
+
 test('account login failure stays 200 and current saved config is checked on each request', async t => {
   const calls = [], result = { launched: false, reason: 'no-terminal' };
   const session = await fixture(t, { launchLogin: async input => { calls.push(input); return result; } });

@@ -6,6 +6,30 @@ import { labels } from '../src/config-ui/labels.js';
 import { buildState } from '../src/config-ui/state.js';
 import { schemaEntries } from '../src/core/config.js';
 
+export const ACCOUNT_SELECTORS = ['tr[data-account-id]', '[data-account-remove-confirm]',
+  '[data-account-remove-open]', '[data-account-login-help]', '[data-account-add]',
+  'input[data-rename-account]', 'code', '#status', '#error'];
+
+test('real Accounts markup supplies every shared client selector', async () => {
+  const state = buildState();
+  state.accounts.push({ client: 'codex', id: 'work', label: 'Work', configDir: '/work',
+    login: 'unknown', loginCommand: 'codex' });
+  const html = renderPage(state, { nonce: 'test', token: 'token' }).split('<script')[0];
+  const tags = [...html.matchAll(/<([a-z][\w-]*)\b([^>]*?)>/g)];
+  const source = await readFile(new URL('../src/config-ui/client.js', import.meta.url), 'utf8');
+  for (const selector of ACCOUNT_SELECTORS) {
+    const [, tag, attribute] = selector.match(/^(\w*)\[([^\]]+)\]$/) ?? [];
+    const exists = tags.some(([, name, attrs]) => selector.startsWith('#')
+      ? attrs.includes(`id="${selector.slice(1)}"`)
+      : attribute ? (!tag || name === tag) && new RegExp(`(?:^|\\s)${attribute}(?:[\\s=]|$)`).test(attrs)
+        : name === selector);
+    assert.ok(exists, `page supplies ${selector}`);
+    assert.ok(source.includes(`'${selector}'`), `client uses ${selector}`);
+  }
+  assert.match(html, /<p id="status" role="status" aria-live="polite" class="status"><\/p>/);
+  assert.match(html, /\.status\{color:var\(--muted\)/);
+});
+
 test('Accounts cells keep localized headings and client folder placeholders', () => {
   for (const locale of ['en', 'pt-BR']) {
     const state = buildState();

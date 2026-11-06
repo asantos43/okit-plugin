@@ -41,17 +41,28 @@ for (const [client, executable, variable] of [['codex', 'codex login', 'CODEX_HO
 }
 
 // | Corpus | Must pass | Must refuse |
-// | folders | letters, spaces, path separators | quotes, controls, shell substitutions/operators |
+// | folders | Unicode letters/digits, spaces, path separators | quotes, controls, invisible marks, shell substitutions/operators |
 // | launches | supported client, available terminal | unknown client, missing terminal, spawn error |
 test('unsafe folder corpus refuses every platform before spawn or PATH lookup', async () => {
   for (const platform of ['linux', 'darwin', 'win32']) {
     for (const configDir of ["/bad'folder", '/bad"folder', '/bad\n', '/$(x)', '/`x`', '/bad;',
-      '/bad&', '/bad|', '/bad<', '/bad>', '/bad\t', '/bad\0', '', 12, {}]) {
+      '/bad&', '/bad|', '/bad<', '/bad>', '/bad\t', '/bad\0', '/tmp/a\nb', '/tmp/a%b',
+      '/tmp/a(b)', '/tmp/a!b', '/tmp/a\u200bb', '/tmp/a\u202eb', '/tmp/a^b', '', 12, {}]) {
       const f = fixture({ platform, account: { configDir } });
       assert.deepEqual(await launchLogin(f.input), { launched: false, reason: 'unsafe-folder' });
       assert.deepEqual(f.calls, []);
       assert.deepEqual(f.searched, []);
     }
+  }
+});
+
+test('Unicode account folders launch once with exact argv', async () => {
+  for (const configDir of ['/home/José/.codex-work', 'C:\\Users\\João\\.claude', '/home/用户/x']) { // locale:pt-BR Unicode path corpus
+    const f = fixture({ account: { configDir } });
+    assert.deepEqual(await launchLogin(f.input), { launched: true, terminal: 'gnome-terminal' });
+    assert.deepEqual(f.calls, [['/test/bin/gnome-terminal',
+      ['--', 'env', `CODEX_HOME=${configDir}`, 'codex', 'login'],
+      { detached: true, stdio: 'ignore', env: f.input.env }]]);
   }
 });
 

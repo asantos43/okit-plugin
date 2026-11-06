@@ -40,6 +40,8 @@
   "accountRemove": "Remover", "accountConfirmRemove": "Confirmar remoção", "accountLoginCommand": "Entrar",
   "accountCopy": "Copiar", "accountCopied": "Copiado", "accountCheck": "Verificar login",
   "accountCopyFallback": "Pressione Ctrl+C para copiar",
+  "accountSaveFirst": "Salve ou restaure suas outras alterações primeiro: esta ação recarrega a página.",
+  "accountTerminalOpenedClaude": "Uma janela de terminal foi aberta para esta conta. Digite /login nela se solicitado e depois escolha Verificar login.",
   "accountLoginHelp": "Execute este comando no terminal para entrar e verifique o login novamente.",
   "accountTerminal": "Entrar em um terminal",
   "accountTerminalHint": "Abre o login do próprio cliente em uma janela de terminal para esta conta; o plugin nunca vê sua senha.",

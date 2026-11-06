@@ -24,16 +24,16 @@ export function clientMain(win) {
     for (const panel of panels) panel.hidden = panel.id !== tab.getAttribute('aria-controls');
     win.history.replaceState(null, '', `#tab=${tab.dataset.tab}`);
   };
+  const isDirty = control => {
+    const path = control.dataset.path ?? control.dataset.actorPath ?? control.dataset.actor;
+    try { return resets.has(path) || JSON.stringify(read(control)) !== JSON.stringify(initial.get(control)); }
+    catch { return true; }
+  };
   const updateDots = () => {
     for (const marker of [...tabs, ...all('details.section > summary')]) {
       const container = tabs.includes(marker)
         ? doc.getElementById(marker.getAttribute('aria-controls')) : marker.parentElement;
-      const dirty = controls.some(control => {
-        if (!container.contains(control)) return false;
-        const path = control.dataset.path ?? control.dataset.actorPath ?? control.dataset.actor;
-        try { return resets.has(path) || JSON.stringify(read(control)) !== JSON.stringify(initial.get(control)); }
-        catch { return true; }
-      });
+      const dirty = controls.some(control => container.contains(control) && isDirty(control));
       marker.classList.toggle('has-edits', dirty);
     }
   };
@@ -54,12 +54,14 @@ export function clientMain(win) {
     }
     updateDots();
   });
-  const error = reason => { doc.getElementById('error').textContent = reason; };
+  const error = reason => { doc.querySelector('#status').textContent = ''; doc.querySelector('#error').textContent = reason; };
+  const status = message => { doc.querySelector('#error').textContent = ''; doc.querySelector('#status').textContent = message; };
   let removing = null;
   const cancelRemove = () => {
     if (!removing) return;
     removing.querySelector('[data-account-remove-confirm]').hidden = true;
     removing.querySelector('[data-account-remove-open]').hidden = false;
+    removing.querySelector('[data-account-remove-open]').focus();
     removing = null;
   };
   const showReview = () => {
@@ -95,6 +97,23 @@ export function clientMain(win) {
     const result = await request(`/api/state?locale=${encodeURIComponent(state.locale)}`, 'GET');
     if (result.status !== 200) throw new Error(result.value.reason);
     win.location.reload();
+  };
+  const checkAccounts = async client => {
+    const result = await request(`/api/state?locale=${encodeURIComponent(state.locale)}`, 'GET');
+    if (result.status !== 200) return error(result.value.reason);
+    for (const row of all('tr[data-account-id]').filter(row => row.dataset.client === client)) {
+      const account = result.value.accounts.find(account => account.client === client && account.id === row.dataset.accountId);
+      if (!account) continue;
+      const [kind, key] = account.login === 'logged-in' ? ['ready', 'loggedIn']
+        : account.login === 'logged-out' ? ['waiting', 'notLoggedIn'] : ['unknown', 'loginUnknown'];
+      const badge = row.querySelector('.badge');
+      badge.className = `badge ${kind}`;
+      badge.textContent = text[key];
+      badge.title = text[`${key}Title`];
+      row.querySelector('[data-account-login-help]').hidden = account.login === 'logged-in';
+      row.querySelector('[data-action="account-login"]').hidden = account.login !== 'logged-in';
+      row.querySelector('code').textContent = account.loginCommand;
+    }
   };
   const save = async () => {
     for (;;) {
@@ -136,12 +155,16 @@ export function clientMain(win) {
     if (!target) return;
     try {
       const action = target.dataset.action;
+      if (['account-add', 'account-rename', 'account-remove'].includes(action) && controls.some(isDirty)) {
+        return error(text.accountSaveFirst);
+      }
       if (action === 'account-remove') {
         if (!row || target.dataset.accountId === 'default' || target.dataset.cancel === 'true') return;
         if (!confirmRemove) {
           removing = row;
           row.querySelector('[data-account-remove-confirm]').hidden = false;
           row.querySelector('[data-account-remove-open]').hidden = true;
+          row.querySelector('[data-confirm="true"]').focus();
           return;
         }
         const result = await request('/api/account-remove', 'POST', { client: target.dataset.client, id: target.dataset.accountId });
@@ -162,6 +185,7 @@ export function clientMain(win) {
       } else if (action === 'account-login') {
         row.querySelector('[data-account-login-help]').hidden = false;
         target.hidden = true;
+        row.querySelector('[data-action="account-terminal"]').focus();
       } else if (action === 'account-terminal') {
         target.disabled = true;
         try {
@@ -169,23 +193,24 @@ export function clientMain(win) {
           if (result.status === 200) {
             const reasons = { 'no-terminal': text.accountTerminalNoTerminal,
               'unsafe-folder': text.accountTerminalUnsafeFolder, 'unsupported-client': text.accountTerminalUnsupported };
-            error(result.value.launched === true ? text.accountTerminalOpened
+            status(result.value.launched === true ? (target.dataset.client === 'claude-code'
+              ? text.accountTerminalOpenedClaude : text.accountTerminalOpened)
               : Object.hasOwn(reasons, result.value.reason) ? reasons[result.value.reason] : text.accountTerminalNoTerminal);
           } else error(result.value.reason);
-        } finally { target.disabled = false; }
-      } else if (action === 'account-check') await reloadState();
+        } finally { target.disabled = false; target.focus(); }
+      } else if (action === 'account-check') await checkAccounts(target.dataset.client);
       else if (action === 'account-copy') {
         const code = row.querySelector('code');
         try {
           await win.navigator.clipboard.writeText(code.textContent);
-          error(text.accountCopied);
+          status(text.accountCopied);
         } catch {
           const range = doc.createRange();
           range.selectNodeContents(code);
           const selection = win.getSelection();
           selection.removeAllRanges();
           selection.addRange(range);
-          error(text.accountCopyFallback);
+          status(text.accountCopyFallback);
         }
       } else if (action === 'review') {
         pending = collect();
