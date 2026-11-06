@@ -18,6 +18,7 @@ A pessoa usa comandos no terminal para instalar, manter e diagnosticar o plugin 
 | `okit-plugin uninstall` | Remove instalação registrada; preserva estado por padrão | `okit-plugin uninstall --client codex --dry-run` |
 | `okit-plugin setup` | Propõe modelos e salva após confirmação | `okit-plugin setup --again` |
 | `okit-plugin doctor` | Diagnostica a instalação; só lê, com correção por falha | `okit-plugin doctor --client codex` |
+| `okit-plugin config ui` | Inicia uma sessão local de configuração | `okit-plugin config ui --no-open` |
 | `okit-plugin account` | Adiciona, lista, remove ou renomeia contas; login continua manual | `okit-plugin account list codex --json` |
 | `okit-plugin panel-state` | Ler estado versionado de um cliente; veja [esquema](state.pt-BR.md#panel-state) | `okit-plugin panel-state --json --client claude` |
 

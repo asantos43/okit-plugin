@@ -11,7 +11,7 @@ const ROOTS = ['src', 'scripts', 'skills', 'adapters', 'docs', 'README.md', 'REA
 const SKIP = new Set(['node_modules', 'test', 'CHANGELOG.md', 'changelog.d']);
 const REMOVED = 'status|env|actors|config|quota|telemetry|trajectory|inbox|todo|kit|autostart|smoke-demo|client-smoke|smoke';
 const PATTERN = new RegExp(
-  String.raw`(?:okit-plugin|\{bin\}|\{command\}|\$\{[^}\n]*(?:bin|command)[^}\n]*\}|node\s+(?:\./)?src/cli\.js)\s+(?:${REMOVED})(?![\w-])`
+  String.raw`(?:okit-plugin|\{bin\}|\{command\}|\$\{[^}\n]*(?:bin|command)[^}\n]*\}|node\s+(?:\./)?src/cli\.js)\s+(?!config\s+ui(?![\w-]))(?:${REMOVED})(?![\w-])`
   + String.raw`|\[\s*['"](?:${REMOVED})['"]\s*[,\]]`, 'g');
 
 // Exact matches with occurrence counts: another instruction in the same file still fails.
@@ -37,6 +37,15 @@ async function walk(name, files) {
     else if (entry.isFile()) files.push(child);
   }
 }
+
+test('removed command guard allows only the config ui subcommand', () => {
+  for (const command of ['okit-plugin', '{command}', '{bin}', 'node src/cli.js']) {
+    for (const [suffix, refused] of [['config ui', false], ['config ui --no-open', false],
+      ['config set', true], ['config', true], ['config uix', true], ['config ui-other', true]]) {
+      assert.equal([...`${command} ${suffix}`.matchAll(PATTERN)].length > 0, refused, suffix);
+    }
+  }
+});
 
 test('product files contain no removed plugin command instructions', async () => {
   const files = [];

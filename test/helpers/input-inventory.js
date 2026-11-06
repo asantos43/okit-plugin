@@ -144,6 +144,7 @@ export const COMMAND_BASES = Object.freeze({
   doctor: ['doctor'],
   account: ['account', 'list'],
   accountAdd: ['account', 'add', 'codex', 'Inventory'],
+  configUi: ['config', 'ui', '--no-open'],
 });
 
 const NAMES = ['no-such-name', '', ' ', 'a\nb'];
@@ -153,6 +154,10 @@ const NAMES = ['no-such-name', '', ' ', 'a\nb'];
  * tried with no value after it ("missing value") and in the `--flag=value` form where the command accepts it.
  */
 export const FLAG_TABLE = Object.freeze([
+  // config ui starts only a fixed system browser opener (one URL argv, shell:false); model refresh
+  // uses the existing detection runner with a timeout and bounded output, never a command from the body.
+  { flag: '--no-open', value: 'none', commands: ['configUi'], invalid: [] },
+  { flag: '--idle-minutes', value: 'finite minutes in (0, 35791]', commands: ['configUi'], invalid: ['0', 'abc', '99999'] },
   { flag: '--panel', value: 'none', commands: ['install', 'uninstall'], invalid: [] },
   { flag: '--client', value: 'client name', commands: ['install', 'update', 'uninstall', 'doctor'], invalid: NAMES },
   // The id of a saved account: an id that is not saved or not an id is refused; `update` refuses the flag itself (it moves
@@ -374,6 +379,8 @@ const STATE_OF_OTHER_COMMANDS = 'state of a command outside this inventory (I9 l
  * FILE_RULES row; `excluded` says why the file is not an input of this inventory.
  */
 export const READ_POINTS = Object.freeze([
+  { file: 'src/config-ui/server.js', arg: /^join\(root, 'quota', accountFiles\(client, id\).reading\)$/, rule: 'quota/<client>.json (the manual reading)' },
+  { file: 'src/config-ui/server.js', arg: /^Buffer.concat\(chunks\).toString\('utf8'\)$/, excluded: 'the authenticated HTTP JSON body, bounded to 64 KiB and refused with 422 on parse failure; configSetMany validates all configuration values before writing (test/config-ui-server.test.js)' },
   { file: 'adapters/claude-code/panel/panel.js', arg: /^stdout$/, excluded: 'stdout of the fixed read-only okit-plugin panel-state --json --client claude command; bounded before parsing and validated as schema 1, with failures rendered as messages (test/panel-mod.test.js)' },
   { file: 'src/spawn-process.js', arg: /^(join\(dirname\(runs\), 'config\.json'\)|configFile)$/, rule: CONFIG_JSON },
   // The plugin's own configuration, wherever it is read.
@@ -427,6 +434,8 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/install/bootstrap.js', arg: /^(value|text)$/, excluded: 'an OKIT_* environment variable (value) or the text of config.json read above (text): the variables are proved by the OKIT_* table, the file by CONFIG_JSON' },
   { file: 'src/install/bootstrap.js', arg: /^'\/dev\/tty'$/, excluded: 'the terminal, to ask a question; not a file of data' },
   { file: 'src/core/config.js', arg: /^trimmed$/, excluded: 'the text of a `config set` value, a command-line argument; parseValue refuses what is not a value of its entry' },
+  { file: 'src/config-ui/client.js', arg: /^doc\.getElementById\('state'\)\.textContent$/, excluded: 'the escaped JSON state embedded by the server, not a filesystem read; config-ui-page.test.js verifies round-trip safety' },
+  { file: 'src/config-ui/client.js', arg: /^control\.value \|\| 'null'$/, excluded: 'a browser form value, not a filesystem read; parsed before review and validated by the server on save (config-ui-client.test.js)' },
   // Hooks and processes that read what the client hands them, not a file of the person.
   { file: 'src/hook-post-compact.js', arg: /^(file|typeof stdin|await readFile)/, excluded: 'the transcript file or the standard input a client hook hands to the program (a hook, not a command of this inventory); a reader that never stops' },
   { file: 'src/hook-session-start.js', arg: /^(raw|files\.(inbox|orders))$/, excluded: 'the standard input of a client hook and the orchestration state of other commands (inbox, orders)' },

@@ -71,6 +71,7 @@ const USAGE_LINES = [
   '       {command} setup [--defaults] [--again] [--locale en|pt-BR]',
   '       {command} doctor [--client <c>] [--verbose] [--locale en|pt-BR]',
   '       {command} panel-state --json --client <claude|codex>',
+  '       {command} config ui [--no-open] [--idle-minutes <n>] [--locale en|pt-BR]',
   '       {command} account add <client> <name> --config-dir <path>',
   '       {command} account list [<client>] [--json]',
   '       {command} account remove <client> <id>',
@@ -110,12 +111,16 @@ const USAGE_TEXT = {
     default: (language) => `— default: language (${language})`,
     state: 'OKWORK_HOME names the state root.',
     language: 'Choose the language once: ask your assistant to call `config_set` with the key language.',
+    configUi: 'Local configuration server (close with Ctrl+C):',
+    configUiIdle: 'Idle minutes must be a positive number no greater than 35791.',
   },
   'pt-BR': {
     head: 'uso:',
     default: (language) => `— padrão: language (${language})`,
     state: 'OKWORK_HOME indica a pasta de estado.',
     language: 'Escolha o idioma uma vez: peça ao seu assistente para chamar `config_set` com a chave language.',
+    configUi: 'Servidor local de configuração (feche com Ctrl+C):',
+    configUiIdle: 'Os minutos de inatividade devem ser um número positivo de até 35791.',
   },
 };
 
@@ -422,6 +427,45 @@ function installerLifecycle(ctx, io) {
   };
 }
 
+export function openConfigBrowser(url, platform, launch = spawn) {
+  const command = platform === 'win32' ? 'cmd' : platform === 'darwin' ? 'open' : 'xdg-open';
+  const args = platform === 'win32' ? ['/c', 'start', '', url] : [url];
+  try {
+    const child = launch(command, args, { shell: false, stdio: 'ignore', detached: true });
+    child.on('error', () => {});
+    child.unref();
+  } catch { /* the URL printed by the command is still usable */ }
+}
+
+async function configUiCommand(ctx, flags, io) {
+  let open = true, minutes = 10;
+  const words = USAGE_TEXT[ctx.locale] ?? USAGE_TEXT.en;
+  for (let index = 0; index < flags.length; index += 1) {
+    if (flags[index] === '--no-open') open = false;
+    else if (flags[index] === '--locale') index += 1;
+    else if (flags[index] === '--idle-minutes') {
+      minutes = Number(flags[++index]);
+      if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 35791) {
+        ctx.err(words.configUiIdle); return ctx.unknown();
+      }
+    } else return ctx.unknown();
+  }
+  const { startConfigServer } = await import('./config-ui/server.js');
+  const session = await (io.startConfigServer ?? startConfigServer)({ root: ctx.root,
+    env: ctx.env, locale: ctx.locale, idleMs: minutes * 60_000 });
+  const stop = () => session.close();
+  ctx.signal?.addEventListener('abort', stop, { once: true });
+  ctx.out(words.configUi);
+  // This generated loopback URL intentionally retains its session token.
+  ctx.sessionUrl = session.url;
+  ctx.out(session.url);
+  ctx.sessionUrl = undefined;
+  if (ctx.signal?.aborted) stop();
+  if (open) openConfigBrowser(session.url, ctx.platform, io.spawn ?? spawn);
+  try { await session.closed; return exitCodeFor('ok'); }
+  finally { ctx.signal?.removeEventListener('abort', stop); }
+}
+
 /** `--locale=pt-BR` as `--locale pt-BR`: resolveLocale reads the separate form only. */
 const separateLocale = (args) => args.flatMap((arg) => (arg.startsWith('--locale=') ? ['--locale', arg.slice('--locale='.length)] : [arg]));
 
@@ -431,6 +475,7 @@ const HELPED_GROUPS = ['setup', 'install', 'update', 'uninstall', 'doctor', 'acc
 /** Help is a first argument or a flag after one of the five user commands. */
 function wantsHelp([group, ...args]) {
   return HELP_FLAGS.includes(group)
+    || (group === 'config' && args[0] === 'ui' && args.some((arg) => HELP_FLAGS.includes(arg)))
     || (HELPED_GROUPS.includes(group) && args.some((arg) => HELP_FLAGS.includes(arg)));
 }
 
@@ -460,7 +505,12 @@ export async function main(argv = [], io = {}) {
   // because the configuration folder they report is the user's own.
   const helped = wantsHelp(argv);
   const hidden = ['install', 'update', 'uninstall'].includes(argv[0]) ? [io.tmpdir ?? tmpdir()] : (io.tmpdir ? [io.tmpdir] : []);
-  const door = (write) => redactingWriter(write, hidden);
+  const door = (write) => {
+    const redact = redactingWriter(write, hidden);
+    // Only the generated loopback session URL must retain its query token.
+    return (text) => text === ctx.sessionUrl && /^http:\/\/127\.0\.0\.1:\d+\/\?token=[a-f0-9]+$/.test(text)
+      ? write(text) : redact(text);
+  };
   const out = door(io.stdout ?? ((text) => process.stdout.write(`${text}\n`)));
   const err = door(io.stderr ?? ((text) => process.stderr.write(`${text}\n`)));
   const now = io.now ?? Date.now;
@@ -511,6 +561,10 @@ export async function main(argv = [], io = {}) {
       return exitCodeFor('ok');
     }
     if (invalidHelp) return ctx.unknown();
+    if (group === 'config' && action === 'ui') {
+      if (chosen.invalid) return refuse(ctx, chosen.locale, 'Choose a language: en, pt-BR.');
+      return await configUiCommand(ctx, separateLocale(args), io);
+    }
     if (group === 'panel-state') {
       const { panelStateCommand } = await import('./panel-state.js');
       return await panelStateCommand(ctx, argv.slice(1));

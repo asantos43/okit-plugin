@@ -8,9 +8,9 @@ A configuração combina padrões internos e escolhas salvas na raiz de estado. 
 
 <a id="read"></a>
 ## Consultar e alterar
+`okit-plugin config ui` inicia uma sessão protegida por token em 127.0.0.1, com a mesma gravação validada e atômica de `config_set`. Use `--no-open` para imprimir a URL sem abrir o navegador e `--idle-minutes <n>` para alterar o tempo de inatividade de dez minutos. O editor HTML está pendente; o servidor atualmente expõe a API de configuração.
 
 Peça ao seu assistente os ajustes: `config_get` lê todas as entradas do esquema, ou uma delas quando a chave é informada, e `config_set` grava uma entrada, com um valor ou sem valor para removê-la. As ferramentas validam só as chaves do esquema abaixo; demais opções técnicas são sobrescritas no config.json, não aceitas por elas. Perfis e detecção mesclam por cliente/classe/campo; outros consumidores podem mesclar grupos com regras próprias. Faça backup antes de editar.
-
 <a id="schema"></a>
 ## Chaves que você pode mudar
 client é um cliente configurado; class é simple, normal ou hard. O padrão de cada campo está no inventário. Sem override de limits.clients, vale limits.global; profiles.<client>.<class> aceita somente null para desativar. limits.perClient é alias legado de limits.global.

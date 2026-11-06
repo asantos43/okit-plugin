@@ -28,7 +28,7 @@ Depois, [peça trabalho ao Diretor](docs/guide/ask-the-director.pt-BR.md).
 <a id="documentation"></a>
 ## Encontre o que precisa
 
-- [Guia do usuário](docs/guide/README.pt-BR.md): instalar, escolher modelos, experimentar uma demonstração e resolver problemas. Veja o [painel opcional do Claude Code](docs/guide/panel.pt-BR.md).
+- [Guia do usuário](docs/guide/README.pt-BR.md): instalar, escolher modelos, experimentar uma demonstração e resolver problemas. Veja a [página de configuração](docs/guide/config-ui.pt-BR.md) e o [painel opcional do Claude Code](docs/guide/panel.pt-BR.md).
 - [Referência de componentes](docs/components/README.pt-BR.md): skills, ferramentas, hooks, adaptadores, CLI, configuração e estado.
 - [Documentação de manutenção](docs/maintainers/README.pt-BR.md): arquitetura, integração, verificações e versões; [contribuições](CONTRIBUTING.md).
 
