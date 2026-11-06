@@ -15,7 +15,7 @@ const source = name => readFile(resolve(root, name), 'utf8');
 const read = name => readFile(resolve(directory, name), 'utf8');
 export const COMPONENT_LINE_BUDGETS = Object.freeze({
   README: 40, skills: 70, 'mcp-tools': 50, hooks: 45, adapters: 50,
-  cli: 65, daemon: 50, configuration: 151, state: 55, 'control-api': 40,
+  cli: 65, daemon: 50, configuration: 151, state: 75, 'control-api': 40,
 });
 const pages = Object.keys(COMPONENT_LINE_BUDGETS);
 const names = pages.flatMap(p => [`${p}.md`, `${p}.pt-BR.md`]);
@@ -106,6 +106,14 @@ test('reference has exactly the required files and matching language structure',
 });
 
 for (const suffix of ['', '.pt-BR']) {
+  test(`populated panel-state example matches the versioned golden ${suffix || 'en'}`, async () => {
+    const text = await read(`state${suffix}.md`);
+    const examples = [...text.matchAll(/`(\{"schema_version":1,[^`]+\})`/g)]
+      .map((match) => JSON.parse(match[1])).filter((example) => example.accounts.length > 0);
+    assert.equal(examples.length, 1, 'one populated JSON example');
+    assert.deepEqual(examples[0], JSON.parse(await source('test/fixtures/panel-state-v1-populated.json')));
+  });
+
   test(`MCP tools have exact bidirectional coverage ${suffix || 'en'}`, async () => {
     const text = await read(`mcp-tools${suffix}.md`);
     equalInventory(text, TOOL_NAMES, 'MCP tools');

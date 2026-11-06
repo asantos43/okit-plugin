@@ -19,6 +19,7 @@ People use terminal commands to install, maintain and diagnose the plugin and ma
 | `okit-plugin setup` | Propose models and save after confirmation | `okit-plugin setup --again` |
 | `okit-plugin doctor` | Diagnose the installation; read only, with a fix per failure | `okit-plugin doctor --client codex` |
 | `okit-plugin account` | Add, list, remove or rename accounts; login stays manual | `okit-plugin account list codex --json` |
+| `okit-plugin panel-state` | Read one client's versioned state; see [schema](state.md#panel-state) | `okit-plugin panel-state --json --client claude` |
 
 See [accounts](../guide/accounts.md) for `add`, `list`, `remove`, `rename` and collector registration. Account changes save configuration; add creates the folder. Remove preserves the folder and login.
 

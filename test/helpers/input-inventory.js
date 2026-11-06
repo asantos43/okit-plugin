@@ -277,9 +277,12 @@ export function envLiterals() {
 // refusal of usage (exit 2); a file of another program that we would have to change and cannot preserve is unreadable.
 
 export const FILE_RULES = Object.freeze([
+  { file: 'runs/<runId>.json (panel state)', readBy: 'src/panel-state.js', unreadable: 0, wrongType: 0,
+    proof: 'test/panel-state.test.js#accounts keep both windows',
+    note: 'untrusted JSON from the state root, shared with slot accounting; parsed defensively, partial, non-object and oversized records are skipped' },
   { file: 'config.json (the plugin\'s own)', readBy: 'readConfig / configOf / installConfig, accounts-cli.js (locked changes), adapters/{claude-code,codex}/index.js (readQuota)', unreadable: 1, wrongType: 2,
     proof: 'test/input-inventory.test.js#config.json is a folder',
-    note: 'a root that is not an object is an empty configuration; setup and account changes refuse unreadable roots/profiles (exit 1, test/setup-wizard.test.js and test/d115-cli.test.js); the quota reader of the claude-code adapter never fails for it: a configuration it cannot read leaves the default settings of the collector (test/adapter-claude-code.test.js#a configuration that cannot be read is no reading of its own)' },
+    note: 'a root that is not an object is an empty configuration; setup and account changes refuse unreadable roots/profiles (exit 1, test/setup-wizard.test.js and test/d115-cli.test.js); panel-state treats unreadable or non-object roots as absent with an English warning (test/panel-state.test.js); the quota reader of the claude-code adapter never fails for it: a configuration it cannot read leaves the default settings of the collector (test/adapter-claude-code.test.js#a configuration that cannot be read is no reading of its own)' },
   { file: 'package.json of --from', readBy: 'src/install/source.js', unreadable: 2, wrongType: 2, proof: 'test/input-inventory.test.js#package.json ${body}',
     note: 'a folder the person named that has no package is a wrong argument (--from), told as such' },
   { file: 'install.json / install.<client>.json (the record)', readBy: 'src/install/place.js, src/install/bootstrap.js', unreadable: 1, wrongType: 2,
@@ -303,7 +306,7 @@ export const FILE_RULES = Object.freeze([
     note: 'only to say whether the status bar is registered: a missing file is inactive, a file that cannot be read or parsed leaves the state unknown; status never fails for it' },
   { file: 'quota/<client>.json (the manual reading)', readBy: 'adapters/{claude-code,codex,opencode}/index.js (readQuota, by `status`)', unreadable: 1, wrongType: 0,
     proof: 'test/input-inventory.test.js#the quota file of a client (quota/<client>.json)',
-    note: 'not JSON, empty or a folder cannot be read (1); valid JSON of another type, or a field of the wrong type, is no reading: status goes on and says no value is recorded; accountFiles selects <client>.<account>.json for extras, quota_set/quota_show validate the stable id and membership (test/d115-fixes.test.js)' },
+    note: 'panel-state reads this untrusted state-root JSON defensively: unreadable or non-object means absent windows and an English warning (exit 0, test/panel-state.test.js); for status, not JSON, empty or a folder cannot be read (1); valid JSON of another type, or a field of the wrong type, is no reading: status goes on and says no value is recorded; accountFiles selects <client>.<account>.json for extras, quota_set/quota_show validate the stable id and membership (test/d115-fixes.test.js)' },
   { file: 'quota/claude-code-statusline.json (the sample of the collector)', readBy: 'adapters/claude-code/index.js (readQuota, by `status`)', unreadable: 0, wrongType: 0,
     proof: 'test/adapter-claude-code.test.js#the sample of the collector is read defensively',
     note: 'the file the collector writes with the JSON of the client; extras use claude-code-statusline.<account>.json via accountFiles; one that cannot be read, one that is not JSON and one that holds no window are no automatic reading: the manual one is used and status goes on' },
@@ -443,6 +446,8 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/daemon.js', arg: /^(logFile\(root, now\)|lines\[lines\.length - 1\]|pidFile\(root\))$/, excluded: 'the daemon\'s own log and pid file (the daemon command is outside this inventory)' },
   { file: 'src/demand-ref.js', arg: /^paths\(root\)\.project$/, excluded: STATE_OF_OTHER_COMMANDS },
   { file: 'src/inbox.js', arg: /^file$/, excluded: STATE_OF_OTHER_COMMANDS },
+  { file: 'src/panel-state.js', arg: /^join\(directory, name\)$/, rule: 'runs/<runId>.json (panel state)' },
+  { file: 'src/panel-state.js', arg: /^join\(ctx\.root, 'quota', accountFiles\(client, account\)\.reading\)$/, rule: 'quota/<client>.json (the manual reading)' },
   { file: 'src/limits.js', arg: /^(join\(runsDir\(root\), name\)|file)$/, excluded: 'run records shared by slot counting, account policy and read-only diagnostics; ' + STATE_OF_OTHER_COMMANDS },
   { file: 'src/orders.js', arg: /^(legacy|file)$/, excluded: STATE_OF_OTHER_COMMANDS },
   { file: 'src/templates.js', arg: /^file$/, excluded: STATE_OF_OTHER_COMMANDS },

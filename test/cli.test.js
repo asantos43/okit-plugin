@@ -16,7 +16,7 @@ import { quotaEnv } from './helpers/env.js';
 // Every other command of the plugin is a tool of the MCP server, the assistant's side of the work.
 
 // The commands the person may run, and the groups the program answers with the usage.
-const USER_COMMANDS = ['account', 'doctor', 'install', 'setup', 'uninstall', 'update'];
+const USER_COMMANDS = ['account', 'doctor', 'install', 'panel-state', 'setup', 'uninstall', 'update'];
 // The groups that were commands of the program and are tools of the server now.
 const REMOVED = ['status', 'env', 'actors', 'config', 'quota', 'telemetry', 'trajectory', 'inbox', 'todo', 'kit',
   'autostart', 'smoke', 'smoke-demo', 'client-smoke'];
@@ -36,7 +36,7 @@ test('the usage text lists exactly the user commands and none of the internal on
   const printed = [...text.matchAll(/^(?:usage:|\s+)\s*okit-plugin ([a-z-]+)\b/gm)].map((match) => match[1]);
   assert.deepEqual([...new Set(printed)].sort(), USER_COMMANDS);
   // The table of the commands and the text that is printed are the same table.
-  assert.deepEqual(COMMANDS.map((entry) => entry.group), ['install', 'update', 'uninstall', 'setup', 'doctor', 'account']);
+  assert.deepEqual(COMMANDS.map((entry) => entry.group), ['install', 'update', 'uninstall', 'setup', 'doctor', 'panel-state', 'account']);
 });
 
 test('every removed command answers the usage with exit 2 and writes nothing', async (t) => {

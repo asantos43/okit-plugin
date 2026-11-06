@@ -3,7 +3,7 @@ import { readQuota as readCodexQuota } from '../../adapters/codex/index.js';
 import { readQuota as readOpencodeQuota } from '../../adapters/opencode/index.js';
 import { CLIENTS } from '../spawn-process.js';
 const DEFAULT_TTL_MS = 60_000;
-const FIVE_HOURS_MINUTES = 360;
+export const FIVE_HOURS_MINUTES = 360;
 // A reading this far above the floor is comfortably green, not borderline.
 const GREEN_MARGIN_PCT = 15;
 // Any order that names the quota or the floor is the one a red row quotes.
