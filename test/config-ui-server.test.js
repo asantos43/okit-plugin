@@ -355,15 +355,81 @@ test('GET page requires token and serves nonce-bound scripts and localized HTML'
   assert.equal((await request(session, '/', { headers: { 'x-okit-token': null } })).status, 403);
 });
 
-test('grace close expires, reload cancels it, unauthorized requests do not cancel it', async t => {
-  const session = await fixture(t, { closeGraceMs: 60 });
-  await request(session, '/api/close', { method: 'POST', value: { grace: true } });
-  await request(session, `/?token=${session.token}`);
-  await new Promise(resolve => setTimeout(resolve, 100));
+async function pageInstance(session) {
+  const page = await request(session, '/');
+  const state = JSON.parse(page.text.match(/<script[^>]*id="state"[^>]*>(.*?)<\/script>/s)[1]);
+  assert.match(state.instance, /^[a-f0-9]{24}$/);
+  return state.instance;
+}
+
+test('reload and a newer tab ignore late grace from the previous page', async t => {
+  const session = await fixture(t, { closeGraceMs: 150 });
+  const previous = await pageInstance(session);
+  const instance = await pageInstance(session);
+  assert.notEqual(instance, previous);
+  assert.deepEqual((await request(session, '/api/keepalive', { method: 'POST', value: { instance } })).json(), { ok: true });
+  for (const stale of [previous, undefined]) {
+    const result = await request(session, '/api/close', { method: 'POST', value: { grace: true, instance: stale } });
+    assert.deepEqual(result.json(), { closed: false });
+    await new Promise(resolve => setTimeout(resolve, 450));
+    assert.equal((await request(session, '/api/state')).status, 200);
+  }
+});
+
+test('active grace expires and invalid keepalives cannot cancel it', async t => {
+  for (const value of [null, { instance: 'wrong' }, {}, { instance: 42 }, 'wrong']) {
+    const session = await fixture(t, { closeGraceMs: 150 });
+    const instance = await pageInstance(session);
+    const close = await request(session, '/api/close', { method: 'POST', value: { grace: true, instance } });
+    assert.deepEqual(close.json(), { closed: true });
+    assert.equal(session.server.listening, true);
+    if (value !== null) {
+      const result = await request(session, '/api/keepalive', { method: 'POST', value });
+      assert.equal(result.status, 200);
+      assert.deepEqual(result.json(), { ok: false });
+    }
+    const denied = await request(session, '/api/keepalive', {
+      method: 'POST', value: { instance }, headers: { 'x-okit-token': null } });
+    assert.equal(denied.status, 403);
+    await new Promise(resolve => setTimeout(resolve, 450));
+    assert.equal(session.server.listening, false);
+    await assertClosed(session);
+  }
+});
+
+test('keepalive shares POST authorization, body and method rules', async t => {
+  const session = await fixture(t);
+  const instance = await pageInstance(session);
+  for (const headers of [{ host: 'example.com' }, { origin: 'http://example.com' }]) {
+    assert.equal((await request(session, '/api/keepalive', {
+      method: 'POST', value: { instance }, headers })).status, 403);
+  }
+  assert.equal((await request(session, '/api/keepalive')).status, 405);
+  assert.equal((await request(session, '/api/keepalive', { method: 'POST', raw: '{}' })).status, 415);
+  assert.equal((await request(session, '/api/keepalive', {
+    method: 'POST', raw: '{', headers: { 'content-type': 'application/json' } })).status, 422);
+  assert.equal((await request(session, '/api/keepalive', {
+    method: 'POST', value: { instance, padding: 'x'.repeat(65536) } })).status, 413);
+});
+
+test('active keepalive cancels pending grace', async t => {
+  const session = await fixture(t, { closeGraceMs: 150 });
+  const instance = await pageInstance(session);
+  await request(session, '/api/close', { method: 'POST', value: { grace: true, instance } });
+  const result = await request(session, '/api/keepalive', { method: 'POST', value: { instance } });
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.json(), { ok: true });
+  await new Promise(resolve => setTimeout(resolve, 450));
   assert.equal((await request(session, '/api/state')).status, 200);
-  await request(session, '/api/close', { method: 'POST', value: { grace: true } });
-  assert.equal((await request(session, '/api/state', { headers: { 'x-okit-token': 'wrong' } })).status, 403);
-  await assertClosed(session);
+});
+
+test('authorized reload cancels pending grace', async t => {
+  const session = await fixture(t, { closeGraceMs: 150 });
+  const instance = await pageInstance(session);
+  await request(session, '/api/close', { method: 'POST', value: { grace: true, instance } });
+  await pageInstance(session);
+  await new Promise(resolve => setTimeout(resolve, 450));
+  assert.equal((await request(session, '/api/state')).status, 200);
 });
 
 test('unset uses CLI bytes, default unset is a no-op, and unset then model set is ordered', async t => {

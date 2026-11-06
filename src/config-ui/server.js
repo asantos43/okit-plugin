@@ -27,7 +27,7 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
   const token = randomBytes(32).toString('hex');
   const observations = new Map();
   const controllers = new Set();
-  let timer, graceTimer, port, stopping = false, resolveClosed;
+  let timer, graceTimer, port, activeInstance, stopping = false, resolveClosed;
   const closed = new Promise((resolve) => { resolveClosed = resolve; });
   const server = http.createServer((request, response) => {
     handle(request, response).catch((error) => {
@@ -146,17 +146,27 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
   async function handle(request, response) {
     const url = new URL(request.url, 'http://127.0.0.1');
     authorize(request, url);
-    clearTimeout(graceTimer);
+    if (url.pathname !== '/api/keepalive') clearTimeout(graceTimer);
     touch();
     const routes = { '/': 'GET', '/api/state': 'GET', '/api/config': 'PUT',
-      '/api/account-label': 'PUT', '/api/models/refresh': 'POST', '/api/close': 'POST' };
+      '/api/account-label': 'PUT', '/api/models/refresh': 'POST', '/api/close': 'POST', '/api/keepalive': 'POST' };
     if (!Object.hasOwn(routes, url.pathname)) throw fail(404, 'Not found.');
     if (request.method !== routes[url.pathname]) throw fail(405, 'Method not allowed.');
     if (url.pathname === '/') return page(response, url.searchParams.get('locale'));
     if (url.pathname === '/api/state') return send(response, 200, await state(url.searchParams.get('locale') ?? locale));
     const input = await body(request);
+    if (url.pathname === '/api/keepalive') {
+      const ok = typeof input?.instance === 'string' && input.instance === activeInstance;
+      if (ok) clearTimeout(graceTimer);
+      return send(response, 200, { ok });
+    }
     if (url.pathname === '/api/close') {
-      if (input?.grace === true) graceTimer = setTimeout(close, closeGraceMs);
+      if (input?.grace === true) {
+        if (typeof input.instance !== 'string' || input.instance !== activeInstance) {
+          return send(response, 200, { closed: false });
+        }
+        graceTimer = setTimeout(close, closeGraceMs);
+      }
       else response.once('finish', close);
       send(response, 200, { closed: true });
       return;
@@ -210,7 +220,9 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
   async function page(response, requestedLocale) {
     const nonce = randomBytes(18).toString('base64');
     const chosenLocale = ['en', 'pt-BR'].includes(requestedLocale) ? requestedLocale : locale;
-    const html = renderPage(await state(chosenLocale), { locale: chosenLocale, nonce, token });
+    const pageState = await state(chosenLocale);
+    activeInstance = randomBytes(12).toString('hex');
+    const html = renderPage(pageState, { locale: chosenLocale, nonce, token, instance: activeInstance });
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8',
       'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
       'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store' });

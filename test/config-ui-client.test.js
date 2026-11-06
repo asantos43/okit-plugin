@@ -6,19 +6,38 @@ import { labels } from '../src/config-ui/labels.js';
 function fixture(responses = [], controls = [], actors = []) {
   const handlers = {}, calls = [];
   const nodes = Object.fromEntries(['error', 'review', 'changes', 'reload'].map(id => [id, { hidden: true, textContent: '' }]));
-  nodes.state = { textContent: JSON.stringify({ expectedMtime: 42, actors, labels: labels.en, locale: 'en' }) };
+  nodes.state = { textContent: JSON.stringify({ expectedMtime: 42, actors, labels: labels.en, locale: 'en', instance: 'page-instance' }) };
   let reloads = 0;
   const win = { location: { search: '?token=abc%2B123&locale=en', reload: () => { reloads++; } },
     document: { getElementById: id => nodes[id], querySelectorAll: () => controls,
       addEventListener: (name, handler) => { handlers[name] = handler; },
       defaultView: { addEventListener: (name, handler) => { handlers[name] = handler; } } },
     fetch: async (path, options) => { calls.push({ path, ...options });
-      const result = responses.shift() ?? { status: 200, value: {} };
+      const result = (path === '/api/keepalive' ? undefined : responses.shift()) ?? { status: 200, value: {} };
       return { status: result.status, json: async () => result.value }; } };
   clientMain(win);
+  const startup = calls.splice(0);
   const click = (action, dataset = {}) => handlers.click({ target: { closest: () => ({ dataset: { action, ...dataset } }) } });
-  return { win, nodes, calls, handlers, click, reloads: () => reloads };
+  return { win, nodes, calls, startup, handlers, click, reloads: () => reloads };
 }
+
+test('keepalive registers the instance on start and only persisted pageshow', () => {
+  const f = fixture();
+  assert.equal(f.startup.length, 1);
+  const check = call => {
+    assert.equal(call.path, '/api/keepalive');
+    assert.equal(call.method, 'POST');
+    assert.equal(call.keepalive, true);
+    assert.equal(call.headers['x-okit-token'], 'abc+123');
+    assert.deepEqual(JSON.parse(call.body), { instance: 'page-instance' });
+  };
+  check(f.startup[0]);
+  f.handlers.pageshow({ persisted: false });
+  assert.equal(f.calls.length, 0);
+  f.handlers.pageshow({ persisted: true });
+  assert.equal(f.calls.length, 1);
+  check(f.calls[0]);
+});
 
 test('only changed controls are sent with token and mtime; save refreshes state', async () => {
   const a = { dataset: { path: 'language', type: 'string' }, value: 'en' };
@@ -34,6 +53,18 @@ test('only changed controls are sent with token and mtime; save refreshes state'
   assert.equal(f.calls[1].path, '/api/state?locale=en');
   assert.equal(f.reloads(), 1);
   assert.match(clientSource(), /^\(function clientMain/);
+});
+
+test('untouched empty number and text controls yield no changes', async () => {
+  const controls = ['number', 'integer', 'string'].map(type => ({
+    dataset: { path: `future.${type}`, type }, value: '',
+    type: type === 'string' ? 'text' : 'number',
+  }));
+  const f = fixture([], controls);
+  await f.click('review');
+  assert.equal(f.nodes.changes.textContent, '');
+  await f.click('apply');
+  assert.deepEqual(JSON.parse(f.calls[0].body).changes, []);
 });
 
 test('validation reason, conflict reload and explicit model confirmation', async () => {
@@ -75,7 +106,7 @@ test('enabling precedes row edits; disabling writes null; pagehide uses keepaliv
   f.handlers.pagehide();
   assert.equal(f.calls.at(-1).path, '/api/close');
   assert.equal(f.calls.at(-1).keepalive, true);
-  assert.deepEqual(JSON.parse(f.calls.at(-1).body), { grace: true });
+  assert.deepEqual(JSON.parse(f.calls.at(-1).body), { grace: true, instance: 'page-instance' });
   await f.click('close');
   assert.equal(f.nodes.error.textContent, labels.en.closed);
 });

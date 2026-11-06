@@ -105,8 +105,15 @@ export function clientMain(win) {
     } catch (failure) { error(failure.message); }
   });
   // Listen through the document's window, keeping the injected environment self-contained.
+  const keepalive = () => {
+    request('/api/keepalive', 'POST', { instance: state.instance }, true).catch(() => {});
+  };
+  keepalive();
+  doc.defaultView.addEventListener('pageshow', event => {
+    if (event.persisted) keepalive();
+  });
   doc.defaultView.addEventListener('pagehide', () => {
-    request('/api/close', 'POST', { grace: true }, true).catch(() => {});
+    request('/api/close', 'POST', { grace: true, instance: state.instance }, true).catch(() => {});
   });
 }
 

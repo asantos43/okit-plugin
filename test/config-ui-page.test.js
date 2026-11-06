@@ -18,6 +18,26 @@ test('schema fields render once, including future fields and redacted values', (
   assert.equal((html.match(/<tr data-row=/g) ?? []).length, state.actors.length * 4);
 });
 
+test('nullish settings render empty inputs while objects and arrays retain JSON', () => {
+  const state = buildState();
+  for (const type of ['number', 'integer', 'text']) {
+    for (const value of [null, undefined]) {
+      state.fields.push({ path: `future.${type}.${String(value)}`, type, value });
+    }
+  }
+  state.fields.push({ path: 'future.object', type: 'object', value: { count: 2 } });
+  state.fields.push({ path: 'future.array', type: 'object', value: [1, 'two'] });
+  const html = renderPage(state, { nonce: 'test', token: 'token' });
+  for (const type of ['number', 'integer', 'text']) {
+    for (const value of ['null', 'undefined']) {
+      assert.ok(html.includes(`data-path="future.${type}.${value}" data-type="${type}" type="${type === 'text' ? 'text' : 'number'}" value=""`));
+    }
+  }
+  assert.doesNotMatch(html, /value="(?:null|undefined)"/);
+  assert.match(html, /data-path="future.object"[^>]*value="\{&quot;count&quot;:2\}"/);
+  assert.match(html, /data-path="future.array"[^>]*value="\[1,&quot;two&quot;\]"/);
+});
+
 test('hostile values stay inert in attributes, text and embedded state', () => {
   const hostile = '"><script>alert(1)</script></script>\u2028\u2029&';
   const state = buildState();
