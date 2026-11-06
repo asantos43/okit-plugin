@@ -3,10 +3,10 @@
 // here prints and nothing here decides an exit code: the caller asks for a
 // value and prints what comes back.
 
-import { mkdir } from 'node:fs/promises';
+import { mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { CONFIG_SCHEMA } from '../config-schema.js';
+import { CONFIG_SCHEMA, entryAccepts, assertSavedValues } from '../config-schema.js';
 import { configuredClientsOf, configOf, DEFAULT_CONFIG, PROFILE_EFFORTS } from '../profiles.js';
 import { installConfig } from '../install/config.js';
 import { paths } from '../store.js';
@@ -68,7 +68,7 @@ function expandEntry(entry, scopes) {
   }));
 }
 
-function schemaEntries(raw) {
+export function schemaEntries(raw) {
   const scopes = scopesOf(raw);
   return CONFIG_SCHEMA.entries.flatMap((entry) => expandEntry(entry, scopes));
 }
@@ -102,7 +102,7 @@ function rawValue(raw, path) {
   return found;
 }
 
-function effectiveValue(entry, raw, config) {
+export function effectiveValue(entry, raw, config) {
   const direct = lookup(config, entry.path);
   const rawEntry = rawValue(raw, entry.path);
   const fromLegacyAlias = (entry.legacyAliases ?? []).some((alias) => lookup(raw, alias).exists);
@@ -305,7 +305,7 @@ async function readState(root) {
   return { raw, config: configOf(raw) };
 }
 
-async function mutateState(root, mutate, write) {
+export async function mutateState(root, mutate, write = writeJsonAtomic) {
   try {
     const locks = paths(root).locks;
     await mkdir(locks, { recursive: true });
@@ -375,7 +375,19 @@ export async function configSet(root, args = {}, deps = {}) {
 }
 
 async function setEntry(root, key, text, write) {
-  const result = await mutateState(root, async (raw, config) => {
+  const result = await mutateState(root, (raw, config) => applyEntry(raw, config, key, text), write);
+  if (result.error) {
+    return { error: result.error, message: messageOfSet(result, key) };
+  }
+  return {
+    entry: result.entry,
+    previous: result.previous,
+    after: { value: result.value, origin: CONFIG_SCHEMA.origins.user },
+    removedAliases: result.removedAliases,
+  };
+}
+
+function applyEntry(raw, config, key, text) {
     const resolved = resolveEntry(key, raw);
     if (resolved.error) return { error: resolved.error };
     const parsed = parseValue(resolved.entry, text);
@@ -395,16 +407,52 @@ async function setEntry(root, key, text, write) {
       value: parsed.value,
       write: raw,
     };
-  }, write);
-  if (result.error) {
-    return { error: result.error, message: messageOfSet(result, key) };
-  }
-  return {
-    entry: result.entry,
-    previous: result.previous,
-    after: { value: result.value, origin: CONFIG_SCHEMA.origins.user },
-    removedAliases: result.removedAliases,
-  };
+}
+
+export async function configMtime(root) {
+  try { return (await stat(paths(root).config)).mtimeMs; }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
+
+export async function configSetMany(root, changes, { expectedMtime, validate = () => {} } = {}) {
+  return mutateState(root, async (raw, config) => {
+    const original = JSON.stringify(raw);
+    const initialMtime = await configMtime(root);
+    if (expectedMtime !== undefined && expectedMtime !== initialMtime) {
+      return { conflict: true };
+    }
+    const results = [];
+    for (const change of changes) {
+      const key = change.path;
+      if (change.unset === true) {
+        if (Object.hasOwn(change, 'value')) throw new Refusal('A change cannot set and unset a value.');
+        const result = applyUnset(raw, config, key);
+        if (result.error) throw new Refusal(refusalMessage(result, key));
+        config = configOf(raw);
+        results.push({ path: key, previous: result.previous.value, after: result.after.value });
+        continue;
+      }
+      const resolved = resolveEntry(key, raw);
+      if (resolved.error) throw new Refusal(refusalMessage(resolved, key));
+      const entry = resolved.entry;
+      const typed = entryAccepts(entry, change.value)
+        && (entry.type !== 'profile' || change.value === null)
+        && (entry.type !== 'boolean' || typeof change.value === 'boolean')
+        && (entry.type !== 'text' || typeof change.value === 'string');
+      const text = typeof change.value === 'string' ? change.value : JSON.stringify(change.value);
+      const result = applyEntry(raw, config, key, text);
+      if (result.error) throw new Refusal(messageOfSet(result, key));
+      if (!typed) throw new Refusal(messageOfSet({ entry, error: { type: 'invalidValue' } }, key));
+      if (!entry.placeholders) assertSavedValues([key], () => change.value);
+      await validate(change, config);
+      config = configOf(raw);
+      results.push({ path: key, previous: result.previous.value, after: result.value });
+    }
+    if (initialMtime !== await configMtime(root)) return { conflict: true };
+    const unchangedUnset = changes.every(change => change.unset === true)
+      && JSON.stringify(raw) === original;
+    return { changes: results, ...(unchangedUnset ? {} : { write: raw }) };
+  });
 }
 
 function messageOfSet(result, key) {
@@ -422,15 +470,7 @@ function messageOfSet(result, key) {
 }
 
 async function unsetEntry(root, key, write) {
-  const result = await mutateState(root, async (raw, config) => {
-    const resolved = resolveEntry(key, raw);
-    if (resolved.error) return { error: resolved.error };
-    const previous = effectiveValue(resolved.entry, raw, config);
-    const removedAliases = removeLegacyAliases(raw, resolved.entry);
-    unsetPath(raw, key);
-    const after = effectiveValue(resolved.entry, raw, configOf(raw));
-    return { entry: resolved.entry, previous, after, removedAliases, write: raw };
-  }, write);
+  const result = await mutateState(root, (raw, config) => applyUnset(raw, config, key), write);
   if (result.error) return { error: result.error, message: refusalMessage(result, key) };
   return {
     entry: result.entry,
@@ -438,4 +478,14 @@ async function unsetEntry(root, key, write) {
     after: result.after,
     removedAliases: result.removedAliases,
   };
+}
+
+function applyUnset(raw, config, key) {
+  const resolved = resolveEntry(key, raw);
+  if (resolved.error) return { error: resolved.error };
+  const previous = effectiveValue(resolved.entry, raw, config);
+  const removedAliases = removeLegacyAliases(raw, resolved.entry);
+  unsetPath(raw, key);
+  const after = effectiveValue(resolved.entry, raw, configOf(raw));
+  return { entry: resolved.entry, previous, after, removedAliases, write: raw };
 }

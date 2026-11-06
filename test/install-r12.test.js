@@ -139,5 +139,5 @@ test('R12-3: no usage text is written outside the door: ctx.unknown prints throu
   assert.match(unknown, /\berr\(usageOf\(/, 'the usage text is written by err, the door');
   assert.doesNotMatch(unknown, /io\.stderr|io\.stdout|process\.std/, 'no raw writer in ctx.unknown');
   assert.doesNotMatch(source, /PROTECTED|REDACTED_GROUPS|SAFE_GROUPS|DOOR_GROUPS/, 'the door is for every command, not for a list of them');
-  assert.match(source, /const door = \(write\) => redactingWriter\(write, hidden\)/);
+  assert.match(source, /const door = \(write\) => \{\s*const redact = redactingWriter\(write, hidden\)/);
 });

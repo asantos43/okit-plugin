@@ -18,6 +18,7 @@ People use terminal commands to install, maintain and diagnose the plugin and ma
 | `okit-plugin uninstall` | Remove recorded installation; keep state by default | `okit-plugin uninstall --client codex --dry-run` |
 | `okit-plugin setup` | Propose models and save after confirmation | `okit-plugin setup --again` |
 | `okit-plugin doctor` | Diagnose the installation; read only, with a fix per failure | `okit-plugin doctor --client codex` |
+| `okit-plugin config ui` | Start a local configuration session | `okit-plugin config ui --no-open` |
 | `okit-plugin account` | Add, list, remove or rename accounts; login stays manual | `okit-plugin account list codex --json` |
 | `okit-plugin panel-state` | Read one client's versioned state; see [schema](state.md#panel-state) | `okit-plugin panel-state --json --client claude` |
 

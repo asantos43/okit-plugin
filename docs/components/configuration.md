@@ -8,9 +8,9 @@ Configuration combines built-in defaults with choices saved in the state root.
 
 <a id="read"></a>
 ## Inspect and change
+`okit-plugin config ui` starts a token-protected session on 127.0.0.1 with the same validated, atomic saves as `config_set`. Use `--no-open` to print the URL without opening a browser and `--idle-minutes <n>` to change the ten-minute idle timeout. The HTML editor is pending; the server currently exposes the configuration API.
 
 Ask your assistant for the settings: `config_get` reads every entry of the schema, or one of them when a key is given, and `config_set` writes one entry, with a value or without one to remove it. The tools validate only the schema keys below; other technical options are config.json overrides, not accepted by them. Profiles and detection merge by client/class/field; other consumers may merge groups by their own rules. Back up before editing. Install/update fills only missing active profile fields and per-client limits. Existing choices, including disabled profiles, stay unchanged. `setup.detected.client` records the client in use; `setup.detected.quotaSources` records observed allowance sources. Unknown observations are omitted. Detection reuses existing readers without spending allowance or confirming setup.
-
 <a id="schema"></a>
 ## Keys you can change
 client is a configured client; class is simple, normal or hard. Each field default appears in the inventory. Without limits.clients overrides, limits.global applies; profiles.<client>.<class> accepts only null to disable. limits.perClient is a legacy alias of limits.global.

@@ -28,7 +28,7 @@ Then [ask the Director for work](docs/guide/ask-the-director.md).
 <a id="documentation"></a>
 ## Find your way
 
-- [User guide](docs/guide/README.md): install, choose models, try a demonstration and troubleshoot. See the optional [Claude Code panel](docs/guide/panel.md).
+- [User guide](docs/guide/README.md): install, choose models, try a demonstration and troubleshoot. See the [configuration page](docs/guide/config-ui.md) and optional [Claude Code panel](docs/guide/panel.md).
 - [Component reference](docs/components/README.md): skills, tools, hooks, adapters, CLI, configuration and state.
 - [Maintainer documentation](docs/maintainers/README.md): architecture, integration, checks and releases; [contributing](CONTRIBUTING.md).
 

@@ -15,5 +15,6 @@ Escolha uma tarefa para colocar o plugin em funcionamento e pedir ajuda ao assis
 6. [Resolver um problema](troubleshooting.pt-BR.md): encontre a instrução para corrigir um item ausente.
 7. [Gerenciar contas](accounts.pt-BR.md): adicione uma pasta separada do cliente, faça login manual e mantenha quota por conta.
 8. [Painel do Claude Code](panel.pt-BR.md): instale o painel opcional e acompanhe as contas e o trabalho.
+9. [Página de configuração](config-ui.pt-BR.md): edite ajustes e atores no navegador.
 
 [Componentes e configuração](../components/README.pt-BR.md) · [Página do plugin](../../README.pt-BR.md) · [English](README.md)
