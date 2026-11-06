@@ -13,13 +13,13 @@ const reason = (en, pt) => ({ en, 'pt-BR': pt });
 // Raised in English; `localizeReason` (src/install/present.js, REASONS) shows it in the language of the run.
 const refuse = (why) => { throw new UsageError(why.en); };
 const supported = (client) => {
-  if (!Object.hasOwn(CLIENT_ENV, client)) refuse(reason('Unsupported account client.', 'Cliente de conta não suportado.'));
+  if (!Object.hasOwn(CLIENT_ENV, client)) refuse(reason('Unsupported account client.', 'Cliente de conta não suportado.')); // locale:pt-BR
 };
 
 /** The default keeps the historical client key. */
 export function accountKey(client, id = DEFAULT_ACCOUNT_ID) {
   supported(client);
-  if (typeof id !== 'string' || !ID.test(id)) refuse(reason('Invalid account id.', 'Id de conta inválido.'));
+  if (typeof id !== 'string' || !ID.test(id)) refuse(reason('Invalid account id.', 'Id de conta inválido.')); // locale:pt-BR
   return id === DEFAULT_ACCOUNT_ID ? client : `${client}:${id}`;
 }
 
@@ -59,7 +59,7 @@ export function accountsOf(config, client) {
 
 /** A client given without an account is the bare name: `client:id` is the key of an account, never a client. */
 export function requireBareClient(client) {
-  if (typeof client === 'string' && client.includes(':')) refuse(reason('Unsupported account client.', 'Cliente de conta não suportado.'));
+  if (typeof client === 'string' && client.includes(':')) refuse(reason('Unsupported account client.', 'Cliente de conta não suportado.')); // locale:pt-BR
   return client;
 }
 
@@ -163,10 +163,10 @@ export function validateLabel(label, { client, accounts = [], exceptId } = {}) {
   let why = null;
   if (typeof label !== 'string' || !label.trim() || label.length > 40 || /[\p{Cc}]/u.test(label)) {
     why = reason('Account label must be non-empty text of at most 40 characters without controls.',
-      'O nome da conta deve ser um texto não vazio de até 40 caracteres sem controles.');
+      'O nome da conta deve ser um texto não vazio de até 40 caracteres sem controles.'); // locale:pt-BR
   } else if (accounts.some((account) => (!client || !account.client || account.client === client)
     && account.id !== exceptId && account.label === label)) {
-    why = reason('Account labels must be unique within the client.', 'Os nomes das contas devem ser únicos no cliente.');
+    why = reason('Account labels must be unique within the client.', 'Os nomes das contas devem ser únicos no cliente.'); // locale:pt-BR
   }
   return { ok: why === null, reason: why };
 }
@@ -174,7 +174,7 @@ export function validateLabel(label, { client, accounts = [], exceptId } = {}) {
 /** First invalid saved accounts value, or null; consumed by the config schema. */
 export function accountsProblem(value, options = {}) {
   const invalid = (key) => ({ key, ...reason('Use unique account ids, valid labels and absolute config directories; default has no directory.',
-    'Use ids de conta únicos, nomes válidos e pastas de configuração absolutas; default não tem pasta.') });
+    'Use ids de conta únicos, nomes válidos e pastas de configuração absolutas; default não tem pasta.') }); // locale:pt-BR
   if (!object(value)) return invalid('accounts');
   for (const [client, entries] of Object.entries(value)) {
     if (!Object.hasOwn(CLIENT_ENV, client) || !Array.isArray(entries)) return invalid(`accounts.${client}`);
@@ -208,10 +208,10 @@ function withEntries(config, client, entries) {
 export function withAccountAdded(config, client, label, configDir, options = {}) {
   const accounts = accountsOf(config, client);
   if (typeof configDir !== 'string' || !pathOf(options.platform ?? process.platform).isAbsolute(configDir)) {
-    refuse(reason('Account folder must be absolute on this system.', 'A pasta da conta deve ser absoluta neste sistema.'));
+    refuse(reason('Account folder must be absolute on this system.', 'A pasta da conta deve ser absoluta neste sistema.')); // locale:pt-BR
   }
   if (duplicateDir([...accounts, { configDir }], client, options)) {
-    refuse(reason('Account folders must be unique within the client.', 'As pastas das contas devem ser únicas no cliente.'));
+    refuse(reason('Account folders must be unique within the client.', 'As pastas das contas devem ser únicas no cliente.')); // locale:pt-BR
   }
   const check = validateLabel(label, { client, accounts });
   if (!check.ok) refuse(check.reason);
@@ -222,7 +222,7 @@ export function withAccountAdded(config, client, label, configDir, options = {})
 /** Removal only changes configuration; it never deletes account files. */
 export function withAccountRemoved(config, client, id) {
   requireAccount(config, client, id);
-  if (id === DEFAULT_ACCOUNT_ID) refuse(reason('The default account cannot be removed.', 'A conta default não pode ser removida.'));
+  if (id === DEFAULT_ACCOUNT_ID) refuse(reason('The default account cannot be removed.', 'A conta default não pode ser removida.')); // locale:pt-BR
   return withEntries(config, client, (config?.accounts?.[client] ?? []).filter((entry) => entry.id !== id));
 }
 
@@ -231,14 +231,14 @@ export function withAccountRenamed(config, client, id, label, options = {}) {
   const accounts = accountsOf(config, client);
   requireAccount(config, client, id);
   if (duplicateDir(accounts, client, options)) {
-    refuse(reason('Account folders must be unique within the client.', 'As pastas das contas devem ser únicas no cliente.'));
+    refuse(reason('Account folders must be unique within the client.', 'As pastas das contas devem ser únicas no cliente.')); // locale:pt-BR
   }
   const check = validateLabel(label, { client, accounts, exceptId: id });
   if (!check.ok) refuse(check.reason);
   const saved = Object.hasOwn(config?.accounts ?? {}, client);
   if (id === DEFAULT_ACCOUNT_ID && !saved && options.currentDefaultDir !== undefined && options.defaultDir !== options.currentDefaultDir) {
     refuse(reason('The default account follows the folder variable of the client; register that folder as an account before giving the default a label.',
-      'A conta default segue a variável de pasta do cliente; cadastre essa pasta como uma conta antes de dar um nome à default.'));
+      'A conta default segue a variável de pasta do cliente; cadastre essa pasta como uma conta antes de dar um nome à default.')); // locale:pt-BR
   }
   const entries = config?.accounts?.[client] ?? [];
   return withEntries(config, client, entries.some((entry) => entry.id === id)

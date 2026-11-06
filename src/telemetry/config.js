@@ -9,13 +9,13 @@ import { assertSavedValues } from '../config-schema.js';
 
 export async function settings(root) {
   const local = storedRootOf(await readJson(paths(root).config, {}).catch(() => {
-    throw new Error('Cannot read measurement settings / Não foi possível ler os ajustes de medição');
+    throw new Error('Cannot read measurement settings');
   })).telemetry ?? {};
   const config = { ...DEFAULT_CONFIG.telemetry, ...local,
     rede: { ...DEFAULT_CONFIG.telemetry.rede, ...local.rede } };
   assertSavedValues(['telemetry.dir'], () => config.dir);
   if (config.destination !== 'file') {
-    throw new UsageError('Choose a local measurement folder / Escolha uma pasta local para medições');
+    throw new UsageError('Choose a local measurement folder');
   }
   let kit = null;
   if (config.enabled === true) {

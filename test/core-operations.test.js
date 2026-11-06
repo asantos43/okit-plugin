@@ -402,7 +402,7 @@ test('the component index says what the registry holds today', async () => {
     for (const name of names) assert.ok(text.includes(name), name);
   }
   assert.match(english, /twenty-four operations/);
-  assert.match(portuguese, /vinte e quatro operações/);
+  assert.match(portuguese, /vinte e quatro operações/); // locale:pt-BR
   assert.doesNotMatch(english, /MCP tools call the same entries/);
   assert.doesNotMatch(portuguese, /ferramentas MCP chamam as mesmas entradas/);
 });

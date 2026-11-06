@@ -25,10 +25,10 @@ for (const locale of ['en', 'pt-BR']) {
     assert.equal(result.cancelled, false);
     assert.equal(questions.length, 4);
     for (const question of questions) {
-      assert.match(question, locale === 'en' ? /Recommend(?:ed|ation):/ : /Recomend(?:ado|ação):/);
-      assert.match(question, locale === 'en' ? /available assistant|future work/ : /assistente disponível|próximos trabalhos/);
+      assert.match(question, locale === 'en' ? /Recommend(?:ed|ation):/ : /Recomend(?:ado|ação):/); // locale:pt-BR
+      assert.match(question, locale === 'en' ? /available assistant|future work/ : /assistente disponível|próximos trabalhos/); // locale:pt-BR
     }
-    assert.match(questions[0], locale === 'en' ? /small, straightforward tasks/ : /tarefas pequenas e diretas/);
+    assert.match(questions[0], locale === 'en' ? /small, straightforward tasks/ : /tarefas pequenas e diretas/); // locale:pt-BR
     assert.match(questions[1], locale === 'en' ? /everyday work/ : /trabalhos do dia a dia/);
     assert.match(questions[2], locale === 'en' ? /complex work/ : /trabalhos complexos/);
   });
@@ -380,7 +380,7 @@ test('a configuration changed during the confirmation is not written', async (t)
     ask,
     locale: 'both',
     adapters: [fakeClient('claude-code', ['haiku', 'sonnet', 'opus'])],
-  }), /Settings could not be read.*Não foi possível ler os ajustes/);
+  }), /Settings could not be read.*Não foi possível ler os ajustes/); // locale:pt-BR
   assert.equal(await readFile(join(root, 'config.json'), 'utf8'), '[]');
 });
 
@@ -399,7 +399,7 @@ test('setup --defaults refuses an unsafe raw profile name as a usage error (2) w
   });
   assert.equal(code, 2);
   assert.match(errors.join('\n'), /name that is not allowed/);
-  assert.match(errors.join('\n'), /nome que não é permitido/);
+  assert.match(errors.join('\n'), /nome que não é permitido/); // locale:pt-BR
   assert.equal(await readFile(join(root, 'config.json'), 'utf8'), original);
 });
 
@@ -416,7 +416,7 @@ test('setup --defaults refuses a class outside the configuration schema', async 
     defaults: true,
     locale: 'both',
     adapters: [fakeClient('claude-code', ['haiku', 'sonnet', 'opus'])],
-  }), /name that is not allowed.*não é permitido/);
+  }), /name that is not allowed.*não é permitido/); // locale:pt-BR
   await assert.rejects(readFile(join(root, 'config.json'), 'utf8'), { code: 'ENOENT' });
 });
 
@@ -461,9 +461,9 @@ test('setup --defaults refuses a configuration whose root is not an object', asy
     stderr: (line) => errors.push(line),
   });
   assert.equal(code, 1);
-  assert.ok(output.every((line) => / — Setup$| — Configuração$|model list|lista de modelos/.test(line)), output.join('\n'));
+  assert.ok(output.every((line) => / — Setup$| — Configuração$|model list|lista de modelos/.test(line)), output.join('\n')); // locale:pt-BR
   assert.match(errors.join('\n'), /Settings could not be read/);
-  assert.match(errors.join('\n'), /Não foi possível ler os ajustes/);
+  assert.match(errors.join('\n'), /Não foi possível ler os ajustes/); // locale:pt-BR
   assert.doesNotMatch(errors.join('\n'), /Invalid JSON|Cannot read/);
   assert.equal(await readFile(join(root, 'config.json'), 'utf8'), original);
 });
@@ -483,9 +483,9 @@ test('setup --defaults refuses a configuration whose root is null', async (t) =>
     stderr: (line) => errors.push(line),
   });
   assert.equal(code, 1);
-  assert.ok(output.every((line) => / — Setup$| — Configuração$|model list|lista de modelos/.test(line)), output.join('\n'));
+  assert.ok(output.every((line) => / — Setup$| — Configuração$|model list|lista de modelos/.test(line)), output.join('\n')); // locale:pt-BR
   assert.match(errors.join('\n'), /Settings could not be read/);
-  assert.match(errors.join('\n'), /Não foi possível ler os ajustes/);
+  assert.match(errors.join('\n'), /Não foi possível ler os ajustes/); // locale:pt-BR
   assert.doesNotMatch(errors.join('\n'), /Cannot read properties/);
   assert.equal(await readFile(join(root, 'config.json'), 'utf8'), original);
 });
@@ -505,9 +505,9 @@ test('setup refuses a configuration that is not JSON with the same sentence', as
     stderr: (line) => errors.push(line),
   });
   assert.equal(code, 1);
-  assert.ok(output.every((line) => / — Setup$| — Configuração$|model list|lista de modelos/.test(line)), output.join('\n'));
+  assert.ok(output.every((line) => / — Setup$| — Configuração$|model list|lista de modelos/.test(line)), output.join('\n')); // locale:pt-BR
   assert.match(errors.join('\n'), /Settings could not be read/);
-  assert.match(errors.join('\n'), /Não foi possível ler os ajustes/);
+  assert.match(errors.join('\n'), /Não foi possível ler os ajustes/); // locale:pt-BR
   assert.doesNotMatch(errors.join('\n'), /Invalid JSON|Expected property name/);
   assert.equal(await readFile(join(root, 'config.json'), 'utf8'), original);
 });
@@ -524,7 +524,7 @@ test('the setup module refuses an unreadable configuration before any write', as
     defaults: true,
     locale: 'both',
     adapters: [fakeClient('claude-code', ['haiku', 'sonnet', 'opus'])],
-  }), /Settings could not be read.*Não foi possível ler os ajustes/);
+  }), /Settings could not be read.*Não foi possível ler os ajustes/); // locale:pt-BR
   assert.equal(await readFile(join(root, 'config.json'), 'utf8'), original);
 });
 
@@ -540,7 +540,7 @@ test('the setup module refuses a configuration whose root is not an object', asy
     defaults: true,
     locale: 'both',
     adapters: [fakeClient('claude-code', ['haiku', 'sonnet', 'opus'])],
-  }), /Settings could not be read.*Não foi possível ler os ajustes/);
+  }), /Settings could not be read.*Não foi possível ler os ajustes/); // locale:pt-BR
   assert.equal(await readFile(join(root, 'config.json'), 'utf8'), original);
 });
 
@@ -582,8 +582,8 @@ test('setup --defaults without a detected client says one simple sentence and wr
   assert.deepEqual(errors, []);
   assert.equal(output.length, 8, output.join(' | '));
   assert.match(output[1], /No client with an active model was found/);
-  assert.match(output[5], /Nenhum cliente com modelo ativo foi encontrado/);
-  assert.doesNotMatch(output[1], /Nenhum cliente/);
+  assert.match(output[5], /Nenhum cliente com modelo ativo foi encontrado/); // locale:pt-BR
+  assert.doesNotMatch(output[1], /Nenhum cliente/); // locale:pt-BR
   assert.doesNotMatch(output[5], /No client/);
   // No `setup.done`: the configuration is still pending.
   await assert.rejects(readFile(join(root, 'config.json'), 'utf8'), { code: 'ENOENT' });
@@ -605,8 +605,8 @@ test('setup --defaults with no installed client says one simple sentence and wri
   assert.deepEqual(errors, []);
   assert.equal(output.length, 8, output.join(' | '));
   assert.match(output[1], /No client with an active model was found/);
-  assert.match(output[5], /Nenhum cliente com modelo ativo foi encontrado/);
-  assert.doesNotMatch(output[1], /Nenhum cliente/);
+  assert.match(output[5], /Nenhum cliente com modelo ativo foi encontrado/); // locale:pt-BR
+  assert.doesNotMatch(output[1], /Nenhum cliente/); // locale:pt-BR
   assert.doesNotMatch(output[5], /No client/);
   await assert.rejects(readFile(join(root, 'config.json'), 'utf8'), { code: 'ENOENT' });
 });
@@ -627,8 +627,8 @@ test('setup --defaults with a client that lists no active model says one simple 
   assert.deepEqual(errors, []);
   assert.equal(output.length, 8, output.join(' | '));
   assert.match(output[1], /No client with an active model was found/);
-  assert.match(output[5], /Nenhum cliente com modelo ativo foi encontrado/);
-  assert.doesNotMatch(output[1], /Nenhum cliente/);
+  assert.match(output[5], /Nenhum cliente com modelo ativo foi encontrado/); // locale:pt-BR
+  assert.doesNotMatch(output[1], /Nenhum cliente/); // locale:pt-BR
   assert.doesNotMatch(output[5], /No client/);
   await assert.rejects(readFile(join(root, 'config.json'), 'utf8'), { code: 'ENOENT' });
 });
@@ -658,10 +658,10 @@ for (const global of [0, 'abc']) {
       });
       assert.equal(code, 2); // usage, as install (single policy in src/install/exit.js)
       assert.equal(writes, 0);
-      assert.ok(output.every((line) => / — Setup$| — Configuração$|model list|lista de modelos/.test(line)), output.join('\n'));
+      assert.ok(output.every((line) => / — Setup$| — Configuração$|model list|lista de modelos/.test(line)), output.join('\n')); // locale:pt-BR
       const message = errors.join('\n');
       assert.match(message, /The configuration file has a value that is not accepted/);
-      assert.match(message, /O arquivo de configuração tem um valor que não é aceito/);
+      assert.match(message, /O arquivo de configuração tem um valor que não é aceito/); // locale:pt-BR
       assert.match(message, /custom-okit setup/);
       assert.match(message, /config_get/);
       assert.doesNotMatch(message, /integer|Could not save|okit-plugin/);
@@ -693,9 +693,9 @@ test('setup --defaults refuses an unexpected shape of profiles with the unreadab
         stderr: (line) => errors.push(line),
       });
       assert.equal(code, 1, `${original} ${JSON.stringify(adapters.map((client) => client.CLIENT))}`);
-      assert.ok(output.every((line) => / — Setup$| — Configuração$|model list|lista de modelos/.test(line)), output.join('\n'));
+      assert.ok(output.every((line) => / — Setup$| — Configuração$|model list|lista de modelos/.test(line)), output.join('\n')); // locale:pt-BR
       assert.match(errors.join('\n'), /Settings could not be read/);
-      assert.match(errors.join('\n'), /Não foi possível ler os ajustes/);
+      assert.match(errors.join('\n'), /Não foi possível ler os ajustes/); // locale:pt-BR
       assert.doesNotMatch(errors.join('\n'), /invalid object at|Cannot read|TypeError/);
       assert.equal(await readFile(join(root, 'config.json'), 'utf8'), original);
     }
@@ -736,10 +736,10 @@ test('setup --defaults says one simple sentence when the configuration folder re
       stderr: (line) => errors.push(line),
     });
     assert.equal(code, 1);
-    assert.ok(output.every((line) => / — Setup$| — Configuração$|model list|lista de modelos/.test(line)), output.join('\n'));
+    assert.ok(output.every((line) => / — Setup$| — Configuração$|model list|lista de modelos/.test(line)), output.join('\n')); // locale:pt-BR
     const said = errors.join('\n');
     assert.match(said, /Choices could not be saved/);
-    assert.match(said, /Não foi possível salvar as escolhas/);
+    assert.match(said, /Não foi possível salvar as escolhas/); // locale:pt-BR
     assert.ok(said.includes(resolve(root)), said);
     assert.match(said, /okit-plugin setup/);
     assert.doesNotMatch(said, /EACCES|permission denied|mkdir|errno|EEXIST|Cannot write/);
@@ -759,14 +759,14 @@ test('setup --defaults says no technical code when a client cannot be read', asy
   };
   const expected = {
     en: /The model list could not be read, so the built-in catalog is used\./,
-    'pt-BR': /A lista de modelos não pôde ser lida, então o catálogo interno é usado\./,
+    'pt-BR': /The model list could not be read, so the built-in catalog is used\./,
   };
   // | case | must pass | must refuse |
   // | real adapter failure/exit/timeout | catalog and diagnostic error | technical detail in reason or setup |
   const detectionConfig = { setup: { detect: { codex: { timeoutMs: 23 } } } };
   for (const [run, detail, forbidden, timeout] of [
     [refusal, 'EACCES', /EACCES|spawn codex/, false],
-    [async () => ({ code: 2 }), '2', /\b2\b|exit code|código de saída/, false],
+    [async () => ({ code: 2 }), '2', /\b2\b|exit code|código de saída/, false], // locale:pt-BR
     [() => new Promise(() => {}), '23', /\b23\b|\bms\b/, true],
   ]) {
     const { clients: [client] } = await detectClients({ config: detectionConfig, run, adapters: [codex] });
@@ -793,7 +793,7 @@ test('setup --defaults says no technical code when a client cannot be read', asy
       assert.doesNotMatch(said, forbidden);
       const reason = locale === 'en'
         ? 'The model list could not be read; these choices come from the built-in list.'
-        : 'Não foi possível ler a lista de modelos; estas opções vêm da lista incluída no plugin.';
+        : 'Não foi possível ler a lista de modelos; estas opções vêm da lista incluída no plugin.'; // locale:pt-BR
       assert.equal(output.filter((line) => line === reason).length, 1, said);
       // The client keeps the catalog: the model of the catalog is saved.
       const raw = JSON.parse(await readFile(join(root, 'config.json'), 'utf8'));
@@ -831,7 +831,7 @@ test('a write that the folder refuses is reported as the simple sentence', async
   assert.equal(writes, 1);
   assert.ok(failure instanceof SetupSaveError, failure.name);
   assert.match(failure.message, /^Choices could not be saved. Check write permission for the settings folder/);
-  assert.match(failure.message, /Não foi possível salvar as escolhas. Confira a permissão de gravação da pasta de ajustes/);
+  assert.match(failure.message, /Não foi possível salvar as escolhas. Confira a permissão de gravação da pasta de ajustes/); // locale:pt-BR
   assert.ok(failure.message.includes(resolve(root)), failure.message);
   assert.match(failure.message, /okit-plugin setup/);
   assert.doesNotMatch(failure.message, /EACCES|permission denied|errno/);
@@ -861,7 +861,7 @@ test('the sentence of a failed write never carries the error of the write', asyn
   assert.ok(failure, 'the setup must fail');
   assert.ok(failure instanceof SetupSaveError, failure.name);
   assert.match(failure.message, /^Choices could not be saved/);
-  assert.match(failure.message, /Não foi possível salvar as escolhas/);
+  assert.match(failure.message, /Não foi possível salvar as escolhas/); // locale:pt-BR
   assert.doesNotMatch(failure.message, /EACCES|permission denied/);
 });
 
@@ -887,7 +887,7 @@ test('an unexpected error inside the lock is reported as the simple sentence', {
   assert.ok(failure, 'the setup must fail');
   assert.ok(failure instanceof SetupSaveError, failure.name);
   assert.match(failure.message, /^Choices could not be saved/);
-  assert.match(failure.message, /Não foi possível salvar as escolhas/);
+  assert.match(failure.message, /Não foi possível salvar as escolhas/); // locale:pt-BR
   assert.doesNotMatch(failure.message, /ENOTDIR|not a directory|is held by|ENOTEMPTY/);
   // Nothing was written: the file of the configuration is not there.
   await assert.rejects(readFile(join(root, 'config.json'), 'utf8'), { code: 'ENOENT' });
@@ -922,11 +922,11 @@ test('the command line that cannot save says the sentence without the command be
       stderr: (line) => errors.push(line),
     });
     assert.equal(code, 1);
-    assert.ok(output.every((line) => / — Setup$| — Configuração$|model list|lista de modelos/.test(line)), output.join('\n'));
+    assert.ok(output.every((line) => / — Setup$| — Configuração$|model list|lista de modelos/.test(line)), output.join('\n')); // locale:pt-BR
     const said = errors.join('\n');
     // The sentence opens the line: the command does not come before it.
     assert.ok(said.startsWith('Choices could not be saved'), said);
-    assert.match(said, /Não foi possível salvar as escolhas/);
+    assert.match(said, /Não foi possível salvar as escolhas/); // locale:pt-BR
     assert.doesNotMatch(said, /^okit-plugin:/m);
   } finally {
     await chmod(root, 0o755);

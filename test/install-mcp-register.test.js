@@ -971,7 +971,7 @@ test('a scope for a client whose own mcp commands take none is refused, in both 
   const file = join(f.root, 'config.json');
   for (const [locale, expected] of [
     ['en', /Invalid install\.clients\.codex\.mcp\.scope: a scope only for a client whose own mcp commands take one/],
-    ['pt-BR', /install\.clients\.codex\.mcp\.scope inválido: um escopo só para um cliente cujos comandos mcp aceitam um/],
+    ['pt-BR', /install\.clients\.codex\.mcp\.scope inválido: um escopo só para um cliente cujos comandos mcp aceitam um/], // locale:pt-BR
   ]) {
     await fs.writeFile(file, JSON.stringify({ language: locale,
       install: { clients: { codex: { mcp: { scope: 'user' } } } } }));

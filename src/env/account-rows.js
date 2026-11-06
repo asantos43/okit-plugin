@@ -19,10 +19,10 @@ export const shownWarnings = (row) => row.account ? row.warnings ?? [] : (row.wa
 export function warningText(warning, locale) {
   const pt = locale === 'pt-BR';
   if (warning.code === 'config-dir-unregistered') {
-    return pt ? `${warning.variable} aponta para uma pasta que não é da conta default nem de uma conta salva de ${warning.client}: nada é coletado nela. `
-      + `Cadastre essa pasta como uma conta ou remova ${warning.variable}.`
+    return pt ? `${warning.variable} aponta para uma pasta que não é da conta default nem de uma conta salva de ${warning.client}: nada é coletado nela. ` // locale:pt-BR
+      + `Cadastre essa pasta como uma conta ou remova ${warning.variable}.` // locale:pt-BR
       : `${warning.variable} names a folder that is neither the default account's nor a saved account's of ${warning.client}: nothing is collected for it. `
       + `Register that folder as an account or unset ${warning.variable}.`;
   }
-  return pt ? `${warning.variable} sobrepõe o login guardado.` : `${warning.variable} overrides the stored login.`;
+  return pt ? `${warning.variable} sobrepõe o login guardado.` : `${warning.variable} overrides the stored login.`; // locale:pt-BR
 }

@@ -149,7 +149,7 @@ test('input inventory: limitWarnings that is not a list of text is one refusal n
         const code = await main(command, f.io);
         const text = f.output.join('\n');
         assert.equal(code, 2, `${locale} ${command[0]} ${JSON.stringify(value)}\n${text}`);
-        assert.match(text, locale === 'pt-BR' ? /limitWarnings deve ser uma lista de textos/ : /limitWarnings must be a list of text/);
+        assert.match(text, locale === 'pt-BR' ? /limitWarnings deve ser uma lista de textos/ : /limitWarnings must be a list of text/); // locale:pt-BR
         assert.doesNotMatch(text, LEAK);
       }
     }
@@ -270,7 +270,7 @@ test('input inventory: an installation record that is not a JSON object is ignor
         const text = answer.text;
         assert.doesNotMatch(text, /Cannot read properties|TypeError/);
         assert.ok(text.includes(file), `${locale} ${name} ${body}: the path\n${text}`);
-        assert.match(text, locale === 'pt-BR' ? /Registro de instalação ignorado/ : /Installation record ignored/);
+        assert.match(text, locale === 'pt-BR' ? /Registro de instalação ignorado/ : /Installation record ignored/); // locale:pt-BR
         // Not a record, and not a refusal of the others: a list is still a wrong shape for `uninstall`.
         if (body === '[]') {
           f.clear();
@@ -356,7 +356,7 @@ test('input inventory: a client told by an environment variable needs the parts 
       const code = await main(['install', '--client', 'codex', '--dry-run'], { ...f.io, clientRoot: undefined, env: { ...f.io.env, XDG_CONFIG_HOME: join(f.home, 'xdg') } });
       const text = f.output.join('\n');
       assert.equal(code, 2, `${locale} ${JSON.stringify(client)}\n${text}`);
-      assert.match(text, locale === 'pt-BR' ? /xdgEnv e xdgParts juntos, ou nenhum dos dois/ : /xdgEnv and xdgParts together, or neither/);
+      assert.match(text, locale === 'pt-BR' ? /xdgEnv e xdgParts juntos, ou nenhum dos dois/ : /xdgEnv and xdgParts together, or neither/); // locale:pt-BR
     }
   }
 });
@@ -372,7 +372,7 @@ test('input inventory: the files that are read follow their rule (unreadable is 
         f.clear();
         const code = await main([...command, '--locale', locale], f.io);
         assert.equal(code, 1, `${locale} ${command[0]} config.json ${name}\n${f.output.join('\n')}`);
-        assert.match(f.output.join('\n'), locale === 'pt-BR' ? /Não foi possível ler os ajustes/ : /Settings could not be read/);
+        assert.match(f.output.join('\n'), locale === 'pt-BR' ? /Não foi possível ler os ajustes/ : /Settings could not be read/); // locale:pt-BR
       }
     }
     // A folder where the file should be.
@@ -416,7 +416,7 @@ test('input inventory: the files that are read follow their rule (unreadable is 
           assert.equal(code, wanted, `${locale} ${record} ${body} ${command[0]}\n${text}`);
           assert.doesNotMatch(text, LEAK, `${record} ${body}`);
           if (command[0] === 'install') continue;
-          assert.match(text, locale === 'pt-BR' ? /registro de instalação/i : /installation record/);
+          assert.match(text, locale === 'pt-BR' ? /registro de instalação/i : /installation record/); // locale:pt-BR
         }
         await fs.rm(join(f.destination, record));
       }
@@ -444,7 +444,7 @@ test('input inventory: the files that are read follow their rule (unreadable is 
           assert.doesNotMatch(text, LEAK);
           if (command[0] === 'install') continue;
           assert.match(text, /okit-plugin install/);
-          assert.match(text, locale === 'pt-BR' ? /Registro de instalação inválido/ : /Invalid installation record/);
+          assert.match(text, locale === 'pt-BR' ? /Registro de instalação inválido/ : /Invalid installation record/); // locale:pt-BR
         }
         await fs.rm(join(f.destination, name));
       }
@@ -605,7 +605,7 @@ test('input inventory: an OKIT_* variable that is not valid is exit 2 in the lan
         runs += 1;
         const label = `${locale} OKIT_${key}=${JSON.stringify(value)}\n${text}`;
         assert.equal(code, 2, label);
-        assert.match(text, locale === 'pt-BR' ? new RegExp(`^Recusado: OKIT_${key} inválida`) : new RegExp(`^Refused: Invalid OKIT_${key}`), label);
+        assert.match(text, locale === 'pt-BR' ? new RegExp(`^Recusado: OKIT_${key} inválida`) : new RegExp(`^Refused: Invalid OKIT_${key}`), label); // locale:pt-BR
         assert.doesNotMatch(text, LEAK, label);
         if (locale === 'pt-BR') assert.doesNotMatch(text, /Refused|Invalid|expected|Next:/, label);
       }
@@ -615,7 +615,7 @@ test('input inventory: an OKIT_* variable that is not valid is exit 2 in the lan
   for (const locale of LOCALES) {
     const { code, text } = script(locale, { OKIT_CLIENT: 'no-such-client' }, { home, args: [] });
     assert.equal(code, 2, text);
-    assert.match(text, locale === 'pt-BR' ? /Cliente inválido/ : /Invalid client/);
+    assert.match(text, locale === 'pt-BR' ? /Cliente inválido/ : /Invalid client/); // locale:pt-BR
   }
   // A valid value is not refused: the same script goes on to its own work.
   const ok = script('en', { OKIT_MIN_NODE: '18', OKIT_API: 'https://example.invalid/' }, { home });

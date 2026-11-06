@@ -15,10 +15,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(HERE, 'fixtures', 'mcp-golden.json');
 const UPDATE = process.env.GOLDEN_UPDATE === '1';
 
-// D121 deliberately adds snapshot.accountChoices to status and accountChoices to actors_list.
-// Each choice has client, actorClass, account, structured reason and optional wait_until; envelopes stay unchanged.
+// D125 keeps installer locale dictionaries and English-only profile/detection defaults in the status shape.
+// Account choices retain their D121 shape, and MCP envelopes stay unchanged.
 const DISPLAY_SHAPES = {
-  status: 'e605fdc74c3a154e104103eedf6e63c6240a5ae56d30bac51868e4556a53fdfb',
+  status: '63aa45f312ccb43b4d73f4c55ca9a36ec3ca09362ee771f0a3d31daa85919642',
   actors_list: '04260e09cd5efb227b48567b76770623525e43a7da1ab58571a40f54c6bc0f12',
 };
 function jsonShape(value) {

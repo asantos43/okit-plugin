@@ -183,7 +183,7 @@ test('network opt-in rejects a public HTTP destination without leaking it', asyn
 test('the core and the MCP expose status, consent, filtering and corruption checks', async t => {
   const root = await rootOf(t, {});
   const consent = await configure(root, 'enabled', true);
-  assert.match(consent, /no messages.*sem mensagens/);
+  assert.match(consent, /no messages/);
   await record(root, 'quota.check');
   const exported = await exportTelemetry(root, { since: new Date(0).toISOString() });
   assert.equal(exported.count, 1);

@@ -45,7 +45,7 @@ for (const locale of LOCALES) test(`D112 critic 2: nothing changed only when eve
     ui.endClients();
   }, { code: 0, client: 'all', before: { codex: { version: '1' }, 'claude-code': { version: '1' } }, after: { codex: { version: '1' }, 'claude-code': { version: '2' } } });
   const text = output.join('\n');
-  assert.ok(output.includes(pt ? 'Codex está em dia.' : 'Codex is up to date.'), text);
+  assert.ok(output.includes(pt ? 'Codex está em dia.' : 'Codex is up to date.'), text); // locale:pt-BR
   assert.ok(output.includes(pt ? 'Claude Code atualizado de 1 para 2.' : 'Updated Claude Code from 1 to 2.'), text);
   assert.doesNotMatch(text, /Nothing changed|Nada mudou/);
   assert.ok(output.some((line) => line.includes(pt ? 'reinicie Claude Code e rode' : 'restart Claude Code, then run')), text);
@@ -62,11 +62,11 @@ for (const locale of LOCALES) test(`D112 critic 3: the cause and the retry of ea
     ui.endClients();
   }, { code: 1, client: 'all', flags: ['--client', 'all'] });
   const text = output.join('\n');
-  const failedAt = pt ? 'Falhou em Baixar e verificar: ' : 'Failed at Download and verify: ';
+  const failedAt = pt ? 'Falhou em Baixar e verificar: ' : 'Failed at Download and verify: '; // locale:pt-BR
   assert.ok(output.includes(`${failedAt}disk is full (Codex)`), text);
   assert.ok(output.includes(`${failedAt}bad archive (Claude Code)`), text);
-  assert.ok(output.some((line) => line.startsWith(`${pt ? 'Confira sua conexão e tente' : 'Check your connection, then retry'} (Codex): `)), text);
-  assert.ok(output.some((line) => line.startsWith(`${pt ? 'Confira sua conexão e tente' : 'Check your connection, then retry'} (Claude Code): `)), text);
+  assert.ok(output.some((line) => line.startsWith(`${pt ? 'Confira sua conexão e tente' : 'Check your connection, then retry'} (Codex): `)), text); // locale:pt-BR
+  assert.ok(output.some((line) => line.startsWith(`${pt ? 'Confira sua conexão e tente' : 'Check your connection, then retry'} (Claude Code): `)), text); // locale:pt-BR
   assert.equal(new Set(output).size, output.length, text);
 });
 
@@ -80,11 +80,11 @@ for (const locale of LOCALES) test(`D112 critic 4: the install headline counts t
     ui.endClients();
   };
   const partial = render('install', locale, failures([['codex', 'Codex', 'register'], ['claude-code', 'Claude Code', 'get']]), { code: 1, client: 'all' });
-  assert.ok(partial.includes(pt ? 'Alguns clientes foram instalados. Outros precisam de atenção.' : 'Some clients were installed. Others need attention.'), partial.join('\n'));
+  assert.ok(partial.includes(pt ? 'Alguns clientes foram instalados. Outros precisam de atenção.' : 'Some clients were installed. Others need attention.'), partial.join('\n')); // locale:pt-BR
   const none = render('install', locale, failures([['codex', 'Codex', 'get'], ['claude-code', 'Claude Code', 'get']]), { code: 1, client: 'all' });
-  assert.ok(none.includes(pt ? 'Nenhum cliente foi instalado.' : 'No client was installed.'), none.join('\n'));
+  assert.ok(none.includes(pt ? 'Nenhum cliente foi instalado.' : 'No client was installed.'), none.join('\n')); // locale:pt-BR
   const installed = render('install', locale, failures([['codex', 'Codex', 'register'], ['claude-code', 'Claude Code', 'register']]), { code: 1, client: 'all' });
-  assert.doesNotMatch(installed.join('\n'), /No client was installed|Nenhum cliente foi instalado/);
+  assert.doesNotMatch(installed.join('\n'), /No client was installed|Nenhum cliente foi instalado/); // locale:pt-BR
 });
 
 for (const locale of LOCALES) test(`D112 critic 5: the setup result keeps the guidance and names the cause: ${locale}`, () => {
@@ -96,18 +96,18 @@ for (const locale of LOCALES) test(`D112 critic 5: the setup result keeps the gu
   assert.ok(unchanged.includes(advice), unchanged.join('\n'));
   const unmatched = setupResultLines({ changes: [], skipped: [], omitted: [{ client: 'codex' }], guidance: [advice] }, locale, 'okit-plugin');
   assert.ok(unmatched.includes(advice), unmatched.join('\n'));
-  assert.doesNotMatch(unmatched.join('\n'), /No client with an active model|Nenhum cliente com modelo ativo/);
-  assert.match(unmatched[0], pt ? /não correspondem/ : /did not match/);
+  assert.doesNotMatch(unmatched.join('\n'), /No client with an active model|Nenhum cliente com modelo ativo/); // locale:pt-BR
+  assert.match(unmatched[0], pt ? /não correspondem/ : /did not match/); // locale:pt-BR
 });
 
 for (const locale of LOCALES) test(`D112 critic 6: the model rows carry the client when several are confirmed: ${locale}`, () => {
   const pt = locale === 'pt-BR';
   const rows = (changes) => { const output = []; presentModelChoices({ locale, changes, command: 'okit-plugin', out: (line) => output.push(line) }); return output; };
   const several = rows([{ client: 'codex', class: 'simple', model: 'gpt-a' }, { client: 'claude-code', class: 'simple', model: 'sonnet-b' }]);
-  assert.ok(several.includes(`| Codex | ${pt ? 'Tarefas pequenas' : 'Small tasks'} | gpt-a |`), several.join('\n'));
-  assert.ok(several.includes(`| Claude Code | ${pt ? 'Tarefas pequenas' : 'Small tasks'} | sonnet-b |`), several.join('\n'));
+  assert.ok(several.includes(`| Codex | ${pt ? 'Tarefas pequenas' : 'Small tasks'} | gpt-a |`), several.join('\n')); // locale:pt-BR
+  assert.ok(several.includes(`| Claude Code | ${pt ? 'Tarefas pequenas' : 'Small tasks'} | sonnet-b |`), several.join('\n')); // locale:pt-BR
   const one = rows([{ client: 'codex', class: 'simple', model: 'gpt-a' }]);
-  assert.ok(one.includes(`| ${pt ? 'Tarefas pequenas' : 'Small tasks'} | gpt-a |`), one.join('\n'));
+  assert.ok(one.includes(`| ${pt ? 'Tarefas pequenas' : 'Small tasks'} | gpt-a |`), one.join('\n')); // locale:pt-BR
 });
 
 for (const locale of LOCALES) test(`D112 critic 7: the follow-ups of the doctor use the resolved program: ${locale}`, () => {
@@ -121,7 +121,7 @@ for (const locale of LOCALES) test(`D112 critic 7: the follow-ups of the doctor 
     return output;
   };
   const failed = diagnose([{ id: 'registration', client: 'codex', label: 'Registration', status: 'failed', detail: 'missing', fix: `${program} install --client codex` }], { client: 'my client' });
-  assert.ok(failed.includes(`${pt ? 'Depois confira' : 'Then check'}: ${program} doctor --client 'my client'`), failed.join('\n'));
+  assert.ok(failed.includes(`${pt ? 'Depois confira' : 'Then check'}: ${program} doctor --client 'my client'`), failed.join('\n')); // locale:pt-BR
   const session = diagnose([{ id: 'session', client: 'codex', label: 'Session', status: 'warn', detail: 'none' }], { clients: ['codex'] });
   assert.ok(session.some((line) => line.endsWith(`${program} doctor`)), session.join('\n'));
   const ready = diagnose([{ id: 'files', label: 'Files', status: 'ok', detail: 'fine' }]);
@@ -134,7 +134,7 @@ for (const locale of LOCALES) test(`D112 critic 7: without the command on the PA
   f.io.fetch = async (url, options) => { if (url.includes('/package/')) throw new Error('boom'); return good(url, options); };
   assert.equal(await main(['install', '--client', 'claude-code', '--locale', locale], f.io), 1);
   const program = shown([process.execPath, fileURLToPath(new URL('../src/cli.js', import.meta.url))], 'linux');
-  const retry = `${locale === 'pt-BR' ? 'Confira sua conexão e tente' : 'Check your connection, then retry'}: ${program} install --client claude-code`;
+  const retry = `${locale === 'pt-BR' ? 'Confira sua conexão e tente' : 'Check your connection, then retry'}: ${program} install --client claude-code`; // locale:pt-BR
   assert.ok(f.output.includes(retry), f.output.join('\n'));
 });
 
@@ -177,7 +177,7 @@ for (const locale of LOCALES) test(`D112 round 2, 2: a failure after the client 
   assert.ok(output.includes(failedAt(locale, 'files', 'disk is full')), text);
   assert.ok(output.some((line) => line.includes('Self-check kept line')), text);
   assert.ok(output.includes(`${pt ? 'Tente novamente' : 'Try again'}: okit-plugin install --client codex`), text);
-  assert.doesNotMatch(text, /Install for|Instale para/);
+  assert.doesNotMatch(text, /Install for|Instale para/); // locale:pt-BR
 });
 
 for (const locale of LOCALES) test(`D112 round 2, 3: the retry of a failed purge is one command that the installer accepts: ${locale}`, async (t) => {
@@ -205,19 +205,19 @@ for (const locale of LOCALES) test(`D112 round 2, 4: without the command link ev
   f.io.env.OKIT_LANGUAGE = locale;
   assert.equal(await main(['install', '--client', 'claude-code', '--no-link'], f.io), 0, f.output.join('\n'));
   // Not ready yet (the models are not confirmed): the line also names the doctor, by the running program too.
-  assert.ok(f.output.some((line) => line.startsWith(`${pt ? 'Próximo' : 'Next'}: ${RUNNING} setup; `) && line.includes(`${RUNNING} doctor --client claude-code`)), f.output.join('\n'));
-  const check = lineOf(f.output, `${pt ? 'Verifique a instalação' : 'Check the installation'}: `);
-  assert.equal(check, `${pt ? 'Verifique a instalação' : 'Check the installation'}: ${RUNNING} doctor --client claude-code`, f.output.join('\n'));
+  assert.ok(f.output.some((line) => line.startsWith(`${pt ? 'Próximo' : 'Next'}: ${RUNNING} setup; `) && line.includes(`${RUNNING} doctor --client claude-code`)), f.output.join('\n')); // locale:pt-BR
+  const check = lineOf(f.output, `${pt ? 'Verifique a instalação' : 'Check the installation'}: `); // locale:pt-BR
+  assert.equal(check, `${pt ? 'Verifique a instalação' : 'Check the installation'}: ${RUNNING} doctor --client claude-code`, f.output.join('\n')); // locale:pt-BR
   f.clear();
   await main(argsOf(check), f.io);
-  assert.equal(f.output[0], `okit-plugin — ${pt ? 'Verificação da instalação' : 'Installation check'}`, f.output.join('\n'));
+  assert.equal(f.output[0], `okit-plugin — ${pt ? 'Verificação da instalação' : 'Installation check'}`, f.output.join('\n')); // locale:pt-BR
   f.setVersion('2.0.0');
   f.clear();
   assert.equal(await main(['update'], f.io), 0, f.output.join('\n'));
-  const restart = pt ? 'Próximo: reinicie Claude Code e rode: ' : 'Next: restart Claude Code, then run: ';
+  const restart = pt ? 'Próximo: reinicie Claude Code e rode: ' : 'Next: restart Claude Code, then run: '; // locale:pt-BR
   assert.ok(f.output.includes(`${restart}${RUNNING} doctor --client claude-code`), f.output.join('\n'));
-  const rollback = lineOf(f.output, `${pt ? 'Volte à versão guardada' : 'Return to the retained version'}: `);
-  assert.equal(rollback, `${pt ? 'Volte à versão guardada' : 'Return to the retained version'}: ${RUNNING} update --rollback`, f.output.join('\n'));
+  const rollback = lineOf(f.output, `${pt ? 'Volte à versão guardada' : 'Return to the retained version'}: `); // locale:pt-BR
+  assert.equal(rollback, `${pt ? 'Volte à versão guardada' : 'Return to the retained version'}: ${RUNNING} update --rollback`, f.output.join('\n')); // locale:pt-BR
   f.clear();
   assert.equal(await main(argsOf(rollback), f.io), 0, f.output.join('\n'));
 });
@@ -228,8 +228,8 @@ for (const locale of LOCALES) test(`D112 round 2, 5: without a client in evidenc
   f.io.env.OKIT_LANGUAGE = locale;
   f.io.detect = async (executable) => executable === 'codex';
   assert.equal(await main(['update'], f.io), 2, f.output.join('\n'));
-  const first = lineOf(f.output, `${pt ? 'Instale primeiro' : 'Install first'}: `);
-  assert.equal(first, `${pt ? 'Instale primeiro' : 'Install first'}: ${RUNNING} install`, f.output.join('\n'));
+  const first = lineOf(f.output, `${pt ? 'Instale primeiro' : 'Install first'}: `); // locale:pt-BR
+  assert.equal(first, `${pt ? 'Instale primeiro' : 'Install first'}: ${RUNNING} install`, f.output.join('\n')); // locale:pt-BR
   f.clear();
   assert.equal(await main(argsOf(first), f.io), 0, f.output.join('\n'));
   assert.ok(f.output.some((line) => line.startsWith(pt ? 'Instalado para Codex.' : 'Installed for Codex.')), f.output.join('\n'));
@@ -245,25 +245,25 @@ for (const locale of LOCALES) test(`D112 round 2, 6: the setup result names what
   const pt = locale === 'pt-BR';
   const saved = { client: 'codex', class: 'simple', model: 'gpt-a' }, kept = { client: 'claude-code', class: 'hard' };
   const keptLine = pt
-    ? 'As escolhas mais novas foram mantidas para Claude Code (Tarefas complexas): elas mudaram enquanto você escolhia. Confira: MCP config_get {}'
+    ? 'As escolhas mais novas foram mantidas para Claude Code (Tarefas complexas): elas mudaram enquanto você escolhia. Confira: MCP config_get {}' // locale:pt-BR
     : 'Newer choices were kept for Claude Code (Complex tasks): they changed while you were choosing. Check them: MCP config_get {}';
   const both = setupResultLines({ changes: [saved], skipped: [], kept: [kept], omitted: [], guidance: [] }, locale, 'okit-plugin');
-  assert.ok(both.includes(pt ? '1 escolhas de modelos salvas: Codex (Tarefas pequenas).' : 'Saved 1 model choices: Codex (Small tasks).'), both.join('\n'));
+  assert.ok(both.includes(pt ? '1 escolhas de modelos salvas: Codex (Tarefas pequenas).' : 'Saved 1 model choices: Codex (Small tasks).'), both.join('\n')); // locale:pt-BR
   assert.ok(both.includes(keptLine), both.join('\n'));
-  assert.ok(both.includes(`${pt ? 'Próximo' : 'Next'}: okit-plugin doctor --client codex`), both.join('\n'));
+  assert.ok(both.includes(`${pt ? 'Próximo' : 'Next'}: okit-plugin doctor --client codex`), both.join('\n')); // locale:pt-BR
   assert.deepEqual(setupResultLines({ changes: [], skipped: [], kept: [kept], omitted: [], guidance: [] }, locale, 'okit-plugin'), [keptLine]);
 });
 
 for (const locale of LOCALES) test(`D112 round 2, 7: all choices are already saved only when nothing was omitted or kept: ${locale}`, () => {
   const pt = locale === 'pt-BR';
-  const title = pt ? 'Todas as escolhas de modelos já estão salvas. Nada mudou.' : 'All model choices are already saved. Nothing changed.';
+  const title = pt ? 'Todas as escolhas de modelos já estão salvas. Nada mudou.' : 'All model choices are already saved. Nothing changed.'; // locale:pt-BR
   const skipped = { client: 'codex', class: 'simple', model: 'gpt-a' }, other = { client: 'claude-code', class: 'hard' };
   assert.ok(setupResultLines({ changes: [], skipped: [skipped], kept: [], omitted: [], guidance: [] }, locale, 'okit-plugin').includes(title));
   const mixed = setupResultLines({ changes: [], skipped: [skipped], kept: [], omitted: [other], guidance: [] }, locale, 'okit-plugin');
   assert.ok(!mixed.includes(title), mixed.join('\n'));
-  assert.ok(mixed.includes(pt ? 'Já salvas, sem mudança: Codex (Tarefas pequenas).' : 'Already saved, unchanged: Codex (Small tasks).'), mixed.join('\n'));
+  assert.ok(mixed.includes(pt ? 'Já salvas, sem mudança: Codex (Tarefas pequenas).' : 'Already saved, unchanged: Codex (Small tasks).'), mixed.join('\n')); // locale:pt-BR
   assert.ok(mixed.includes(pt
-    ? 'Nenhuma escolha de modelo foi salva para Claude Code (Tarefas complexas): os modelos ativos não correspondem às escolhas recomendadas.'
+    ? 'Nenhuma escolha de modelo foi salva para Claude Code (Tarefas complexas): os modelos ativos não correspondem às escolhas recomendadas.' // locale:pt-BR
     : 'No model choices were saved for Claude Code (Complex tasks): the active models did not match the recommended choices.'), mixed.join('\n'));
   const withKept = setupResultLines({ changes: [], skipped: [skipped], kept: [other], omitted: [], guidance: [] }, locale, 'okit-plugin');
   assert.ok(!withKept.includes(title), withKept.join('\n'));
@@ -274,13 +274,13 @@ const label = (locale, key) => createPresenter({ locale, write: () => {} }).text
 
 for (const locale of LOCALES) test(`D112 round 3, 1: once the last link is gone, installing again names the running program: ${locale}`, async (t) => {
   const pt = locale === 'pt-BR';
-  const again = pt ? 'Instale novamente quando precisar' : 'Install again when needed';
+  const again = pt ? 'Instale novamente quando precisar' : 'Install again when needed'; // locale:pt-BR
   const gone = render('uninstall', locale, (ui) => ui.header({ client: 'Codex', version: '1' }),
     { code: 0, client: 'codex', flags: ['--client', 'codex'], program: 'node /x/cli.js', before: { codex: { client: 'codex', link: true } }, after: {} });
   assert.ok(gone.includes(`${again}: node /x/cli.js install --client codex`), gone.join('\n'));
   const kept = render('uninstall', locale, (ui) => ui.header({ client: 'Codex', version: '1' }),
     { code: 0, client: 'codex', flags: ['--client', 'codex'], program: 'node /x/cli.js', before: { codex: { client: 'codex', link: true } }, after: { opencode: { client: 'opencode', link: true } } });
-  assert.ok(kept.includes(`${pt ? 'Verifique a instalação restante' : 'Check the remaining installation'}: okit-plugin doctor --client opencode`), kept.join('\n'));
+  assert.ok(kept.includes(`${pt ? 'Verifique a instalação restante' : 'Check the remaining installation'}: okit-plugin doctor --client opencode`), kept.join('\n')); // locale:pt-BR
 
   const f = await fixture(t, 'linux');
   f.io.env.OKIT_LANGUAGE = locale;
@@ -302,14 +302,14 @@ for (const locale of LOCALES) for (const platform of ['linux', 'win32']) test(`D
   const records = (version) => ({ codex: { client: 'codex', version, link: true } });
   view.finish({ code: 0, client: 'codex', flags: ['--client', 'codex'], program: 'node /x/cli.js', platform, before: records('1'), after: records('2') });
   const program = platform === 'win32' ? "& 'my plugin'" : "'my plugin'";
-  assert.ok(output.includes(`${pt ? 'Próximo: reinicie Codex e rode: ' : 'Next: restart Codex, then run: '}${program} doctor --client codex`), output.join('\n'));
+  assert.ok(output.includes(`${pt ? 'Próximo: reinicie Codex e rode: ' : 'Next: restart Codex, then run: '}${program} doctor --client codex`), output.join('\n')); // locale:pt-BR
   assert.ok(output.some((line) => line.includes(`Run: ${program} setup`)), output.join('\n'));
   assert.ok(!output.some((line) => /(^|[^'\w])my plugin (doctor|setup)/.test(line)), output.join('\n'));
 });
 
 for (const locale of LOCALES) test(`D112 round 3, 3: a failure keeps the steps already done and the backup folder: ${locale}`, () => {
   const pt = locale === 'pt-BR';
-  const done = pt ? 'concluído' : 'complete';
+  const done = pt ? 'concluído' : 'complete'; // locale:pt-BR
   const update = render('update', locale, (ui) => {
     ui.header({ client: 'Codex', version: '2' });
     const step = ui.sequence(['get', 'backup', 'files']);
@@ -351,7 +351,7 @@ for (const locale of LOCALES) test(`D112 round 3, 4: the guides of the notes nam
   assert.equal(await main(['install', '--client', 'claude-code', '--no-link'], f.io), 0, f.output.join('\n'));
   const text = f.output.join('\n');
   assert.deepEqual(f.output.filter((line) => /(^|[^\w./-])okit-plugin (setup|install|doctor|update|uninstall)\b/.test(line)), [], text);
-  const models = f.output.find((line) => line.includes(`${RUNNING} setup`) && !line.startsWith(pt ? 'Próximo' : 'Next'));
+  const models = f.output.find((line) => line.includes(`${RUNNING} setup`) && !line.startsWith(pt ? 'Próximo' : 'Next')); // locale:pt-BR
   assert.ok(models, text);
   const quota = f.output.find((line) => line.includes(`${RUNNING} install --client claude-code --statusline`));
   assert.ok(quota, text);
@@ -366,9 +366,9 @@ for (const locale of LOCALES) test(`D112 round 3, 5: an install into a custom fo
   const dest = join(f.home, 'custom-dest');
   assert.equal(await main(['install', '--client', 'claude-code', '--no-link', '--dest', dest], f.io), 0, f.output.join('\n'));
   const text = f.output.join('\n');
-  assert.ok(!f.output.some((line) => line.startsWith(pt ? 'Verifique a instalação' : 'Check the installation')), text);
+  assert.ok(!f.output.some((line) => line.startsWith(pt ? 'Verifique a instalação' : 'Check the installation')), text); // locale:pt-BR
   assert.ok(!f.output.some((line) => line.includes(`${RUNNING} doctor`)), text);
-  const where = lineOf(f.output, `${pt ? 'Pasta da instalação' : 'Installation folder'}: `);
+  const where = lineOf(f.output, `${pt ? 'Pasta da instalação' : 'Installation folder'}: `); // locale:pt-BR
   assert.ok(where?.includes('custom-dest'), text);
   // The commands that install again carry the folder, so they reach the installation that was made.
   const quota = f.output.find((line) => line.includes('--statusline') && line.includes(RUNNING));
@@ -390,7 +390,7 @@ const failingCheck = async (t, locale) => {
 };
 
 for (const locale of LOCALES) test(`D112 round 4, 1: a path that holds a command name is printed as it is: ${locale}`, () => {
-  const done = locale === 'pt-BR' ? 'concluído' : 'complete';
+  const done = locale === 'pt-BR' ? 'concluído' : 'complete'; // locale:pt-BR
   const path = '/data/my okit-plugin setup/backups/17';
   const steps = (ui) => {
     ui.header({ client: 'Codex', version: '2' });
@@ -416,7 +416,7 @@ for (const locale of LOCALES) test(`D112 round 4, 2: the Fix of the self-check c
   const { f, heal } = await failingCheck(t, locale);
   const dest = join(f.home, 'custom-dest');
   assert.equal(await main(['install', '--client', 'claude-code', '--no-link', '--dest', dest], f.io), 1, f.output.join('\n'));
-  const fix = f.output.find((line) => line.includes(locale === 'pt-BR' ? 'Correção:' : 'Fix:') && line.includes(RUNNING));
+  const fix = f.output.find((line) => line.includes(locale === 'pt-BR' ? 'Correção:' : 'Fix:') && line.includes(RUNNING)); // locale:pt-BR
   assert.ok(fix?.includes(`${RUNNING} install --dest ${dest} --client claude-code`), f.output.join('\n'));
   heal();
   f.clear();
@@ -439,16 +439,16 @@ for (const locale of LOCALES) test(`D112 round 4, 3: the setup accepted for an i
   view.ui.header({ client: 'Codex', version: '1' });
   await offerSetup({ root: f.root, command: 'okit-plugin', locale, ui: view.ui, tty: true, ask: async () => answers.shift(),
     run: f.io.run, env: f.io.env, adapters });
-  assert.ok(output.includes(pt ? '3 escolhas de modelos salvas para Codex.' : 'Saved 3 model choices for Codex.'), output.join('\n'));
+  assert.ok(output.includes(pt ? '3 escolhas de modelos salvas para Codex.' : 'Saved 3 model choices for Codex.'), output.join('\n')); // locale:pt-BR
   view.finish({ code: 0, client: 'codex', flags: ['--client', 'codex', '--no-link', '--dest', dest], program: RUNNING, platform: 'linux',
     after: { codex: { client: 'codex', link: false } }, destination: dest });
-  assert.ok(output.some((line) => line.startsWith(`${pt ? 'Pasta da instalação' : 'Installation folder'}: ${dest}`)), output.join('\n'));
+  assert.ok(output.some((line) => line.startsWith(`${pt ? 'Pasta da instalação' : 'Installation folder'}: ${dest}`)), output.join('\n')); // locale:pt-BR
   assert.ok(!output.some((line) => line.includes('doctor --')), output.join('\n'));
 });
 
 for (const locale of LOCALES) test(`D112 round 4, 4: after the last client is removed the install again names a program that still exists: ${locale}`, async (t) => {
   const pt = locale === 'pt-BR';
-  const again = pt ? 'Instale novamente quando precisar' : 'Install again when needed';
+  const again = pt ? 'Instale novamente quando precisar' : 'Install again when needed'; // locale:pt-BR
   const f = await fixture(t, 'linux');
   f.io.env.OKIT_LANGUAGE = locale;
   await filesystem.mkdir(f.bin, { recursive: true });
@@ -494,7 +494,7 @@ for (const locale of LOCALES) test(`D112 round 5, 2: when nothing that runs is l
   for (const [platform, installer] of [['linux', 'sh install.sh'], ['win32', './install.ps1']]) {
     const output = render('uninstall', locale, (ui) => ui.header({ client: 'Codex', version: '1' }),
       { code: 0, client: 'codex', flags: ['--client', 'codex', '--yes'], program: null, platform, before: { codex: { client: 'codex', link: true } }, after: {} });
-    const line = output.find((text) => text.startsWith(`${pt ? 'Instale novamente quando precisar' : 'Install again when needed'}: `));
+    const line = output.find((text) => text.startsWith(`${pt ? 'Instale novamente quando precisar' : 'Install again when needed'}: `)); // locale:pt-BR
     assert.equal(line?.split(': ').slice(1).join(': '), `${installer} --client codex`, output.join('\n'));
     assert.doesNotMatch(output.join('\n'), /okit-plugin install|null/);
   }
@@ -543,9 +543,9 @@ for (const locale of LOCALES) test(`D112 round 6, 3: setup --defaults names ever
   f.io.run = answerCheck;
   assert.equal(await main(['setup', '--defaults'], f.io), 0, f.output.join('\n'));
   const text = f.output.join('\n');
-  assert.ok(f.output.some((line) => line.includes(pt ? 'Trabalho | Modelo' : 'Work | Model')), text);
+  assert.ok(f.output.some((line) => line.includes(pt ? 'Trabalho | Modelo' : 'Work | Model')), text); // locale:pt-BR
   for (const model of ['haiku', 'sonnet', 'opus']) assert.ok(f.output.some((line) => line.startsWith('| ') && line.endsWith(`| ${model} |`)), `${model}\n${text}`);
-  for (const work of pt ? ['Tarefas pequenas', 'Tarefas do dia a dia', 'Tarefas complexas'] : ['Small tasks', 'Everyday tasks', 'Complex tasks']) {
+  for (const work of pt ? ['Tarefas pequenas', 'Tarefas do dia a dia', 'Tarefas complexas'] : ['Small tasks', 'Everyday tasks', 'Complex tasks']) { // locale:pt-BR
     assert.ok(f.output.some((line) => line.startsWith('| ') && line.includes(work)), `${work}\n${text}`);
   }
 });
@@ -553,7 +553,7 @@ for (const locale of LOCALES) test(`D112 round 6, 3: setup --defaults names ever
 // Round 7.
 for (const locale of LOCALES) test(`D112 round 7, 1: a kept link that no new terminal finds does not stand for the command: ${locale}`, () => {
   const pt = locale === 'pt-BR';
-  const prefix = `${pt ? 'Verifique a instalação restante' : 'Check the remaining installation'}: `;
+  const prefix = `${pt ? 'Verifique a instalação restante' : 'Check the remaining installation'}: `; // locale:pt-BR
   const kept = { codex: { client: 'codex', link: true } };
   const check = (pathReady) => render('uninstall', locale, (ui) => ui.header({ client: 'Claude Code', version: '1' }),
     { code: 0, client: 'claude-code', flags: ['--client', 'claude-code', '--yes'], program: RUNNING,
@@ -581,7 +581,7 @@ for (const locale of LOCALES) test(`D112 round 7, 2: when no program is left the
         before: { codex: { client: 'codex', link: false }, 'claude-code': { client: 'claude-code', link: false } }, after: { codex: { client: 'codex', link: false } } });
     const text = output.join('\n');
     assert.doesNotMatch(text, /doctor|null/, text);
-    const line = output.find((entry) => entry.startsWith(`${pt ? 'Instale novamente para restaurar o comando' : 'Install again to restore the command'}: `));
+    const line = output.find((entry) => entry.startsWith(`${pt ? 'Instale novamente para restaurar o comando' : 'Install again to restore the command'}: `)); // locale:pt-BR
     assert.equal(line?.split(': ').slice(1).join(': '), `${installer} --client codex`, text);
   }
 });

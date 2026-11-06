@@ -10,7 +10,7 @@ export async function executeDemands(ctx) {
   const { result, scenario, config, client, actors, scratch, say, controller } = ctx;
   const cap = ctx.options.mode === 'real' ? 1 : capOf(config.limits, client).cap;
   say(cap > 1 ? 'Independent tasks can be done together.' : 'One place is available; tasks will run in sequence.',
-    cap > 1 ? 'Trabalhos independentes podem ser feitos juntos.' : 'Há uma vaga; os trabalhos serão feitos em sequência.');
+    cap > 1 ? 'Trabalhos independentes podem ser feitos juntos.' : 'Há uma vaga; os trabalhos serão feitos em sequência.'); // locale:pt-BR
   const pending = new Set(result.demands);
   const active = new Set();
   const skip = (row, reason) => { row.verdict = 'skipped'; row.skipReason = reason; result.status = 'partial'; };
@@ -24,7 +24,7 @@ export async function executeDemands(ctx) {
         const demand = scenario.demands.find((item) => item.key === row.key);
         if (demand.dependsOn.some((key) => result.demands.some((item) => item.key === key
           && ['failed', 'skipped'].includes(item.verdict)))) continue;
-        skip(row, ctx.locale === 'pt-BR' ? 'Execução interrompida.' : 'Run interrupted.');
+        skip(row, ctx.locale === 'pt-BR' ? 'Execução interrompida.' : 'Run interrupted.'); // locale:pt-BR
       }
       for (const row of [...pending]) if (row.verdict === 'skipped') pending.delete(row);
     }
@@ -32,7 +32,7 @@ export async function executeDemands(ctx) {
       const demand = scenario.demands.find((item) => item.key === row.key);
       const dependencies = demand.dependsOn.map((key) => result.demands.find((item) => item.key === key));
       if (dependencies.some((item) => ['failed', 'skipped'].includes(item.verdict))) {
-        skip(row, ctx.locale === 'pt-BR' ? 'Dependência não aprovada.' : 'Dependency not approved.'); pending.delete(row); continue;
+        skip(row, ctx.locale === 'pt-BR' ? 'Dependência não aprovada.' : 'Dependency not approved.'); pending.delete(row); continue; // locale:pt-BR
       }
       if (active.size >= cap || dependencies.some((item) => item.verdict !== 'approved')) continue;
       pending.delete(row);
@@ -51,10 +51,10 @@ async function executeDemand(ctx, row, demand) {
   const executor = actors.find((actor) => actor.client === client && actor.confirmed && actor.canLaunch
     && actor.sizes.includes(row.size) && actor.model === profile.model && actor.effort === profile.effort);
   const reviewer = actors.find((actor) => actor.client === client && actor.confirmed && actor.canLaunch && actor.critic);
-  if (!executor || !reviewer) throw new Error(locale === 'pt-BR' ? 'Ajudante ou crítico indisponível.' : 'Helper or critic unavailable.');
+  if (!executor || !reviewer) throw new Error(locale === 'pt-BR' ? 'Ajudante ou crítico indisponível.' : 'Helper or critic unavailable.'); // locale:pt-BR
   row.actor = { client, model: profile.model, effort: profile.effort };
   row.profile = { ...profile, origin: 'snapshot' };
-  say(`I have chosen a helper for ${row.title}.`, `Escolhi um ajudante para ${row.title}.`);
+  say(`I have chosen a helper for ${row.title}.`, `Escolhi um ajudante para ${row.title}.`); // locale:pt-BR
   let failedCriteria = [], delegated = false;
   for (let round = 0; round <= result.limits.demoMaxReworkRounds; round += 1) {
     const execution = await attempt(ctx, row, demand, 'Executor', row.actor, profile, round, failedCriteria,
@@ -73,11 +73,11 @@ async function executeDemand(ctx, row, demand) {
     if (approved) {
       await inboxSetStatus(scratch.state, row.inboxId, 'criticised');
       await inboxSetStatus(scratch.state, row.inboxId, 'consolidated'); row.verdict = 'approved';
-      say(`${row.title} now passes.`, `${row.title} passou na verificação.`); return;
+      say(`${row.title} now passes.`, `${row.title} passou na verificação.`); return; // locale:pt-BR
     }
     failedCriteria = checks.filter((check) => !check.passed);
     if (!failedCriteria.length) failedCriteria = review.criteria ?? [{ feedback: review.feedback }];
-    say(`${row.title} needs correction.`, `${row.title} precisa de correção.`);
+    say(`${row.title} needs correction.`, `${row.title} precisa de correção.`); // locale:pt-BR
   }
   await inboxSetStatus(scratch.state, row.inboxId, 'failed'); row.verdict = 'failed';
   result.status = 'fail'; controller.abort(new Error('rework ceiling'));

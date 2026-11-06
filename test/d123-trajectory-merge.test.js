@@ -362,7 +362,7 @@ test('disjoint dated captures retain all 23 tokens through a 750-byte cap in bot
 test('unknown, overlapping and legacy capped clock ranges never prove additive usage', () => {
   const a = trajectory(context, [{ message: 'A', timestamp: '2026-01-01T00:00:00Z', metrics: { prompt_tokens: 8 } }]);
   for (const start of [null, undefined, 'invalid', Date.parse('2026-01-01T00:00:00Z')]) {
-    const b = trajectory(context, [{ message: '[Content shortened / Conteúdo reduzido]',
+    const b = trajectory(context, [{ message: '[Content shortened]',
       source: 'system', timestamp: '2026-01-03T00:00:00Z' }]);
     b.extra = { trajectory_merge_clock: Date.parse('2026-01-03T00:00:00Z') };
     if (start !== undefined) b.extra.trajectory_merge_start = start;

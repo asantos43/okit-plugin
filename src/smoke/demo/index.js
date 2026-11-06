@@ -32,7 +32,7 @@ export async function runDemo(options = {}) {
   signal?.addEventListener('abort', cancel, { once: true });
   if (signal?.aborted) cancel();
   try {
-    say('I am checking which helpers are available.', 'Estou verificando quais ajudantes estão disponíveis.');
+    say('I am checking which helpers are available.', 'Estou verificando quais ajudantes estão disponíveis.'); // locale:pt-BR
     if (!snapshot) throw new Error('environment snapshot required');
     const config = configOf(snapshot.config);
     const scenario = validateScenario(options.scenario ?? await loadScenario());
@@ -57,14 +57,13 @@ export async function runDemo(options = {}) {
         skipReason: null, inboxId: item.id });
     }
     await inboxList(scratch.state);
-    say('I have prepared five practice tasks.', 'Preparei cinco trabalhos de exemplo.');
+    say('I have prepared five practice tasks.', 'Preparei cinco trabalhos de exemplo.'); // locale:pt-BR
     if (mode !== 'test') {
       if (!options.confirmed) throw new Error('explicit quota confirmation required');
       result.confirmed = true;
       const pathKey = Object.keys(options.env ?? {}).find((key) => key.toUpperCase() === 'PATH');
       if (typeof options.env?.[pathKey] !== 'string' || options.env[pathKey] === '') throw new Error(
-        'PATH is missing from the environment, so the helper cannot be found. / '
-        + 'O PATH não está no ambiente, então o ajudante não pode ser encontrado.');
+        'PATH is missing from the environment, so the helper cannot be found.');
       options = { ...options, ...realDrivers({ client, config, spawn: options.spawn }) };
       const allowed = { 'claude-code': ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN',
         'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_BASE_URL'], codex: ['OPENAI_API_KEY', 'OPENAI_BASE_URL'],
@@ -73,7 +72,7 @@ export async function runDemo(options = {}) {
       for (const key of allowed[client] ?? []) {
         if (typeof options.env?.[key] === 'string') scratch.env[key] = options.env[key];
       }
-      say('This work uses your allowance.', 'Este trabalho usa sua cota.');
+      say('This work uses your allowance.', 'Este trabalho usa sua cota.'); // locale:pt-BR
     } else {
       say('This test uses injected helpers without allowance.', 'Este teste usa ajudantes injetados sem consumir cota.');
     }
@@ -86,13 +85,13 @@ export async function runDemo(options = {}) {
   } finally {
     signal?.removeEventListener('abort', cancel);
     if (budget) Object.assign(result, budget.snapshot());
-    if (result.status !== 'pass') say('The practice run has stopped.', 'A execução de exemplo foi interrompida.');
+    if (result.status !== 'pass') say('The practice run has stopped.', 'A execução de exemplo foi interrompida.'); // locale:pt-BR
     if (scratch) {
       try { await exportCurrent('before-cleanup'); }
       catch (error) { result.status = 'partial'; result.reasons.push(`report export: ${error.message}`); }
       try {
         await scratch.cleanup(); result.cleanup.removed = true;
-        say('The practice folder has been removed.', 'A pasta de exemplo foi removida.');
+        say('The practice folder has been removed.', 'A pasta de exemplo foi removida.'); // locale:pt-BR
       } catch (error) { result.status = 'partial'; result.reasons.push(`cleanup: ${error.message}`); }
     }
   }

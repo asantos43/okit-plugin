@@ -76,13 +76,13 @@ test('release notes configuration merges texts and naming over the defaults', as
   const options = await fixture();
   options.config = releaseConfig({ outputDir: 'candidate', notes: {
     fileName: '{version}-{package}.md', headings: { gaps: 'Remaining proof' },
-    status: { unproven: 'não provado' },
+    status: { unproven: 'unproven by reviewer' },
   } });
   const result = await buildNotes(options);
   assert.equal(result.file, join(options.root, 'candidate', '2.3.4-example-release.md'));
   assert.ok(result.notes.includes('## Remaining proof'));
   assert.ok(result.notes.includes('## Prerequisites'));
-  assert.equal((result.notes.match(/: não provado\./g) ?? []).length, 18);
+  assert.equal((result.notes.match(/: unproven by reviewer\./g) ?? []).length, 18);
 });
 
 test('notes use the build names, package version, engines and checksum manifest', async () => {
@@ -186,15 +186,15 @@ test('the proof table says the arm64 assets stand on the x64 payload and were no
 // the text. The texts are English only in the repository (there is no pt-BR text of the proof or its basis),
 // so a Portuguese override stands for a translation and must render as given.
 const NOTE_MAPS = [
-  { map: 'proofBy', override: { linux: 'Revisora' }, kept: { windows: 'Producer', macos: 'Producer' },
-    notes: ['| Revisora |', '| Producer |'], checklist: ['| Proof owner | Revisora |', '| Proof owner | Producer |'] },
+  { map: 'proofBy', override: { linux: 'Reviewer' }, kept: { windows: 'Producer', macos: 'Producer' },
+    notes: ['| Reviewer |', '| Producer |'], checklist: ['| Proof owner | Reviewer |', '| Proof owner | Producer |'] },
   { map: 'status', override: { partial: 'Prova parcial' }, kept: { unproven: 'not proven', proven: 'proven' },
     proof: { 'codex:macos': 'Prova parcial' },
     notes: ['| Prova parcial |', '| not proven |'], checklist: ['| Proof | Prova parcial |', '| Proof | not proven |'] },
-  { map: 'basis', override: { arm64: 'carga idêntica à x64; não executada em arm64 real' },
+  { map: 'basis', override: { arm64: 'same payload as x64; not run on physical arm64' },
     kept: { x64: 'proof recorded for this payload' },
-    notes: ['| carga idêntica à x64; não executada em arm64 real |', '| proof recorded for this payload |'],
-    checklist: ['| Proof basis | carga idêntica à x64; não executada em arm64 real |',
+    notes: ['| same payload as x64; not run on physical arm64 |', '| proof recorded for this payload |'],
+    checklist: ['| Proof basis | same payload as x64; not run on physical arm64 |',
       '| Proof basis | proof recorded for this payload |'] },
   { map: 'basis', override: { x64: 'prova gravada para esta carga' },
     kept: { arm64: 'payload identical to x64; not run on real arm64 hardware' },
@@ -236,12 +236,12 @@ test('notes.basis for an architecture the defaults do not know: the override is 
     assert.ok(text.includes('proof recorded for this payload'));
   }
   const given = releaseConfig({ architectures: ['x64', 'riscv64'],
-    notes: { basis: { riscv64: 'emulada, não executada' }, basisOther: 'sem prova nesta arquitetura' } });
+    notes: { basis: { riscv64: 'emulated, not executed' }, basisOther: 'no proof for this architecture' } });
   assert.equal(given.notes.basis.x64, 'proof recorded for this payload');
   assert.equal(given.notes.basis.arm64, 'payload identical to x64; not run on real arm64 hardware');
   const own = render(given);
-  for (const text of [own.notes, own.record]) assert.ok(text.includes('emulada, não executada'));
-  assert.ok(!own.notes.includes('sem prova nesta arquitetura'));
-  const other = render(releaseConfig({ architectures: ['riscv64'], notes: { basisOther: 'sem prova nesta arquitetura' } }));
-  for (const text of [other.notes, other.record]) assert.ok(text.includes('sem prova nesta arquitetura'));
+  for (const text of [own.notes, own.record]) assert.ok(text.includes('emulated, not executed'));
+  assert.ok(!own.notes.includes('no proof for this architecture'));
+  const other = render(releaseConfig({ architectures: ['riscv64'], notes: { basisOther: 'no proof for this architecture' } }));
+  for (const text of [other.notes, other.record]) assert.ok(text.includes('no proof for this architecture'));
 });

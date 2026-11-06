@@ -216,7 +216,7 @@ test('the injected spawn and command runner were called without starting a real 
 });
 
 test('E14 accepts a released notice and refuses incorrect quota notice replies', async (t) => {
-  const good = { available: true, released: true, text: 'Boa notícia: a cota da sua assinatura do Codex voltou.' };
+  const good = { available: true, released: true, text: 'Boa notícia: a cota da sua assinatura do Codex voltou.' }; // locale:pt-BR
   const cases = [
     ['released notice', good, 'pass', ''],
     ['unavailable', { ...good, available: false }, 'fail', 'must release the notice'],

@@ -132,10 +132,10 @@ test('no-money text reports localize unavailable cost and show tokens used again
   ] };
   for (const locale of ['en', 'pt-BR']) {
     const text = reportText(result, locale);
-    assert.match(text, locale === 'en' ? /Money is not reported by this client\./ : /Este cliente não informa custo em dinheiro\./);
-    assert.doesNotMatch(text, locale === 'en' ? /Este cliente|máximo/ : /Money is|\/ max /);
-    assert.match(text, locale === 'en' ? /tokens: 3 \/ max 10/ : /tokens: 3 \/ máximo 10/);
-    assert.match(text, locale === 'en' ? /cost: not reported/ : /custo: não informado/);
+    assert.match(text, locale === 'en' ? /Money is not reported by this client\./ : /Este cliente não informa custo em dinheiro\./); // locale:pt-BR
+    assert.doesNotMatch(text, locale === 'en' ? /Este cliente|máximo/ : /Money is|\/ max /); // locale:pt-BR
+    assert.match(text, locale === 'en' ? /tokens: 3 \/ max 10/ : /tokens: 3 \/ máximo 10/); // locale:pt-BR
+    assert.match(text, locale === 'en' ? /cost: not reported/ : /custo: não informado/); // locale:pt-BR
     assert.doesNotMatch(text, /USD|unknown|desconhecido/);
   }
   assert.equal(result.costUsd, null);
@@ -168,7 +168,7 @@ test('failed prerequisite skips dependent work without calling its helper', asyn
     assert.equal(result.demands.find((row) => row.key === 'tickets').verdict, 'failed');
     const dependent = result.demands.find((row) => row.key === 'pack');
     assert.equal(dependent.verdict, 'skipped');
-    assert.equal(dependent.skipReason, locale === 'pt-BR' ? 'Dependência não aprovada.' : 'Dependency not approved.');
+    assert.equal(dependent.skipReason, locale === 'pt-BR' ? 'Dependência não aprovada.' : 'Dependency not approved.'); // locale:pt-BR
     assert.equal(calls.includes('pack'), false);
     assert.equal(dependent.attempts.length, 0);
   }

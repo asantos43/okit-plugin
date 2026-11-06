@@ -147,7 +147,7 @@ export const CONFIG_SCHEMA = Object.freeze({
         type: typeof value === 'number' ? 'integer' : 'string',
         ...(typeof value === 'number' ? { minimum: 1 } : {}),
         constraint: { en: typeof value === 'number' ? 'an integer >= 1' : 'non-empty text',
-          'pt-BR': typeof value === 'number' ? 'um inteiro >= 1' : 'texto não vazio' },
+          'pt-BR': typeof value === 'number' ? 'um inteiro >= 1' : 'texto não vazio' }, // locale:pt-BR
         description: { en: 'Codex automatic quota reading setting.',
           'pt-BR': 'Ajuste da leitura automática de cota do Codex.' },
       })),
@@ -168,16 +168,16 @@ export const CONFIG_SCHEMA = Object.freeze({
   origins: { default: 'default', user: 'user' },
   labels: {
     value: '{path} = {value} [{origin}] — {effect}',
-    change: '{path}: before / antes = {before} [{beforeOrigin}] -> after / depois = {after} [{afterOrigin}] — {effect}',
+    change: '{path}: before = {before} [{beforeOrigin}] -> after = {after} [{afterOrigin}] — {effect}',
   },
   messages: {
-    unknownKey: 'Unknown configuration key "{key}". Valid key patterns: {patterns}. / Chave de configuração desconhecida "{key}". Padrões de chaves válidos: {patterns}.',
-    unknownClient: 'Unknown client "{value}" for "{key}". Valid clients: {values}. / Cliente desconhecido "{value}" para "{key}". Clientes válidos: {values}.',
-    unknownClass: 'Unknown class "{value}" for "{key}". Valid classes: {values}. / Classe desconhecida "{value}" para "{key}". Classes válidas: {values}.',
-    invalidValue: 'Invalid value for "{key}". Expected {constraintEn}. / Valor inválido para "{key}". Esperado {constraintPt}.',
-    invalidChoice: 'Invalid value for "{key}". Valid values: {values}. / Valor inválido para "{key}". Valores válidos: {values}.',
-    disabledProfile: 'The profile "{path}" is disabled; ask your assistant to call `config_set` with the key "{path}" and no value to enable it before changing a field. / O perfil "{path}" está desligado; peça ao seu assistente para chamar `config_set` com a chave "{path}" e sem valor para ligá-lo antes de mudar um campo.',
-    legacyAliasRemoved: 'Removed legacy alias "{alias}"; it is the old name for "{key}". / O apelido legado "{alias}" foi removido; é o nome antigo de "{key}".',
+    unknownKey: 'Unknown configuration key "{key}". Valid key patterns: {patterns}.',
+    unknownClient: 'Unknown client "{value}" for "{key}". Valid clients: {values}.',
+    unknownClass: 'Unknown class "{value}" for "{key}". Valid classes: {values}.',
+    invalidValue: 'Invalid value for "{key}". Expected {constraintEn}.',
+    invalidChoice: 'Invalid value for "{key}". Valid values: {values}.',
+    disabledProfile: 'The profile "{path}" is disabled; ask your assistant to call `config_set` with the key "{path}" and no value to enable it before changing a field.',
+    legacyAliasRemoved: 'Removed legacy alias "{alias}"; it is the old name for "{key}".',
   },
 });
 
@@ -191,7 +191,7 @@ export function entryAccepts(entry, value) {
 /**
  * The values a subsystem reads from the saved configuration are checked by the same entries `config set` is checked by
  * (this table), never by a validator of the subsystem's own: a value saved outside them is one refusal of usage (exit 2)
- * that names the key and what it takes, in both languages as `config set` says it.
+ * that names the key and what it takes, as `config set` says it.
  *
  * @param {string[]} paths dotted paths of CONFIG_SCHEMA entries, e.g. `telemetry.retentionDays`
  * @param {(path: string) => unknown} valueOf the saved value of a path
@@ -201,7 +201,7 @@ export function assertSavedValues(paths, valueOf) {
     const entry = CONFIG_SCHEMA.entries.find((item) => item.path === path);
     if (entryAccepts(entry, valueOf(path))) continue;
     throw new UsageError(CONFIG_SCHEMA.messages.invalidValue.replaceAll('{key}', path)
-      .replaceAll('{constraintEn}', entry.constraint.en).replaceAll('{constraintPt}', entry.constraint['pt-BR']));
+      .replaceAll('{constraintEn}', entry.constraint.en));
   }
 }
 
@@ -280,7 +280,7 @@ export const INSTALL_SCHEMA = Object.freeze(record({
     enabled: flag, candidates: filled(filled(word)), stateFile: plain,
     begin: word, end: word, shells: table(SHELL), fallbackShell: word,
     windowsShell: word, windowsExecutable: word, windowsVariable: word, shellVariable: variable,
-    activate: table(word), messages: table(word),
+    activate: table(word), messages: table(text({ localized: true })),
   }, {
     refine: (path) => (path.begin === path.end ? { at: 'end', rule: 'differs' }
       : !Object.hasOwn(path.shells, path.fallbackShell) ? { at: 'fallbackShell', rule: 'knownShell' } : null),
@@ -381,6 +381,9 @@ const isObject = (value) => value !== null && typeof value === 'object' && !Arra
 function accepts(node, value) {
   switch (node.kind) {
     case 'text':
+      if (node.localized && isObject(value)) return typeof value.en === 'string'
+        && Object.keys(value).every((locale) => ['en', 'pt-BR'].includes(locale)
+          && accepts({ ...node, localized: false }, value[locale]));
       return typeof value === 'string' && (node.empty || value.trim() !== '') && (node.lines ? !value.includes('\0') : !CONTROL.test(value))
         && (!node.plain || !/[\\/]/.test(value)) && (!node.pattern || node.pattern.test(value))
         && (!node.bytes || BYTE_STRING.test(value));

@@ -11,7 +11,7 @@ import { clientRequest } from '../src/smoke/client.js';
 
 const clients = ['claude-code', 'codex', 'opencode'];
 const TEST_CONFIG = { smoke: { maxTokens: 1000 } };
-function eventsFor(client, text = 'Files are ready. / Os arquivos estão prontos.') {
+function eventsFor(client, text = 'Files are ready.') {
   if (client === 'claude-code') return [{ type: 'result', result: text,
     total_cost_usd: 0.02, num_turns: 1, usage: { input_tokens: 10, output_tokens: 5 } }];
   if (client === 'codex') return [
@@ -36,7 +36,7 @@ for (const client of clients) {
       }) });
       const pending = actor.run(briefing);
       await assert.rejects(pending, (error) => {
-        assert.match(error.message, stop === 'timeout' ? /too long.*demorou/ : /interrupted.*interrompido/);
+        assert.match(error.message, stop === 'timeout' ? /too long/ : /interrupted/);
         assert.equal(error.usage.tokens, 15);
         assert.equal(error.usage.turns, 1);
         assert.equal(error.usage.costUsd, client === 'codex' ? 0 : 0.02);
@@ -202,7 +202,7 @@ test('clients without money measurement require a positive token allowance befor
   const spawn = () => assert.fail('an invalid allowance must never launch');
   for (const maxTokens of [undefined, null, 0, -1, 1.5]) {
     assert.throws(() => realDrivers({ client: 'codex', spawn, config: { smoke: { maxTokens } } }),
-      /smoke.maxTokens.*positive whole number.*inteiro positivo/);
+      /smoke.maxTokens.*positive whole number/);
   }
   assert.throws(() => realDrivers({ client: 'codex', spawn }), /smoke.maxTokens/);
   assert.throws(() => realDrivers({ client: 'opencode', spawn, config: {
@@ -226,7 +226,7 @@ for (const client of clients) {
     for (const run of [() => drivers.actor.run(briefing),
       () => drivers.critic.review({ briefing, result: {}, artifacts: [], checks: [] })]) {
       await assert.rejects(run(), (error) => {
-        assert.match(error.message, /wrote outside the allowed files.*escreveu fora dos arquivos permitidos/);
+        assert.match(error.message, /wrote outside the allowed files/);
         assert.equal(error.usage.tokens, 15);
         assert.equal(error.usage.costUsd, client === 'codex' ? 0 : 0.02);
         assert.ok(error.events.length > 0);
@@ -245,7 +245,7 @@ test('Codex enforces the token allowance per call for both roles and retains usa
       () => drivers.critic.review({ briefing, result: {}, artifacts: [], checks: [] })]) {
       if (maxTokens === 15) assert.equal((await run()).usage.tokens, 15);
       else await assert.rejects(run(), (error) => {
-        assert.match(error.message, /exceeded the text allowance.*ultrapassou o limite de texto/);
+        assert.match(error.message, /exceeded the text allowance/);
         assert.deepEqual(error.usage, { costUsd: 0, tokens: 15, turns: 1 });
         assert.ok(error.events.length > 0);
         return true;
@@ -309,8 +309,8 @@ test('directory scans translate access errors and treat disappearing entries as 
         }) });
         await assert.rejects(actor.run(briefing), (error) => {
           assert.match(error.message, code === 'ENOENT'
-            ? /wrote outside the allowed files.*escreveu fora dos arquivos permitidos/
-            : /Could not check the files.*Não foi possível conferir os arquivos/);
+            ? /wrote outside the allowed files/
+            : /Could not check the files/);
           if (code === 'EACCES') assert.equal(error.cause.code, code);
           assert.deepEqual(error.usage, { costUsd: 0.02, tokens: 15, turns: 1 });
           assert.ok(error.events.length > 0);
@@ -330,7 +330,7 @@ test('artifacts must be regular files no larger than 128 KiB', async (t) => {
     }) });
     if (kind === 'boundary') assert.equal((await actor.run(briefing)).artifacts[0].content.length, 128 * 1024);
     else await assert.rejects(actor.run(briefing), (error) => {
-      assert.match(error.message, /regular file.*128 KiB.*arquivo comum/);
+      assert.match(error.message, /regular file.*128 KiB/);
       assert.deepEqual(error.usage, { costUsd: 0.02, tokens: 15, turns: 1 });
       assert.ok(error.events.length > 0);
       return true;
@@ -398,8 +398,8 @@ for (const client of clients) {
   // | Must pass | Must refuse |
   // | whole valid JSON with approved | garbage, prose, missing/other verdict, wrong shape |
   const corpus = [
-    ['{"verdict":"approved","criteria":[],"feedback":"Ready / Pronto"}', 'approved'],
-    ['{"verdict":"rejected","criteria":["missing"],"feedback":"Fix it / Corrija"}', 'rejected'],
+    ['{"verdict":"approved","criteria":[],"feedback":"Ready"}', 'approved'],
+    ['{"verdict":"rejected","criteria":["missing"],"feedback":"Fix it"}', 'rejected'],
     ['garbage approved', 'rejected'], ['{"criteria":[],"feedback":"approved"}', 'rejected'],
     ['{"verdict":"APPROVED","criteria":[],"feedback":"ok"}', 'rejected'],
     ['{"verdict":"approve","criteria":[],"feedback":"ok"}', 'rejected'],
@@ -424,8 +424,8 @@ for (const client of clients) {
       assert.equal(response.verdict, verdict, text);
       assert.equal(response.usage.tokens, 15);
       assert.equal(response.usage.costUsd, client === 'codex' ? 0 : 0.02);
-      if (text === 'garbage approved') assert.match(response.feedback, /could not be read.*Não foi possível/);
-      if (text.includes('Fix it')) assert.equal(response.feedback, 'Fix it / Corrija');
+      if (text === 'garbage approved') assert.match(response.feedback, /could not be read/);
+      if (text.includes('Fix it')) assert.equal(response.feedback, 'Fix it');
     }
   });
 

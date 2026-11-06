@@ -280,7 +280,7 @@ test('enforced pace defers before any run, waits for the instant, and leaves nam
   deps.quota = async () => account('a', 20).reading;
   const demand = await inboxAdd(root, { title: 'hard work', client: 'codex', effort: 'hard' });
   const first = await tick(root, deps);
-  assert.match(first.skipped[0].reason, /trabalho difícil deve esperar/);
+  assert.match(first.skipped[0].reason, /trabalho difícil deve esperar/); // locale:pt-BR
   assert.equal(launches.length, 0);
   assert.equal(checked.length, 0);
   assert.deepEqual(await readRunRecords(root), []);
@@ -335,7 +335,7 @@ test('absent clients have no policy choices, with or without a saved default', a
       const doctor = readinessRows({ snapshot, ui: { locale }, program: 'okit-plugin' });
       assert.equal(doctor.rows.filter((row) => row.id === 'account-policy').length, installed ? 1 : 0);
       if (!installed) assert.deepEqual(actors.notes, [locale === 'en'
-        ? 'codex: not installed (optional).' : 'codex: não instalado (opcional).']);
+        ? 'codex: not installed (optional).' : 'codex: não instalado (opcional).']); // locale:pt-BR
     }
   }
 });
@@ -510,19 +510,19 @@ test('assembling and choosing 20 accounts reuses 500 pre-read run records within
 });
 
 const golden = [
-  ['chosen', 'Account selected by available weekly quota.', 'Conta escolhida pela cota semanal disponível.'],
-  ['unknown', 'Account selected with unknown login or quota information.', 'Conta escolhida com informação de login ou cota desconhecida.'],
-  ['login', 'The account is not logged in.', 'A conta não está logada.'],
-  ['actor', 'The account does not offer this model and effort.', 'A conta não oferece este modelo e esforço.'],
-  ['session', 'Session quota is 10%; it must be above 10%.', 'A cota da sessão é 10%; deve estar acima de 10%.'],
-  ['weekly', 'Weekly quota is 10%; it must be above 10%.', 'A cota semanal é 10%; deve estar acima de 10%.'],
-  ['busy', 'The account has 2 running; the limit is 2.', 'A conta tem 2 em execução; o limite é 2.'],
-  ['unavailable', 'No account is available.', 'Nenhuma conta está disponível.'],
-  ['session-account', 'The account holding this session is unavailable.', 'A conta que contém esta sessão está indisponível.'],
+  ['chosen', 'Account selected by available weekly quota.', 'Conta escolhida pela cota semanal disponível.'], // locale:pt-BR
+  ['unknown', 'Account selected with unknown login or quota information.', 'Conta escolhida com informação de login ou cota desconhecida.'], // locale:pt-BR
+  ['login', 'The account is not logged in.', 'A conta não está logada.'], // locale:pt-BR
+  ['actor', 'The account does not offer this model and effort.', 'A conta não oferece este modelo e esforço.'], // locale:pt-BR
+  ['session', 'Session quota is 10%; it must be above 10%.', 'A cota da sessão é 10%; deve estar acima de 10%.'], // locale:pt-BR
+  ['weekly', 'Weekly quota is 10%; it must be above 10%.', 'A cota semanal é 10%; deve estar acima de 10%.'], // locale:pt-BR
+  ['busy', 'The account has 2 running; the limit is 2.', 'A conta tem 2 em execução; o limite é 2.'], // locale:pt-BR
+  ['unavailable', 'No account is available.', 'Nenhuma conta está disponível.'], // locale:pt-BR
+  ['session-account', 'The account holding this session is unavailable.', 'A conta que contém esta sessão está indisponível.'], // locale:pt-BR
   ['ahead', 'Weekly use is ahead of pace by more than 15 points; launch allowed.',
-    'O uso semanal está mais de 15 pontos à frente do ritmo; início permitido.'],
+    'O uso semanal está mais de 15 pontos à frente do ritmo; início permitido.'], // locale:pt-BR
   ['deferred', 'Weekly use is ahead of pace by more than 15 points; hard work must wait.',
-    'O uso semanal está mais de 15 pontos à frente do ritmo; trabalho difícil deve esperar.'],
+    'O uso semanal está mais de 15 pontos à frente do ritmo; trabalho difícil deve esperar.'], // locale:pt-BR
 ];
 test('golden account reasons in English and Brazilian Portuguese', () => {
   assert.deepEqual(golden.map(([code]) => code).sort(), Object.keys(ACCOUNT_REASON_TEXTS.en).sort());

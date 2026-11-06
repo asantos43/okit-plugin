@@ -137,6 +137,20 @@ test('every invalid value of every key is one refusal of usage that names the ke
   }
 });
 
+// | Messages | Must pass | Must refuse |
+// | legacy setting | non-empty text | empty text |
+// | locale dictionary | English plus an optional supported translation | missing English, empty translation, unknown locale |
+test('installer path messages accept locale dictionaries and legacy text', () => {
+  for (const message of ['Custom message', { en: 'Custom message' }, { en: 'Custom message', 'pt-BR': 'Mensagem' }]) { // locale:pt-BR
+    const actual = installConfig({ path: { messages: { missing: message } } }).path.messages.missing;
+    if (typeof message === 'string') assert.equal(actual, message);
+    else for (const [locale, value] of Object.entries(message)) assert.equal(actual[locale], value);
+  }
+  for (const message of ['', { 'pt-BR': 'Mensagem' }, { en: '' }, { en: 'Message', 'pt-BR': '' }, { en: 'Message', fr: 'Message' }]) { // locale:pt-BR
+    assert.throws(() => installConfig({ path: { messages: { missing: message } } }), /path.messages.missing/);
+  }
+});
+
 test('the MCP settings of the installer are refused when the client could not read them', () => {
   const refused = [
     ['mcp.name', '-okit'], ['mcp.name', '--scope'], ['mcp.name', 'okit plugin'], ['mcp.name', 'okit/other'],
@@ -186,16 +200,16 @@ test('every invalid value of every key, in every command and language: exit 2, t
         const text = f.output.join('\n');
         if (value === null && path === '') {
           // `install: null` is an absent section: the defaults (a command may still stop for its own reason).
-          assert.doesNotMatch(text, /Invalid install|install inválido/, label);
+          assert.doesNotMatch(text, /Invalid install|install inválido/, label); // locale:pt-BR
           continue;
         }
         // The doctor does not refuse: it runs with the defaults and says what is wrong in a row of the diagnosis.
         const doctor = command[0] === 'doctor';
         assert.equal(code, doctor ? 1 : 2, `${label}\n${text}`);
         const key = path ? `install.${reported(path, value)}` : 'install';
-        assert.match(text, locale === 'pt-BR' ? new RegExp(`${escape(key)} inválido: `) : new RegExp(`Invalid ${escape(key)}: `), label);
+        assert.match(text, locale === 'pt-BR' ? new RegExp(`${escape(key)} inválido: `) : new RegExp(`Invalid ${escape(key)}: `), label); // locale:pt-BR
         if (locale === 'pt-BR') assert.doesNotMatch(text, /Invalid install/, label);
-        else assert.doesNotMatch(text, /inválido/, label);
+        else assert.doesNotMatch(text, /inválido/, label); // locale:pt-BR
         if (locale === 'pt-BR') assert.doesNotMatch(text, ENGLISH_RULE, label);
         assert.doesNotMatch(text, LEAK, label);
         assert.equal(await fs.readFile(file, 'utf8'), body, label);

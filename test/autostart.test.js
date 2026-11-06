@@ -191,7 +191,7 @@ test('the query of the kind never names a shell and never holds a path of the pl
 // Query output fixtures: successful process execution alone does not establish login readiness.
 const TASK_READY = '<?xml version="1.0" encoding="UTF-16"?>\n<Task><Settings><Enabled>true</Enabled></Settings></Task>\n';
 const TASK_DISABLED = TASK_READY.replace('<Enabled>true</Enabled>', '<Enabled>false</Enabled>');
-const TASK_PORTUGUESE = TASK_READY.replace('<Settings>', '<RegistrationInfo><Description>Inicialização automática: Pronto / Em execução</Description></RegistrationInfo><Settings>');
+const TASK_PORTUGUESE = TASK_READY.replace('<Settings>', '<RegistrationInfo><Description>Inicialização automática: Pronto / Em execução</Description></RegistrationInfo><Settings>'); // locale:pt-BR
 const LAUNCHD_LOADED = '{\n "Label" = "com.okit.daemon";\n "PID" = 123;\n};\n';
 const LAUNCHD_DISABLED = '{\n "com.okit.daemon" => true\n}\n';
 const LAUNCHD_ENABLED = '{\n "com.okit.daemon" => false\n}\n';

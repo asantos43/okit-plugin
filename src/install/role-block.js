@@ -14,7 +14,7 @@ export async function roleBlock(path, content, { remove = false } = {}) {
   const end = before.indexOf(END_ROLE);
   if ((start < 0) !== (end < 0) || (start >= 0 && (end < start
     || before.indexOf(BEGIN_ROLE, start + 1) >= 0 || before.indexOf(END_ROLE, end + 1) >= 0))) {
-    return { status: 'unsupported', path, reason: 'Malformed managed role block; user file preserved. / Bloco de papel malformado; arquivo do usuário preservado.' };
+    return { status: 'unsupported', path, reason: { en: 'Malformed managed role block; user file preserved.', 'pt-BR': 'Bloco de papel malformado; arquivo do usuário preservado.' } };
   }
   const block = remove ? '' : `${BEGIN_ROLE}\n${content}\n${END_ROLE}`;
   const after = start >= 0 ? before.slice(0, start) + block + before.slice(end + END_ROLE.length)

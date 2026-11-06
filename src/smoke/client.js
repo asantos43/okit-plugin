@@ -166,7 +166,7 @@ export function invokeClient({ client = 'claude-code', config, command = clientR
     const events = []; const state = {};
     const failure = (message) => Object.assign(new Error(message), { events, state, stderr: diagnostics, stdout: output });
     const unavailable = (error) => reject(error.code === 'ENOENT' ? failure(
-      `Install ${command} and sign in before starting. / Instale ${command} e entre na sua conta antes de começar.`)
+      `Install ${command} and sign in before starting.`)
       : Object.assign(error, { events, state, stderr: diagnostics, stdout: output }));
     let child;
     try { child = launch(command, args, { env, cwd, signal, stdio: ['ignore', 'pipe', 'pipe'] }); }
@@ -197,7 +197,7 @@ export function invokeClient({ client = 'claude-code', config, command = clientR
       if (pending) consume(pending);
       const resultReceived = events.some((event) => event.type === 'result');
       if (resultReceived || (help && code === 0)) resolve({ events, stdout: output, state });
-      else reject(failure('The helper stopped before finishing. / O ajudante parou antes de terminar.'));
+      else reject(failure('The helper stopped before finishing.'));
     });
   });
 }
@@ -303,7 +303,7 @@ async function runScenario(argv, io) {
     for (const step of selected) out(`${step.id} ${step.name}: ${JSON.stringify(step.call)} — ${step.behaviour}`);
     out(`rehearsal: no client; maximum USD ${budget.maxUsd}; steps ${budget.maxTurns}; minutes ${budget.maxMinutes}`);
     if (flags.client === 'codex' && budget.maxTokens === null) out(
-      'Before a real Codex run, set "maxTokens" under "smoke" in config.json to a positive whole number. / Antes de executar o Codex, defina "maxTokens" dentro de "smoke" em config.json como um número inteiro positivo.');
+      'Before a real Codex run, set "maxTokens" under "smoke" in config.json to a positive whole number.');
     return { code: 0, records: [], budget };
   }
   const read = io.readQuota ?? adapterQuotaReader({ stateRoot: root, env, now, config: stored });
@@ -315,7 +315,7 @@ async function runScenario(argv, io) {
   const refusal = preflight.refusal ?? (flags.client !== 'claude-code' && stale
     && !flags['allow-unknown-quota'] ? 'quota-unknown' : null);
   if (stale) {
-    out('quota-stale: refresh quota / cota antiga: atualize a cota (smoke.quotaMaxAgeMinutes)');
+    out('quota-stale: refresh quota');
   }
   const deps = { env, stateRoot: root, configRoot: env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'),
     platform: io.platform ?? process.platform, release: release(), arch: arch(),
@@ -329,7 +329,7 @@ async function runScenario(argv, io) {
     return { code: 2, records: [], artifacts, reason: refusal };
   }
   if (flags.client === 'codex' && budget.maxTokens === null) {
-    const message = 'Set "maxTokens" under "smoke" in config.json to a positive whole number before running Codex. / Defina "maxTokens" dentro de "smoke" em config.json como um número inteiro positivo antes de executar o Codex.';
+    const message = 'Set "maxTokens" under "smoke" in config.json to a positive whole number before running Codex.';
     err(message); return { code: 2, records: [], reason: 'text allowance required' };
   }
   if (!Number.isFinite(quota?.remainingPct)) out('quota-unknown: explicitly allowed');
@@ -352,7 +352,7 @@ async function runScenario(argv, io) {
     const help = await bounded((signal) => client({ ...helpRequest, env, signal }),
       Math.min(budget.checkTimeoutMs, budget.maxMinutes * MINUTE_MS), io.signal);
     for (const flag of helpRequest.requiredFlags) {
-      if (!help.stdout?.includes(flag)) throw new Error('Update your helper before starting. / Atualize seu ajudante antes de começar.');
+      if (!help.stdout?.includes(flag)) throw new Error('Update your helper before starting.');
     }
   } catch (error) {
     header.reason = 'client-refused';
@@ -390,7 +390,7 @@ async function runScenario(argv, io) {
       if (state.unknownCost || cost === null) {
         if (cost === null) spent = budget.maxUsd;
         moneyUnknown = true;
-        out('Spending could not be measured; no further work will start. / Não foi possível medir o gasto; nenhum outro trabalho será iniciado.');
+        out('Spending could not be measured; no further work will start.');
       }
     }
     if (!reportsCost || budget.maxTokens !== null) {
@@ -398,7 +398,7 @@ async function runScenario(argv, io) {
       if (amount !== null) tokens += amount;
       else if (budget.maxTokens !== null && (failed || result || state.unknownTokens)) {
         tokens = budget.maxTokens; textUnknown = true;
-        out('The amount of text read and written could not be measured; no further work will start. / Não foi possível medir a quantidade de texto lido e escrito; nenhum outro trabalho será iniciado.');
+        out('The amount of text read and written could not be measured; no further work will start.');
       }
     }
   };
@@ -446,7 +446,7 @@ async function runScenario(argv, io) {
       'total_cost_usd', 'permission_denials', 'terminal_reason'].filter((key) => key in result)
       .map((key) => [key, result[key]]));
     settleAttempt(attempt, { result, failed: !result || result.is_error === true });
-    if (!result) return { outcome: { status: 'fail', error: 'The helper stopped before finishing. / O ajudante parou antes de terminar.' } };
+    if (!result) return { outcome: { status: 'fail', error: 'The helper stopped before finishing.' } };
     if (result?.terminal_reason === 'budget_exhausted' || result?.subtype === 'error_max_budget_usd') {
       stopped = 'smoke.maxUsd'; return { outcome: skip('budget-exhausted') };
     }
@@ -471,7 +471,7 @@ async function runScenario(argv, io) {
           if (step.id === 'C14' && await readJson(paths(root).config, null) === null) return skip('config-missing');
           if (step.id === 'C23') return { status: 'pass' }; // Verified after the first artifact write below.
           if (!reportsInstallation && INSTALL_EVIDENCE_IDS.includes(step.id)) {
-            return { status: 'skip', error: 'This helper does not provide installation details. / Este ajudante não fornece detalhes da instalação.',
+            return { status: 'skip', error: 'This helper does not provide installation details.',
               logTail: 'evidence-unavailable' };
           }
           const preparation = await prepare(step, context, signal);
@@ -532,8 +532,8 @@ async function runScenario(argv, io) {
   if (partial) out('PARCIAL: some checks were skipped');
   const count = (status) => records.filter((record) => record.status === status).length;
   const usage = reportsCost
-    ? `money spent / gasto em dinheiro: USD ${spent}`
-    : `amount of text read and written / quantidade de texto lido e escrito: ${tokens}`;
+    ? `money spent: USD ${spent}`
+    : `amount of text read and written: ${tokens}`;
   out(`passed: ${count('pass')} failed: ${count('fail')} skipped: ${count('skip')}; ${usage}`);
   out(`${artifacts.jsonl}\n${artifacts.log}`);
   const failed = records.some((record) => record.status === 'fail');

@@ -290,9 +290,10 @@ function assertValidRawProfiles(raw, locale) {
 }
 
 function reasonParts(reason) {
+  if (reason && typeof reason === 'object') return reason;
   const text = String(reason ?? '');
   const parts = text.split(' / ');
-  return { en: parts[0], 'pt-BR': parts.slice(1).join(' / ') };
+  return { en: parts[0], 'pt-BR': parts.slice(1).join(' / ') || parts[0] };
 }
 
 function formatConfirmation(locale, changes) {
@@ -473,7 +474,7 @@ function affirmative(value) {
 }
 
 function negative(value) {
-  return /^(n|no|nao|não)$/i.test(value);
+  return /^(n|no|nao|não)$/i.test(value); // locale:pt-BR
 }
 
 async function askModel({ ask, locale, client, className, proposal, candidates, attempts, out }) {

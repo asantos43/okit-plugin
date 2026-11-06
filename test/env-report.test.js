@@ -49,8 +49,8 @@ test('D95 R2: absent actors say optional without configuration instructions', as
   const snapshot = await environmentSnapshot(readings({ client: 'codex', versions: { codex: { installed: false } } }));
   for (const locale of ['en', 'pt-BR']) {
     const result = await listActors({ snapshot, client: 'codex', locale });
-    assert.deepEqual(result.notes, [locale === 'en' ? 'codex: not installed (optional).' : 'codex: não instalado (opcional).']);
-    assert.doesNotMatch(result.markdown, /Check the profiles|Confira os perfis|setup/);
+    assert.deepEqual(result.notes, [locale === 'en' ? 'codex: not installed (optional).' : 'codex: não instalado (opcional).']); // locale:pt-BR
+    assert.doesNotMatch(result.markdown, /Check the profiles|Confira os perfis|setup/); // locale:pt-BR
     assert.deepEqual(result.actors, []);
   }
 });
@@ -107,7 +107,7 @@ for (const platform of ['linux', 'darwin', 'win32']) {
     const snapshot = await environmentSnapshot(deps);
     assert.ok(snapshot.plugin.missing.every((entry) => !['codex', 'opencode'].includes(entry.client)));
     for (const locale of ['en', 'pt-BR']) {
-      const optional = locale === 'en' ? 'not installed (optional)' : 'não instalado (opcional)';
+      const optional = locale === 'en' ? 'not installed (optional)' : 'não instalado (opcional)'; // locale:pt-BR
       const text = formatEnvironmentReport(snapshot, locale);
       const status = await statusTable(undefined, { snapshot, all: true, locale, demands: [] });
       const actors = await listActors({ snapshot, all: true, locale });
@@ -267,7 +267,7 @@ test('D97: the report says when the active collector has received no reading yet
     };
     const snapshot = await environmentSnapshot(readings({ fs, root: '/state' }));
     assert.equal(snapshot.plugin.statusline.received, command === 'echo hello' ? null : !phrase, command);
-    for (const [locale, text] of [['en', 'no reading received yet'], ['pt-BR', 'nenhuma leitura recebida ainda']]) {
+    for (const [locale, text] of [['en', 'no reading received yet'], ['pt-BR', 'nenhuma leitura recebida ainda']]) { // locale:pt-BR
       const line = formatEnvironmentReport(snapshot, locale).split('\n').find((item) => item.includes('(statusline-collector)'));
       assert.equal(line.includes(text), phrase, `${locale}: ${command} ${exists}`);
       assert.equal(formatEnvironmentReport(snapshot, locale).split(text).length - 1, phrase ? 1 : 0);
@@ -396,7 +396,7 @@ test('one injected snapshot agrees across env, status and actors without rereadi
       assert.equal(quota.source, 'automatic');
       assert.equal(quota.ageMinutes, 5);
     }
-    const age = locale === 'en' ? /5 minutes ago/ : /há 5 minutos/;
+    const age = locale === 'en' ? /5 minutes ago/ : /há 5 minutos/; // locale:pt-BR
     assert.match(formatEnvironmentReport(env, locale), age);
     assert.match(status.markdown, age);
     assert.match(actors.markdown, age);
@@ -563,10 +563,10 @@ test('missing items are natural sentences in both languages without changing the
   assert.match(formatEnvironmentReport(report, 'en'), /Missing: the command is not in PATH\. Ask the user to run `okit-plugin install --client codex`\./);
   assert.match(formatEnvironmentReport(report, 'en'), /Missing: no active model confirmed for codex\. Ask the user to run `okit-plugin setup`\./);
   assert.match(formatEnvironmentReport(report, 'en'), /Missing: no remaining allowance recorded for codex\. Call `quota_set` with the client codex/);
-  assert.match(formatEnvironmentReport(report, 'pt-BR'), /Falta: o comando não está no PATH\. Peça ao usuário para rodar `okit-plugin install --client codex`\./);
-  assert.match(formatEnvironmentReport(report, 'pt-BR'), /Falta: nenhum modelo ativo confirmado para codex\. Peça ao usuário para rodar `okit-plugin setup`\./);
-  assert.match(formatEnvironmentReport(report, 'pt-BR'), /Falta: nenhuma cota restante registrada para codex\. Chame `quota_set` com o cliente codex/);
-  assert.match(formatEnvironmentReport(report, 'pt-BR'), /Falta: a escolha de modelos ainda não foi salva\./);
+  assert.match(formatEnvironmentReport(report, 'pt-BR'), /Falta: o comando não está no PATH\. Peça ao usuário para rodar `okit-plugin install --client codex`\./); // locale:pt-BR
+  assert.match(formatEnvironmentReport(report, 'pt-BR'), /Falta: nenhum modelo ativo confirmado para codex\. Peça ao usuário para rodar `okit-plugin setup`\./); // locale:pt-BR
+  assert.match(formatEnvironmentReport(report, 'pt-BR'), /Falta: nenhuma cota restante registrada para codex\. Chame `quota_set` com o cliente codex/); // locale:pt-BR
+  assert.match(formatEnvironmentReport(report, 'pt-BR'), /Falta: a escolha de modelos ainda não foi salva\./); // locale:pt-BR
   assert.deepEqual(report, before);
 });
 
@@ -582,7 +582,7 @@ test('partially covered sizes have a remedy in the object and both languages', a
   assert.match(formatEnvironmentReport(report, 'en'),
     /Missing: no model configured for sizes M, XL in codex\. Ask the user to run `chosen-command setup`\./);
   assert.match(formatEnvironmentReport(report, 'pt-BR'),
-    /Falta: nenhum modelo configurado para os tamanhos M, XL em codex\. Peça ao usuário para rodar `chosen-command setup`\./);
+    /Falta: nenhum modelo configurado para os tamanhos M, XL em codex\. Peça ao usuário para rodar `chosen-command setup`\./); // locale:pt-BR
 });
 
 test('D95 R9: a disabled (null) profile confirms nothing and never breaks env report or status', async () => {
@@ -611,7 +611,7 @@ test('D95 R9: a disabled (null) profile confirms nothing and never breaks env re
 test('D102: formatEnvironmentReport names an ignored installation record, in both languages', async () => {
   const snapshot = await environmentSnapshot(readings({ plugin: { path: 'p', onPath: true, unreadableRecords: ['/data/install.claude-code.json'] } }));
   assert.match(formatEnvironmentReport(snapshot, 'en'), /Installation record ignored \(not a JSON object\): \/data\/install\.claude-code\.json\./);
-  assert.match(formatEnvironmentReport(snapshot, 'pt-BR'), /Registro de instalação ignorado \(não é um objeto JSON\): \/data\/install\.claude-code\.json\./);
+  assert.match(formatEnvironmentReport(snapshot, 'pt-BR'), /Registro de instalação ignorado \(não é um objeto JSON\): \/data\/install\.claude-code\.json\./); // locale:pt-BR
   for (const body of ['null', '[]', '1', '"x"']) {
     const root = await mkdtemp(join(tmpdir(), 'okit-bad-record-'));
     try {
@@ -627,7 +627,7 @@ test('D102: formatEnvironmentReport names an ignored installation record, in bot
         const text = answer.text;
         assert.doesNotMatch(text, /Cannot read properties/);
         assert.ok(text.includes(file), `${body} ${locale}: the file path\n${text}`);
-        assert.match(text, locale === 'pt-BR' ? /Registro de instalação ignorado/ : /Installation record ignored/);
+        assert.match(text, locale === 'pt-BR' ? /Registro de instalação ignorado/ : /Installation record ignored/); // locale:pt-BR
       }
     } finally { await rm(root, { recursive: true, force: true }); }
   }

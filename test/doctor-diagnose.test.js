@@ -472,7 +472,7 @@ test('a reader that throws is a failed row, in both languages, and the other row
     const session = rowOf(result, 'session');
     assert.equal(session.status, 'failed', JSON.stringify(result.rows));
     assert.match(session.detail, locale === 'en' ? /the state file could not be read: the control folder cannot be read/
-      : /o arquivo de estado não pôde ser lido: the control folder cannot be read/, session.detail);
+      : /o arquivo de estado não pôde ser lido: the control folder cannot be read/, session.detail); // locale:pt-BR
     assert.match(session.fix, /okit-plugin doctor/);
     const daemon = rowOf(result, 'daemon');
     assert.equal(daemon.status, 'failed', JSON.stringify(result.rows));
@@ -733,17 +733,17 @@ test('the real MCP server answers the session, and the doctor writes nothing', {
 
 
 for (const [code, error, portuguese] of [
-  ['closed', 'the okit server closed the connection', 'o servidor do okit fechou a conexão'],
-  ['not-accepted', 'the okit server did not accept the connection', 'o servidor do okit não aceitou a conexão'],
-  ['no-server', 'no okit server is running for this state folder', 'nenhum servidor do okit está rodando para esta pasta de estado'],
-  ['no-answer', 'no okit server answers on this state folder', 'nenhum servidor do okit responde nesta pasta de estado'],
-  ['not-understood', 'the okit server sent an answer that is not understood', 'o servidor do okit enviou uma resposta não compreendida'],
-  ['timeout', 'the okit server did not answer in 123 ms', 'o servidor do okit não respondeu em 123 ms'],
-  ['arguments', 'the arguments cannot be sent: DATA', 'os argumentos não podem ser enviados (detalhe: DATA)'],
-  ['failed', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
-  [undefined, 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
-  ['future-code', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
-  ['constructor', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
+  ['closed', 'the okit server closed the connection', 'o servidor do okit fechou a conexão'], // locale:pt-BR
+  ['not-accepted', 'the okit server did not accept the connection', 'o servidor do okit não aceitou a conexão'], // locale:pt-BR
+  ['no-server', 'no okit server is running for this state folder', 'nenhum servidor do okit está rodando para esta pasta de estado'], // locale:pt-BR
+  ['no-answer', 'no okit server answers on this state folder', 'nenhum servidor do okit responde nesta pasta de estado'], // locale:pt-BR
+  ['not-understood', 'the okit server sent an answer that is not understood', 'o servidor do okit enviou uma resposta não compreendida'], // locale:pt-BR
+  ['timeout', 'the okit server did not answer in 123 ms', 'o servidor do okit não respondeu em 123 ms'], // locale:pt-BR
+  ['arguments', 'the arguments cannot be sent: DATA', 'os argumentos não podem ser enviados (detalhe: DATA)'], // locale:pt-BR
+  ['failed', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'], // locale:pt-BR
+  [undefined, 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'], // locale:pt-BR
+  ['future-code', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'], // locale:pt-BR
+  ['constructor', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'], // locale:pt-BR
 ]) {
   for (const locale of ['en', 'pt-BR']) {
     test(`session control error ${code} is localized in ${locale}`, async () => {

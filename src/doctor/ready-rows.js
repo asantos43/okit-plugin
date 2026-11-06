@@ -71,7 +71,7 @@ export function readinessRows({ snapshot, kit, ui, program }) {
   const line = snapshot?.plugin?.statusline;
   for (const choice of snapshot?.accountChoices ?? []) rows.push({
     id: 'account-policy', client: choice.client, account: choice.account,
-    label: ui.locale === 'pt-BR' ? 'Escolha de conta' : 'Account choice',
+    label: ui.locale === 'pt-BR' ? 'Escolha de conta' : 'Account choice', // locale:pt-BR
     status: choice.account ? 'ok' : 'warn',
     detail: `${choice.actorClass}: ${choice.account ?? '—'}. ${accountReasonText(choice.reason, ui.locale)}`,
   });

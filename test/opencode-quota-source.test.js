@@ -176,6 +176,6 @@ test('quota show and status display automatic source, age and provider in both l
     const report = await statusTable(root, { config, clients: ['opencode'], locale, now: opts.now,
       readQuota: adapterQuotaReader({ ...opts, config }), cache: new Map() });
     assert.match(report.markdown, /example/);
-    assert.match(report.markdown, locale === 'en' ? /automatic.*1 minute ago/ : /automática.*há 1 minuto/);
+    assert.match(report.markdown, locale === 'en' ? /automatic.*1 minute ago/ : /automática.*há 1 minuto/); // locale:pt-BR
   }
 });

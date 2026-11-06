@@ -41,12 +41,12 @@ test('documented tool, check and pair counts match the source', async () => {
     assert.ok((await read(`docs/guide/README${suffix}.md`))
       .includes(`](../components/README${suffix}.md)`), 'guide links to component index');
     const tools = await read(`docs/components/mcp-tools${suffix}.md`);
-    assert.equal(Number(tools.match(/(?:exposes|expõe) (\d+) (?:tools|ferramentas)/)?.[1]), TOOL_NAMES.length);
+    assert.equal(Number(tools.match(/(?:exposes|expõe) (\d+) (?:tools|ferramentas)/)?.[1]), TOOL_NAMES.length); // locale:pt-BR
     for (const name of TOOL_NAMES) assert.ok(tools.includes(`\`${name}\``), name);
     const guide = await read(`docs/guide/smoke-demo${suffix}.md`);
     assert.equal(Number(guide.match(/passed: (\d+) failed: 0 skipped: 0/)?.[1]),
       INSTALL_CHECKS.length + FEATURE_CHECKS.length + UNINSTALL_CHECKS.length);
-    assert.equal(Number(guide.match(/(?:has|tem) (\d+) (?:scenario checks|verificações de cenário)/)?.[1]), SCENARIO.length);
+    assert.equal(Number(guide.match(/(?:has|tem) (\d+) (?:scenario checks|verificações de cenário)/)?.[1]), SCENARIO.length); // locale:pt-BR
   }
   assert.match(await read('docs/maintainers/RELEASING.md'), /nine client × system payloads.*eighteen separately identified artifacts/);
   assert.match(await read('docs/maintainers/RELEASING.pt-BR.md'), /nove cargas cliente × sistema.*dezoito artefatos identificados separadamente/);
@@ -106,11 +106,11 @@ function anchors(text) {
 }
 
 test('heading parser accepts real anchors and refuses missing or fenced headings', () => {
-  const text = '## Configuração\n## Configuração\n<a id="legacy-anchor"></a>\n```md\n## Hidden\n<a id="hidden-anchor"></a>\n```\n';
-  assert.deepEqual(headings(text), ['Configuração', 'Configuração']);
+  const text = '## Configuração\n## Configuração\n<a id="legacy-anchor"></a>\n```md\n## Hidden\n<a id="hidden-anchor"></a>\n```\n'; // locale:pt-BR
+  assert.deepEqual(headings(text), ['Configuração', 'Configuração']); // locale:pt-BR
   const ids = anchors(text);
-  for (const id of ['configuração', 'configuração-1', 'legacy-anchor']) assert.ok(ids.has(id));
-  for (const id of ['missing', 'hidden', 'configuração-2', 'hidden-anchor']) assert.ok(!ids.has(id));
+  for (const id of ['configuração', 'configuração-1', 'legacy-anchor']) assert.ok(ids.has(id)); // locale:pt-BR
+  for (const id of ['missing', 'hidden', 'configuração-2', 'hidden-anchor']) assert.ok(!ids.has(id)); // locale:pt-BR
 });
 
 test('scoped Markdown relative links and anchors resolve', async () => {
@@ -138,8 +138,8 @@ test('English and Brazilian Portuguese keep the same ordered level-two headings'
       continue;
     }
     // D34/D36 owns the publisher section, including its existing translated title.
-    const canonical = (title) => title === 'Publishing — Publicação' ? 'Publishing'
-      : title === 'Índice' ? 'Contents' : title;
+    const canonical = (title) => title === 'Publishing — Publicação' ? 'Publishing' // locale:pt-BR
+      : title === 'Índice' ? 'Contents' : title; // locale:pt-BR
     assert.deepEqual(headings(await read(`${base}.md`)).map(canonical),
       headings(await read(`${base}.pt-BR.md`)).map(canonical), base);
   }

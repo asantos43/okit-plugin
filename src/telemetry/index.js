@@ -11,10 +11,10 @@ import { settings } from './config.js';
 import { UsageError } from '../install/exit.js';
 import { projectHash, redact } from './catalog.js';
 
-export const explanation = 'Records only counts, durations, states, role, model and app names, effort settings and an anonymous project reference; no messages, files or work text. Sending requires separate consent. / Registra somente contagens, durações, estados, nomes de papel, modelo e aplicativo, ajustes de esforço e uma referência anônima ao projeto; sem mensagens, arquivos ou textos de trabalho. O envio exige uma escolha separada.';
+export const explanation = 'Records only counts, durations, states, role, model and app names, effort settings and an anonymous project reference; no messages, files or work text. Sending requires separate consent.';
 const prefix = 'okit-plugin-';
 const nanos = ms => String(BigInt(Math.trunc(ms)) * 1000000n);
-const error = () => new Error('Saved measurements are invalid / As medições salvas são inválidas');
+const error = () => new Error('Saved measurements are invalid');
 
 async function files(config) {
   try {
@@ -130,13 +130,13 @@ function sendRequest(url, config, body, count) {
 export async function check(root) {
   const { good, bad } = await readExports(await settings(root));
   return { ok: bad.length === 0, count: good.length, corrupted: bad.length,
-    message: bad.length ? 'Damaged measurements found / Medições danificadas encontradas' : 'Measurements checked / Medições conferidas' };
+    message: bad.length ? 'Damaged measurements found' : 'Measurements checked' };
 }
 
 export async function exportTelemetry(root, { since } = {}) {
   if (since !== undefined && (typeof since !== 'string' || !/^\d{4}-\d\d-\d\dT/.test(since)
     || !Number.isFinite(Date.parse(since)))) {
-    throw new UsageError('Use --since with an ISO date such as 2026-10-01T00:00:00Z / Use --since com uma data ISO como 2026-10-01T00:00:00Z');
+    throw new UsageError('Use --since with an ISO date such as 2026-10-01T00:00:00Z');
   }
   const config = await settings(root);
   if (config.enabled !== true) return { count: 0, resourceMetrics: [], network: { count: 0, statusCode: null } };
@@ -169,6 +169,6 @@ export async function configure(root, key, enabled) {
   if (key === 'network') config.telemetry.rede = { ...config.telemetry.rede, ligado: enabled };
   else config.telemetry.enabled = enabled;
   await writeJsonAtomic(file, config);
-  return enabled ? explanation : 'Recording or sending turned off / Gravação ou envio desligado';
+  return enabled ? explanation : 'Recording or sending turned off';
   });
 }

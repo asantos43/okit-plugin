@@ -371,11 +371,11 @@ test('blocked policy: y and s apply it for the current user only', async () => {
     const r = policyRun({ list: LIST('AllSigned'), answer, locale });
     await r.run();
     assert.deepEqual(sets(r.calls), [`${SET} -Force`], `${locale} ${answer}`);
-    assert.match(r.lines.at(-1), locale === 'en' ? /PowerShell scripts\s+ok\s+allowed for your user \(RemoteSigned\)$/ : /Scripts do PowerShell\s+ok\s+permitidos para o seu usuário \(RemoteSigned\)$/);
+    assert.match(r.lines.at(-1), locale === 'en' ? /PowerShell scripts\s+ok\s+allowed for your user \(RemoteSigned\)$/ : /Scripts do PowerShell\s+ok\s+permitidos para o seu usuário \(RemoteSigned\)$/); // locale:pt-BR
   }
   const pt = policyRun({ list: LIST('Restricted'), answer: 'n', locale: 'pt-BR' });
   await pt.run();
-  assert.equal(pt.questions[0].question, 'Permitir scripts do PowerShell para o seu usuário? [s/N] ');
+  assert.equal(pt.questions[0].question, 'Permitir scripts do PowerShell para o seu usuário? [s/N] '); // locale:pt-BR
 });
 
 test('an allowed policy prints nothing and asks nothing', async () => {

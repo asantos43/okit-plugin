@@ -34,7 +34,7 @@ test('native role hook and Agent briefing preserve user settings and actor', asy
     const launched = await spawn({ model: 'sonnet', effort: 'high' }, `Role: ${role}\nInspect changes`);
     assert.equal(launched.agentCall.model, 'sonnet');
     assert.match(launched.agentCall.prompt, new RegExp(`Role: ${role}`));
-    for (const field of ['Orders:', 'Limits:', 'Work in hand:', 'Available actors:', 'Unknown facts:', 'Ordens:', 'Fatos desconhecidos:']) assert.ok(delivery.native.agentCall.prompt.includes(field));
+    for (const field of ['Orders:', 'Limits:', 'Work in hand:', 'Available actors:', 'Unknown facts:']) assert.ok(delivery.native.agentCall.prompt.includes(field));
   }
   for (let n = 0; n < 2; n++) await adapter.removeRole({ root });
   assert.deepEqual(JSON.parse(await readFile(file)), user);

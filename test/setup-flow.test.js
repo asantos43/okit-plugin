@@ -17,11 +17,11 @@ import { callTool } from './helpers/tools.js';
 
 test('the remaining install question recommends review in both languages', () => {
   assert.match(formatOffer('question', 'en'), /Recommended: yes, review the detected choices together/);
-  assert.match(formatOffer('question', 'pt-BR'), /Recomendação: sim, revisar juntos as escolhas encontradas/);
+  assert.match(formatOffer('question', 'pt-BR'), /Recomendação: sim, revisar juntos as escolhas encontradas/); // locale:pt-BR
 });
 
 const PENDING = /model choices have not been saved/;
-const PENDING_PT = /a escolha de modelos ainda não foi salva/;
+const PENDING_PT = /a escolha de modelos ainda não foi salva/; // locale:pt-BR
 // The installer shows the pending setup as one `Models` row, and the command-and-PATH row ends the files part.
 const MODELS_PENDING = (line) => /^\s*Models\s+-\s+not set yet\. Run: /.test(line);
 const LINK_ROW = /\bCommand and PATH\b/;
@@ -273,7 +273,7 @@ test('a configuration without an object root at the end of the install keeps the
     f.out.join(' / '),
   );
   // One language per run: the Portuguese sentence belongs to --locale pt-BR.
-  assert.ok(!f.out.some((line) => /não está legível/.test(line)), f.out.join(' / '));
+  assert.ok(!f.out.some((line) => /não está legível/.test(line)), f.out.join(' / ')); // locale:pt-BR
 });
 
 test('the unreadable configuration is reported in Portuguese with --locale pt-BR only', async (t) => {
@@ -285,7 +285,7 @@ test('the unreadable configuration is reported in Portuguese with --locale pt-BR
     if (LINK_ROW_PT.test(line)) writeFileSync(join(f.root, 'config.json'), 'null');
   };
   assert.equal(await main(['install', '--client', 'codex', '--locale', 'pt-BR'], f.io), 0, f.out.join(' / '));
-  assert.ok(f.out.some((line) => /Não foi possível ler os ajustes/.test(line)), f.out.join(' / '));
+  assert.ok(f.out.some((line) => /Não foi possível ler os ajustes/.test(line)), f.out.join(' / ')); // locale:pt-BR
   assert.ok(!f.out.some((line) => /Could not check/.test(line)), f.out.join(' / '));
 });
 

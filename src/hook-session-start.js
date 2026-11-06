@@ -39,7 +39,7 @@ export async function runSessionStart({ root, stdin = process.stdin, stdout = ()
     return 0;
   } catch (error) {
     stdout(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart',
-      additionalContext: `okit role context unavailable / contexto de papel indisponível: ${error.message}` } }));
+      additionalContext: `okit role context unavailable: ${error.message}` } }));
     return 0;
   }
 }

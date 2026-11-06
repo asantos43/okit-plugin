@@ -330,7 +330,7 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
       demand: demand.id ?? null, step: options.step ?? null,
       critic_of: options.critic_of ?? demand.critic_of ?? null,
     }, { file: join(runs, `${runId}.out`), message: briefingOf(demand), outcome });
-    child.on?.('close', (code) => { void captureRun(`Exit code / Código de saída: ${code ?? 'not available / não disponível'}`); });
+    child.on?.('close', (code) => { void captureRun(`Exit code: ${code ?? 'not available'}`); });
     child.on?.('error', (error) => {
       record({ status: 'failed', error: error.message, exitCode: null });
     });
@@ -422,6 +422,7 @@ export const LIST_PARSE = Object.freeze({
 
 /** The message of the table with its placeholders filled. */
 function fill(text, values) {
+  if (text && typeof text === 'object') text = text.en;
   return text.replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ''));
 }
 
@@ -599,7 +600,7 @@ export async function listModelsOf(client, { settings = {}, env = process.env, r
     return { client, installed: true, models, hidden, source: 'listing', reason };
   } catch (error) {
     if (isMissing(error)) {
-      return catalogAnswer(client, false, settings.notFoundMessage ?? fill(LIST_MESSAGES.notFound, { client }));
+      return catalogAnswer(client, false, fill(settings.notFoundMessage ?? LIST_MESSAGES.notFound, { client }));
     }
     if (isTimeout(error)) {
       return catalogAnswer(client, true, fill(LIST_MESSAGES.timeout, { client }), timeoutMs);

@@ -22,7 +22,7 @@ async function snapshotFiles(briefing, after = false) {
         snapshot.set(path, 'missing');
         return null;
       }
-      throw new Error('Could not check the files. / Não foi possível conferir os arquivos.', { cause });
+      throw new Error('Could not check the files.', { cause });
     }
   };
   const visit = async (path) => {
@@ -74,15 +74,15 @@ function finalText(events) {
 }
 
 function promptFor(briefing) {
-  return `${briefing.text}\n\nOnly write these files, relative to the practice root / Escreva apenas estes arquivos, relativos à raiz de exemplo:\n${JSON.stringify(briefing.allowedOutputPaths)}\nPractice root / Raiz de exemplo: ${briefing.root}\nChecks to meet / Verificações a cumprir: ${JSON.stringify(briefing.acceptance)}\nChecks to fix / Verificações a corrigir: ${JSON.stringify(briefing.failedCriteria ?? [])}\nWork limits / Limites do trabalho: ${JSON.stringify(briefing.limits)}`;
+  return `${briefing.text}\n\nOnly write these files, relative to the practice root:\n${JSON.stringify(briefing.allowedOutputPaths)}\nPractice root: ${briefing.root}\nChecks to meet: ${JSON.stringify(briefing.acceptance)}\nChecks to fix: ${JSON.stringify(briefing.failedCriteria ?? [])}\nWork limits: ${JSON.stringify(briefing.limits)}`;
 }
 
 export function realDrivers({ client, config = {}, spawn }) {
-  if (typeof spawn !== 'function') throw new Error('Provide a helper launcher. / Informe como iniciar o ajudante.');
+  if (typeof spawn !== 'function') throw new Error('Provide a helper launcher.');
   const settings = { ...DEFAULT_CONFIG.smoke, ...config.smoke };
   const { reportsCost } = clientRequest(client, config);
   if (reportsCost === false && (!validCount(settings.maxTokens) || settings.maxTokens < 1)) {
-    throw new Error('Set smoke.maxTokens to a positive whole number before starting. / Defina smoke.maxTokens como um número inteiro positivo antes de começar.');
+    throw new Error('Set smoke.maxTokens to a positive whole number before starting.');
   }
   const maxCostUsd = reportsCost
     ? settings.demoDemandMaxUsd ?? settings.maxUsd : 0;
@@ -102,7 +102,7 @@ export function realDrivers({ client, config = {}, spawn }) {
     };
     const abort = () => controller.abort(briefing.signal.reason);
     const stopped = () => new Error(briefing.signal?.aborted
-      ? 'Work interrupted. / Trabalho interrompido.' : 'Work took too long. / O trabalho demorou demais.');
+      ? 'Work interrupted.' : 'Work took too long.');
     try {
       if (briefing.signal?.aborted) throw stopped();
       briefing.signal?.addEventListener('abort', abort, { once: true });
@@ -119,11 +119,11 @@ export function realDrivers({ client, config = {}, spawn }) {
       progress = response;
       const usage = usageOf(client, request.reportsCost, response);
       if (settings.maxTokens != null && usage.tokens > settings.maxTokens) {
-        throw new Error('The helper exceeded the text allowance. / O ajudante ultrapassou o limite de texto.');
+        throw new Error('The helper exceeded the text allowance.');
       }
       const after = await snapshotFiles(briefing, true);
       if ([...new Set([...before.keys(), ...after.keys()])].some((path) => before.get(path) !== after.get(path))) {
-        throw new Error('The helper wrote outside the allowed files. / O ajudante escreveu fora dos arquivos permitidos.');
+        throw new Error('The helper wrote outside the allowed files.');
       }
       if (controller.signal.aborted) throw stopped();
       return { ...response, usage,
@@ -152,7 +152,7 @@ export function realDrivers({ client, config = {}, spawn }) {
           });
           if (stat === null) continue;
           if (!stat.isFile() || stat.size > MAX_ARTIFACT_BYTES) {
-            throw new Error('The output must be a regular file of at most 128 KiB. / A saída deve ser um arquivo comum de até 128 KiB.');
+            throw new Error('The output must be a regular file of at most 128 KiB.');
           }
           const content = await readFile(file, 'utf8').catch((error) => {
             if (error.code !== 'ENOENT') throw error;
@@ -166,7 +166,7 @@ export function realDrivers({ client, config = {}, spawn }) {
       } catch (error) { throw Object.assign(error, { usage: response.usage, events: response.events, state: response.state }); }
     } },
     critic: { maxCostUsd, async review({ briefing, result, artifacts, checks }) {
-      const prompt = `${promptFor(briefing)}\nReview this work / Confira este trabalho:\n${JSON.stringify({ result, artifacts, checks })}\nReply with one JSON object only / Responda apenas com um objeto JSON: {"verdict":"approved"|"rejected","criteria":[],"feedback":"..."}`;
+      const prompt = `${promptFor(briefing)}\nReview this work:\n${JSON.stringify({ result, artifacts, checks })}\nReply with one JSON object only: {"verdict":"approved"|"rejected","criteria":[],"feedback":"..."}`;
       const response = await call(briefing, prompt);
       let answer;
       try { answer = JSON.parse(response.text); } catch { /* An unreadable answer always refuses approval. */ }
@@ -174,7 +174,7 @@ export function realDrivers({ client, config = {}, spawn }) {
         && Array.isArray(answer.criteria) && typeof answer.feedback === 'string'
         && !response.events.some((event) => event.type === 'result' && event.is_error);
       return { verdict: valid ? answer.verdict : 'rejected', criteria: valid ? answer.criteria : [],
-        feedback: valid ? answer.feedback : 'The review answer could not be read. / Não foi possível ler a resposta da revisão.',
+        feedback: valid ? answer.feedback : 'The review answer could not be read.',
         usage: response.usage, transcript: response.stdout };
     } },
   };

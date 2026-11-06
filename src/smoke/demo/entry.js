@@ -34,36 +34,36 @@ export async function smokeDemo(args = {}, deps = {}) {
   const unknown = pt ? 'desconhecida' : 'unknown';
   const reportsCost = config.smokeDrivers?.[client]?.reportsCost ?? DEFAULT_CONFIG.smokeDrivers[client]?.reportsCost;
   const bounds = reportsCost
-    ? (pt ? 'O custo informado é somado; novos trabalhos param ao atingir o teto em dinheiro. O tempo e o número de passos também são limitados.'
+    ? (pt ? 'O custo informado é somado; novos trabalhos param ao atingir o teto em dinheiro. O tempo e o número de passos também são limitados.' // locale:pt-BR
       : 'Reported spending is added up; new work stops at the money ceiling. Time and the number of steps are also limited.')
-    : (pt ? 'Este ajudante não informa o custo em dinheiro. O trabalho é limitado pelo tempo e pelo número de passos.'
+    : (pt ? 'Este ajudante não informa o custo em dinheiro. O trabalho é limitado pelo tempo e pelo número de passos.' // locale:pt-BR
       : 'This helper does not report a money total. Work is limited by time and the number of steps.');
   const textAllowance = limits.maxTokens === null
-    ? (pt ? 'Não há teto para a quantidade de texto lido e escrito. Para executar o Codex, defina "maxTokens" dentro de "smoke" em config.json como um número inteiro positivo.'
+    ? (pt ? 'Não há teto para a quantidade de texto lido e escrito. Para executar o Codex, defina "maxTokens" dentro de "smoke" em config.json como um número inteiro positivo.' // locale:pt-BR
       : 'There is no ceiling on the amount of text read and written. Before running Codex, set "maxTokens" under "smoke" in config.json to a positive whole number.')
-    : (pt ? `Novos trabalhos param ao atingir ${limits.maxTokens} na medição de texto lido e escrito pelo ajudante.`
+    : (pt ? `Novos trabalhos param ao atingir ${limits.maxTokens} na medição de texto lido e escrito pelo ajudante.` // locale:pt-BR
       : `New work stops after ${limits.maxTokens} in the helper's measure of text read and written.`);
   const moneyLimit = reportsCost
-    ? `${pt ? 'Teto total' : 'Total ceiling'}: USD ${limits.maxUsd}; ${pt ? 'por trabalho' : 'per task'}: USD ${limits.demoDemandMaxUsd}`
-    : (pt ? 'Este ajudante não informa custo em dinheiro, então não há teto de dinheiro disponível.'
+    ? `${pt ? 'Teto total' : 'Total ceiling'}: USD ${limits.maxUsd}; ${pt ? 'por trabalho' : 'per task'}: USD ${limits.demoDemandMaxUsd}` // locale:pt-BR
+    : (pt ? 'Este ajudante não informa custo em dinheiro, então não há teto de dinheiro disponível.' // locale:pt-BR
       : 'This helper does not report money, so no money ceiling is available.');
-  const text = [pt ? 'Vou preparar trabalhos em uma pasta temporária, verificar os resultados e corrigir o total incorreto.'
+  const text = [pt ? 'Vou preparar trabalhos em uma pasta temporária, verificar os resultados e corrigir o total incorreto.' // locale:pt-BR
     : 'I will prepare practice work in a temporary folder, check the results and correct the wrong total.',
   scenario.demands.map((demand) => demand.title[locale]).join('; '),
-  `${pt ? 'Ajudante' : 'Helper'}: ${client ?? unknown}`,
+  `${pt ? 'Ajudante' : 'Helper'}: ${client ?? unknown}`, // locale:pt-BR
   `${pt ? 'Cota atual' : 'Current allowance'}: ${quota?.remainingPct ?? unknown}% (${quota?.source ?? unknown}); ${pt ? 'idade em minutos' : 'age in minutes'}: ${quota?.ageMinutes ?? unknown}`,
   moneyLimit,
-  `${pt ? 'Correções por trabalho' : 'Corrections per task'}: ${limits.demoMaxReworkRounds}; ${pt ? 'minutos' : 'minutes'}: ${limits.maxMinutes}; ${pt ? 'chamadas' : 'calls'}: ${limits.maxTurns}`,
+  `${pt ? 'Correções por trabalho' : 'Corrections per task'}: ${limits.demoMaxReworkRounds}; ${pt ? 'minutos' : 'minutes'}: ${limits.maxMinutes}; ${pt ? 'chamadas' : 'calls'}: ${limits.maxTurns}`, // locale:pt-BR
   bounds, ...(limits.maxTokens !== null || !reportsCost ? [textAllowance] : []),
-  pt ? 'Esta prévia não gasta cota. Trabalho real usa sua cota. Posso começar?' : 'This preview spends nothing. Real work uses your allowance. May I start?'];
+  pt ? 'Esta prévia não gasta cota. Trabalho real usa sua cota. Posso começar?' : 'This preview spends nothing. Real work uses your allowance. May I start?']; // locale:pt-BR
   let reason = preflight.refusal || preflight.stale
-    ? (pt ? 'Atualize sua cota antes de começar.' : 'Update your allowance before starting.') : null;
-  if (!client || !row) reason = pt ? 'Escolha um ajudante disponível.' : 'Choose an available helper.';
+    ? (pt ? 'Atualize sua cota antes de começar.' : 'Update your allowance before starting.') : null; // locale:pt-BR
+  if (!client || !row) reason = pt ? 'Escolha um ajudante disponível.' : 'Choose an available helper.'; // locale:pt-BR
   if (!args.dryRun && (!args.confirm || args.confirm !== planHash)) reason = pt
-    ? 'Confirme a prévia atual antes de começar; mudanças exigem nova confirmação.'
+    ? 'Confirme a prévia atual antes de começar; mudanças exigem nova confirmação.' // locale:pt-BR
     : 'Confirm the current preview before starting; changes need fresh confirmation.';
   if (!args.dryRun && !reason && !config.smoke.demoRequireQuotaConfirmation) reason = pt
-    ? 'A confirmação de cota precisa estar habilitada.' : 'Allowance confirmation must be enabled.';
+    ? 'A confirmação de cota precisa estar habilitada.' : 'Allowance confirmation must be enabled.'; // locale:pt-BR
   if (!args.dryRun && !reason) {
     const { spawn: nodeSpawn } = await import('node:child_process');
     const result = await runDemo({ root: deps.root, snapshot, client, locale,
@@ -88,11 +88,11 @@ export async function smokeDemoCommand(flags, deps) {
     else if (flag === '--json') json = true;
     else if (['--client', '--locale', '--confirm'].includes(flag) && flags[i + 1]?.startsWith('--') === false) {
       args[flag.slice(2)] = flags[++i];
-    } else { deps.err(inPortuguese(deps, args) ? 'Use smoke-demo --dry-run [--client <cliente>] [--locale en|pt-BR] [--json]; --confirm <prévia>.' : 'Use smoke-demo --dry-run [--client <client>] [--locale en|pt-BR] [--json]; --confirm <preview>.'); return 2; }
+    } else { deps.err(inPortuguese(deps, args) ? 'Use smoke-demo --dry-run [--client <cliente>] [--locale en|pt-BR] [--json]; --confirm <prévia>.' : 'Use smoke-demo --dry-run [--client <client>] [--locale en|pt-BR] [--json]; --confirm <preview>.'); return 2; } // locale:pt-BR
   }
   if ((args.locale && !['en', 'pt-BR'].includes(args.locale))
     || (args.client && !Object.hasOwn(configOf().install.clients, args.client))) {
-    deps.err(inPortuguese(deps, args) ? 'Escolha um ajudante e idioma da lista.' : 'Choose a listed helper and language.'); return 2;
+    deps.err(inPortuguese(deps, args) ? 'Escolha um ajudante e idioma da lista.' : 'Choose a listed helper and language.'); return 2; // locale:pt-BR
   }
   const result = await smokeDemo(args, deps);
   deps.out(json ? JSON.stringify(result) : result.text);

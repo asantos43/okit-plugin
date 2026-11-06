@@ -41,10 +41,10 @@ const RUNNER = (platform) => DEFAULT_CONFIG.install.selfcheck.runner[platform];
 
 // Words of one language that the other must never show inside the block of the check.
 const ENGLISH = /\b(failed|Fix:|does not find|is not installed|installed but not working|checks passed|not registered|Install again|Add .* to the PATH|Write the|Run the installer|Install a POSIX)\b/;
-const PORTUGUESE = /(falhou|Correção:|não encontra|não está instalado|instalado, mas não funciona|verificações|Instale de novo|Coloque|Grave|Rode o instalador|Instale um shell)/;
+const PORTUGUESE = /(falhou|Correção:|não encontra|não está instalado|instalado, mas não funciona|verificações|Instale de novo|Coloque|Grave|Rode o instalador|Instale um shell)/; // locale:pt-BR
 
-const SELF_ROW = { en: /^ {2}Self-check \(Claude Code\)/, 'pt-BR': /^ {2}Autoverificação \(Claude Code\)/ };
-const AFTER_BLOCK = /^ {2}(Models|Modelos|Kit)\b/;
+const SELF_ROW = { en: /^ {2}Self-check \(Claude Code\)/, 'pt-BR': /^ {2}Autoverificação \(Claude Code\)/ }; // locale:pt-BR
+const AFTER_BLOCK = /^ {2}(Models|Modelos|Kit)\b/; // locale:pt-BR
 
 /** The lines of the check, from its summary row to the line before the models. */
 function blockOf(lines, locale) {
@@ -230,7 +230,7 @@ for (const platform of PLATFORMS) {
         assert.doesNotMatch(block.join('\n'), /\{[a-z]+\}|selfcheck[A-Z]/, context);
         // The installation is left in place, and the run says nothing of success.
         assert.ok((await readRecord(w.destination, CLIENT, fs, w.io.config)).version, context);
-        assert.doesNotMatch(w.text, /Done\. Next:|Pronto\. Próximo:/, context);
+        assert.doesNotMatch(w.text, /Done\. Next:|Pronto\. Próximo:/, context); // locale:pt-BR
       }
     });
   }
@@ -283,7 +283,7 @@ for (const platform of PLATFORMS) {
         const context = `${shell}\n${w.text}`;
         assert.equal(w.code, 0, context);
         assert.ok(w.lines().includes(`  ${TEXTS[locale].missing(shell)}`), context);
-        assert.match(blockOf(w.lines(), locale)[0], locale === 'en' ? /ok {2}\d+ checks passed$/ : /ok {2}\d+ verificações passaram$/, context);
+        assert.match(blockOf(w.lines(), locale)[0], locale === 'en' ? /ok {2}\d+ checks passed$/ : /ok {2}\d+ verificações passaram$/, context); // locale:pt-BR
       }
     });
 
@@ -435,7 +435,7 @@ test('S5: dry-run, --check, --rollback and uninstall run no process of the check
     assert.equal(code, 0, `${argv.join(' ')}\n${f.output.join('\n')}`);
     assert.ok(f.output.length > 0, `${argv.join(' ')} printed nothing`);
     assert.equal(f.commands.filter(isCheck).length, 0, `${argv.join(' ')} ran a process of the check`);
-    assert.doesNotMatch(f.output.join('\n'), /Self-check|Autoverificação/, argv.join(' '));
+    assert.doesNotMatch(f.output.join('\n'), /Self-check|Autoverificação/, argv.join(' ')); // locale:pt-BR
   }
 });
 
@@ -449,7 +449,7 @@ test('S5: an up-to-date install under --dry-run or --check runs no process of th
     assert.equal(await main(argv, f.io), 0, `${argv.join(' ')}\n${f.output.join('\n')}`);
     assert.match(f.output.join('\n'), /up to date|Up to date/i, `${argv.join(' ')} took the same-version path`);
     assert.equal(f.commands.filter(isCheck).length, 0, `${argv.join(' ')} ran a process of the check`);
-    assert.doesNotMatch(f.output.join('\n'), /Self-check|Autoverificação/, argv.join(' '));
+    assert.doesNotMatch(f.output.join('\n'), /Self-check|Autoverificação/, argv.join(' ')); // locale:pt-BR
   }
 });
 
@@ -643,13 +643,13 @@ for (const platform of PLATFORMS) {
       const w = await world(t, platform, { locale, resolved: () => `${other}\n` });
       assert.equal(w.code, OPERATIONAL, w.text);
       const names = SHELLS(platform);
-      const found = w.lines().filter((line) => /^ {2}(Command|Comando) \(/.test(line));
+      const found = w.lines().filter((line) => /^ {2}(Command|Comando) \(/.test(line)); // locale:pt-BR
       assert.equal(found.length, names.length, w.text);
-      const said = locale === 'en' ? /finds okit-plugin at .*, not in <bin>/ : /encontra okit-plugin em .*, não em <bin>/;
+      const said = locale === 'en' ? /finds okit-plugin at .*, not in <bin>/ : /encontra okit-plugin em .*, não em <bin>/; // locale:pt-BR
       for (const line of found) assert.match(line, said);
       assert.ok(found.every((line) => line.includes(other)), found.join('\n'));
-      const fix = w.lines().filter((line) => /^ {4}(Fix|Correção):/.test(line) || /^ {2}(Fix|Correção):/.test(line));
-      assert.ok(fix.some((line) => (locale === 'en' ? /Remove or rename .* or put <bin> before it on the PATH of/ : /Remova ou renomeie .* ou ponha <bin> antes dele no PATH do/).test(line)), w.text);
+      const fix = w.lines().filter((line) => /^ {4}(Fix|Correção):/.test(line) || /^ {2}(Fix|Correção):/.test(line)); // locale:pt-BR
+      assert.ok(fix.some((line) => (locale === 'en' ? /Remove or rename .* or put <bin> before it on the PATH of/ : /Remova ou renomeie .* ou ponha <bin> antes dele no PATH do/).test(line)), w.text); // locale:pt-BR
       assert.doesNotMatch(w.text, locale === 'en' ? PORTUGUESE : ENGLISH, w.text);
     });
   }
@@ -746,17 +746,17 @@ for (const locale of LOCALES) {
     const fresh = await run(['install', '--client', CLIENT, '--statusline']);
     assert.equal(fresh.code, 0, fresh.text);
     assert.equal(countOf(fresh.text, locale), 1, fresh.text);
-    assert.match(fresh.text, locale === 'en' ? /Next: okit-plugin setup/ : /Próximo: okit-plugin setup/, fresh.text);
+    assert.match(fresh.text, locale === 'en' ? /Next: okit-plugin setup/ : /Próximo: okit-plugin setup/, fresh.text); // locale:pt-BR
     const same = await run(['install', '--client', CLIENT, '--statusline']);
     assert.equal(same.code, 0, same.text);
     assert.equal(countOf(same.text, locale), 1, same.text);
     assert.ok(same.text.includes(EXPECTED_ROW[locale]), same.text);
-    assert.doesNotMatch(same.text, /Done\. Next|Pronto\. Próximo/);
+    assert.doesNotMatch(same.text, /Done\. Next|Pronto\. Próximo/); // locale:pt-BR
     f.setVersion('2.0.0');
     const update = await run(['update']);
     assert.equal(update.code, 0, update.text);
     assert.equal(countOf(update.text, locale), 1, update.text);
-    assert.match(update.text, locale === 'en' ? /Next: restart Claude Code, then run: okit-plugin doctor --client claude-code/ : /Próximo: reinicie Claude Code e rode: okit-plugin doctor --client claude-code/, update.text);
+    assert.match(update.text, locale === 'en' ? /Next: restart Claude Code, then run: okit-plugin doctor --client claude-code/ : /Próximo: reinicie Claude Code e rode: okit-plugin doctor --client claude-code/, update.text); // locale:pt-BR
     const current = await run(['update']);
     assert.equal(current.code, 0, current.text);
     assert.equal(countOf(current.text, locale), 1, current.text);
@@ -833,7 +833,7 @@ test('R7: (pt-BR) the skip of a hook with our script in double quotes is in Port
     await alterHook(() => `node "${cliScript(record.path)}" hook session-start`)(moment, f);
   } });
   assert.equal(w.code, 0, w.text);
-  assert.ok(w.lines().some((line) => /o hook de sessão não é exatamente o nosso/.test(line)), w.text);
+  assert.ok(w.lines().some((line) => /o hook de sessão não é exatamente o nosso/.test(line)), w.text); // locale:pt-BR
 });
 
 // R8: the hook is run only when it is equal to the registrar's string, node path included.
@@ -850,7 +850,7 @@ for (const [name, node] of [['the shell of a foreign program', '/bin/rm'], ['ano
 test('R8: (pt-BR) the skip of a hook registered with another node is in Portuguese', async (t) => {
   const w = await world(t, 'linux', { locale: 'pt-BR', meddle: alterHook((command) => command.replace(/^'[^']*'/, "'/foreign/node'")) });
   assert.equal(w.code, 0, w.text);
-  assert.ok(w.lines().some((line) => /o hook de sessão foi registrado com outro node \(instale de novo para atualizá-lo\)/.test(line)), w.text);
+  assert.ok(w.lines().some((line) => /o hook de sessão foi registrado com outro node \(instale de novo para atualizá-lo\)/.test(line)), w.text); // locale:pt-BR
   assert.doesNotMatch(blockOf(w.lines(), 'pt-BR').join('\n'), ENGLISH);
 });
 
@@ -872,7 +872,7 @@ test('R8: real run, a hook that runs a foreign program in the node place is not 
 test('R1: (pt-BR) the skip of a hook that is not ours is in Portuguese', async (t) => {
   const w = await world(t, 'linux', { locale: 'pt-BR', meddle: alterHook((command) => `${command} && touch /tmp/never`) });
   assert.equal(w.code, 0, w.text);
-  assert.ok(w.lines().some((line) => /o hook de sessão não é exatamente o nosso/.test(line)), w.text);
+  assert.ok(w.lines().some((line) => /o hook de sessão não é exatamente o nosso/.test(line)), w.text); // locale:pt-BR
   assert.doesNotMatch(blockOf(w.lines(), 'pt-BR').join('\n'), ENGLISH);
 });
 
@@ -973,7 +973,7 @@ test('R3: with the check variable set the hook starts no probe and no quota comm
   assert.equal(w.probe, false, 'a client probe was started under the check');
   assert.equal(w.quota, false, 'a quota command was started under the check');
   assert.equal(w.out.length, 1);
-  assert.doesNotMatch(w.out[0], /unavailable|indisponível/, w.out[0]);
+  assert.doesNotMatch(w.out[0], /unavailable|indisponível/, w.out[0]); // locale:pt-BR
   assert.equal(JSON.parse(w.out[0]).hookSpecificOutput.hookEventName, 'SessionStart');
 });
 
@@ -1079,7 +1079,7 @@ test('R6: real run, a bar whose script is in a folder named with a backslash is 
 test('R5: (pt-BR) the skip of a status bar that is not ours is in Portuguese', async (t) => {
   const w = await world(t, 'linux', { locale: 'pt-BR', meddle: setBar(FOREIGN_BARS['a node script that is not ours']) });
   assert.equal(w.code, 0, w.text);
-  assert.ok(w.lines().some((line) => /a barra de status não é nossa/.test(line)), w.text);
+  assert.ok(w.lines().some((line) => /a barra de status não é nossa/.test(line)), w.text); // locale:pt-BR
 });
 
 for (const [name, bar] of Object.entries({
@@ -1143,7 +1143,7 @@ test('R10: installed with --no-link, the bare bar is not run and the skip says w
   assert.ok(w.lines().some((line) => /Status bar {2}skipped {2}installed without a link, so the check cannot tell which command the status bar names; it was not run/.test(line)), w.text);
   assert.ok(!w.lines().some((line) => line.includes('is not ours')), w.text);
   const x = await world(t, 'linux', { locale: 'pt-BR', argv: ['install', '--client', CLIENT, '--statusline', '--no-link'] });
-  assert.ok(x.lines().some((line) => /instalado sem link, então a verificação não sabe qual comando a barra de status nomeia/.test(line)), x.text);
+  assert.ok(x.lines().some((line) => /instalado sem link, então a verificação não sabe qual comando a barra de status nomeia/.test(line)), x.text); // locale:pt-BR
 });
 
 // R11: the guard holds for the absolute form too (what Windows writes): a file at <bin>/<command> is not ours without a link.
@@ -1160,7 +1160,7 @@ test('R11: on win32 installed with --no-link, the absolute bar is not run and th
   assert.ok(w.lines().some((line) => /Status bar {2}skipped {2}installed without a link, so the check cannot tell which command the status bar names; it was not run/.test(line)), w.text);
   const x = await world(t, 'win32', { locale: 'pt-BR', argv: ['install', '--client', CLIENT, '--statusline', '--no-link'] });
   assert.equal(x.checks.filter(isBar).length, 0, x.text);
-  assert.ok(x.lines().some((line) => /instalado sem link, então a verificação não sabe qual comando a barra de status nomeia/.test(line)), x.text);
+  assert.ok(x.lines().some((line) => /instalado sem link, então a verificação não sabe qual comando a barra de status nomeia/.test(line)), x.text); // locale:pt-BR
 });
 
 test('R10: real run, installed with --no-link, a file at <bin>/<command> is not executed as the bar', { skip: realShell ? false : 'no sh on this machine' }, async (t) => {
@@ -1253,7 +1253,7 @@ for (const locale of LOCALES) {
     const w = await world(t, 'linux', { env: NOT_ON_PATH, hook: false, locale, fail: (spec) => (isLogin(spec) ? 3 : undefined) });
     assert.equal(w.code, OPERATIONAL, w.text);
     const block = blockOf(w.lines(), locale);
-    const row = `  ${want.row('bash', locale === 'en' ? 'exit code 3' : 'código de saída 3')}`;
+    const row = `  ${want.row('bash', locale === 'en' ? 'exit code 3' : 'código de saída 3')}`; // locale:pt-BR
     assert.ok(block.includes(row), `missing ${row}\n${block.join('\n')}`);
     assert.equal(block.indexOf(`  ${want.fix('<home>/.profile')}`), block.indexOf(row) + 1, block.join('\n'));
     assert.match(block[0], LOGIN_SUMMARY[locale]);
@@ -1268,7 +1268,7 @@ test('D103: the stderr of a failed login launch is shown with --verbose, bounded
   assert.equal(w.code, OPERATIONAL, w.text);
   assert.ok(w.lines().some((line) => line.trim() === '> boom'), w.text);
 });
-const LOGIN_SUMMARY = { en: /failed {2}installed but not working: 1 of \d+ checks failed$/, 'pt-BR': /falhou {2}instalado, mas não funciona: 1 de \d+ verificações falharam$/ };
+const LOGIN_SUMMARY = { en: /failed {2}installed but not working: 1 of \d+ checks failed$/, 'pt-BR': /falhou {2}instalado, mas não funciona: 1 de \d+ verificações falharam$/ }; // locale:pt-BR
 
 test('D103: a login launch that finds nothing, or another program, or times out, fails with its own words', async (t) => {
   const empty = await world(t, 'linux', { env: NOT_ON_PATH, hook: false, resolved: (spec) => (isLogin(spec) ? '' : `${spec.env.PATH.split(':')[0]}/okit-plugin\n`) });
@@ -1728,7 +1728,7 @@ test('D109: a failure of the probe in Portuguese never shows an English sentence
     reportSelfCheck(w.deps.ui, results, 'Claude Code');
     const text = plain(w.lines);
     assert.doesNotMatch(text, ENGLISH_PROBE, `${code}\n${text}`);
-    assert.match(text, /Servidor MCP {2}falhou/, `${code}\n${text}`);
+    assert.match(text, /Servidor MCP {2}falhou/, `${code}\n${text}`); // locale:pt-BR
   }
 });
 
@@ -1846,17 +1846,17 @@ test('D109: the probe is given the time the configuration says', async (t) => {
 
 
 for (const [cause, why, portuguese] of [
-  ['closed', 'the okit server closed the connection', 'o servidor do okit fechou a conexão'],
-  ['not-accepted', 'the okit server did not accept the connection', 'o servidor do okit não aceitou a conexão'],
-  ['no-server', 'no okit server is running for this state folder', 'nenhum servidor do okit está rodando para esta pasta de estado'],
-  ['no-answer', 'no okit server answers on this state folder', 'nenhum servidor do okit responde nesta pasta de estado'],
-  ['not-understood', 'the okit server sent an answer that is not understood', 'o servidor do okit enviou uma resposta não compreendida'],
-  ['timeout', 'the okit server did not answer in 123 ms', 'o servidor do okit não respondeu em 123 ms'],
-  ['arguments', 'the arguments cannot be sent: DATA', 'os argumentos não podem ser enviados (detalhe: DATA)'],
-  ['failed', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
-  [undefined, 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
-  ['future-code', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
-  ['constructor', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'],
+  ['closed', 'the okit server closed the connection', 'o servidor do okit fechou a conexão'], // locale:pt-BR
+  ['not-accepted', 'the okit server did not accept the connection', 'o servidor do okit não aceitou a conexão'], // locale:pt-BR
+  ['no-server', 'no okit server is running for this state folder', 'nenhum servidor do okit está rodando para esta pasta de estado'], // locale:pt-BR
+  ['no-answer', 'no okit server answers on this state folder', 'nenhum servidor do okit responde nesta pasta de estado'], // locale:pt-BR
+  ['not-understood', 'the okit server sent an answer that is not understood', 'o servidor do okit enviou uma resposta não compreendida'], // locale:pt-BR
+  ['timeout', 'the okit server did not answer in 123 ms', 'o servidor do okit não respondeu em 123 ms'], // locale:pt-BR
+  ['arguments', 'the arguments cannot be sent: DATA', 'os argumentos não podem ser enviados (detalhe: DATA)'], // locale:pt-BR
+  ['failed', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'], // locale:pt-BR
+  [undefined, 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'], // locale:pt-BR
+  ['future-code', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'], // locale:pt-BR
+  ['constructor', 'DATA', 'a chamada ao servidor do okit falhou (detalhe: DATA)'], // locale:pt-BR
 ]) {
   for (const locale of ['en', 'pt-BR']) {
     test(`self-check control error ${cause} is localized in ${locale}`, async (t) => {

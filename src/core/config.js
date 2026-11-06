@@ -18,6 +18,7 @@ export { CONFIG_SCHEMA };
 
 /** Fills the `{name}` of a template with the values of a message. */
 export function fill(text, values) {
+  if (text && typeof text === 'object') text = text.en;
   return text.replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ''));
 }
 
@@ -416,7 +417,6 @@ function messageOfSet(result, key) {
   return fill(CONFIG_SCHEMA.messages[result.error.type], {
     key,
     constraintEn: result.entry.constraint.en,
-    constraintPt: result.entry.constraint['pt-BR'],
     values: (result.entry.allowedValues ?? []).join(', '),
   });
 }

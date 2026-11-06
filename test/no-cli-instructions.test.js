@@ -432,7 +432,7 @@ test('the output of the setup asks the assistant for the tool it names', async (
       // The question of the model takes the model; the confirmation of what is saved takes the yes.
       ask: async (question) => {
         questions += 1;
-        return /^(Choose a model|Escolha um modelo)/.test(question) ? 'haiku' : 'yes';
+        return /^(Choose a model|Escolha um modelo)/.test(question) ? 'haiku' : 'yes'; // locale:pt-BR
       },
       readQuota: async () => ({ source: 'off' }), run: async () => ({ code: 0, stdout: '' }),
       env: { HOME: root, USERPROFILE: root } });
@@ -453,7 +453,7 @@ test('the message of an omitted model asks the assistant for the tool', async (t
   const adapter = { CLIENT: 'claude-code', listModels: async () => ({ client: 'claude-code', installed: true,
     models: ['haiku'], hidden: [], source: 'listing' }) };
   for (const [locale, asked, key] of [['en', 'ask your assistant to call `config_set`', 'profiles.claude-code.simple.model'],
-    ['pt-BR', 'peça ao seu assistente para chamar `config_set`', 'profiles.claude-code.simple.model']]) {
+    ['pt-BR', 'peça ao seu assistente para chamar `config_set`', 'profiles.claude-code.simple.model']]) { // locale:pt-BR
     const result = await runSetup({ root, locale, defaults: true, adapters: [adapter],
       config: { profiles: { 'claude-code': { simple: { model: 'gone-model' } } } },
       readQuota: async () => ({ source: 'off' }), run: async () => ({ code: 0, stdout: '' }),

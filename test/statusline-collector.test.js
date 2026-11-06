@@ -440,7 +440,7 @@ test('CLI bounded stdin and raw stdout; quota show has bilingual origin and age'
   const shown = await callTool('quota_show', { client: 'claude-code' }, { root, now, env: { HOME: root } });
   const [reading] = shown.clients;
   assert.equal(reading.reading.source, 'automatic');
-  assert.match(`${quotaOrigin(reading.reading, shown.now, LABELS.en)}\n${quotaOrigin(reading.reading, shown.now, LABELS['pt-BR'])}`, /automatic[\s\S]*automática/);
+  assert.match(`${quotaOrigin(reading.reading, shown.now, LABELS.en)}\n${quotaOrigin(reading.reading, shown.now, LABELS['pt-BR'])}`, /automatic[\s\S]*automática/); // locale:pt-BR
   assert.match(quotaOrigin(reading.reading, shown.now, LABELS.en), /0 minutes ago/);
   await callTool('quota_set', { client: 'claude-code', pct: 80 }, { root, now, env: { HOME: root } });
   assert.equal((await readQuota({ stateRoot: root, now })).source, 'user');

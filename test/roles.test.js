@@ -28,7 +28,7 @@ test('unknown facts stay explicit and expired/out-of-scope orders are excluded',
       { active: true, text: 'Applies', scope: 'all' }] });
   assert.deepEqual(context.orders, ['Applies']);
   assert.deepEqual(context.limits, { global: 2 });
-  assert.ok(context.unknown.includes('work / demandas'));
+  assert.ok(context.unknown.includes('work'));
   assert.match(formatRoleContext(context), /Unknown facts:.*actors, quota and slots/);
 });
 
@@ -46,7 +46,7 @@ test('role answer scopes facts, uses readable titles and preserves the actor', (
     for (const fact of ['Director', 'Integration guide', 'Stay in scope', 'chosen + high', '70%', 'busy']) assert.ok(answer.includes(fact));
     assert.doesNotMatch(answer, /D57|G000001|Other order/);
     for (const field of language === 'en' ? ['Role:', 'May:', 'Must not:', 'Orders:', 'Limits:', 'Work in hand:', 'Available actors:', 'Unknown facts:']
-      : ['Papel:', 'Pode:', 'Não pode:', 'Ordens:', 'Limites:', 'Demandas em mãos:', 'Atores disponíveis:', 'Fatos desconhecidos:']) assert.ok(answer.includes(field));
+      : ['Papel:', 'Pode:', 'Não pode:', 'Ordens:', 'Limites:', 'Demandas em mãos:', 'Atores disponíveis:', 'Fatos desconhecidos:']) assert.ok(answer.includes(field)); // locale:pt-BR
   }
 });
 
@@ -70,5 +70,5 @@ test('environment question and native startup never save, launch or spend quota'
   await runSessionStart({ ...io, stdin: JSON.stringify({ cwd: root, briefing: 'do the step' }) });
   assert.match(JSON.parse(output.at(-1)).hookSpecificOutput.additionalContext, /Clarify/);
   assert.equal(await runSessionStart({ ...io, stdin: 'invalid native input' }), 0);
-  assert.match(JSON.parse(output.at(-1)).hookSpecificOutput.additionalContext, /contexto de papel indisponível/);
+  assert.match(JSON.parse(output.at(-1)).hookSpecificOutput.additionalContext, /role context unavailable/);
 });

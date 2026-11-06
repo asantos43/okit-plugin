@@ -16,8 +16,18 @@ const POLICY = {
     pt: ['Inspecionar a diferença e as evidências de aceite; devolver pass, revise ou reject com achados.', 'Nunca tratar o relatório do executor como prova ou ampliar a tarefa.'],
   },
 };
-export const ROLE_ROUTING = 'Main session: Director by default. An explicit Role: Executor or Role: Critic briefing overrides this default. Ambiguous briefing: ask for clarification before work. / Sessão principal: Director por padrão. Briefing explícito Papel: Executor ou Papel: Critic substitui o padrão. Briefing ambíguo: pedir esclarecimento antes do trabalho.';
+export const ROLE_ROUTING = { en: 'Main session: Director by default. An explicit Role: Executor or Role: Critic briefing overrides this default. Ambiguous briefing: ask for clarification before work.', 'pt-BR': 'Sessão principal: Director por padrão. Briefing explícito Papel: Executor ou Papel: Critic substitui o padrão. Briefing ambíguo: pedir esclarecimento antes do trabalho.' };
 const clean = (value) => String(value ?? '').replace(/[\r\n\x00-\x1f]+/g, ' ').trim();
+const UNKNOWN_FACTS = {
+  environment: { en: 'environment', 'pt-BR': 'ambiente' },
+  orders: { en: 'orders', 'pt-BR': 'ordens' },
+  work: { en: 'work', 'pt-BR': 'demandas' },
+  limits: { en: 'limits', 'pt-BR': 'limites' },
+  'actors, quota and slots': { en: 'actors, quota and slots', 'pt-BR': 'atores, cota e vagas' },
+  actors: { en: 'actors', 'pt-BR': 'atores' },
+  quota: { en: 'quota', 'pt-BR': 'cota' },
+  slots: { en: 'slots', 'pt-BR': 'vagas' },
+};
 
 export function briefedRole(briefing) {
   if (briefing == null) return 'Director';
@@ -31,7 +41,7 @@ export function briefedRole(briefing) {
 export function roleContext({ client, briefing, snapshot, items, orders, limits, cwd, scope, actor } = {}) {
   const role = briefedRole(briefing);
   if (!role) return { status: 'clarification', role: null,
-    reason: 'Clarify briefing role: Executor or Critic. / Esclareça o papel do briefing: Executor ou Critic.' };
+    reason: 'Clarify briefing role: Executor or Critic.' };
   const now = snapshot?.now ?? Date.now();
   const applicable = (record) => inScope(record, cwd) && (!scope || !record.scope || record.scope === 'all' || record.scope === scope);
   // A client with several accounts is one row per account, each with its own quota, slots and actors; a client with
@@ -39,16 +49,16 @@ export function roleContext({ client, briefing, snapshot, items, orders, limits,
   const clients = accountRows(snapshot?.clients ?? []);
   const appliedLimits = limits ?? snapshot?.config?.limits;
   const unknown = [];
-  if (!snapshot) unknown.push('environment / ambiente');
-  if (!orders) unknown.push('orders / ordens');
-  if (!items) unknown.push('work / demandas');
-  if (!appliedLimits) unknown.push('limits / limites');
-  if (!clients.length) unknown.push('actors, quota and slots / atores, cota e vagas');
+  if (!snapshot) unknown.push('environment');
+  if (!orders) unknown.push('orders');
+  if (!items) unknown.push('work');
+  if (!appliedLimits) unknown.push('limits');
+  if (!clients.length) unknown.push('actors, quota and slots');
   for (const row of clients) {
     const name = clean(accountName(row));
-    if (!row.actors?.length) unknown.push(`${name}: actors / atores`);
-    if (row.quota?.remainingPct == null) unknown.push(`${name}: quota / cota`);
-    if (!row.slots) unknown.push(`${name}: slots / vagas`);
+    if (!row.actors?.length) unknown.push(`${name}: actors`);
+    if (row.quota?.remainingPct == null) unknown.push(`${name}: quota`);
+    if (!row.slots) unknown.push(`${name}: slots`);
   }
   return { status: 'ready', client, role, actor: actor ? { model: actor.model, effort: actor.effort ?? null } : null,
     briefing: briefing == null ? null : typeof briefing === 'string' ? briefing : briefing.text ?? briefing.body ?? '',
@@ -60,25 +70,31 @@ export function roleContext({ client, briefing, snapshot, items, orders, limits,
 }
 
 export function formatRoleContext(context, language = 'en') {
-  if (context.status !== 'ready') return context.reason;
   const pt = language === 'pt' || language === 'pt-BR';
+  const select = (text) => typeof text === 'object' ? text[pt ? 'pt-BR' : 'en'] : text;
+  if (context.status !== 'ready') return select(context.reason);
   const unknown = pt ? 'desconhecido' : 'unknown';
-  const list = (values) => values == null ? unknown : values.length ? values.join('; ') : pt ? 'nenhum' : 'none';
+  const list = (values) => values == null ? unknown : values.length ? values.map(select).join('; ') : pt ? 'nenhum' : 'none'; // locale:pt-BR
   const [may, mustNot] = context.policy[pt ? 'pt' : 'en'];
-  const actors = context.actors.map((actor) => `${accountName(actor)}: ${actor.model} + ${actor.effort ?? unknown}; ${pt ? 'cota' : 'quota'} ${actor.quota?.remainingPct ?? unknown}%; ${pt ? 'vagas livres' : 'free slots'} ${actor.slots?.available ?? unknown}; ${pt ? 'restrições' : 'restrictions'}: ${list(actor.restrictions)}`);
+  const unknownFacts = context.unknown.map((fact) => {
+    if (UNKNOWN_FACTS[fact]) return select(UNKNOWN_FACTS[fact]);
+    const colon = fact.lastIndexOf(': '), label = fact.slice(colon + 2);
+    return colon >= 0 && UNKNOWN_FACTS[label] ? `${fact.slice(0, colon)}: ${select(UNKNOWN_FACTS[label])}` : fact;
+  });
+  const actors = context.actors.map((actor) => `${accountName(actor)}: ${actor.model} + ${actor.effort ?? unknown}; ${pt ? 'cota' : 'quota'} ${actor.quota?.remainingPct ?? unknown}%; ${pt ? 'vagas livres' : 'free slots'} ${actor.slots?.available ?? unknown}; ${pt ? 'restrições' : 'restrictions'}: ${list(actor.restrictions)}`); // locale:pt-BR
   return [ROLE_ROUTING, `${pt ? 'Papel' : 'Role'}: ${context.role}`,
-    `${pt ? 'Pode' : 'May'}: ${may}`, `${pt ? 'Não pode' : 'Must not'}: ${mustNot}`,
-    `${pt ? 'Ordens' : 'Orders'}: ${list(context.orders)}`,
+    `${pt ? 'Pode' : 'May'}: ${may}`, `${pt ? 'Não pode' : 'Must not'}: ${mustNot}`, // locale:pt-BR
+    `${pt ? 'Ordens' : 'Orders'}: ${list(context.orders)}`, // locale:pt-BR
     `${pt ? 'Limites' : 'Limits'}: ${context.limits ? JSON.stringify(context.limits) : unknown}`,
-    `${pt ? 'Demandas em mãos' : 'Work in hand'}: ${list(context.work)}`,
-    `${pt ? 'Atores disponíveis' : 'Available actors'}: ${list(actors)}`,
-    `${pt ? 'Fatos desconhecidos' : 'Unknown facts'}: ${list(context.unknown)}`,
-    'Answer role questions with all these fields using order_list, inbox_list, actors_list, limits_status and env_report for current facts. Use readable titles, never demand/order ids. Environment questions are read-only: no setup save, launch or quota spend. / Responda perguntas de papel com todos estes campos usando essas leituras atuais. Use títulos legíveis, nunca ids de demanda/ordem. Perguntas de ambiente são somente leitura: sem salvar configuração, lançar trabalho ou gastar cota.',
-    ].join('\n');
+    `${pt ? 'Demandas em mãos' : 'Work in hand'}: ${list(context.work)}`, // locale:pt-BR
+    `${pt ? 'Atores disponíveis' : 'Available actors'}: ${list(actors)}`, // locale:pt-BR
+    `${pt ? 'Fatos desconhecidos' : 'Unknown facts'}: ${list(unknownFacts)}`,
+    { en: 'Answer role questions with all these fields using order_list, inbox_list, actors_list, limits_status and env_report for current facts. Use readable titles, never demand/order ids. Environment questions are read-only: no setup save, launch or quota spend.', 'pt-BR': 'Responda perguntas de papel com todos estes campos usando essas leituras atuais. Use títulos legíveis, nunca ids de demanda/ordem. Perguntas de ambiente são somente leitura: sem salvar configuração, lançar trabalho ou gastar cota.' },
+    ].map(select).join('\n');
 }
 
 export function rolePrompt(options) {
   const context = roleContext(options);
   if (context.status !== 'ready') throw new TypeError(context.reason);
-  return `${formatRoleContext(context)}\n${formatRoleContext(context, 'pt')}${context.briefing ? `\nBriefing: ${context.briefing}` : ''}`;
+  return `${formatRoleContext(context)}${context.briefing ? `\nBriefing: ${context.briefing}` : ''}`;
 }
