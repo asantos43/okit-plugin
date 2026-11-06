@@ -18,5 +18,6 @@ export function quotaBar(window, now) {
   const filled = Math.round(Math.max(0, Math.min(100, pct)) / 10);
   const reset = window.resets_at === null ? NaN : Date.parse(window.resets_at);
   return `[${'█'.repeat(filled)}${'░'.repeat(10 - filled)}] ${pct}%` +
-    (Number.isFinite(reset) ? ` (resets in ${formatHm((reset - now) / 1000)})` : '');
+    (Number.isFinite(reset) ? ` left · resets ${new Date(reset).toISOString()} (${reset < now ? 'passed' : `in ${formatHm((reset - now) / 1000)}`})`
+      : ' left · reset unknown');
 }

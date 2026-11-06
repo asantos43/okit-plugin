@@ -11,6 +11,7 @@ NATIVE returns an Agent call with model, effort and briefing without starting a 
 Installation registers the marketplace/plugin, adds the exact SessionStart command to settings.json and uses the payload skills, MCP and compact hook. The optional collector preserves the previous bar.
 Update switches registration to the new payload and removes the old command. Uninstall removes the exact entry, plugin/marketplace and restores the registered bar, preserving other settings.
 Root: root option, CLAUDE_CONFIG_DIR or ~/.claude.
+The Claude Code adapter ships an optional panel plugin in `adapters/claude-code/panel`, installed by `okit-plugin install --panel`; see the [panel guide](../guide/panel.md).
 
 <a id="codex"></a>
 ## Codex

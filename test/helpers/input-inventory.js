@@ -153,6 +153,7 @@ const NAMES = ['no-such-name', '', ' ', 'a\nb'];
  * tried with no value after it ("missing value") and in the `--flag=value` form where the command accepts it.
  */
 export const FLAG_TABLE = Object.freeze([
+  { flag: '--panel', value: 'none', commands: ['install', 'uninstall'], invalid: [] },
   { flag: '--client', value: 'client name', commands: ['install', 'update', 'uninstall', 'doctor'], invalid: NAMES },
   // The id of a saved account: an id that is not saved or not an id is refused; `update` refuses the flag itself (it moves
   // every registered account), and without `--client` (or with `all`) the client of the account is not named.
@@ -407,6 +408,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/install/link.js', arg: /^import\.meta\.url$/, excluded: 'package.json of this package (code of the program itself)' },
   { file: 'src/install/register.js', arg: /^pathToFileURL\(join\(record\.path, 'adapters'/, excluded: 'the adapter module of the package the record names (code of the installed package, not data); record.path is a text checked by RECORD_FIELDS' },
   { file: 'src/install/register.js', arg: /^path$/, excluded: 'the module shim okit itself wrote in the client\'s folder, compared with what it would write; never parsed' },
+  { file: 'src/install/panel.js', arg: /^\(await run\(deps, /, excluded: 'the plugin list returned by the injected Claude runner, not a file; invalid JSON or a non-array refuses installation without claiming ownership' },
   { file: 'src/install/mcp-register.js', arg: /^String\(text \?\? ''\)$/, excluded: 'the answer of the client\'s own `mcp get` command (a process we start), not a file of the person: an answer that is not JSON is never ours (a try/catch around it, by design)' },
   { file: 'src/install/role-block.js', arg: /^path$/, excluded: 'text without a format: the client\'s role file, searched for okit\'s own block; never parsed' },
   { file: 'src/install/statusline.js', arg: /^(path|original\.toString\('utf8'\))$/, rule: 'settings of the client (statusline)' },

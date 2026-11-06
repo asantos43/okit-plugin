@@ -48,10 +48,24 @@ test('populated state matches the documented versioned golden', async (t) => {
     recordedAt: new Date(now - 60_000).toISOString(), windows: [
       { remainingPct: 80, windowMinutes: 300, resetsAt: '2026-11-06T17:00:00Z' }] });
   await put(ctx.root, 'runs/one.json', { runId: 'one', client: 'claude-code', status: 'live', account: 'default',
-    actor: 'hard', model: 'opus', effort: 'high', startedAt: now - 2000, lastProgress: 'Running checks' });
+    actor: 'hard', model: 'opus', effort: 'high', demand: 'sample-demand', startedAt: now - 2000, lastProgress: 'Running checks' });
   const result = await invoke(ctx);
   assert.equal(result.code, 0);
   assert.deepEqual(result.document, JSON.parse(await readFile(new URL('./fixtures/panel-state-v1-populated.json', import.meta.url))));
+});
+
+test('run demand is bounded and finish reasons require saved error evidence', async (t) => {
+  const ctx = await world(t);
+  for (const [id, extra] of [['failed', { status: 'failed', error: 'Process missing' }],
+    ['exit', { status: 'done', exitCode: 2 }], ['done', { status: 'done', exitCode: 0 }]]) {
+    await put(ctx.root, `runs/${id}.json`, { runId: id, client: 'claude-code', demand: '😀'.repeat(200), ...extra });
+  }
+  const { runs } = await panelState(ctx, 'claude');
+  for (const run of runs) {
+    assert.equal(Array.from(run.demand).length, 120);
+    assert.equal(run.finish_reason, run.id === 'done' ? undefined : 'error');
+    assert.equal(run.step, undefined);
+  }
 });
 
 // | Input | Must pass | Must refuse |
@@ -139,6 +153,7 @@ test('launchability reuses quota thresholds and account slot counts', async (t) 
   await put(ctx.root, 'quota/claude-code.work.json', { remainingPct: 1, windowMinutes: 300 });
   let doc = (await invoke(ctx)).document;
   assert.ok(doc.launchable.some((actor) => actor.account === 'default' && actor.can_launch));
+  assert.ok(doc.launchable.some((actor) => actor.actor_classes.includes('hard')));
   assert.ok(doc.launchable.filter((actor) => actor.account === 'work').every((actor) => !actor.can_launch && actor.reasons.includes('low')));
   await put(ctx.root, 'runs/live.json', { client: 'claude-code', status: 'live', startedAt: now });
   doc = (await invoke(ctx)).document;

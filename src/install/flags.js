@@ -2,10 +2,10 @@ import { UsageError } from './exit.js';
 
 export const ALLOWED_FLAGS = {
   // `asset` and `fallback` come from the generated install scripts, which download and verify the package.
-  install: ['client', 'from', 'prerelease', 'repo', 'dest', 'no-link', 'no-path', 'autostart', 'dry-run', 'yes', 'statusline', 'no-statusline', 'locale', 'verbose', 'asset', 'fallback', 'set-execution-policy', 'no-execution-policy', 'account'],
+  install: ['client', 'from', 'prerelease', 'repo', 'dest', 'no-link', 'no-path', 'autostart', 'dry-run', 'yes', 'statusline', 'no-statusline', 'locale', 'verbose', 'asset', 'fallback', 'set-execution-policy', 'no-execution-policy', 'account', 'panel'],
   // `update` accepts `account` only to refuse it in words (an update moves every registered account).
   update: ['client', 'check', 'rollback', 'dry-run', 'no-path', 'statusline', 'no-statusline', 'locale', 'verbose', 'set-execution-policy', 'no-execution-policy', 'account'],
-  uninstall: ['client', 'purge', 'yes', 'dry-run', 'locale', 'verbose', 'account'],
+  uninstall: ['client', 'purge', 'yes', 'dry-run', 'locale', 'verbose', 'account', 'panel'],
 };
 // Pairs of flags that exclude each other; the refusal is translated by REASONS in present.js.
 export const EXCLUSIVE_FLAGS = [['check', 'rollback'], ['statusline', 'no-statusline'], ['set-execution-policy', 'no-execution-policy']];

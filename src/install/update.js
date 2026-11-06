@@ -89,10 +89,11 @@ export async function rollback(current, deps, targets = null) {
   // one's folder and bar) and defaultRegistered. The registrations are of the clients' folders, not of a version: the old
   // record's are dropped here, and nothing is created that the record of now does not have.
   const { link: _link, linkDirectory: _directory, autostart: _autostart, statusline: _bar, accounts: _held,
-    defaultRegistered: _default, ...older } = current.previous;
+    defaultRegistered: _default, panel: _panel, ...older } = current.previous;
   const record = { ...older, link: current.link, linkDirectory: current.linkDirectory,
     autostart: current.autostart, previous: { ...current, previous: null },
     ...(current.statusline ? { statusline: current.statusline } : {}),
+    ...(current.panel ? { panel: current.panel } : {}),
     ...(current.accounts ? { accounts: current.accounts } : {}),
     ...(current.defaultRegistered === false ? { defaultRegistered: false } : {}) };
   const ui = presenterOf(deps);

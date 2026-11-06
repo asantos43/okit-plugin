@@ -33,6 +33,7 @@
       "actor": "hard",
       "model": "opus",
       "effort": "high",
+      "demand": "sample-demand",
       "started_at": "2026-11-06T11:59:58.000Z",
       "elapsed_seconds": 2,
       "last_progress": "Running checks"

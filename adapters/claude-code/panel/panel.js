@@ -1,4 +1,5 @@
 import { elapsed, quotaBar } from './formatters.js';
+import { frameLines, wrapText } from './frame.js';
 
 export const COMMAND = Object.freeze(['okit-plugin', 'panel-state', '--json', '--client', 'claude']);
 export const PROCESS_OPTIONS = Object.freeze({ timeoutMs: 5000, maxOutputBytes: 1024 * 1024 });
@@ -25,7 +26,7 @@ export function parseState(stdout) {
     id: typeof run.id === 'string' ? run.id : 'unknown',
     stale: run.stale === true,
     elapsed_seconds: Number.isFinite(run.elapsed_seconds) && run.elapsed_seconds >= 0 ? run.elapsed_seconds : null,
-    ...Object.fromEntries(['actor', 'model', 'effort', 'status', 'account', 'last_progress', 'started_at'].map(key =>
+    ...Object.fromEntries(['actor', 'model', 'effort', 'status', 'account', 'last_progress', 'started_at', 'demand', 'finish_reason'].map(key =>
       [key, typeof run[key] === 'string' ? run[key] : null])),
   }));
   value.skipped_runs = value.runs.length - runs.length;
@@ -39,11 +40,22 @@ function validState(value) {
     Array.isArray(value.accounts) && value.accounts.every(/** @param {any} a */ a => record(a) &&
       typeof a.id === 'string' && typeof a.label === 'string' && record(a.quota) &&
       quota(a.quota.session) && quota(a.quota.weekly)) &&
-    Array.isArray(value.runs);
+    Array.isArray(value.runs) && (value.launchable === undefined || (Array.isArray(value.launchable) &&
+      value.launchable.every(/** @param {any} entry */ entry => record(entry) &&
+        typeof entry.account === 'string' && typeof entry.can_launch === 'boolean' &&
+        (entry.actor_classes === undefined || (Array.isArray(entry.actor_classes) &&
+          entry.actor_classes.every(/** @param {unknown} name */ name => typeof name === 'string'))))));
 }
 /** @param {any} r */
 function readableRun(r) {
   return record(r);
+}
+
+/** @param {import('./types.js').Result} result @param {number} width @param {number} [now] */
+export function boardLines(result, width, now = Date.now()) {
+  const w = Number.isFinite(width) ? Math.max(1, Math.min(240, Math.floor(width))) : 80;
+  return viewModel(result, now).flatMap((block, index) => result.ok && index === 0
+    ? wrapText(block.title, w) : frameLines(block.title, block.rows, w));
 }
 
 /** @param {import('./types.js').Runner} run @returns {Promise<import('./types.js').Result>} */
@@ -61,32 +73,44 @@ export async function loadState(run) {
 export function viewModel(result, now = Date.now()) {
   if (!result.ok) return [{ title: 'okit plugin', rows: [result.error] }];
   const { state } = result;
-  const groups = new Map(state.accounts.map(account => [account.id, {
-    title: `${account.label} (${account.id})`,
-    rows: [`Session 5 h: ${quotaBar(account.quota.session, now)}`,
-      `Weekly: ${quotaBar(account.quota.weekly, now)}`],
-  }]));
-  const counts = new Map();
+  const labels = new Map(state.accounts.map(account => [account.id, account.label]));
+  /** @param {string | null} id */
+  const accountName = id => labels.get(id ?? '') ?? 'unknown account';
+  const accounts = state.accounts.flatMap(account => [
+    `${account.label} · ${state.runs.some(run => run.account === account.id && run.status === 'live' && !run.stale) ? 'running' : 'idle'}`,
+    `session (5 h): ${quotaBar(account.quota.session, now)}`,
+    `week: ${quotaBar(account.quota.weekly, now)}`,
+  ]);
   const newest = [...state.runs].sort((a, b) =>
     (Date.parse(b.started_at ?? '') || 0) - (Date.parse(a.started_at ?? '') || 0));
-  for (const run of newest) {
-    const id = run.account ?? 'default';
-    const group = groups.get(id) ?? { title: id, rows: ['Account details unavailable.'] };
-    groups.set(id, group);
-    const count = (counts.get(id) ?? 0) + 1;
-    counts.set(id, count);
-    if (count > 20) continue;
-    group.rows.push(`${run.id}: ${run.status ?? 'unknown'}${run.stale ? ' · stale' : ''}` +
-      ` · actor ${run.actor ?? '-'} · ${run.model ?? '-'} · effort ${run.effort ?? '-'}` +
-      ` · elapsed ${elapsed(run.elapsed_seconds)}`);
-    group.rows.push(`Last progress: ${run.last_progress ?? 'unknown'}`);
-  }
-  for (const [id, count] of counts) {
-    if (count > 20) groups.get(id)?.rows.push(`… ${count - 20} more runs`);
-  }
-  return [{ title: 'okit plugin', rows: [state.readiness,
-    ...(state.accounts.length ? [] : ['No accounts.']),
+  /** @param {import('./types.js').Run} run */
+  const live = run => run.status === 'live' && !run.stale;
+  /** @param {import('./types.js').Run[]} runs @param {boolean} running */
+  const runRows = (runs, running) => [
+    ...runs.slice(0, 20).flatMap(run => [
+      `${run.id}: ${run.status ?? 'unknown'}${run.stale ? ' · stale' : ''}` +
+      `${run.demand ? ` · demand ${run.demand}` : ''} · account ${accountName(run.account)}` +
+      (running ? ` · actor ${run.actor ?? '-'} · ${run.model ?? '-'} · effort ${run.effort ?? '-'}` : '') +
+      ` · elapsed ${elapsed(run.elapsed_seconds)}` +
+      (!running && run.finish_reason ? ` · ${run.finish_reason}` : ''),
+      ...(running ? [`Last progress: ${run.last_progress ?? 'unknown'}`] : []),
+    ]),
+    ...(runs.length > 20 ? [`… ${runs.length - 20} more runs`] : []),
+  ];
+  const launchable = ['simple', 'normal', 'hard', 'critic'].map(actor => {
+    const names = (state.launchable ?? []).filter(entry => entry.can_launch === true &&
+      Array.isArray(entry.actor_classes) && entry.actor_classes.includes(actor))
+      .map(entry => accountName(entry.account));
+    return `${actor}: ${[...new Set(names)].join(', ') || 'none'}`;
+  });
+  const ready = /^Ready to launch executors: yes(?:[;. ]|$)/.test(state.readiness);
+  return [{ title: `okit plugin · claude · ${state.accounts.length} accounts · ready: ${ready ? 'yes' : 'no'}`, rows: [] },
+  { title: 'ACCOUNTS', rows: accounts.length ? accounts : ['No accounts.'] },
+  { title: 'RUNNING', rows: newest.some(live) ? runRows(newest.filter(live), true) : ['No live runs.'] },
+  { title: 'RECENT', rows: newest.some(run => !live(run)) ? runRows(newest.filter(run => !live(run)), false) : ['No recent runs.'] },
+  { title: 'LAUNCHABLE NOW', rows: launchable },
+  { title: 'Readiness', rows: [state.readiness,
     ...(state.runs.length || state.skipped_runs ? [] : ['No runs.']),
     ...(state.skipped_runs ? [`${state.skipped_runs} ${state.skipped_runs === 1 ? 'run' : 'runs'} skipped (unreadable)`] : []),
-    ...state.warnings.map(warning => `Warning: ${warning}`)] }, ...groups.values()];
+    ...state.warnings.map(warning => `Warning: ${warning}`)] }];
 }

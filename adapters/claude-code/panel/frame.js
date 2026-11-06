@@ -35,21 +35,42 @@ export function clipText(text, width) {
 }
 
 /** @param {string} text */
-const cleanText = text => text.replace(/[\u200b-\u200f\u2028-\u202e\u2066-\u2069\u061c\ufeff]/g, '')
+const cleanText = text => text.replace(/[\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\u180e\ufff9-\ufffb\u061c\ufeff]/g, '')
   .replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
 /** @param {string} text @param {number} width */
 export function wrapText(text, width) {
+  const max = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
+  if (!max) return [];
   const rows = [];
+  const hardRows = new Set();
   let row = '';
-  for (const ch of cleanText(text)) {
-    if (textWidth(row + ch) > width) {
-      if (rows.length === 2) return [...rows, clipText(row + ch + '…', width)];
-      if (row) rows.push(row);
+  let hard = false;
+  for (const word of cleanText(text).split(/\s+/u).filter(Boolean)) {
+    if (row && textWidth(`${row} ${word}`) <= max) { row += ` ${word}`; continue; }
+    const oversized = textWidth(word) > max;
+    if (row && oversized && textWidth(row + ' ') < max) row += ' ';
+    else {
+      if (row) { if (hard) hardRows.add(rows.length); rows.push(row); }
       row = '';
     }
-    row += textWidth(ch) > width ? clipText(ch, width) : ch;
+    hard = oversized;
+    for (const ch of word) {
+      if (textWidth(row + ch) > max) {
+        if (row) { hardRows.add(rows.length); rows.push(row); }
+        row = '';
+      }
+      row += textWidth(ch) > max ? clipText(ch, max) : ch;
+    }
   }
-  return [...rows, clipText(row, width)];
+  if (row) { if (hard) hardRows.add(rows.length); rows.push(row); }
+  if (rows.length <= 3) return rows;
+  let last = rows[2];
+  while (textWidth(last + '…') > max) {
+    const space = last.lastIndexOf(' ');
+    last = space < 0 ? (hardRows.has(2) ? clipText(last + '…', max).slice(0, -1) : '')
+      : last.slice(0, space);
+  }
+  return [...rows.slice(0, 2), last + '…'];
 }
 
 /** @param {string} title @param {readonly string[]} rows @param {number} width */

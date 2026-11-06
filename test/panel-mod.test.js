@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { clipText, frameLines, textWidth, wrapText } from '../adapters/claude-code/panel/frame.js';
 import { elapsed, formatHm, quotaBar } from '../adapters/claude-code/panel/formatters.js';
-import { COMMAND, PROCESS_OPTIONS, loadState, parseState, viewModel } from '../adapters/claude-code/panel/panel.js';
+import { COMMAND, PROCESS_OPTIONS, boardLines, loadState, parseState, viewModel } from '../adapters/claude-code/panel/panel.js';
 import { createRefresh } from '../adapters/claude-code/panel/refresh.js';
 import { register } from '../adapters/claude-code/panel/register.js';
 
@@ -13,17 +13,74 @@ const response = state => ({ exitCode: 0, stdout: JSON.stringify(state) });
 const text = result => viewModel(result, Date.parse('2026-11-06T12:00:00Z')).flatMap(b => [b.title, ...b.rows]).join('\n');
 const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 
+// | Source corpus | Must pass | Must refuse |
+// | engine access | $.noun.event(), lexical closures | assignments and argument passing of $ |
+test('entry keeps the host engine lexical to each handler', async () => {
+  const source = await readFile(new URL('../adapters/claude-code/panel/register.js', import.meta.url), 'utf8');
+  const escapes = /(?:=\s*\$(?![\w.])|\(\s*\$\s*\)|\(\s*\$\s*,|,\s*\$\s*[,)]|\.\.\.\$\b|return\s+\$(?![\w.]))/;
+  // Handler declarations bind the host-supplied parameter; they do not pass it.
+  const callSites = source.replace(/(?:async\s*)?\(\$,\s*\w+(?:,\s*\w+)?\)\s*=>/g, 'handler =>');
+  assert.doesNotMatch(callSites, escapes);
+  for (const safe of ['$.ui.panes()', '() => $.clock.every(ms, tick)']) assert.doesNotMatch(safe, escapes);
+  for (const unsafe of ['engine = $;', 'helper($)', 'helper($, e)', 'helper(e, $)', 'return $;'])
+    assert.match(unsafe, escapes);
+});
+
+test('whole boards match golden output at 40 and 80 cells', async () => {
+  for (const name of ['populated', 'idle', 'failed']) {
+    const state = await readFile(new URL(`./fixtures/panel-state-v1-${name}.json`, import.meta.url), 'utf8');
+    for (const width of [40, 80]) {
+      const lines = boardLines(parseState(state), width, Date.parse('2026-11-06T12:00:00Z'));
+      assert.equal(lines.join('\n') + '\n', await readFile(new URL(`./fixtures/panel-board-${name}-${width}.txt`, import.meta.url), 'utf8'));
+      for (const line of lines) assert.ok(textWidth(line) <= width);
+    }
+  }
+});
+
+test('account markers and run labels follow only each run account field', () => {
+  const state = structuredClone(populated);
+  state.runs = ['default', 'work', 'vendor-id'].map((account, i) => ({
+    ...state.runs[0], id: `unique-${i}`, demand: null, account,
+  }));
+  const blocks = viewModel(parseState(JSON.stringify(state)));
+  assert.match(blocks[1].rows.join('\n'), /Personal · running[\s\S]*Work · running/);
+  assert.match(blocks[2].rows[0], /unique-0: live · account Personal/);
+  assert.match(blocks[2].rows[2], /unique-1: live · account Work/);
+  assert.match(blocks[2].rows[4], /unique-2: live · account unknown account/);
+  assert.doesNotMatch(blocks[1].rows.join('\n'), /unique-|vendor-id|default/);
+  state.runs = [state.runs[2]];
+  assert.ok(viewModel(parseState(JSON.stringify(state)))[1].rows.filter(row => / · idle$/.test(row)).length === 2);
+});
+
+test('header readiness and launchable classes use command evidence', () => {
+  const state = structuredClone(populated);
+  state.launchable = [
+    { account: 'work', actor_classes: ['simple', 'normal'], can_launch: true },
+    { account: 'default', actor_classes: ['hard', 'critic'], can_launch: false },
+  ];
+  let blocks = viewModel(parseState(JSON.stringify(state)));
+  assert.deepEqual(blocks[4].rows, ['simple: Work', 'normal: Work', 'hard: none', 'critic: none']);
+  assert.match(blocks[0].title, /2 accounts · ready: no$/);
+  state.readiness = 'Ready to launch executors: yes.';
+  assert.match(viewModel(parseState(JSON.stringify(state)))[0].title, /ready: yes$/);
+  assert.match(viewModel(parseState(JSON.stringify(empty)))[0].title, /0 accounts · ready: no$/);
+  delete state.launchable[0].actor_classes;
+  assert.equal(viewModel(parseState(JSON.stringify(state)))[4].rows[0], 'simple: none');
+});
+
 test('ported elapsed and quota formatters preserve unknown, zero and reset durations', () => {
   for (const [seconds, expected] of [[7, '0:07'], [723, '12:03'], [59.999, '0:59'], [60, '1:00'], [-1, '0:00'], [null, 'unknown']])
     assert.equal(elapsed(seconds), expected);
   assert.equal(formatHm(15300), '4h15m');
   assert.equal(formatHm(176400), '2d1h');
   assert.equal(quotaBar(null, 0), 'unknown');
-  assert.equal(quotaBar({ remaining_pct: 0, resets_at: null }, 0), '[░░░░░░░░░░] 0%');
-  assert.equal(quotaBar({ remaining_pct: 100, resets_at: null }, 0), '[██████████] 100%');
-  assert.match(quotaBar({ remaining_pct: 50, resets_at: '1970-01-01T04:15:00Z' }, 0), /resets in 4h15m/);
+  assert.equal(quotaBar({ remaining_pct: 0, resets_at: null }, 0), '[░░░░░░░░░░] 0% left · reset unknown');
+  assert.equal(quotaBar({ remaining_pct: 100, resets_at: null }, 0), '[██████████] 100% left · reset unknown');
+  assert.match(quotaBar({ remaining_pct: 50, resets_at: '1970-01-01T04:15:00Z' }, 0), /resets 1970-01-01T04:15:00.000Z \(in 4h15m\)/);
+  assert.match(quotaBar({ remaining_pct: 50, resets_at: '1970-01-01T04:15:00Z' }, 15300001), /\(passed\)$/);
+  assert.match(quotaBar({ remaining_pct: 50, resets_at: '1970-01-01T04:15:00Z' }, 15300000), /\(in 0h00m\)$/);
   for (const [remaining_pct, expected] of [[33.3333333333, 33], [1e21, 100], [-5, 0]])
-    assert.match(quotaBar({ remaining_pct, resets_at: null }, 0), new RegExp(` ${expected}%$`));
+    assert.match(quotaBar({ remaining_pct, resets_at: null }, 0), new RegExp(` ${expected}% left`));
 });
 
 test('ported clipping and frames fit narrow, wide and combining text without terminal controls', () => {
@@ -35,6 +92,11 @@ test('ported clipping and frames fit narrow, wide and combining text without ter
   assert.equal(textWidth('กิ้'), 1);
   assert.equal(textWidth('क़'), 1);
   assert.equal(clipText('a\u202eb', 10), 'ab');
+  for (const code of [0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0x180e, 0xfff9, 0xfffa, 0xfffb]) {
+    const input = `a${String.fromCodePoint(code)}b`;
+    assert.equal(clipText(input, 10), 'ab');
+    assert.deepEqual(wrapText(input, 10), ['ab']);
+  }
   for (const width of [1, 12, 39, 40, 60, 80]) {
     const lines = frameLines('okit plugin', ['界😀e\u0301 ✅ '.repeat(40), 'กิ้क़'.repeat(100), '\x1b[31m\runsafe'], width);
     for (const line of lines) assert.ok(textWidth(line) <= width);
@@ -42,6 +104,26 @@ test('ported clipping and frames fit narrow, wide and combining text without ter
     else assert.ok(!lines.join('').includes('╔'));
     assert.doesNotMatch(lines.join(''), /[\x00-\x1f\x7f-\x9f]/);
   }
+});
+
+// | Wrap corpus | Must pass | Must refuse |
+// | Sentence with spaces | whole words on the next row | splitting a word that fits |
+// | Unbroken 100-character id | hard breaks and the three-row cap | overflow or empty rows |
+test('greedy wrapping preserves fitting words and hard-breaks only oversized tokens', () => {
+  const sentence = 'resets soon (in 5h00m) effort high installed';
+  assert.deepEqual(wrapText(sentence, 20), ['resets soon (in', '5h00m) effort high', 'installed']);
+  assert.deepEqual(wrapText('one two three', 7), ['one two', 'three']);
+  assert.deepEqual(wrapText('x'.repeat(100), 40), ['x'.repeat(40), 'x'.repeat(40), 'x'.repeat(20)]);
+  assert.deepEqual(wrapText('  one\n two\u202e  ', 7), ['one two']);
+  assert.deepEqual(wrapText('   ', 7), []);
+  for (const width of [1, 7, 20, 40, 80]) {
+    for (const input of [sentence, 'x'.repeat(100), '界😀e\u0301 '.repeat(100)]) {
+      const rows = wrapText(input, width);
+      assert.ok(rows.length <= 3);
+      assert.ok(rows.every(row => row.length > 0 && textWidth(row) <= width));
+    }
+  }
+  assert.deepEqual(wrapText('one two three four', 6), ['one', 'two', 'three…']);
 });
 
 test('CJK wrapping at widths one through three has no empty rows or overflow', () => {
@@ -61,13 +143,15 @@ test('view model shows no runs, two accounts, failed and stale runs, and both qu
   state.runs.push({ ...state.runs[0], id: 'failure', status: 'failed', account: 'work' },
     { ...state.runs[0], id: 'old', stale: true, account: 'removed' });
   const blocks = viewModel(parseState(JSON.stringify(state)), 0);
-  assert.deepEqual(blocks.map(b => b.title), ['okit plugin', 'Personal (default)', 'Work (work)', 'removed']);
-  assert.match(blocks[1].rows.join('\n'), /Session 5 h: .* 0%[\s\S]*Weekly: unknown/);
-  assert.match(blocks[2].rows.join('\n'), /Session 5 h: unknown[\s\S]*Weekly: .*75%[\s\S]*failure: failed/);
-  assert.match(blocks[3].rows.join('\n'), /old: live · stale/);
-  assert.match(blocks[1].rows.join('\n'), /actor hard · opus · effort high · elapsed 0:02/);
-  assert.match(blocks[1].rows.join('\n'), /Last progress: Running checks/);
-  assert.equal(blocks[0].rows[0], state.readiness);
+  assert.deepEqual(blocks.slice(1).map(b => b.title), ['ACCOUNTS', 'RUNNING', 'RECENT', 'LAUNCHABLE NOW', 'Readiness']);
+  assert.equal(blocks[0].title, 'okit plugin · claude · 2 accounts · ready: no');
+  assert.match(blocks[1].rows.join('\n'), /Personal · running\nsession \(5 h\): .* 0%[\s\S]*week: unknown/);
+  assert.match(blocks[1].rows.join('\n'), /Work · idle\nsession \(5 h\): unknown[\s\S]*week: .*75%/);
+  assert.match(blocks[3].rows.join('\n'), /failure: failed .*account Work/);
+  assert.match(blocks[3].rows.join('\n'), /old: live · stale .*account unknown account/);
+  assert.match(blocks[2].rows.join('\n'), /actor hard · opus · effort high · elapsed 0:02/);
+  assert.match(blocks[2].rows.join('\n'), /Last progress: Running checks/);
+  assert.equal(blocks[5].rows[0], state.readiness);
   assert.equal(populated.accounts[0].quota.session.remaining_pct, 80);
   const older = structuredClone(populated);
   delete older.runs[0].account;
@@ -114,7 +198,7 @@ test('unreadable runs are isolated while optional run text is normalized', () =>
   const result = parseState(JSON.stringify(state));
   assert.equal(result.ok, true);
   assert.match(text(result), /one: live/);
-  assert.match(text(result), /unknown: live · actor - · - · effort -/);
+  assert.match(text(result), /unknown: live .*account Personal · actor - · - · effort -/);
   assert.match(text(result), /2 runs skipped \(unreadable\)/);
 });
 
@@ -124,8 +208,7 @@ test('null, future and non-string statuses preserve run details without skips', 
     state.runs[0].status = status;
     const rendered = text(parseState(JSON.stringify(state)));
     assert.match(rendered, new RegExp(`one: ${expected}`));
-    assert.match(rendered, /actor hard · opus · effort high · elapsed 0:02/);
-    assert.match(rendered, /Last progress: Running checks/);
+    assert.match(rendered, /account Personal · elapsed 0:02/);
     assert.doesNotMatch(rendered, /skipped|No runs\./);
   }
   assert.match(text(parseState(JSON.stringify({ ...empty, runs: [{}] }))), /unknown: unknown/);
@@ -166,17 +249,19 @@ function harness(load = async () => parseState(JSON.stringify(empty)), requested
   return { refresh, published, tick: () => tick(), hide: () => { visible = false; }, cancelled: () => cancelled };
 }
 
-test('each account keeps only its newest twenty runs and one remainder row', () => {
+test('RUNNING and RECENT each keep twenty newest runs and a remainder row', () => {
   const state = structuredClone(populated);
   state.runs = Array.from({ length: 1000 }, (_, i) => ({ ...state.runs[0], id: `run-${i}`,
     started_at: new Date(i * 1000).toISOString() }));
-  state.runs.push({ ...state.runs[0], id: 'work-run', account: 'work' });
+  state.runs.push(...state.runs.map(run => ({ ...run, id: `done-${run.id}`, status: 'done' })));
   const blocks = viewModel(parseState(JSON.stringify(state)));
-  assert.equal(blocks[1].rows.length, 43);
-  assert.match(blocks[1].rows[2], /^run-999:/);
-  assert.match(blocks[1].rows[40], /^run-980:/);
-  assert.equal(blocks[1].rows.at(-1), '… 980 more runs');
-  assert.match(blocks[2].rows[2], /^work-run:/);
+  assert.equal(blocks[2].rows.length, 41);
+  assert.match(blocks[2].rows[0], /^run-999:/);
+  assert.match(blocks[2].rows[38], /^run-980:/);
+  assert.equal(blocks[2].rows.at(-1), '… 980 more runs');
+  assert.equal(blocks[3].rows.length, 21);
+  assert.match(blocks[3].rows[0], /^done-run-999:/);
+  assert.equal(blocks[3].rows.at(-1), '… 980 more runs');
 });
 
 test('refresh intervals never fall below two seconds, including invalid values', () => {
@@ -286,7 +371,7 @@ test('a never-settling load times out, releases busy and ignores late results', 
 test('registration catches pane API rejections as plain text', async () => {
   for (const operation of ['open', 'close', 'panes']) {
     const handlers = new Map();
-    register((event, filter, handler) => handlers.set(event, handler));
+    register((event, ...args) => handlers.set(event, args.at(-1)));
     const reject = async () => { throw new Error(`${operation} refused`); };
     const engine = { ui: {
       panes: operation === 'panes' ? reject : async () => operation === 'close' ? [{ id: 'okit-plugin' }] : [],
@@ -301,7 +386,7 @@ test('registration catches pane API rejections as plain text', async () => {
 test('session start registers and continues after close and registration rejections', async () => {
   for (const rejectRegister of [false, true]) {
     const handlers = new Map(), calls = [], event = {};
-    register((name, filter, handler) => handlers.set(name, handler));
+    register((name, ...args) => handlers.set(name, args.at(-1)));
     const engine = {
       ui: { close: async () => { calls.push('close'); throw new Error('pane never open'); } },
       command: { register: async command => {
@@ -320,7 +405,7 @@ test('session start registers and continues after close and registration rejecti
 test('rejected toggle close keeps refreshing until a successful close', async () => {
   const handlers = new Map();
   let visible = false, rejectClose = true, tick, calls = 0, cancelled = 0;
-  register((name, filter, handler) => handlers.set(name, handler));
+  register((name, ...args) => handlers.set(name, args.at(-1)));
   const engine = {
     process: { run: async () => { calls++; return response(empty); } },
     clock: { every(ms, callback) {
@@ -366,13 +451,20 @@ test('ported registration opens the titled pane, renders cached data and cancels
       resolve: () => ({ Box: 'Box', Text: 'Text' }),
     },
   };
-  register((event, filter, handler) => { hooks.push({ event, filter, handler }); });
-  const invoke = (event, bodyColumns = 60) => hooks.find(hook => hook.event === event).handler(engine,
-    { props: { bodyColumns } }, value => value);
+  register((event, ...args) => { hooks.push({ event, filter: args.length === 2 ? args[0] : undefined, handler: args.at(-1) }); });
+  const invoke = (event, bodyColumns = 60) => {
+    const current = event === 'session.start'
+      ? { command: engine.command, ui: { close: engine.ui.close } }
+      : event === 'ui.render' ? { ui: { resolve: engine.ui.resolve } }
+        : { ...engine, ui: { ...engine.ui } };
+    return hooks.find(hook => hook.event === event).handler(current, { props: { bodyColumns } }, value => value);
+  };
   const previousH = globalThis.h;
   globalThis.h = (type, props, ...children) => ({ type, props, children });
   try {
     await invoke('session.start');
+    assert.equal(hooks.find(hook => hook.event === 'session.start').filter, undefined);
+    assert.deepEqual(hooks.find(hook => hook.event === 'ui.render').filter, { component: 'Pane', requestId: 'okit-plugin' });
     assert.equal(commands[0].name, 'okit-panel');
     await invoke('command.run');
     assert.deepEqual(opened, [{ id: 'okit-plugin', title: 'okit plugin' }]);
@@ -381,7 +473,7 @@ test('ported registration opens the titled pane, renders cached data and cancels
     finish(response(populated)); await settle();
     const tree = await invoke('ui.render');
     assert.match(JSON.stringify(tree), /Personal/);
-    assert.match(JSON.stringify(tree), /Weekly: unknown/);
+    assert.match(JSON.stringify(tree), /week: unknown/);
     for (const width of [1e21, NaN, -10]) {
       const rendered = await invoke('ui.render', width);
       const max = Number.isNaN(width) ? 80 : width < 0 ? 1 : 240;
@@ -413,6 +505,10 @@ test('ported registration opens the titled pane, renders cached data and cancels
     assert.equal(calls, 5);
     assert.match(JSON.stringify(await invoke('ui.render')), /Loading state/);
     finish(response(empty)); await settle();
+    await invoke('command.run');
+    await invoke('command.run');
+    finish({ exitCode: 7, stdout: '' }); await settle();
+    assert.match(JSON.stringify(await invoke('ui.render')), /State unavailable:/);
     await invoke('command.run');
   } finally {
     if (previousH === undefined) delete globalThis.h;

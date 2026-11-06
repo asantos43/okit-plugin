@@ -7,6 +7,7 @@ import { TOOLS, TOOL_NAMES } from '../src/mcp/tools.js';
 import { isCollectorLaunch, main } from '../src/cli.js';
 import { CONFIG_SCHEMA } from '../src/config.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
+import { ALLOWED_FLAGS, flagsOf } from '../src/install/flags.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 // The override lets a reviewer mutate disposable copies, without editing live docs.
@@ -106,6 +107,23 @@ test('reference has exactly the required files and matching language structure',
 });
 
 for (const suffix of ['', '.pt-BR']) {
+  test(`panel guide commands match installer flags and host registration ${suffix || 'en'}`, async () => {
+    const guide = await source(`docs/guide/panel${suffix}.md`);
+    for (const command of ['install', 'uninstall']) {
+      assert.ok(guide.includes(`\`okit-plugin ${command} --panel\``));
+      assert.ok(ALLOWED_FLAGS[command].includes('panel'));
+      assert.deepEqual(flagsOf(command, ['--panel']), { panel: true });
+    }
+    assert.deepEqual(flagsOf('install', ['--panel', '--client', 'claude-code', '--account', 'work']),
+      { panel: true, client: 'claude-code', account: 'work' });
+    assert.ok(guide.includes('`okit-panel`'));
+    assert.match(await source('adapters/claude-code/panel/register.js'), /name: 'okit-panel'/);
+    assert.ok(guide.includes('`okit-plugin panel-state --json --client claude`'));
+    assert.ok(cliSource.includes('panel-state --json --client <claude|codex>'));
+    assert.ok(commands.includes('okit-plugin panel-state'), 'dispatched CLI command');
+    assert.ok((await read(`adapters${suffix}.md`)).includes(`](../guide/panel${suffix}.md)`));
+  });
+
   test(`populated panel-state example matches the versioned golden ${suffix || 'en'}`, async () => {
     const text = await read(`state${suffix}.md`);
     const examples = [...text.matchAll(/`(\{"schema_version":1,[^`]+\})`/g)]

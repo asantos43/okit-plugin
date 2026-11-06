@@ -4,10 +4,12 @@ export type Run = {
   id: string; status: string | null; stale: boolean; account: string | null;
   actor: string | null; model: string | null; effort: string | null;
   elapsed_seconds: number | null; last_progress: string | null; started_at?: string;
+  demand?: string | null; finish_reason?: string | null;
 };
 export type State = {
   schema_version: 1; client: 'claude'; accounts: Account[]; runs: Run[];
   readiness: string; warnings: string[]; skipped_runs?: number;
+  launchable?: { account: string; actor_classes?: string[]; can_launch: boolean }[];
 };
 export type Result = { ok: true; state: State } | { ok: false; error: string };
 export type Runner = (args: string[], options: { timeoutMs: number; maxOutputBytes: number }) =>
@@ -28,7 +30,11 @@ export type Engine = {
 };
 export type Event = { props?: { bodyColumns?: number } };
 export type Handler = ($: Engine, event: Event, next: (event: Event) => unknown) => unknown;
-export type On = (event: string, filter: Record<string, string>, handler: Handler) => void;
+export type On = {
+  (event: string, handler: Handler): void;
+  (event: string, filter: Record<string, string>, handler: Handler): void;
+};
 declare global {
+  // Supplied by the mod host in JavaScript as well as TSX.
   function h(type: unknown, props: Record<string, unknown>, ...children: unknown[]): unknown;
 }

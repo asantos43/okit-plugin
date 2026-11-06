@@ -1,20 +1,16 @@
-import { frameLines } from './frame.js';
-import { loadState, viewModel } from './panel.js';
+import { boardLines, loadState } from './panel.js';
 import { createRefresh } from './refresh.js';
 
 const PANE = 'okit-plugin';
-// Host supplies h for UI elements, as in the reference mod's TSX runtime.
+// The host supplies global h in JavaScript; verified with claude-code/testing.
 /** @param {import('./types.js').On} on */
 export function register(on) {
   /** @type {import('./types.js').Result} */
   let cached = { ok: false, error: 'Loading state…' };
   /** @type {ReturnType<typeof createRefresh> | undefined} */
   let refresh;
-  /** @type {import('./types.js').Engine} */
-  let engine;
-  on('session.start', {}, async ($, event, next) => {
+  on('session.start', async ($, event, next) => {
     refresh?.close();
-    engine = $;
     cached = { ok: false, error: 'Loading state…' };
     try { await $.ui.close({ id: PANE }); }
     catch {}
@@ -23,7 +19,6 @@ export function register(on) {
     return next(event);
   });
   on('command.run', { command: 'okit-panel' }, async $ => {
-    engine = $;
     try {
     if ((await $.ui.panes()).some(pane => pane.id === PANE)) {
       try { await $.ui.close({ id: PANE }); }
@@ -31,23 +26,23 @@ export function register(on) {
       refresh?.close();
       return { text: 'okit plugin panel closed.' };
     }
-    refresh ??= createRefresh({
-      clock: { every: (ms, tick) => engine.clock.every(ms, tick) },
-      load: () => loadState((args, options) => engine.process.run(args, options)),
-      visible: async () => (await engine.ui.panes()).some(pane => pane.id === PANE),
-      publish(value) { cached = value; engine.ui.invalidate('ui.render'); },
+    refresh?.close();
+    refresh = createRefresh({
+      clock: { every: (ms, tick) => $.clock.every(ms, tick) },
+      load: () => loadState((args, options) => $.process.run(args, options)),
+      visible: async () => (await $.ui.panes()).some(pane => pane.id === PANE),
+      publish(value) { cached = value; $.ui.invalidate('ui.render'); },
     });
-    refresh.close();
     cached = { ok: false, error: 'Loading state…' };
     await $.ui.open({ id: PANE, title: 'okit plugin' });
     refresh.open();
     return { text: 'okit plugin panel opened.' };
     } catch (error) { refresh?.close(); return unavailable(error); }
   });
-  on('ui.render', { component: 'Pane', requestId: PANE }, ($, event) => {
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, event) => {
     const { Box, Text } = $.ui.resolve(event);
     const width = Math.max(1, (event.props?.bodyColumns ?? 80) - 2);
-    const lines = viewModel(cached).flatMap(block => frameLines(block.title, block.rows, width));
+    const lines = boardLines(cached, width);
     return h(Box, { flexDirection: 'column' }, ...lines.map((line, index) => h(Text, { key: String(index) }, line)));
   });
 }

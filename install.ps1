@@ -119,6 +119,17 @@ const LABEL_WIDTH = 28;
 
 // {name} placeholders; the 'pt-BR' side is Brazilian Portuguese.
 const TEXTS = Object.freeze({
+  panel: { en: 'Optional panel', 'pt-BR': 'Painel opcional' },
+  panelFlag: { en: '{flag} cannot be used with --panel.', 'pt-BR': '{flag} não pode ser usado com --panel.' },
+  panelRefreshFailed: { en: 'Panel {action} failed; continuing the main operation: {reason}', 'pt-BR': 'A ação {action} do painel falhou; continuando a operação principal: {reason}' },
+  panelOnlyClaude: { en: '--panel is available only for Claude Code; use --client {client}.', 'pt-BR': '--panel está disponível apenas para Claude Code; use --client {client}.' },
+  panelNeedsMain: { en: 'Install the main Claude Code plugin for this account first.', 'pt-BR': 'Instale primeiro o plugin principal do Claude Code nesta conta.' },
+  panelInstalled: { en: 'Panel installed.', 'pt-BR': 'Painel instalado.' },
+  panelPresent: { en: 'Panel already installed; nothing changed.', 'pt-BR': 'Painel já instalado; nada mudou.' },
+  panelRemoved: { en: 'Panel removed.', 'pt-BR': 'Painel removido.' },
+  panelAbsent: { en: 'No managed panel installed; nothing changed.', 'pt-BR': 'Nenhum painel gerenciado instalado; nada mudou.' },
+  panelInvalid: { en: 'Could not read the Claude Code plugin list.', 'pt-BR': 'Não foi possível ler a lista de plugins do Claude Code.' },
+  panelMissing: { en: 'Panel payload unavailable; update the main plugin first.', 'pt-BR': 'Arquivos do painel indisponíveis; atualize primeiro o plugin principal.' },
   header: { en: '{package} {version} for {client} ({system} {arch})', 'pt-BR': '{package} {version} para {client} ({system} {arch})' },
   get: { en: 'Download and verify', 'pt-BR': 'Baixar e verificar' },
   local: { en: 'Local package', 'pt-BR': 'Pacote local' },

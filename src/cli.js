@@ -227,6 +227,7 @@ async function presentInstaller(group, flags, ctx, io, stored) {
   if (io.ui || flags.includes('--json')) return invoke();
   // The same reading of the arguments as the installer's: the last value of a repeated flag wins.
   const options = flagsOf(group, flags, { lenient: true });
+  if (options.panel) return invoke();
   let config, before, destination, bin;
   try {
     config = installConfig(stored?.install, options.dest ? { destination: options.dest } : {});

@@ -1,0 +1,6 @@
+{
+  "name": "okit-plugin-panel",
+  "version": "0.3.0",
+  "description": "Optional Claude Code board for okit plugin accounts and runs",
+  "license": "MIT"
+}

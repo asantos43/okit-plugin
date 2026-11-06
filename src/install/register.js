@@ -4,6 +4,7 @@ import { detect } from './menu.js';
 import { quote } from './link.js';
 import { presenterOf, pick, clientLabel, localizeReason } from './present.js';
 import { mcpPlan, registerMcp, shown } from './mcp-register.js';
+import { forgetPanel, refreshPanel } from './panel.js';
 
 /**
  * The command of the SessionStart hook of an installation. The one source of the string: the installer writes it into the
@@ -60,7 +61,9 @@ export async function register(record, deps, action = 'install') {
   if (settings.strategy === 'module' && !settings.module) {
     return { status: 'skipped', detail: ui.text('registerNoModule', { client: clientLabel(record.client) }), notes: [] };
   }
-  if (action === 'uninstall') await registerRole(record, deps, true);
+  if (action === 'uninstall') {
+    await registerRole(record, deps, true);
+  }
   if (settings.strategy === 'module' && action === 'uninstall') {
     // The MCP entry of the client goes out before the module it points at is gone.
     const notes = [];
@@ -77,6 +80,7 @@ export async function register(record, deps, action = 'install') {
     return { status: 'ok', detail: ui.text('registerModule'), notes };
   }
   if (!await (deps.detect ?? detect)(settings.executable, deps)) {
+    if (action === 'uninstall') forgetPanel(record, deps);
     const notes = [ui.text('registerMissingNext'), ...commands.map((item) => `  ${[item.command, ...item.args].join(' ')}`)];
     if (mcp) notes.push(...mcpManual(record, mcp, action).map((words) => `  ${shown(words, deps.platform)}`));
     if (settings.strategy === 'module') notes.push(ui.text('registerModuleNext', { path: join(record.path, settings.module) }));
@@ -84,12 +88,14 @@ export async function register(record, deps, action = 'install') {
   }
   // The MCP entry of the client goes out before the plugin it points at is gone.
   const notes = [];
+  if (action === 'uninstall') await refreshPanel(record, deps, action);
   if (action === 'uninstall') notes.push(...await mcpStep(record, deps, action));
   for (const command of commands) {
     ui.detail([command.command, ...command.args].join(' '));
     // An account other than the one the environment names runs the client's program with its own folder variable.
     await deps.run(deps.cliEnv ? { ...command, env: deps.cliEnv } : command);
   }
+  if (action === 'update') await refreshPanel(record, deps, 'update');
   // The MCP entry is written after the client's own registration, which succeeded.
   if (action !== 'uninstall' && settings.strategy !== 'module') notes.push(...await mcpStep(record, deps, action));
   if (action !== 'uninstall') await registerRole(record, deps);

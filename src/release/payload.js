@@ -198,9 +198,14 @@ export function pluginManifest({ packageJson, clientFiles, name }) {
   return manifest;
 }
 
+/** The panel has its own identity and follows the release version. */
+export function panelManifest(packageJson) {
+  return { name: 'okit-plugin-panel', version: packageJson.version,
+    description: 'Optional Claude Code board for okit plugin accounts and runs', license: packageJson.license ?? 'MIT' };
+}
+
 /**
- * The marketplace file of the package, with the one entry that points at the
- * package itself.
+ * The marketplace file of the package, including the optional Claude mod.
  *
  * @param {object} options
  * @param {object} options.packageJson the metadata of the package
@@ -217,6 +222,10 @@ export function marketplaceFile({ packageJson, marketplace, name, system }) {
       name,
       source: './',
       description: `${packageJson.description ?? name} (${system})`,
+    }, {
+      name: 'okit-plugin-panel',
+      source: './adapters/claude-code/panel',
+      description: 'Optional Claude Code board for okit plugin accounts and runs',
     }],
   };
 }
@@ -295,6 +304,9 @@ export async function payloadEntries({ root, config, packageJson, pair, userConf
   };
 
   if (clientFiles.plugin) {
+    const panelPath = 'adapters/claude-code/panel/.claude-plugin/plugin.json';
+    const panel = entries.find((entry) => entry.path === panelPath);
+    if (panel) panel.data = json(panelManifest(packageJson));
     entries.push({
       path: clientFiles.plugin,
       data: json(pluginManifest({ packageJson, clientFiles, name })),

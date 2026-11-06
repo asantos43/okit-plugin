@@ -319,7 +319,7 @@ export async function place(selected, downloaded, details, deps) {
     }
     // The registrations of the accounts belong to the folders of the clients, not to a payload: a new payload keeps them.
     const accounts = previous?.accounts && Object.keys(previous.accounts).length ? { accounts: previous.accounts } : {};
-    const record = { ...details, ...(previous?.statusline ? { statusline: previous.statusline } : {}), ...accounts,
+    const record = { ...details, ...(previous?.panel ? { panel: previous.panel } : {}), ...(previous?.statusline ? { statusline: previous.statusline } : {}), ...accounts,
       ...(previous ? (previous.defaultRegistered === false ? { defaultRegistered: false } : {}) : {}), version: selected.version, path, destination,
       at: new Date(now()).toISOString(), sha256: downloaded.sha256, previous };
     await saveRecord(destination, record, deps);
