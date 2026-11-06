@@ -6,7 +6,7 @@ import { requireAccount, requireBareClient, accountsOf, accountKey } from './acc
 import { accountEnv } from './accounts.js';
 import { credentialInEnv, loginState } from './accounts-login.js';
 import { chooseAccount } from './accounts-choose.js';
-import { confirmedActor, detectClients } from './env/models.js';
+import { accountActors, detectClients } from './env/models.js';
 
 import { DEFAULT_CONFIG, configOf } from './profiles.js';
 import { readJson, withLock, writeJsonAtomic } from './state.js';
@@ -67,13 +67,11 @@ export async function accountChoice({ client, actorClass, config, runs, now = Da
 }
 
 async function launchActors(client, account, config, env, run) {
-  const profiles = Object.values(config.profiles?.[client] ?? {}).filter(Boolean);
-  if (!Object.hasOwn(config.accounts ?? {}, client) || !config.setup?.done?.profiles?.[client]) return profiles;
+  if (!Object.hasOwn(config.accounts ?? {}, client)) return accountActors({ client, config });
   const observed = await detectClients({ client, onlyClient: client, account: account.id, config, run,
     env: accountEnv(client, account, env, undefined, config) });
   const reading = observed.clients.find((entry) => entry.client === client);
-  // Listings are account-specific; catalog confirmation belongs to the client.
-  return profiles.filter((actor) => confirmedActor(config, client, reading, reading?.installed, actor));
+  return accountActors({ client, config, reading });
 }
 
 // A run with no account is the default's. A run of an account that is not (or no longer) saved keeps its own key, so it

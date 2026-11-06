@@ -106,6 +106,16 @@ export function confirmedActor(config, client, reading, installed, actor) {
   });
 }
 
+// Account policy uses configured profiles until a catalog client has setup
+// evidence. A live listing always belongs to this account, even before setup.
+export function accountActors({ client, config, reading, installed = reading?.installed } = {}) {
+  const profiles = Object.values(config.profiles?.[client] ?? {}).filter(Boolean);
+  if (!Object.hasOwn(config.accounts ?? {}, client)) return profiles;
+  if (installed === false) return [];
+  if (reading?.source !== 'listing' && !config.setup?.done?.profiles?.[client]) return profiles;
+  return profiles.filter((actor) => confirmedActor(config, client, reading, installed, actor));
+}
+
 function commonPrefix(left, right) {
   let length = 0;
   while (length < left.length && length < right.length && left[length] === right[length]) {

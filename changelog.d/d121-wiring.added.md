@@ -6,3 +6,4 @@
 - Infer the critic role from critic_of before account choice and launch, preserving the executor account in review inbox metadata.
 - Preserve the chosen account and reason when relinking daemon slots.
 - Record quota telemetry with the bare client and a separate optional account, including cached extra-account readings.
+- Share account actor availability between daemon and doctor: enforce account listings before setup and share client catalog confirmation across default and extra accounts.

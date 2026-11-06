@@ -5,7 +5,7 @@ import { loginState, accountWarnings, credentialInEnv } from '../accounts-login.
 import { configOf, DEFAULT_CONFIG, normalizeLimits } from '../profiles.js';
 import { setupPending } from './configuration.js';
 import { adapterQuotaReader, clientsOf, detectClient, labelsOf, DEFAULT_TTL_MS, readingWithAge, readingOf, rowOf } from './quota.js';
-import { confirmedActor, confirmedModels, detectClients, proposeProfiles, normalizeClientObservation } from './models.js';
+import { accountActors, confirmedActor, confirmedModels, detectClients, proposeProfiles, normalizeClientObservation } from './models.js';
 import { execFile } from 'node:child_process';
 import * as filesystem from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -203,6 +203,7 @@ export async function environmentSnapshot(deps = {}) {
     logins.set(account.key, await loginState({ ...deps, client, account, install: config.install, config }));
   })));
   const policyAccounts = new Map();
+  const policyActors = new Map();
   const rows = clients.map((client) => {
     const accounts = accountsOfClient(client);
     const accountRows = accounts.map((account) => {
@@ -214,10 +215,15 @@ export async function environmentSnapshot(deps = {}) {
       home: deps.home ?? homeOf(deps.env, deps.platform) ?? homedir() }) : [];
     const reading = account.isDefault ? detected.clients.find((entry) => entry.client === client) : observations.get(account.key);
     const installed = (account.isDefault ? deps.versions?.[client]?.installed : undefined) ?? reading?.installed ?? null;
-    // Saved setup choices belong to the default; extras need their own confirmed listing.
-    const catalog = account.isDefault || reading?.source === 'listing' ? reading : { ...reading, source: 'listing', models: [] };
-    const models = confirmedModels(config, client, catalog, installed);
-    const available = actorPairs(config, client).filter((actor) => confirmedActor(config, client, catalog, installed, actor));
+    const eligible = accountActors({ client, config, reading, installed });
+    policyActors.set(account.key, eligible);
+    const savedAccounts = Object.hasOwn(config.accounts ?? {}, client);
+    // Legacy readiness still needs confirmation; account choice uses eligibility.
+    const available = actorPairs(config, client).filter((actor) => eligible.some((pair) =>
+      pair.model === actor.model && pair.effort === actor.effort)
+      && (savedAccounts || confirmedActor(config, client, reading, installed, actor)));
+    const models = savedAccounts && reading?.source !== 'listing'
+      ? [...new Set(eligible.map((actor) => actor.model))] : confirmedModels(config, client, reading, installed);
     const { cap, source } = capOf(normalizeLimits(deps.limits?.limits ?? config.limits), client);
     if (installed !== false && !available.length) missing.push({ item: 'models', ...target,
       command: `${command} setup${setupPending(config) ? '' : ' --again'}` });
@@ -270,7 +276,7 @@ export async function environmentSnapshot(deps = {}) {
       slotEvidence: { running: deps.limits?.byClient?.[account.key] ?? 0, source } };
     });
     policyAccounts.set(client, accountRows.filter((account) => account.installed !== false).map((account) => ({ ...account,
-      ...!Object.hasOwn(config.accounts ?? {}, client) ? { actors: Object.values(config.profiles[client] ?? {}).filter(Boolean) } : {},
+      actors: policyActors.get(account.key),
       login: !Object.hasOwn(config.accounts ?? {}, client) ? 'unknown'
         : credentialInEnv(client, deps.env) ? 'logged-in' : account.login })));
     const { id: _id, key: _key, label: _label, isDefault: _default, configDir: _dir, account: _account,

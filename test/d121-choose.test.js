@@ -106,27 +106,70 @@ async function policyScene(t, extra = {}) {
 }
 
 // | Launch evidence | Must pass | Must refuse |
-// | no setup confirmation | configured profiles on every account | — |
+// | no saved accounts | configured profiles | requiring listing/setup for policy |
+// | catalog without this client's setup | configured profiles on every account | — |
 // | catalog + setup | matching client confirmation on extras | changed model/effort |
-// | listing + setup | model listed by that account | extra omits the model |
-test('daemon launches the roomiest saved Claude account with or without setup confirmation', async (t) => {
-  for (const confirmed of [false, true]) {
+// | listing with or without setup | model listed by that account | account omits the model |
+test('daemon and doctor share account availability before and after client setup', async (t) => {
+  const cases = [
+    { client: 'codex', setup: 'none', listed: 'none', saved: false, expected: 'default' },
+    { client: 'claude-code', setup: 'none', expected: 'a' },
+    { client: 'claude-code', setup: 'other-client', expected: 'a' },
+    { client: 'claude-code', setup: 'matching', expected: 'a' },
+    { client: 'claude-code', setup: 'changed-model', expected: null },
+    { client: 'claude-code', setup: 'changed-effort', expected: null },
+    { client: 'codex', setup: 'none', listed: 'none', expected: null },
+    { client: 'codex', setup: 'none', listed: 'default', expected: 'default' },
+    { client: 'codex', setup: 'none', listed: 'all', expected: 'a' },
+    { client: 'codex', setup: 'matching', listed: 'all', expected: 'a' },
+  ];
+  for (const { client, setup, listed, saved = true, expected } of cases) await t.test(`${client}/${setup}/${listed ?? 'catalog'}/${saved}`, async (t) => {
     const { root, deps, launches } = await policyScene(t);
-    const profiles = { 'claude-code': { hard: { model: 'opus', effort: 'high' } } };
-    await writeJsonAtomic(join(root, 'config.json'), {
-      accounts: { 'claude-code': [{ id: 'default', label: 'default' },
-        { id: 'a', label: 'extra', configDir: join(root, 'a') }] }, profiles,
-      ...confirmed ? { setup: { done: { profiles } } } : {},
-    });
+    const pair = { model: client === 'codex' ? 'm' : 'opus', effort: 'high' };
+    const profiles = { [client]: Object.fromEntries(['simple', 'normal', 'hard'].map((name) => [name,
+      { ...pair, effort: client === 'codex' ? configOf({}).profiles.codex[name].effort : pair.effort }])) };
+    const config = { accounts: { [client]: [{ id: 'default', label: 'default' },
+      { id: 'a', label: 'extra', configDir: join(root, 'a') }] }, profiles };
+    if (!saved) delete config.accounts;
+    if (setup !== 'none') config.setup = { done: { profiles: setup === 'other-client'
+      ? { codex: { normal: { model: 'other', effort: 'high' } } } : structuredClone(profiles) } };
+    if (setup.startsWith('changed-')) for (const saved of Object.values(config.setup.done.profiles[client])) {
+      saved[setup === 'changed-model' ? 'model' : 'effort'] = setup === 'changed-model' ? 'other' : 'low';
+    }
+    await writeJsonAtomic(join(root, 'config.json'), config);
     delete deps.actors;
     deps.env.ANTHROPIC_API_KEY = 'test-key';
-    deps.run = async () => ({ stdout: '1.0.0', code: 0 });
+    await mkdir(join(root, '.codex'));
+    await writeFile(join(root, '.codex', 'auth.json'), '');
+    deps.run = async ({ args, env }) => ({ code: 0, stdout: args.includes('--version') ? '1.0.0'
+      : JSON.stringify(listed === 'all' || listed === 'default' && env.CODEX_HOME !== join(root, 'a')
+        ? [{ slug: 'm', visibility: 'list' }] : []) });
     deps.quota = async (_client, id) => account(id, id === 'a' ? 90 : 40).reading;
-    await inboxAdd(root, { title: 'Claude work', client: 'claude-code', effort: 'hard' });
-    const result = await tick(root, deps);
-    assert.equal(result.spawned.length, 1, JSON.stringify(result.skipped));
-    assert.equal(launches[0].account, 'a');
-  }
+    const snapshot = await environmentSnapshot({ root, config, ...deps, client, record: false,
+      readQuota: deps.quota, plugin: {}, versions: { [client]: { installed: true } } });
+    const choices = snapshot.accountChoices.filter((choice) => choice.client === client);
+    assert.equal(choices.length, 3);
+    assert.ok(choices.every((choice) => choice.account === expected), JSON.stringify(choices));
+    if (client === 'claude-code') for (const row of snapshot.clients[0].accounts) {
+      assert.equal(row.models.includes('opus'), expected === 'a');
+      assert.equal(row.actors.some((actor) => actor.model === 'opus'), expected === 'a');
+    }
+    for (const locale of ['en', 'pt-BR']) {
+      const actors = await listActors({ snapshot, client, locale });
+      assert.deepEqual(actors.accountChoices, choices);
+      const doctor = readinessRows({ snapshot, ui: { locale }, program: 'okit-plugin' });
+      assert.equal(doctor.rows.filter((row) => row.id === 'account-policy').length, 3);
+      assert.ok(choices.every((choice) => doctor.rows.some((row) => row.id === 'account-policy'
+        && row.detail.includes(accountReasonText(choice.reason, locale)))));
+    }
+    for (const choice of choices) {
+      await inboxAdd(root, { title: 'same choice', client, effort: choice.actorClass });
+      const result = await tick(root, deps);
+      assert.equal(result.spawned.length, expected === null ? 0 : 1, JSON.stringify(result.skipped));
+      assert.equal(launches.at(-1)?.account ?? null, choice.account);
+      assert.equal(choice.reason.code, expected === null ? 'actor' : launches.at(-1).accountReason);
+    }
+  });
 });
 
 test('setup confirmation refuses changed catalog pairs and extras missing a listed model', async (t) => {
