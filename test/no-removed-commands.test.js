@@ -17,6 +17,7 @@ const PATTERN = new RegExp(
 // Exact matches with occurrence counts: another instruction in the same file still fails.
 // These are operation names, never instructions for invoking the plugin.
 const ALLOWED = new Map([
+  ['src/accounts-login-launch.js', [["['env',", 2, 'system env executable argv for the client login, not a plugin command']]],
   ['src/core/daemon.js', [["['status',", 1, 'daemon MCP action names']]],
   ['src/core/inbox-operations.js', [["['status',", 1, 'inbox_list MCP argument names']]],
   ['src/install/index.js', [["['quota']", 1, 'installer presentation step']]],

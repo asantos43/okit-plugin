@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CONFIG_SCHEMA } from '../src/config-schema.js';
 import { DEFAULT_CONFIG, PROFILE_EFFORTS } from '../src/profiles.js';
-import { buildState } from '../src/config-ui/state.js';
+import { buildState, describeAccount } from '../src/config-ui/state.js';
 
 test('every schema entry expands over real clients and classes', () => {
   const raw = { profiles: { custom: { simple: { model: 'saved-model', effort: 'low', maxTurns: 3 } } } };
@@ -52,17 +52,43 @@ test('failed or missing model listings preserve saved actors with a reason', () 
   }
 });
 
-test('accounts expose only identities and actor eligibility comes from observations', () => {
+test('accounts expose login help and actor eligibility comes from observations', () => {
   const raw = { accounts: { codex: [{ id: 'work', label: 'Work', configDir: '/private/client' }] } };
   const profile = DEFAULT_CONFIG.profiles.codex.simple;
   const state = buildState({ raw, observations: [{ client: 'codex', account: 'work', installed: true,
     source: 'listing', models: [profile.model] }], snapshot: { config: DEFAULT_CONFIG,
     clients: [{ client: 'codex', installed: true, accounts: [{ id: 'work', installed: true,
       candidates: [{ ...profile, canLaunch: true, restrictions: [], sizes: ['S'] }] }] }] } });
-  assert.ok(!JSON.stringify(state).includes('/private/client'));
-  assert.deepEqual(state.accounts.find((item) => item.id === 'work'), { client: 'codex', id: 'work', label: 'Work' });
+  assert.deepEqual(state.accounts.find((item) => item.id === 'work'), { client: 'codex', id: 'work', label: 'Work',
+    configDir: '/private/client', login: 'unknown', loginCommand: 'CODEX_HOME=/private/client codex login' });
   const actor = state.actors.find((item) => item.account === 'work');
   assert.equal(actor.classes[0].launchableNow, true);
   assert.equal(actor.classes[0].modelChoices[0].confirmed, true);
   assert.match(state.readiness, /^Ready to launch executors:/);
+});
+
+test('account descriptions and page state use the injected Windows platform', async () => {
+  const account = { client: 'codex', id: 'work', label: 'Work', configDir: 'C:\\Users\\João\\work' }; // locale:pt-BR Unicode path corpus
+  const raw = { accounts: { codex: [account] } };
+  const command = "$env:CODEX_HOME='C:\\Users\\João\\work'; codex login"; // locale:pt-BR Unicode path corpus
+  const row = await describeAccount(account, raw, { platform: 'win32', env: {}, fs: {
+    readFile: async () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
+    stat: async () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
+  } });
+  assert.equal(row.loginCommand, command);
+  assert.equal(buildState({ raw, platform: 'win32' }).accounts.find(item => item.id === 'work').loginCommand, command);
+});
+
+test('unreadable login state stays unknown and default commands reflect saved accounts', async () => {
+  const account = { client: 'codex', id: 'default', label: 'default', configDir: null };
+  const config = { accounts: { codex: [] } };
+  const calls = [];
+  const row = await describeAccount(account, config, { env: { HOME: '/unused' }, platform: 'linux', fs: {
+    readFile: async (file) => { calls.push(file); throw Object.assign(new Error('unreadable'), { code: 'EACCES' }); },
+    stat: async () => { assert.fail('an unreadable config stops probing'); },
+  } });
+  assert.equal(row.login, 'unknown');
+  assert.deepEqual(calls, ['/unused/.codex/config.toml']);
+  assert.equal(row.loginCommand, 'env -u CODEX_HOME codex login');
+  assert.equal(buildState().accounts.find(account => account.client === 'codex').loginCommand, 'codex login');
 });

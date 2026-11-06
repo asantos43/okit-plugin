@@ -34,7 +34,7 @@ export async function loginState({ client, account, install, config = { install 
   } catch (error) { return ['ENOENT', 'ENOTDIR'].includes(error?.code) ? 'logged-out' : 'unknown'; }
 }
 
-const CONFIG_ENV = { 'claude-code': 'CLAUDE_CONFIG_DIR', codex: 'CODEX_HOME' };
+export const CONFIG_ENV = { 'claude-code': 'CLAUDE_CONFIG_DIR', codex: 'CODEX_HOME' };
 
 const LOGIN_TEXTS = {
   en: { claude: 'The {client} account "{label}" ({id}) is not logged in, so nothing was started. Log it in with: {login} and then type /login.',

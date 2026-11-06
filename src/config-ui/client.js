@@ -24,16 +24,16 @@ export function clientMain(win) {
     for (const panel of panels) panel.hidden = panel.id !== tab.getAttribute('aria-controls');
     win.history.replaceState(null, '', `#tab=${tab.dataset.tab}`);
   };
+  const isDirty = control => {
+    const path = control.dataset.path ?? control.dataset.actorPath ?? control.dataset.actor;
+    try { return resets.has(path) || JSON.stringify(read(control)) !== JSON.stringify(initial.get(control)); }
+    catch { return true; }
+  };
   const updateDots = () => {
     for (const marker of [...tabs, ...all('details.section > summary')]) {
       const container = tabs.includes(marker)
         ? doc.getElementById(marker.getAttribute('aria-controls')) : marker.parentElement;
-      const dirty = controls.some(control => {
-        if (!container.contains(control)) return false;
-        const path = control.dataset.path ?? control.dataset.actorPath ?? control.dataset.actor;
-        try { return resets.has(path) || JSON.stringify(read(control)) !== JSON.stringify(initial.get(control)); }
-        catch { return true; }
-      });
+      const dirty = controls.some(control => container.contains(control) && isDirty(control));
       marker.classList.toggle('has-edits', dirty);
     }
   };
@@ -54,7 +54,16 @@ export function clientMain(win) {
     }
     updateDots();
   });
-  const error = reason => { doc.getElementById('error').textContent = reason; };
+  const error = reason => { doc.querySelector('#status').textContent = ''; doc.querySelector('#error').textContent = reason; };
+  const status = message => { doc.querySelector('#error').textContent = ''; doc.querySelector('#status').textContent = message; };
+  let removing = null;
+  const cancelRemove = () => {
+    if (!removing) return;
+    removing.querySelector('[data-account-remove-confirm]').hidden = true;
+    removing.querySelector('[data-account-remove-open]').hidden = false;
+    removing.querySelector('[data-account-remove-open]').focus();
+    removing = null;
+  };
   const showReview = () => {
     const review = doc.getElementById('review');
     review.hidden = false;
@@ -89,6 +98,23 @@ export function clientMain(win) {
     if (result.status !== 200) throw new Error(result.value.reason);
     win.location.reload();
   };
+  const checkAccounts = async client => {
+    const result = await request(`/api/state?locale=${encodeURIComponent(state.locale)}`, 'GET');
+    if (result.status !== 200) return error(result.value.reason);
+    for (const row of all('tr[data-account-id]').filter(row => row.dataset.client === client)) {
+      const account = result.value.accounts.find(account => account.client === client && account.id === row.dataset.accountId);
+      if (!account) continue;
+      const [kind, key] = account.login === 'logged-in' ? ['ready', 'loggedIn']
+        : account.login === 'logged-out' ? ['waiting', 'notLoggedIn'] : ['unknown', 'loginUnknown'];
+      const badge = row.querySelector('.badge');
+      badge.className = `badge ${kind}`;
+      badge.textContent = text[key];
+      badge.title = text[`${key}Title`];
+      row.querySelector('[data-account-login-help]').hidden = account.login === 'logged-in';
+      row.querySelector('[data-action="account-login"]').hidden = account.login !== 'logged-in';
+      row.querySelector('code').textContent = account.loginCommand;
+    }
+  };
   const save = async () => {
     for (;;) {
       const result = await request('/api/config', 'PUT', { expectedMtime: state.expectedMtime, changes: pending });
@@ -107,6 +133,7 @@ export function clientMain(win) {
     }
   };
   doc.addEventListener('keydown', event => {
+    if (event.key === 'Escape') cancelRemove();
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const index = tabs.indexOf(event.target);
     if (index < 0) return;
@@ -118,13 +145,74 @@ export function clientMain(win) {
     tabs[next].focus();
   });
   doc.addEventListener('click', async event => {
+    const target = event.target.closest('[data-action]');
+    const row = target?.closest?.('tr[data-account-id]');
+    const confirmRemove = removing && row === removing && target?.dataset.action === 'account-remove'
+      && target.dataset.confirm === 'true';
+    cancelRemove();
     const tab = event.target.closest('[role="tab"]');
     if (tabs.includes(tab)) { selectTab(tab); return; }
-    const target = event.target.closest('[data-action]');
     if (!target) return;
     try {
       const action = target.dataset.action;
-      if (action === 'review') {
+      if (['account-add', 'account-rename', 'account-remove'].includes(action) && controls.some(isDirty)) {
+        return error(text.accountSaveFirst);
+      }
+      if (action === 'account-remove') {
+        if (!row || target.dataset.accountId === 'default' || target.dataset.cancel === 'true') return;
+        if (!confirmRemove) {
+          removing = row;
+          row.querySelector('[data-account-remove-confirm]').hidden = false;
+          row.querySelector('[data-account-remove-open]').hidden = true;
+          row.querySelector('[data-confirm="true"]').focus();
+          return;
+        }
+        const result = await request('/api/account-remove', 'POST', { client: target.dataset.client, id: target.dataset.accountId });
+        if (result.status === 200) await reloadState(); else error(result.value.reason);
+      } else if (action === 'account-add' || action === 'account-rename') {
+        const value = { client: target.dataset.client };
+        if (action === 'account-add') {
+          const form = target.closest('[data-account-add]');
+          value.label = form.querySelector('[name="label"]').value;
+          value.configDir = form.querySelector('[name="configDir"]').value;
+        } else {
+          value.id = target.dataset.accountId;
+          value.label = row.querySelector('input[data-rename-account]').value;
+        }
+        const result = await request(action === 'account-add' ? '/api/account-add' : '/api/account-label',
+          action === 'account-add' ? 'POST' : 'PUT', value);
+        if (result.status === 200) await reloadState(); else error(result.value.reason);
+      } else if (action === 'account-login') {
+        row.querySelector('[data-account-login-help]').hidden = false;
+        target.hidden = true;
+        row.querySelector('[data-action="account-terminal"]').focus();
+      } else if (action === 'account-terminal') {
+        target.disabled = true;
+        try {
+          const result = await request('/api/account-login', 'POST', { client: target.dataset.client, id: target.dataset.accountId });
+          if (result.status === 200) {
+            const reasons = { 'no-terminal': text.accountTerminalNoTerminal,
+              'unsafe-folder': text.accountTerminalUnsafeFolder, 'unsupported-client': text.accountTerminalUnsupported };
+            status(result.value.launched === true ? (target.dataset.client === 'claude-code'
+              ? text.accountTerminalOpenedClaude : text.accountTerminalOpened)
+              : Object.hasOwn(reasons, result.value.reason) ? reasons[result.value.reason] : text.accountTerminalNoTerminal);
+          } else error(result.value.reason);
+        } finally { target.disabled = false; target.focus(); }
+      } else if (action === 'account-check') await checkAccounts(target.dataset.client);
+      else if (action === 'account-copy') {
+        const code = row.querySelector('code');
+        try {
+          await win.navigator.clipboard.writeText(code.textContent);
+          status(text.accountCopied);
+        } catch {
+          const range = doc.createRange();
+          range.selectNodeContents(code);
+          const selection = win.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          status(text.accountCopyFallback);
+        }
+      } else if (action === 'review') {
         pending = collect();
         doc.getElementById('changes').textContent = pending.map(change => {
           const control = controls.find(item => (item.dataset.path ?? item.dataset.actorPath ?? item.dataset.actor) === change.path);
