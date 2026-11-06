@@ -319,6 +319,7 @@ export async function spawn(actor, briefing, opts = {}) {
       runId,
       client: CLIENT,
       account: opts.account, config: opts.config, locale: opts.locale,
+      accountReason: opts.accountReason, executorAccount: opts.executorAccount, resumeSession: opts.resumeSession,
       role: delivery.context.role.toLowerCase(), critic_of: opts.critic_of,
       step: opts.step,
       profile: {

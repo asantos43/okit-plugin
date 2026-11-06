@@ -15,10 +15,11 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(HERE, 'fixtures', 'mcp-golden.json');
 const UPDATE = process.env.GOLDEN_UPDATE === '1';
 
-// Pre-D113 envelope and display shapes, with D121's additive snapshot.config.accountPolicy defaults.
+// D121 deliberately adds snapshot.accountChoices to status and accountChoices to actors_list.
+// Each choice has client, actorClass, account, structured reason and optional wait_until; envelopes stay unchanged.
 const DISPLAY_SHAPES = {
-  status: '5ec97bac232791b50277d37051c1d4302372db577e44a9c8b5a6b4b189d6269c',
-  actors_list: '7ce389f5861b56a3e49e6aad988ced46da0690507e6dc4d1e0d745c6bac061ab',
+  status: 'e605fdc74c3a154e104103eedf6e63c6240a5ae56d30bac51868e4556a53fdfb',
+  actors_list: '04260e09cd5efb227b48567b76770623525e43a7da1ab58571a40f54c6bc0f12',
 };
 function jsonShape(value) {
   if (value === null) return 'null';
@@ -27,7 +28,7 @@ function jsonShape(value) {
   return typeof value;
 }
 
-test('display replies preserve pre-D113 JSON keys, types and MCP envelope in both locales', async () => {
+test('display replies preserve the reviewed JSON shapes and MCP envelope in both locales', async () => {
   for (const locale of ['en', 'pt-BR']) for (const [name, expected] of Object.entries(DISPLAY_SHAPES)) {
     const root = await tempRoot();
     const frame = await respond({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { locale } } },
@@ -41,7 +42,9 @@ test('display replies preserve pre-D113 JSON keys, types and MCP envelope in bot
     if (name === 'status') assert.deepEqual(reply.snapshot.config.accountPolicy,
       { minQuotaPct: 0, paceMarginPct: 15, enforcePace: false });
     const shape = jsonShape(reply);
-    assert.equal(createHash('sha256').update(JSON.stringify(shape)).digest('hex'), expected, `${name}/${locale}`);
+    const hash = createHash('sha256').update(JSON.stringify(shape)).digest('hex');
+    if (UPDATE) process.stderr.write(`${name}/${locale} shape: ${hash}\n`);
+    else assert.equal(hash, expected, `${name}/${locale}`);
   }
 });
 

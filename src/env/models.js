@@ -90,8 +90,9 @@ export function confirmedModels(config, client, reading, installed) {
     .map(([, profile]) => profile.model))];
 }
 
-// Model-only listings cannot validate a changed effort. Keep the effort of
-// the saved choice (or reference profile) until setup records the new pair.
+// Catalog confirmation is shared by the client's accounts; live listings
+// confirm only the account observed. Model-only listings cannot validate a
+// changed effort: keep the saved (or reference) effort until setup records it.
 export function confirmedActor(config, client, reading, installed, actor) {
   if (installed === false || reading?.hidden?.includes(actor.model)) return false;
   const saved = config.setup?.done?.profiles?.[client] ?? {};
@@ -103,6 +104,16 @@ export function confirmedActor(config, client, reading, installed, actor) {
     }
     return saved[name]?.model === actor.model && saved[name]?.effort === actor.effort;
   });
+}
+
+// Account policy uses configured profiles until a catalog client has setup
+// evidence. A live listing always belongs to this account, even before setup.
+export function accountActors({ client, config, reading, installed = reading?.installed } = {}) {
+  const profiles = Object.values(config.profiles?.[client] ?? {}).filter(Boolean);
+  if (!Object.hasOwn(config.accounts ?? {}, client)) return profiles;
+  if (installed === false) return [];
+  if (reading?.source !== 'listing' && !config.setup?.done?.profiles?.[client]) return profiles;
+  return profiles.filter((actor) => confirmedActor(config, client, reading, installed, actor));
 }
 
 function commonPrefix(left, right) {

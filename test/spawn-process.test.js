@@ -195,6 +195,7 @@ test('the run file is written on start and completed on exit', async (t) => {
   const file = join(runs, 'd-1.json');
   assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), {
     runId: 'd-1', client: 'claude-code', pid: 4242, mode: 'PROCESS', status: 'live', startedAt: 1_000,
+    demand: 'd-1', role: 'executor',
   });
   assert.ok((await readFile(join(runs, 'd-1.out'), 'utf8')) === '');
 
@@ -207,6 +208,7 @@ test('the run file is written on start and completed on exit', async (t) => {
   assert.deepEqual(ended, {
     runId: 'd-1', client: 'claude-code', pid: 4242, mode: 'PROCESS', status: 'done',
     startedAt: 1_000, endedAt: 9_000, exitCode: 0,
+    demand: 'd-1', role: 'executor',
   });
 });
 
@@ -251,6 +253,7 @@ test('a client that cannot be started fails the run instead of the daemon', asyn
   assert.deepEqual(run, {
     runId: 'd-1', client: 'claude-code', pid: 4242, mode: 'PROCESS', status: 'failed',
     startedAt: 2_000, endedAt: 2_000, error: 'spawn claude ENOENT', exitCode: null,
+    demand: 'd-1', role: 'executor',
   });
 
   // The timer is gone with the run: nothing kills a process that never began.
@@ -318,6 +321,7 @@ test('a run file that refuses the read and the write once still ends with its re
   assert.deepEqual(run, {
     runId: 'd-1', client: 'claude-code', pid: 4242, mode: 'PROCESS', status: 'failed',
     startedAt: 2_000, endedAt: 2_000, error: 'spawn claude ENOENT', exitCode: null,
+    demand: 'd-1', role: 'executor',
   });
 });
 

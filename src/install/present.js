@@ -307,6 +307,7 @@ export const TEXTS = Object.freeze({
 // A pattern matches the whole reason and its captures fill $1..; a reason that
 // matches none is shown as raised. The tests walk this table and the raise sites.
 export const REASONS = [
+  [/^now must be a finite timestamp$/, 'now deve ser um timestamp finito', 'now must be a finite timestamp'],
   [/^permission denied$/i, 'permissão negada', 'permission denied'],
   [/^the installed daemon script could not be identified$/, 'não foi possível identificar o script do daemon instalado', 'the installed daemon script could not be identified'],
   // A path that could not be read: the prefix must have the shape of a path (a POSIX path, a home, a relative path or

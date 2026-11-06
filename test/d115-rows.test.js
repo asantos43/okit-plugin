@@ -132,8 +132,10 @@ test('two accounts and implicit default: doctor, actors, status, env_report and 
   }
 });
 
-test('MCP golden for two accounts, kept separate from the existing contract', async () => {
+test('MCP golden for two accounts includes D121 accountChoices with structured reasons', async () => {
   const snapshot = await environmentSnapshot(deps());
+  assert.ok(snapshot.accountChoices.length > 0);
+  assert.ok(snapshot.accountChoices.every((choice) => typeof choice.reason.code === 'string'));
   const actual = {};
   actual.accountTools = TOOLS.filter((tool) => ['quota_set', 'quota_show', 'acquire_slot', 'limits_status'].includes(tool.name))
     .map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));

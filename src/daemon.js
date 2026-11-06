@@ -11,7 +11,11 @@ import process from 'node:process';
 import { classify } from './classify.js';
 import { demandRef, projectName, withDemandRef } from './demand-ref.js';
 import { inboxList, inboxSetExt, inboxSetStatus } from './inbox.js';
-import { acquireSlot, discardSlot, releaseSlot } from './limits.js';
+import { acquireSlot, accountChoice, discardSlot, releaseSlot } from './limits.js';
+import { ACCOUNT_CLIENTS } from './accounts.js';
+import { accountReasonText } from './accounts-choose.js';
+import { adapterQuotaReader } from './env/quota.js';
+import { resolveLocale } from './install/present.js';
 import { DEFAULT_CONFIG, profilePick } from './profiles.js';
 import { record as telemetryRecord } from './telemetry/index.js';
 import { orderPurge } from './orders.js';
@@ -110,11 +114,12 @@ function quotaOf(reading) {
   return { source: 'api', remainingPct: reading.remainingPct };
 }
 
-async function readQuota(deps, client, cache) {
-  if (!cache.has(client)) {
-    cache.set(client, typeof deps.quota === 'function' ? await deps.quota(client) : null);
+async function readQuota(deps, client, cache, account) {
+  const key = account === undefined || account === 'default' ? client : `${client}:${account}`;
+  if (!cache.has(key)) {
+    cache.set(key, typeof deps.quota === 'function' ? await deps.quota(client, account) : null);
   }
-  return cache.get(client);
+  return cache.get(key);
 }
 
 async function readIdle(deps, client, cache) {
@@ -166,26 +171,51 @@ const newRunId = () => `${RUN_PREFIX}${randomBytes(4).toString('hex')}`;
 async function delegate(root, item, deps, settings, cache) {
   const client = item.client ?? DEFAULT_CLIENT;
   const effort = item.effort ?? classify(item).effort;
-  const quota = quotaOf(await readQuota(deps, client, cache));
+  const resumeSession = item.resumeSession ?? item.ext?.resumeSession;
+  const fixedAccount = resumeSession?.account ?? item.account ?? item.ext?.account;
+  const automatic = fixedAccount === undefined && !resumeSession && ACCOUNT_CLIENTS.includes(client);
+  const quota = automatic ? { source: 'off' } : quotaOf(await readQuota(deps, client, cache, fixedAccount));
   const profile = profilePick({ client, effort, quota, config: settings.config });
   await telemetryRecord(root, 'profile.choice', { client, ...profile });
   const runId = newRunId();
+  const criticOf = item.critic_of ?? item.ext?.critic_of;
+  const role = item.role ?? item.ext?.role ?? (criticOf ? 'critic' : undefined);
 
-  // A launch that is refused for its account (not logged in) must not take a slot: the slot creates the run file, and
-  // giving it back keeps that file as `done`. The spawner's own check, run before the reservation.
-  try {
-    await deps.spawn.preflight?.(item, { client });
-  } catch (error) {
-    return { skip: spawnerSkip(error) };
-  }
-  const slot = await acquireSlot(root, runId, { client, config: settings.config });
+  const options = { client, profile, runId, config: settings.config,
+    account: fixedAccount,
+    resumeSession, role, executorAccount: item.executorAccount ?? item.ext?.executorAccount };
+  const prepare = async ({ runs, settings: config }) => {
+    if (resumeSession && typeof resumeSession.account !== 'string') return { ok: false,
+      reason: accountReasonText({ code: 'session-account' }, resolveLocale({ env: deps.env, saved: config.language }).locale) };
+    const executor = criticOf ? runs.filter((run) => run.runId === criticOf
+      || run.demand === criticOf && run.role === 'executor')
+      .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0] : undefined;
+    options.executorAccount ??= executor ? executor.account ?? executor.chosenAccount ?? 'default' : undefined;
+    if (automatic) {
+      const choice = await accountChoice({ ...deps, client, config, runs,
+        now: (deps.now ?? Date.now)(), actorClass: { ...profile, name: effort, role: options.role,
+          executorAccount: options.executorAccount, urgent: item.urgent === true || item.ext?.urgent === true },
+        quota: (client, account) => readQuota(deps, client, cache, account) });
+      const reason = choice.reason.code;
+      await telemetryRecord(root, 'quota.check', { client, account: choice.account?.id, reason,
+        state: choice.account ? 'green' : 'red' });
+      if (!choice.account) return { ok: false, reason: accountReasonText(choice.reason,
+        resolveLocale({ env: deps.env, saved: config.language }).locale), wait_until: choice.wait_until };
+      options.account = choice.account.id;
+      options.accountReason = reason;
+    }
+    try { await deps.spawn.preflight?.(item, options); }
+    catch (error) { return { ok: false, reason: spawnerSkip(error) }; }
+    return { account: options.account, accountReason: options.accountReason };
+  };
+  const slot = await acquireSlot(root, runId, { client, config: settings.config, prepare });
+  if (!slot.ok && slot.wait_until != null) await inboxSetExt(root, item.id, { wait_until: slot.wait_until });
   if (!slot.ok) return { skip: slot.reason ?? BUSY };
 
   let spawned;
   try {
     spawned = await deps.spawn(item, {
-      client,
-      profile,
+      ...options,
       limits: settings.limits,
       maxTurns: settings.maxTurns,
       maxMinutes: settings.maxMinutes,
@@ -198,8 +228,8 @@ async function delegate(root, item, deps, settings, cache) {
     return { skip: spawnerSkip(error) };
   }
   const returned = spawned?.runId ?? runId;
-  if (returned === runId) return { runId };
-  return { runId: await relinkSlot(root, runId, returned, client, settings.config) };
+  if (returned === runId) return { runId, account: options.account, role: options.role };
+  return { runId: await relinkSlot(root, runId, returned, client, settings.config, options), account: options.account, role: options.role };
 }
 
 /**
@@ -211,12 +241,13 @@ async function delegate(root, item, deps, settings, cache) {
  *
  * @returns {Promise<string>} the id the slot is held under
  */
-async function relinkSlot(root, from, to, client, config) {
+async function relinkSlot(root, from, to, client, config, { account, accountReason }) {
+  const options = { client, config, account, prepare: () => ({ account, accountReason }) };
   try {
     await releaseSlot(root, from);
-    const taken = await acquireSlot(root, to, { client, config });
+    const taken = await acquireSlot(root, to, options);
     if (taken.ok) return to;
-    await acquireSlot(root, from, { client, config });
+    await acquireSlot(root, from, options);
     return from;
   } catch {
     return from;
@@ -246,6 +277,7 @@ export async function tick(root, deps = {}) {
   const at = typeof deps.now === 'function' ? deps.now() : Date.now();
   const stamp = new Date(at).toISOString();
   const settings = await loadSettings(root);
+  deps = { ...deps, quota: deps.quota ?? adapterQuotaReader({ stateRoot: root, config: settings.config, env: deps.env, now: deps.now }) };
   const record = { at: stamp, opened: [], spawned: [], skipped: [] };
   const cache = new Map();
 
@@ -256,6 +288,12 @@ export async function tick(root, deps = {}) {
     record.openedRefs = record.opened.map((id) => names.get(id) ?? demandRef(id, name));
     for (const entry of [...record.spawned, ...record.skipped]) {
       if (names.has(entry.id)) entry.ref = names.get(entry.id);
+    }
+    for (const [key, reading] of cache) {
+      const [client, account] = key.split(':');
+      await telemetryRecord(root, 'quota.check', { client, ...account ? { account } : {},
+        state: typeof reading?.remainingPct !== 'number' ? 'unknown'
+          : reading.remainingPct < settings.minQuotaPct ? 'red' : 'green' });
     }
     await appendDecision(root, record);
     return record;
@@ -280,10 +318,7 @@ export async function tick(root, deps = {}) {
 
   const pending = await inboxList(root, { status: 'pending' });
   const clients = clientsOf(pending);
-  const stop = await quotaStopReason(deps, clients, settings.minQuotaPct, cache);
-  for (const [client, reading] of cache) await telemetryRecord(root, 'quota.check', { client,
-    state: typeof reading?.remainingPct !== 'number' ? 'unknown'
-      : reading.remainingPct < settings.minQuotaPct ? 'red' : 'green' });
+  const stop = await quotaStopReason(deps, clients.filter((client) => !settings.config.accounts?.[client]), settings.minQuotaPct, cache);
   if (stop !== null) {
     record.stopped = stop;
     record.skipped.push({ id: 'daemon', reason: stop });
@@ -306,6 +341,14 @@ export async function tick(root, deps = {}) {
   const live = liveHolders(await inboxList(root));
   const queue = (await inboxList(root, { status: 'pending' })).reverse();
   for (const item of queue) {
+    if ((item.ext?.wait_until ?? 0) > at && settings.config.accountPolicy?.enforcePace === true
+      && !item.resumeSession && !item.ext?.resumeSession && item.account === undefined && item.ext?.account === undefined
+      && item.urgent !== true && item.ext?.urgent !== true && (item.effort ?? classify(item).effort) === 'hard') {
+      record.skipped.push({ id: item.id, reason: accountReasonText({ code: 'deferred',
+        margin: settings.config.accountPolicy?.paceMarginPct ?? 15 },
+      resolveLocale({ env: deps.env, saved: settings.config.language }).locale) });
+      continue;
+    }
     if (live.has(periodOf(item))) {
       record.skipped.push({ id: item.id, reason: 'a live child already holds this period' });
       continue;
@@ -317,7 +360,8 @@ export async function tick(root, deps = {}) {
       continue;
     }
     live.add(periodOf(item));
-    await inboxSetExt(root, item.id, { runId: outcome.runId, delegatedAt: stamp });
+    await inboxSetExt(root, item.id, { runId: outcome.runId, delegatedAt: stamp,
+      ...outcome.account && !['critic', 'verifier'].includes(outcome.role) ? { executorAccount: outcome.account } : {} });
     await inboxSetStatus(root, item.id, 'delegated');
     record.spawned.push({ id: item.id, client: item.client ?? DEFAULT_CLIENT, runId: outcome.runId });
   }

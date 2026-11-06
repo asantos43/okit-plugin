@@ -7,7 +7,7 @@ export const CATALOG = Object.freeze({
   'quota.check': ['green', 'yellow', 'red', 'off', 'unknown'],
   'daemon.tick': ['running', 'stopped', 'paused'],
 });
-export const privateField = key => !['count', 'durationMs', 'state', 'client', 'account', 'model', 'effort', 'role'].includes(key);
+export const privateField = key => !['count', 'durationMs', 'state', 'client', 'account', 'reason', 'model', 'effort', 'role'].includes(key);
 export const projectHash = project => createHash('sha256').update(String(project)).digest('hex');
 
 // Unknown keys and nested objects are refused, rather than recursively copied.
@@ -16,7 +16,10 @@ export function redact(event, fields = {}) {
   const safe = {};
   for (const [key, value] of Object.entries(fields)) {
     if (privateField(key)) continue;
-    if (key === 'account' && (value === 'default' || typeof value !== 'string' || !/^[a-z0-9-]{1,32}$/.test(value))) continue;
+    if (key === 'account' && (value === 'default' && event !== 'quota.check'
+      || typeof value !== 'string' || !/^[a-z0-9-]{1,32}$/.test(value))) continue;
+    if (key === 'reason' && !['chosen', 'unknown', 'login', 'actor', 'session', 'weekly', 'busy',
+      'unavailable', 'session-account', 'ahead', 'deferred'].includes(value)) continue;
     if (['count', 'durationMs'].includes(key)) {
       if (typeof value === 'number' && Number.isFinite(value) && value >= 0) safe[key] = value;
     } else if (key === 'state') {
