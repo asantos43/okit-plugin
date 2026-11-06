@@ -44,6 +44,61 @@ function request(session, path, { method = 'GET', headers = {}, value, raw } = {
   });
 }
 
+test('account login must refuse unknown client, missing or non-string id, and unknown account without launching', async t => {
+  const calls = [];
+  const session = await fixture(t, { launchLogin: async input => { calls.push(input); return { launched: true }; } });
+  for (const value of [null, [], { client: 'opencode', id: 'default' }, { client: {}, id: 'default' },
+    { client: 'codex' }, { client: 'codex', id: 3 }, { client: 'codex', id: {} }, { client: 'codex', id: 'missing' }]) {
+    const result = await request(session, '/api/account-login', { method: 'POST', value });
+    assert.equal(result.status, 422, result.text);
+    assert.equal(typeof result.json().reason, 'string');
+    assert.deepEqual(calls, []);
+  }
+});
+
+test('account login uses saved extra and default, ignoring request commands and folders', async t => {
+  const calls = [], env = { HOME: '/test/home', PATH: '' };
+  const session = await fixture(t, { env, platform: 'darwin', launchLogin: async input => {
+    calls.push(input); return { launched: true, terminal: 'injected', token: 'hidden' };
+  } });
+  const saved = { accounts: { codex: [{ id: 'work', label: 'Work', configDir: '/saved/work' }] } };
+  await writeFile(join(session.root, 'config.json'), JSON.stringify(saved));
+  for (const id of ['work', 'default']) {
+    const result = await request(session, '/api/account-login', { method: 'POST', value: {
+      client: 'codex', id, configDir: '/request/folder', command: 'bad command' } });
+    assert.equal(result.status, 200, result.text);
+    assert.deepEqual(result.json(), { launched: true, terminal: 'injected', token: '[Redacted]' });
+    const expectedAccount = { client: 'codex', id, label: id === 'work' ? 'Work' : 'default',
+      configDir: id === 'work' ? '/saved/work' : null, isDefault: id === 'default', key: id === 'work' ? 'codex:work' : 'codex' };
+    assert.deepEqual(calls.at(-1), { client: 'codex', account: expectedAccount, saved: true, platform: 'darwin', env });
+    assert.strictEqual(calls.at(-1).env, env);
+    assert.equal(calls.length, id === 'work' ? 1 : 2);
+  }
+});
+
+test('account login failure stays 200 and current saved config is checked on each request', async t => {
+  const calls = [], result = { launched: false, reason: 'no-terminal' };
+  const session = await fixture(t, { launchLogin: async input => { calls.push(input); return result; } });
+  const post = id => request(session, '/api/account-login', { method: 'POST', value: { client: 'claude-code', id } });
+  assert.deepEqual((await post('default')).json(), result);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].saved, false);
+  assert.equal(calls[0].platform, process.platform);
+  await writeFile(join(session.root, 'config.json'), JSON.stringify({ accounts: { 'claude-code': [
+    { id: 'work', label: 'Work', configDir: '/saved/claude' }] } }));
+  const existing = await post('work');
+  assert.equal(existing.status, 200);
+  assert.deepEqual(existing.json(), result);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].account.configDir, '/saved/claude');
+  await writeFile(join(session.root, 'config.json'), '{}');
+  assert.equal((await post('work')).status, 422);
+  assert.equal(calls.length, 2);
+  const defaultResult = await post('default');
+  assert.equal(defaultResult.status, 200);
+  assert.deepEqual(defaultResult.json(), result);
+});
+
 test('account add returns login help and mtime; removal preserves folder, login and history', async t => {
   const session = await fixture(t);
   const configDir = join(session.root, 'work');

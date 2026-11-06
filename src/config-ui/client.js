@@ -162,6 +162,17 @@ export function clientMain(win) {
       } else if (action === 'account-login') {
         row.querySelector('[data-account-login-help]').hidden = false;
         target.hidden = true;
+      } else if (action === 'account-terminal') {
+        target.disabled = true;
+        try {
+          const result = await request('/api/account-login', 'POST', { client: target.dataset.client, id: target.dataset.accountId });
+          if (result.status === 200) {
+            const reasons = { 'no-terminal': text.accountTerminalNoTerminal,
+              'unsafe-folder': text.accountTerminalUnsafeFolder, 'unsupported-client': text.accountTerminalUnsupported };
+            error(result.value.launched === true ? text.accountTerminalOpened
+              : Object.hasOwn(reasons, result.value.reason) ? reasons[result.value.reason] : text.accountTerminalNoTerminal);
+          } else error(result.value.reason);
+        } finally { target.disabled = false; }
       } else if (action === 'account-check') await reloadState();
       else if (action === 'account-copy') {
         const code = row.querySelector('code');

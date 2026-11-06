@@ -32,6 +32,14 @@ test('Accounts cells keep localized headings and client folder placeholders', ()
         assert.ok(row.includes(`>${text.accountLoginCommand}</button>`));
         const help = row.match(/<div class="account-login-help"[^>]*>/)[0];
         assert.equal(/\bhidden\b/.test(help), rowIndex === 0);
+        const block = row.match(/<div class="account-login-help"[^>]*>([^]*?)<\/div>/)[1];
+        const buttons = [...block.matchAll(/<button[^>]*data-action="account-terminal"[^>]*>([^]*?)<\/button>/g)];
+        assert.equal(buttons.length, 1);
+        assert.equal(buttons[0][1], text.accountTerminal);
+        assert.ok(buttons[0][0].includes(`data-client="${index ? 'codex' : 'claude-code'}" data-account-id="${rowIndex ? `work${rowIndex}` : 'default'}"`));
+        assert.ok(block.indexOf('data-action="account-terminal"') < block.indexOf('data-action="account-copy"'));
+        assert.ok(block.includes(`</pre><p>${text.accountTerminalHint.replaceAll("'", '&#39;')}</p>`));
+        assert.equal((row.match(/data-action="account-terminal"/g) ?? []).length, 1);
         assert.equal((row.match(/data-account-remove-open/g) ?? []).length, rowIndex ? 1 : 0);
         if (rowIndex) {
           const confirm = row.match(/<div data-account-remove-confirm hidden>([^]*?)<\/div>/)[1];
@@ -50,6 +58,7 @@ test('Accounts cells keep localized headings and client folder placeholders', ()
     assert.match(html, /\.account-card,\.account-card \.table-scroll\{overflow-x:visible\}/);
     assert.match(html, /\.account-card td\{overflow-wrap:anywhere\}/);
     assert.match(html, /\.account-card td button\{white-space:normal;overflow-wrap:anywhere\}/);
+    assert.match(html, /button\[data-action=account-terminal\]\{background:var\(--accent\);color:var\(--card\);border-color:var\(--accent\)\}/);
   }
 });
 

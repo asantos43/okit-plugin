@@ -11,7 +11,8 @@ import { Refusal } from '../core/refusal.js';
 import { UsageError, OperationalError } from '../install/exit.js';
 import { localizeReason } from '../install/present.js';
 import { changeAccount } from '../accounts-cli.js';
-import { withAccountRenamed, accountFiles, accountsOf, accountEnv, ACCOUNT_CLIENTS } from '../accounts.js';
+import { withAccountRenamed, accountFiles, accountsOf, accountEnv, ACCOUNT_CLIENTS, requireAccount } from '../accounts.js';
+import { launchLogin as launchAccountLogin } from '../accounts-login-launch.js';
 import { defaultFolderOf } from '../install/config.js';
 import { detectClients, confirmedModels } from '../env/models.js';
 import { environmentSnapshot } from '../env/snapshot.js';
@@ -26,7 +27,8 @@ const noClientFiles = { readFile: async () => { throw new Error('Client file rea
   stat: async () => { throw new Error('Client file reads are disabled.'); } };
 
 export async function startConfigServer({ root, env = process.env, locale = 'en', idleMs = 600_000,
-  modelTimeoutMs = 5000, closeGraceMs = 3000, detect = detectClients, observe, signals = process } = {}) {
+  modelTimeoutMs = 5000, closeGraceMs = 3000, detect = detectClients, observe, signals = process,
+  platform = process.platform, launchLogin = launchAccountLogin } = {}) {
   const token = randomBytes(32).toString('hex');
   const observations = new Map();
   const controllers = new Set();
@@ -155,6 +157,7 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
     touch();
     const routes = { '/': 'GET', '/api/state': 'GET', '/api/config': 'PUT',
       '/api/account-label': 'PUT', '/api/account-add': 'POST', '/api/account-remove': 'POST',
+      '/api/account-login': 'POST',
       '/api/models/refresh': 'POST', '/api/close': 'POST', '/api/keepalive': 'POST' };
     if (!Object.hasOwn(routes, url.pathname)) throw fail(404, 'Not found.');
     if (request.method !== routes[url.pathname]) throw fail(405, 'Method not allowed.');
@@ -182,6 +185,7 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
       const { config } = await load();
       return send(response, 200, redact(await refresh(config, input.client)));
     }
+    if (url.pathname === '/api/account-login') return login(input, response);
     if (url.pathname === '/api/account-label') return rename(input, response);
     if (url.pathname === '/api/account-add' || url.pathname === '/api/account-remove') {
       return change(input, response, url.pathname === '/api/account-add' ? 'add' : 'remove');
@@ -210,6 +214,22 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
           && change.confirm !== true) throw fail(422, 'Model is not confirmed by the client; confirm this change explicitly.');
       } });
     send(response, result.conflict ? 409 : 200, result.conflict ? { reason: 'Configuration changed on disk.' } : redact({ changes: result.changes }));
+  }
+  async function login(input, response) {
+    try {
+      if (!object(input) || typeof input.client !== 'string' || !ACCOUNT_CLIENTS.includes(input.client)) {
+        throw new UsageError('Unsupported account client.');
+      }
+      if (typeof input.id !== 'string') throw new UsageError('Invalid account id.');
+      const { raw } = await load();
+      const account = requireAccount(raw, input.client, input.id);
+      const saved = Object.hasOwn(raw.accounts ?? {}, input.client);
+      const result = await launchLogin({ client: input.client, account, saved, platform, env });
+      send(response, 200, redact(result));
+    } catch (error) {
+      if (!(error instanceof UsageError || error instanceof OperationalError || error instanceof Refusal)) throw error;
+      send(response, 422, { reason: localizeReason(redact(error.message), locale) });
+    }
   }
   async function change(input, response, action) {
     try {

@@ -41,6 +41,12 @@
   "accountCopy": "Copiar", "accountCopied": "Copiado", "accountCheck": "Verificar login",
   "accountCopyFallback": "Pressione Ctrl+C para copiar",
   "accountLoginHelp": "Execute este comando no terminal para entrar e verifique o login novamente.",
+  "accountTerminal": "Entrar em um terminal",
+  "accountTerminalHint": "Abre o login do próprio cliente em uma janela de terminal para esta conta; o plugin nunca vê sua senha.",
+  "accountTerminalOpened": "Uma janela de terminal foi aberta para esta conta. Entre nela e depois escolha Verificar login.",
+  "accountTerminalNoTerminal": "Não foi possível abrir uma janela de terminal aqui. Copie o comando abaixo e execute por conta própria.",
+  "accountTerminalUnsafeFolder": "O nome da pasta desta conta tem caracteres que a abertura do terminal não aceita. Copie o comando abaixo.",
+  "accountTerminalUnsupported": "Não é possível entrar neste cliente por aqui. Copie o comando abaixo.",
   "accountAdd": "Adicionar conta", "accountLabelPlaceholder": "Trabalho", "accountFolderPlaceholderClaude": "/home/you/.claude-work", "accountFolderPlaceholderCodex": "/home/you/.codex-work",
   "accountRemoveNote": "Remover altera apenas os ajustes do plugin: a pasta, o login e o histórico permanecem",
   "groupTitles": {

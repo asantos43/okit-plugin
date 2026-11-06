@@ -140,6 +140,67 @@ test('Accounts rename uses its own marked input, independently of Actors', async
   assert.equal(f.reloads(), 1);
 });
 
+test('Accounts terminal posts only the saved row identity and keeps help open', async () => {
+  const f = accountFixture([{ status: 200, value: { launched: true, terminal: 'fake' } }]);
+  const button = f.button('account-terminal', { configDir: '/ignored', command: 'ignored' });
+  await f.accountClick(button);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].path, '/api/account-login');
+  assert.equal(f.calls[0].method, 'POST');
+  assert.deepEqual(JSON.parse(f.calls[0].body), { client: f.row.dataset.client, id: f.row.dataset.accountId });
+  assert.equal(f.nodes.error.textContent, labels.en.accountTerminalOpened);
+  assert.equal(f.help.hidden, false);
+  assert.equal(button.disabled, false);
+  assert.equal(f.reloads(), 0);
+  assert.equal(f.calls.some(call => call.path === '/api/config'), false);
+});
+
+test('Accounts terminal refusals keep the command available with the matching message', async () => {
+  for (const [reason, key] of [['no-terminal', 'accountTerminalNoTerminal'],
+    ['unsafe-folder', 'accountTerminalUnsafeFolder'], ['unsupported-client', 'accountTerminalUnsupported'],
+    ['unexpected', 'accountTerminalNoTerminal'], ['toString', 'accountTerminalNoTerminal']]) {
+    const f = accountFixture([{ status: 200, value: { launched: false, reason } }]);
+    await f.accountClick(f.button('account-terminal'));
+    assert.equal(f.nodes.error.textContent, labels.en[key]);
+    assert.equal(f.help.hidden, false);
+    assert.equal(f.pre.code.textContent, f.pre.textContent);
+    assert.deepEqual(f.calls.map(call => call.path), ['/api/account-login']);
+    assert.equal(f.reloads(), 0);
+  }
+});
+
+test('Accounts terminal 422 displays the server reason', async () => {
+  const f = accountFixture([{ status: 422, value: { reason: 'Unknown account' } }]);
+  const button = f.button('account-terminal');
+  await f.accountClick(button);
+  assert.equal(f.nodes.error.textContent, 'Unknown account');
+  assert.equal(f.help.hidden, false);
+  assert.equal(button.disabled, false);
+  assert.deepEqual(f.calls.map(call => call.path), ['/api/account-login']);
+});
+
+test('Accounts terminal disables while pending and re-enables after success or failure', async () => {
+  for (const fails of [false, true]) {
+    const f = accountFixture(), button = f.button('account-terminal');
+    let settle;
+    f.win.fetch = (path, options) => {
+      f.calls.push({ path, ...options });
+      return new Promise((resolve, reject) => {
+        settle = () => fails ? reject(new Error('Network failed'))
+          : resolve({ status: 200, json: async () => ({ launched: true }) });
+      });
+    };
+    const pending = f.accountClick(button);
+    assert.equal(button.disabled, true);
+    assert.deepEqual(f.calls.map(call => call.path), ['/api/account-login']);
+    settle();
+    await pending;
+    assert.equal(button.disabled, false);
+    assert.equal(f.nodes.error.textContent, fails ? 'Network failed' : labels.en.accountTerminalOpened);
+    assert.equal(f.help.hidden, false);
+  }
+});
+
 test('Accounts copy writes the exact command to the clipboard', async () => {
   const copied = [];
   const f = accountFixture([], 'unknown', { clipboard: { writeText: async value => { copied.push(value); } } });

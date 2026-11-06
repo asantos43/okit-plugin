@@ -76,7 +76,7 @@ export function renderPage(state, { locale = 'en', nonce, token, instance }) {
       <td data-label="${e(text.accountLogin)}"><span class="badge ${login[0]}" title="${e(text[`${login[1]}Title`])}">${e(text[login[1]])}</span></td>
       <td data-label="${e(text.accountActions)}">${button('account-login', text.accountLoginCommand, `${attrs}${account.login === 'logged-in' ? '' : ' hidden'}`)}${account.id === 'default' ? '' : button('account-remove', text.accountRemove, `${attrs} data-account-remove-open`)}
       ${account.id === 'default' ? '' : `<div data-account-remove-confirm hidden>${button('account-remove', text.accountConfirmRemove, `${attrs} data-confirm="true"`)}${button('account-remove', text.cancel, `${attrs} data-cancel="true"`)}<small class="account-note">${e(text.accountRemoveNote)}</small></div>`}
-      <div class="account-login-help" data-account-login-help${account.login === 'logged-in' ? ' hidden' : ''}><p>${e(text.accountLoginHelp)}</p><pre><code>${e(account.loginCommand)}</code></pre>${button('account-copy', text.accountCopy, attrs)}${button('account-check', text.accountCheck, attrs)}</div></td></tr>`;
+      <div class="account-login-help" data-account-login-help${account.login === 'logged-in' ? ' hidden' : ''}><p>${e(text.accountLoginHelp)}</p><pre><code>${e(account.loginCommand)}</code></pre><p>${e(text.accountTerminalHint)}</p>${button('account-terminal', text.accountTerminal, attrs)}${button('account-copy', text.accountCopy, attrs)}${button('account-check', text.accountCheck, attrs)}</div></td></tr>`;
   }).join('');
   const accounts = ACCOUNT_CLIENTS.map(client => `<section class="actor-card account-card" data-account-client="${e(client)}"><h3>${e(client)}</h3>
     <div class="table-scroll"><table><thead><tr>${['accountLabel', 'accountId', 'accountFolder', 'accountLogin', 'accountActions'].map(key => `<th scope="col">${e(text[key])}</th>`).join('')}</tr></thead><tbody>${accountRows(client)}</tbody></table></div>
@@ -106,6 +106,7 @@ export function renderPage(state, { locale = 'en', nonce, token, instance }) {
     .action-bar{position:sticky;bottom:0;z-index:2;background:var(--card);border:1px solid var(--border);border-radius:1rem 1rem 0 0;padding:1rem;display:flex;align-items:center;gap:1rem}#error{color:var(--error);flex:1}pre{white-space:pre-wrap;overflow-wrap:anywhere}#review button+button{margin-left:.5rem}
     .unknown{color:var(--muted);background:var(--bg)}.account-card td{overflow-wrap:anywhere}.account-card td button{margin:.2rem}.account-login-help{min-width:12rem;max-width:24rem}.account-add{display:flex;flex-wrap:wrap;align-items:end;gap:.75rem}.account-add label{flex:1 1 14rem;min-width:0}.account-add input{display:block;width:100%}
     .account-card td.account-id{overflow-wrap:normal;word-break:normal;white-space:nowrap}.account-note{display:block}
+    button[data-action=account-terminal]{background:var(--accent);color:var(--card);border-color:var(--accent)}
     @media(max-width:699px){
       .account-card,.account-card .table-scroll{overflow-x:visible}
       .account-card table,.account-card tbody,.account-card tr,.account-card td{display:block;width:100%;min-width:0}
