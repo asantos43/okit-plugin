@@ -18,7 +18,7 @@ import { readOpencodeSource } from './quota-source.js';
 export const CLIENT = 'opencode';
 
 export function deliverRole(opts = {}) {
-  if (opts.nativeSupported === false) return { status: 'unsupported', reason: 'opencode native agent configuration unsupported. / Configuração nativa de agente não suportada.' };
+  if (opts.nativeSupported === false) return { status: 'unsupported', reason: 'opencode native agent configuration unsupported.' };
   const context = roleContext({ ...opts, client: CLIENT });
   if (context.status !== 'ready') return context;
   return { status: 'ready', context, native: { agent: { description: `okit ${context.role}`,
@@ -46,13 +46,13 @@ export function configureRoles(config, opts = {}) {
     || Object.values(config.agent).some((agent) => !object(agent)
       || (agent.prompt !== undefined && typeof agent.prompt !== 'string'))))
     || (config.command !== undefined && !object(config.command))) {
-    return { status: 'unsupported', reason: 'Unsupported opencode config format; preserved. / Formato de configuração opencode não suportado; preservado.' };
+    return { status: 'unsupported', reason: 'Unsupported opencode config format; preserved.' };
   }
   const agent = delivery.native.agent;
   const marker = '<!-- okit role:begin -->';
   config.agent ??= {};
   if (config.agent['okit-director'] && config.agent['okit-director'].prompt !== agent.prompt) {
-    return { status: 'unsupported', reason: 'User agent okit-director conflicts; preserved. / Agente okit-director do usuário em conflito; preservado.' };
+    return { status: 'unsupported', reason: 'User agent okit-director conflicts; preserved.' };
   }
   for (const name of new Set(['build', 'plan', ...Object.keys(config.agent)])) {
     if (name === 'okit-director') continue;
@@ -112,7 +112,7 @@ export async function readQuota({ stateRoot: root, env, now = Date.now, config }
   const automatic = await readOpencodeSource({ config, env, now });
   if (automatic) return automatic;
   const fallback = Object.keys(config?.opencodeQuota?.sources ?? {}).length
-    ? { reason: 'The sources provided no recent valid reading; using the manual value when available. / As fontes não forneceram leitura válida recente; usando o valor manual quando disponível.' } : {};
+    ? { reason: 'The sources provided no recent valid reading; using the manual value when available.' } : {};
   const stored = await readJson(join(paths(root ?? stateRoot(env)).quota, `${CLIENT}.json`), null);
   const finite = (value) => typeof value === 'number' && Number.isFinite(value);
   if (!finite(stored?.remainingPct)) return { source: 'user', ...fallback };

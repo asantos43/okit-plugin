@@ -123,8 +123,8 @@ test('valid output before sleep still obeys the command timeout and leaves no pr
 });
 
 // | Must pass | Must refuse |
-// | bilingual reason with configured invalid sources | reason without configured sources |
-test('fallback reason is bilingual with and without a saved manual value, only for configured sources', async (t) => {
+// | English reason with configured invalid sources | reason without configured sources |
+test('fallback reason is English with and without a saved manual value, only for configured sources', async (t) => {
   const { root, file, opts } = await fixture(t);
   await writeFile(file, 'bad json');
   const config = { opencodeQuota: { sources: { example: { file } } } };
@@ -133,8 +133,7 @@ test('fallback reason is bilingual with and without a saved manual value, only f
     const result = await readQuota({ ...opts, config });
     assert.equal(result.source, 'user');
     assert.equal(result.remainingPct, saved ? 87 : undefined);
-    assert.match(result.reason, /The sources provided no recent valid reading; using the manual value when available\./);
-    assert.match(result.reason, /As fontes não forneceram leitura válida recente; usando o valor manual quando disponível\./);
+    assert.equal(result.reason, 'The sources provided no recent valid reading; using the manual value when available.');
     for (const unconfigured of [undefined, { opencodeQuota: { sources: {} } }]) {
       assert.equal(Object.hasOwn(await readQuota({ ...opts, config: unconfigured }), 'reason'), false);
     }

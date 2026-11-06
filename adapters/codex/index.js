@@ -20,7 +20,7 @@ import { readCodexSessionQuota } from './session-quota.js';
 export const CLIENT = 'codex';
 
 export function deliverRole(opts = {}) {
-  if (opts.nativeSupported === false) return { status: 'unsupported', reason: 'Codex native AGENTS.md/prompt delivery unsupported. / Entrega nativa AGENTS.md/prompt não suportada.' };
+  if (opts.nativeSupported === false) return { status: 'unsupported', reason: 'Codex native AGENTS.md/prompt delivery unsupported.' };
   const context = roleContext({ ...opts, client: CLIENT });
   if (context.status !== 'ready') return context;
   return { status: 'ready', context, native: { instructions: formatRoleContext(context),
@@ -34,7 +34,7 @@ export async function installRole(opts = {}) {
     if (error.code !== 'ENOENT') throw error;
     return '';
   });
-  if (override.trim()) return { status: 'unsupported', reason: 'AGENTS.override.md shadows AGENTS.md; user instructions preserved. / AGENTS.override.md oculta AGENTS.md; instruções preservadas.' };
+  if (override.trim()) return { status: 'unsupported', reason: 'AGENTS.override.md shadows AGENTS.md; user instructions preserved.' };
   return roleBlock(join(configRoot(opts), 'AGENTS.md'), delivery.native.prompt);
 }
 export function removeRole(opts = {}) {
@@ -83,7 +83,7 @@ export async function readQuota({ stateRoot: root, env, now = Date.now, config, 
   let sessionEnv = env;
   if (account !== DEFAULT_ACCOUNT_ID) {
     const selected = accountsOf(settings, CLIENT).find((entry) => entry.id === account);
-    if (!selected) throw new Error('Unknown Codex account. / Conta Codex desconhecida.');
+    if (!selected) throw new Error('Unknown Codex account.');
     const quota = configOf(settings).codexQuota;
     sessionEnv = { ...accountEnv(CLIENT, selected, env ?? process.env),
       [quota.sessionsEnv]: join(selected.configDir, 'sessions') };

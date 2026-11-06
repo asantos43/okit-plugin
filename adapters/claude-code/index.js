@@ -26,7 +26,7 @@ import { capture } from '../../src/trajectory/capture.js';
 export const CLIENT = 'claude-code';
 
 export function deliverRole(opts = {}) {
-  if (opts.nativeSupported === false) return { status: 'unsupported', reason: 'Claude Code SessionStart context unsupported. / Contexto SessionStart não suportado.' };
+  if (opts.nativeSupported === false) return { status: 'unsupported', reason: 'Claude Code SessionStart context unsupported.' };
   const context = roleContext({ ...opts, client: CLIENT });
   if (context.status !== 'ready') return context;
   const prompt = rolePrompt({ ...opts, client: CLIENT });
@@ -42,7 +42,7 @@ export async function installRole(opts = {}) {
   const current = await readJson(path, {});
   if (!isPlainObject(current) || (current.hooks !== undefined && !isPlainObject(current.hooks))
     || (current.hooks?.SessionStart !== undefined && !Array.isArray(current.hooks.SessionStart))) {
-    return { status: 'unsupported', reason: 'Unsupported Claude settings format; preserved. / Formato dos ajustes não suportado; preservado.' };
+    return { status: 'unsupported', reason: 'Unsupported Claude settings format; preserved.' };
   }
   const command = opts.command ?? `${DEFAULT_CONFIG.install.command} hook session-start`;
   const entry = { matcher: 'startup|resume|clear|compact', hooks: [{ type: 'command', command, timeout: 10 }] };
