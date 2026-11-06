@@ -21,5 +21,6 @@ Confira uma atualização ou remoção antes de alterar o plugin instalado.
 Com várias contas de um cliente, o `update` move os arquivos compartilhados uma vez e registra a nova versão em todas as contas registradas (não aceita `--account`), e `uninstall --client claude-code --account trabalho` remove só o registro dessa conta. Veja [contas](accounts.pt-BR.md#register).
 
 Use o comando instalado para atualizar/remover: scripts de instalação antigos localizam apenas o registro legado de cliente único. Veja [detalhes do ciclo da versão](../maintainers/RELEASING.pt-BR.md#installer-and-updater).
+Para o [painel opcional do Claude Code](panel.pt-BR.md), `okit-plugin install --panel` o adiciona, `update` o atualiza quando instalado e `okit-plugin uninstall --panel` remove só o painel, preservando o plugin principal.
 
 [Guia](README.pt-BR.md) · [English](update-and-remove.md)

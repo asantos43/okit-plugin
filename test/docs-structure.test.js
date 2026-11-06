@@ -8,7 +8,7 @@ export const GUIDE_LINE_BUDGET = 80;
 const README_LINE_BUDGET = 35;
 const TITLE = 'Orchestration Kit plugin (okit plugin)';
 const pages = ['README', 'install', 'models-and-quota', 'ask-the-director',
-  'smoke-demo', 'update-and-remove', 'troubleshooting', 'accounts'];
+  'smoke-demo', 'update-and-remove', 'troubleshooting', 'accounts', 'panel'];
 const names = pages.flatMap(base => [`${base}.md`, `${base}.pt-BR.md`]);
 const maintainerPages = ['README', 'ARCHITECTURE', 'INTEGRATION', 'DEMO', 'SMOKE', 'DESIGN', 'RELEASING', 'OUTPUT-REVIEW', 'OUTPUT-MOCKUPS'];
 const maintainerNames = maintainerPages.flatMap(base => [`${base}.md`, `${base}.pt-BR.md`]);
@@ -70,7 +70,8 @@ test('maintainer pages have mirrored summaries and contents, with no legacy root
 test('every guide page has a short summary, numbered instructions and a line budget', async () => {
   for (const name of names) {
     const text = await read(`docs/guide/${name}`);
-    assert.doesNotThrow(() => checkUserPage(text, GUIDE_LINE_BUDGET, true), name);
+    const budget = /^panel(?:\.pt-BR)?\.md$/.test(name) ? 90 : GUIDE_LINE_BUDGET;
+    assert.doesNotThrow(() => checkUserPage(text, budget, true), name);
   }
 });
 

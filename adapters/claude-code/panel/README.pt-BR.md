@@ -8,13 +8,22 @@ pelo host de mods, `/okit-panel` abre ou fecha o painel **okit plugin**.
 A instalação é opcional e não foi ligada ao instalador padrão; D120 cuida do
 empacotamento. O núcleo funciona sem esta pasta.
 
-As execuções aparecem por conta, inclusive falhas, execuções antigas e contas
-sem cadastro atual. As cotas mostram ambas as janelas: sessão de 5 h e semanal.
-`null` aparece como `unknown`; zero aparece como `0%`. A prontidão e os avisos
-vêm do comando. Comando ausente, saída não zero, JSON inválido ou schema
+O cabeçalho mostra `okit plugin · claude · N accounts · ready: yes|no`, com prontidão
+do comando. Os blocos são **ACCOUNTS**, **RUNNING**, **RECENT**, **LAUNCHABLE NOW**
+e **Readiness**, com a linha e os avisos existentes ao final. Contas mostram só
+aliases, marcador running/idle, barras de sessão (5 h) e semana, percentual restante,
+reset em UTC e tempo até ele. `null` aparece como `unknown`; zero como `0%`.
+Execuções live não antigas mostram conta, demanda quando salva, modelo, esforço,
+duração e último progresso. Recent inclui concluídas, falhas, antigas e status
+desconhecidos, com duração e motivo de erro quando salvo. Contas sem cadastro
+aparecem como `unknown account`; suas execuções não pertencem a outra conta.
+Launchable lista aliases para simple/normal/hard/critic pelas classes de `launchable[]`.
+Documentos antigos sem classes não identificam quais classes podem ser lançadas.
+Etapa, aprovação e término por cota não existem nos registros e são omitidos.
+Comando ausente, saída não zero, JSON inválido ou schema
 desconhecido produzem mensagens. O desenho usa somente o cache.
 
-Cada conta mostra as 20 execuções mais recentes e a contagem das restantes.
+RUNNING e RECENT mostram cada um 20 execuções mais recentes e a contagem restante.
 Execuções ilegíveis são puladas com uma contagem; textos opcionais inválidos
 viram `unknown` ou `-`. Prontidão, avisos e progresso ocupam até três linhas
 pela largura em células, com reticências no corte. Percentuais são arredondados
@@ -46,8 +55,11 @@ foi copiada. A referência ignorada não faz parte do produto.
 **Versão testada da API de mods do Claude Code: indisponível / não verificada.**
 O README e `types/index.d.ts` fornecidos não registram versão numérica do host
 ou da API; os tipos apenas ampliam o estado do kit. O `types.d.ts` local define
-o contrato sintético dos testes, não os tipos oficiais. O Diretor deve confirmar
-`process.run` com `maxOutputBytes` e `h` global em JavaScript antes da instalação.
+o contrato sintético dos testes, não os tipos oficiais.
+Registration captures each handler's `$` in closures. A temporary host probe
+confirmed global `h` in JavaScript and Box/Text from `$.ui.resolve(e)` with
+`surface: 'terminal'`; the runner exited without a test report. Director verification
+of `process.run` with `maxOutputBytes` remains pending.
 A conferência após a leitura não garante sozinha um limite de memória no host.
 
 ## Verificações focadas

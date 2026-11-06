@@ -332,11 +332,13 @@ export const RECORD_FIELDS = Object.freeze({
   destination: someText, at: someText, sha256: someText, linkDirectory: optional(textOrNull),
   link: optional(nullable(flag)), autostart: optional(nullable(flag)), wasRunning: optional(nullable(flag)), prerelease: optional(nullable(flag)),
   statusline: optional(nullable(record({ path: text({ empty: true }), backup: text({ empty: true }), existed: optional(flag) }))),
+  panel: optional(record({ identity: text() })),
   // D116: the registrations of the extra accounts, by account id; and whether the default account is registered
   // (absent: it is, as every record before accounts).
   // `configDir` is the folder the registration was made in: what is registered is known by the record alone.
   accounts: optional(nullable(table(record({
     configDir: optional(textOrNull),
+    panel: optional(record({ identity: text() })),
     statusline: optional(nullable(record({ path: text({ empty: true }), backup: text({ empty: true }), existed: optional(flag) }))),
   })))),
   defaultRegistered: optional(nullable(flag)),

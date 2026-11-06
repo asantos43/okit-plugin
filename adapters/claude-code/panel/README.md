@@ -8,13 +8,22 @@ the mod host, `/okit-panel` opens or closes the **okit plugin** pane. Installati
 is opt-in; default installation does not load it. Packaging belongs to D120.
 The core works without this directory.
 
-Runs are grouped by account, including failed and stale runs and orphan account
-IDs. Both session (5 h) and weekly quotas show remaining percentages: null is
-`unknown`, zero is `0%`. The readiness line and warnings come from the command.
+The header shows `okit plugin · claude · N accounts · ready: yes|no`, with readiness
+from the command. Framed sections follow: **ACCOUNTS**, **RUNNING**, **RECENT**,
+**LAUNCHABLE NOW**, then **Readiness** with the existing line and warnings.
+Accounts show only aliases, running/idle markers, session (5 h) and week bars,
+percent left, UTC reset time and time until reset. Null is `unknown`; zero is `0%`.
+Live, non-stale runs show account alias, demand when saved, model, effort,
+elapsed and last progress. Recent includes finished, failed, stale and unknown
+statuses with elapsed and a saved error reason when available. Unknown accounts
+display `unknown account`; their runs never attach to another account.
+Launchability lists simple/normal/hard/critic aliases using `launchable[]` classes.
+Older documents without classes cannot identify launchable actor classes.
+Step, approval and quota-ended reasons are unavailable in run records and omitted.
 Missing commands, nonzero exits, invalid documents and unsupported schemas become
 plain messages. No render performs I/O.
 
-Each account shows its 20 newest runs and a count of the remainder. Unreadable
+RUNNING and RECENT each show their 20 newest runs and a remainder count. Unreadable
 runs are skipped with a count only when they are not objects; invalid optional run
 text becomes `unknown` or `-`. Any string status is preserved, including future
 statuses; null or non-string statuses display as `unknown`.
@@ -44,9 +53,11 @@ No kit workflows or state readers were copied. The ignored reference is not a pa
 **Tested Claude Code mod API version: unavailable / not verified.** The supplied
 README and `types/index.d.ts` do not pin a numeric host/API version; the latter
 only augments kit state. `types.d.ts` here describes our synthetic test contract,
-not vendor typings. Registration uses the reference's `h`, command, UI, clock and
-argv process APIs. Host support for `process.run`'s `maxOutputBytes` option and
-global `h` in JavaScript must be checked by the Director before installation.
+not vendor typings. Registration uses handler-local `$` closures for command, UI,
+clock and argv process APIs. A temporary `claude-code/testing` probe confirmed global
+`h` in JavaScript and `$.ui.resolve(e)` returning Box/Text factories for a render
+event with `surface: 'terminal'`; the runner itself exited without a test report.
+Host support for `process.run`'s `maxOutputBytes` still needs Director verification.
 The post-read limit alone does not guarantee a host-side memory bound.
 
 ## Focused checks

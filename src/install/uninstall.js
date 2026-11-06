@@ -41,7 +41,7 @@ export async function uninstall(record, flags, deps) {
     finish(next('unregister'), await register(record, deps, 'uninstall'));
     // Only this account's registration goes out of the record; the payload, the link and the other accounts stay.
     markUnregistered(record, scope);
-    if (scope.isDefault) delete record.statusline;
+    if (scope.isDefault) { delete record.statusline; delete record.panel; }
     await saveRecord(deps.destination, record, deps);
     next('remove').ok(kept);
     return 0;

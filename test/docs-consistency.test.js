@@ -34,6 +34,30 @@ const headings = (text) => [...prose(text).matchAll(/^## (.+)$/gm)].map((m) => m
 const slug = (text) => text.toLowerCase().replace(/<[^>]*>/g, '')
   .replace(/[^\p{L}\p{N}_\-\s]/gu, '').replace(/\s/g, '-');
 
+test('panel guides have matching sections, readable spacing and the exact rendered board', async () => {
+  const en = await read('docs/guide/panel.md');
+  const pt = await read('docs/guide/panel.pt-BR.md');
+  const levels = text => [...prose(text).matchAll(/^(#{1,6}) /gm)].map(m => m[1].length);
+  const ids = text => [...prose(text).matchAll(/<a id="([^"]+)"><\/a>/g)].map(m => m[1]);
+  assert.deepEqual(levels(en), levels(pt), 'heading levels and count');
+  assert.deepEqual(headings(en), ['Install', 'Open and close', 'What the board shows', 'Remove', 'If it does not work']);
+  assert.deepEqual(ids(en), ['install', 'use', 'board', 'remove', 'troubleshooting'], 'section anchors');
+  assert.deepEqual(ids(en), ids(pt), 'explicit anchors');
+  assert.equal(en.trimEnd().split('\n').length, pt.trimEnd().split('\n').length);
+  for (const text of [en, pt]) {
+    assert.ok(text.trimEnd().split('\n').length <= 90, 'panel line budget');
+    const content = prose(text);
+    for (const heading of content.matchAll(/^## .+$/gm)) {
+      assert.ok(content.slice(heading.index + heading[0].length).startsWith('\n\n'), 'blank line after heading');
+    }
+    assert.doesNotMatch(text, /\b[DO]\d+\b|\b(?:step|passo)\s+\d+\b/i);
+    const boards = [...text.matchAll(/^```text\n([\s\S]*?)^```$/gm)];
+    assert.equal(boards.length, 1, 'one board rendering');
+    assert.deepEqual(Buffer.from(boards[0][1]),
+      await readFile(resolve(root, 'test/fixtures/panel-board-populated-80.txt')));
+  }
+});
+
 test('documented tool, check and pair counts match the source', async () => {
   for (const suffix of ['', '.pt-BR']) {
     const index = `docs/components/README${suffix}.md`;

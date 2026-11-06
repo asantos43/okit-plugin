@@ -16,6 +16,7 @@ import { registrationPlan, mcpNotes, register } from './register.js';
 import { mcpPlan, ensureMcp, shown } from './mcp-register.js';
 import { activate, backup, rollback } from './update.js';
 import { uninstall } from './uninstall.js';
+import { PANEL_CLIENT, panelCommand } from './panel.js';
 import { resolvedRecord } from './where.js';
 import { localSource } from './source.js';
 import { detectKit } from './kit.js';
@@ -100,7 +101,14 @@ export async function installerCommand(command, args, ctx, io = {}) {
     const chosen = resolveLocale({ args, env: ctx.env, saved: user?.language });
     ui = createPresenter({ locale: chosen.locale, write: ctx.out, hide });
     if (chosen.invalid) throw new LanguageError('Choose a language: en, pt-BR.');
+    if (args.includes('--panel')) {
+      const allowed = ['client', 'account', 'dry-run', 'locale', 'verbose', 'panel'];
+      const refused = Object.keys(flagsOf(command, args, { lenient: true })).find((flag) => !allowed.includes(flag));
+      if (refused) throw new UsageError(ui.text('panelFlag', { flag: `--${refused}` }));
+    }
     const flags = flagsOf(command, args);
+    if (flags.panel && flags.client && flags.client !== PANEL_CLIENT) throw new UsageError(ui.text('panelOnlyClaude', { client: PANEL_CLIENT }));
+    if (flags.panel) flags.client = PANEL_CLIENT;
     // An account is named with its client; an update moves every registered account, so it names none.
     if (flags.account !== undefined) {
       if (command === 'update') throw new UsageError('An update moves every registered account; run it without --account.');
@@ -137,7 +145,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
       : flags.client ? [flags.client] : Object.keys(records);
     const clients = Array.isArray(selection) ? selection : [selection];
     if (!clients.length) throw new UsageError('No installation record found');
-    if (command !== 'install' && clients.some((client) => !records[client])) throw new UsageError(`Client not registered: ${flags.client}`);
+    if (!flags.panel && command !== 'install' && clients.some((client) => !records[client])) throw new UsageError(`Client not registered: ${flags.client}`);
     if (flags.purge && (!flags.yes || clients.length !== Object.keys(records).length)) throw new UsageError('--purge requires --yes and no remaining clients');
     const results = [];
     for (const client of clients) {
@@ -152,12 +160,12 @@ export async function installerCommand(command, args, ctx, io = {}) {
     ui.endClients?.();
     if (results.length > 1) results.forEach(({ client, code }) => ui.row(clientLabel(client), code === 0 ? 'ok' : 'failed'));
     const succeeded = results.every(({ code }) => code === 0);
-    if ((command === 'install' || command === 'update') && !flags.check && !flags.rollback && succeeded) {
+    if (!flags.panel && (command === 'install' || command === 'update') && !flags.check && !flags.rollback && succeeded) {
       await executionPolicyStep(ui, flags, deps);
     }
     // The setup was not done yet: offer it. A setup that cannot run is
     // reported and never fails the installation.
-    if ((command === 'install' || command === 'update') && !deps.dryRun && !flags.check && succeeded) {
+    if (!flags.panel && (command === 'install' || command === 'update') && !deps.dryRun && !flags.check && succeeded) {
       const reader = setupReaderOf(io, hide);
       try {
         let observation;
@@ -186,7 +194,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
         });
       } finally { reader.close(); }
     }
-    if (command === 'install' || command === 'update') kitRow(ui, deps, await detectKit(deps));
+    if (!flags.panel && (command === 'install' || command === 'update')) kitRow(ui, deps, await detectKit(deps));
     if (command !== 'uninstall' && deps.dryRun) ui.explain([ui.text('dryRunDone')]);
     else if (command !== 'uninstall' && succeeded && deps.hints.length) {
       ui.summary({ client: clientLabel(clients.at(-1)), command: deps.config.command, hint: deps.hints.find(Boolean) });
@@ -273,6 +281,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
     }
     /** The dependencies of one registered account (the run's own when no account is in play). */
     const scoped = (account) => (account ? depsFor(deps, account) : deps);
+    if (flags.panel) return await panelCommand(command, current, deps);
     if (command === 'uninstall') {
       if (!current) throw new UsageError('No installation record found');
       if (flags.purge && !flags.yes) throw new UsageError('--purge requires --yes');
@@ -436,8 +445,8 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
       if (target) {
         // The payload is shared: the record notes which accounts hold a registration of it.
         if (moving.some(({ id }) => id === target.id)) markRegistered(record, target);
-        await saveRecord(deps.destination, record, deps);
       }
+      await saveRecord(deps.destination, record, deps);
       deps.stage('quota');
       const recorded = await statusbar(record);
       if (recorded) finish(next('quota'), recorded);

@@ -11,6 +11,7 @@ O modo NATIVE devolve uma chamada Agent com modelo, esforço e briefing, sem cri
 A instalação registra marketplace/plugin, adiciona o comando exato de SessionStart em settings.json e usa skills, MCP e hook compact do payload. O coletor opcional preserva a barra anterior.
 Update troca o registro para o payload novo e retira o comando antigo. Uninstall remove a entrada exata, o plugin/marketplace e restaura a barra registrada, preservando os demais ajustes.
 Raiz: opção root, CLAUDE_CONFIG_DIR ou ~/.claude.
+O adaptador do Claude Code inclui um plugin de painel opcional em `adapters/claude-code/panel`, instalado por `okit-plugin install --panel`; veja o [guia do painel](../guide/panel.pt-BR.md).
 
 <a id="codex"></a>
 ## Codex

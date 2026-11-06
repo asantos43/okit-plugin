@@ -102,6 +102,8 @@ async function configuredState(ctx, client, internal, stored, warnings, readRunJ
     runs: runs.filter((run) => run.client === internal && (!run.role || run.role === 'executor')).map((run) => runState(run, now, config.staleMinutes)),
     launchable: saved ? identities.flatMap((identity, index) => (row.accounts?.[index] ?? row).candidates.map((actor) => ({
       account: identity.id, model: actor.model, effort: actor.effort, can_launch: actor.canLaunch,
+      actor_classes: Object.entries(config.profiles[internal] ?? {}).filter(([, profile]) =>
+        profile.model === actor.model && profile.effort === actor.effort).map(([name]) => name),
       reasons: actor.restrictions }))) : [],
     readiness: readyLine(readiness(snapshot), 'en'), warnings };
 }
@@ -111,9 +113,14 @@ function runState(run, now, staleMinutes) {
   const characters = progress === null ? [] : Array.from(progress);
   const started = finiteNumber(run.startedAt);
   const ended = finiteNumber(run.endedAt) ?? finiteNumber(run.finishedAt);
+  const demand = typeof run.demand === 'string' ? Array.from(run.demand).slice(0, 120).join('') : null;
+  const finishReason = typeof run.error === 'string' && run.error.trim()
+    || (Number.isFinite(run.exitCode) && run.exitCode !== 0) ? 'error' : null;
   return { id: run.runId ?? null, status: run.status ?? null, stale: staleRun(run, now, staleMinutes), account: run.account ?? 'default',
     actor: run.actor ?? null, model: run.model ?? run.profile?.model ?? null,
     effort: run.effort ?? run.profile?.effort ?? null,
+    ...(demand ? { demand } : {}),
+    ...(finishReason ? { finish_reason: finishReason } : {}),
     started_at: started === null ? null : new Date(started).toISOString(),
     elapsed_seconds: started === null ? null : Math.max(0, (ended ?? now) - started) / 1000,
     last_progress: characters.length > 500 ? characters.slice(0, 499).join('') + '…' : progress };
