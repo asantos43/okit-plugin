@@ -31,7 +31,7 @@ Implementação: veja os módulos atuais em [ARCHITECTURE.pt-BR.md](ARCHITECTURE
 <a id="section-2"></a>
 ## Non-goals
 
-- Sem painel.
+- Sem painel, exceto um opcional para Claude Code.
 - Sem trabalho entre clientes.
 - Sem banco de dados; registros em JSON e logs de eventos em JSONL.
 

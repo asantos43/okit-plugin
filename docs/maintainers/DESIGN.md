@@ -30,7 +30,7 @@ Implementation: see [ARCHITECTURE.md](ARCHITECTURE.md) for the current modules.
 <a id="section-2"></a>
 ## Non-goals
 
-- No panel.
+- No panel except an optional Claude Code one.
 - No work across clients.
 - No database dependency; records use JSON and event logs use JSONL.
 
