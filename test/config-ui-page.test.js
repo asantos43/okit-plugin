@@ -83,15 +83,16 @@ test('single-group panels omit outer details; summaries count all descendant con
   }
 });
 
-test('tabs link six visible panels and retain 88 fields and 48 actor controls without script', () => {
+test('tabs link seven panels and retain 88 fields and 48 actor controls without script', () => {
   for (const locale of ['en', 'pt-BR']) {
     const html = renderPage(buildState(), { locale, nonce: 'test', token: 'token' }).replace(/<script\b[\s\S]*?<\/script>/g, '');
-    const ids = ['actors', 'limits', 'language', 'profiles', 'telemetry', 'todo'];
-    assert.equal((html.match(/role="tab"/g) ?? []).length, 6);
-    assert.equal((html.match(/role="tabpanel"/g) ?? []).length, 6);
+    assert.ok(html.includes(`tabindex="-1">${locale === 'en' ? 'Accounts' : 'Contas'}</button>`));
+    const ids = ['actors', 'accounts', 'limits', 'language', 'profiles', 'telemetry', 'todo'];
+    assert.equal((html.match(/role="tab"/g) ?? []).length, 7);
+    assert.equal((html.match(/role="tabpanel"/g) ?? []).length, 7);
     for (const [index, id] of ids.entries()) {
       assert.ok(html.includes(`id="tab-${id}" data-tab="${id}" aria-controls="panel-${id}" aria-selected="${index === 0}" tabindex="${index === 0 ? 0 : -1}">${labels[locale][`tab${id}`]}</button>`));
-      assert.ok(html.includes(`role="tabpanel" id="panel-${id}" aria-labelledby="tab-${id}">`));
+      assert.ok(html.includes(`role="tabpanel" id="panel-${id}" aria-labelledby="tab-${id}"${id === 'accounts' ? ' hidden' : ''}>`));
     }
     assert.equal((html.match(/ data-path="/g) ?? []).length, 88);
     assert.equal((html.match(/ data-(?:actor-path|actor)="/g) ?? []).length, 48);
@@ -106,6 +107,56 @@ test('tabs link six visible panels and retain 88 fields and 48 actor controls wi
       for (const field of expected) assert.ok(panels[index][1].includes(`data-path="${field.path}"`));
     }
   }
+});
+
+test('Accounts shows both client cards with default rows and separate add forms', () => {
+  const state = buildState();
+  state.accounts = ['claude-code', 'codex'].map(client => ({ client, id: 'default', label: 'Default',
+    configDir: null, login: 'unknown', loginCommand: `${client} login` }));
+  for (const locale of ['en', 'pt-BR']) {
+    const html = renderPage(state, { locale, nonce: 'test', token: 'token' }).split('id="panel-accounts"')[1].split('id="panel-limits"')[0];
+    assert.equal((html.match(/class="actor-card account-card"/g) ?? []).length, 2);
+    assert.equal((html.match(/<tr data-client=/g) ?? []).length, 2);
+    assert.equal((html.match(/data-account-id="default"/g) ?? []).length > 0, true);
+    assert.equal((html.match(new RegExp(`<td>${labels[locale].clientDefault}</td>`, 'g')) ?? []).length, 2);
+    assert.doesNotMatch(html, /data-action="account-remove"| data-(?:path|actor-path|actor)=/);
+    for (const client of ['claude-code', 'codex']) {
+      assert.ok(html.includes(`data-account-client="${client}"><h3>${client}</h3>`));
+      assert.ok(html.includes(`data-account-add data-client="${client}"`));
+      assert.ok(html.includes(`data-action="account-add" data-client="${client}"`));
+    }
+    assert.equal((html.match(/name="label"/g) ?? []).length, 2);
+    assert.equal((html.match(/name="configDir"/g) ?? []).length, 2);
+    assert.ok(html.includes(`placeholder="${labels[locale].accountFolderPlaceholder}"`));
+    for (const key of ['accountLabel', 'accountId', 'accountFolder', 'accountLogin', 'accountActions']) {
+      assert.ok(html.includes(`<th scope="col">${labels[locale][key]}</th>`));
+    }
+  }
+});
+
+test('account rows render all login badges, escaped values and hidden login help', () => {
+  const state = buildState(), hostile = '<script>"\'&</script>';
+  state.accounts = ['logged-in', 'logged-out', 'unknown'].map((login, index) => ({
+    client: 'codex', id: `work-${index}`, label: hostile, configDir: `/home/${hostile}`, login, loginCommand: `codex ${hostile}`,
+  }));
+  const html = renderPage(state, { nonce: 'test', token: 'token' }).split('id="panel-accounts"')[1].split('id="panel-limits"')[0];
+  const rows = [...html.matchAll(/<tr data-client="codex" data-account-id="([^"]+)">([\s\S]*?)<\/tr>/g)];
+  assert.equal(rows.length, 3);
+  for (const [index, [, id, row]] of rows.entries()) {
+    assert.equal(id, `work-${index}`);
+    assert.match(row, /value="&lt;script&gt;&quot;&#39;&amp;&lt;\/script&gt;"/);
+    assert.match(row, /<td>\/home\/&lt;script&gt;&quot;&#39;&amp;&lt;\/script&gt;<\/td>/);
+    assert.match(row, /<pre>codex &lt;script&gt;&quot;&#39;&amp;&lt;\/script&gt;<\/pre>/);
+    assert.match(row, /data-account-login-help hidden/);
+    assert.match(row, /data-account-remove-confirm hidden/);
+    for (const action of ['rename', 'remove', 'login', 'copy', 'check']) {
+      assert.ok(row.includes(`type="button" data-action="account-${action}" data-client="codex" data-account-id="${id}"`));
+    }
+    const [color, key] = [['ready', 'loggedIn'], ['waiting', 'notLoggedIn'], ['unknown', 'loginUnknown']][index];
+    assert.ok(row.includes(`<span class="badge ${color}" title="${labels.en[`${key}Title`]}">${labels.en[key]}</span>`));
+    for (const key of ['accountLoginHelp', 'accountCopy', 'accountCheck', 'accountConfirmRemove', 'cancel']) assert.ok(row.includes(`>${labels.en[key]}<`));
+  }
+  assert.doesNotMatch(html, /<script| style=|\son\w+=| data-(?:path|actor-path|actor)=/);
 });
 
 test('nondefault values open their ancestors and missing titles use the raw segment', () => {
@@ -140,7 +191,7 @@ test('schema fields render once, including future fields and redacted values', (
   assert.match(html, /data-path="future.hidden"[^>]*readonly/);
   assert.match(html, /role="tabpanel" id="panel-other" aria-labelledby="tab-other">[\s\S]*data-path="future.example"/);
   assert.match(html, /data-tab="other"[^>]*>Other<\/button>/);
-  assert.equal((html.match(/<tbody>/g) ?? []).length, state.actors.length);
+  assert.equal((html.match(/<tbody>/g) ?? []).length, state.actors.length + 2);
   assert.equal((html.match(/<tr data-row=/g) ?? []).length, state.actors.length * 4);
 });
 
@@ -192,7 +243,8 @@ test('locale goldens share keys and rendering changes only localized labels', as
     html = html.replace(/<script\b[\s\S]*?<\/script>/g, 'SCRIPT').replace(/lang="[^"]+"/, 'lang="LOCALE"');
     const entries = Object.entries(labels[locale]).flatMap(([key, value]) =>
       typeof value === 'object' ? Object.entries(value).map(([path, title]) => [`${key}.${path}`, title]) : [[key, value]]);
-    for (const [key, value] of entries) {
+    for (const [key, raw] of entries) {
+      const value = raw.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
       html = html.replaceAll(`>${value}<`, `>LABEL_${key}<`).replaceAll(`="${value}"`, `="LABEL_${key}"`)
         .replaceAll(`(${value})`, `(LABEL_${key})`).replaceAll(`>${value}:`, `>LABEL_${key}:`)
         .replaceAll(`>${value} <span class="count">`, `>LABEL_${key} <span class="count">`);

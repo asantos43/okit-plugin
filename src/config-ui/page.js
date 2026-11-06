@@ -1,5 +1,6 @@
 import { labels } from './labels.js';
 import { clientSource } from './client.js';
+import { ACCOUNT_CLIENTS } from '../accounts.js';
 
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g,
   (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -23,7 +24,7 @@ export function renderPage(state, { locale = 'en', nonce, token, instance }) {
     return `<input ${attrs} type="${type}" ${type === 'checkbox' ? (field.value ? 'checked' : '') : `value="${e(value)}"`}>`;
   };
   const groups = [...new Set(state.fields.map(field => field.path.split('.')[0]))];
-  const tabs = Object.entries({ actors: '', limits: 'limits lowQuotaPct daemon smoke accountPolicy codexQuota',
+  const tabs = Object.entries({ actors: '', accounts: '', limits: 'limits lowQuotaPct daemon smoke accountPolicy codexQuota',
     language: 'language', profiles: 'profiles', telemetry: 'telemetry', todo: 'todo' })
     .map(([id, names]) => [id, names ? names.split(' ') : []]);
   const other = groups.filter(group => !tabs.some(([, names]) => names.includes(group)));
@@ -66,9 +67,25 @@ export function renderPage(state, { locale = 'en', nonce, token, instance }) {
     }).join('')}<td title="${e(row.reasons.join(', '))}"><span class="badge ${row.launchableNow ? 'ready' : 'waiting'}">${e(row.launchableNow ? text.yes : text.no)}</span></td></tr>`).join('');
     return `${heading}<p>${e(actor.reason)}</p><div class="table-scroll"><table><thead><tr><th></th>${['enabled', 'model', 'effort', 'maxTurns', 'launchable'].map(key => `<th>${e(text[key])}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
   }).join('')}</section>`).join('');
+  const accountRows = client => state.accounts.filter(account => account.client === client).map(account => {
+    const attrs = `data-client="${e(client)}" data-account-id="${e(account.id)}"`;
+    const login = account.login === 'logged-in' ? ['ready', 'loggedIn']
+      : account.login === 'logged-out' ? ['waiting', 'notLoggedIn'] : ['unknown', 'loginUnknown'];
+    return `<tr ${attrs}><td><input data-account-label ${attrs} value="${e(account.label)}" aria-label="${e(text.accountLabel)}">${button('account-rename', text.saveLabel, attrs)}</td>
+      <td>${e(account.id)}</td><td>${e(account.configDir === null ? text.clientDefault : account.configDir)}</td>
+      <td><span class="badge ${login[0]}" title="${e(text[`${login[1]}Title`])}">${e(text[login[1]])}</span></td>
+      <td>${button('account-login', text.accountLoginCommand, attrs)}${account.id === 'default' ? '' : button('account-remove', text.accountRemove, attrs)}
+      ${account.id === 'default' ? '' : `<div data-account-remove-confirm hidden>${button('account-remove', text.accountConfirmRemove, `${attrs} data-confirm="true"`)}${button('account-remove', text.cancel, `${attrs} data-cancel="true"`)}</div>`}
+      <div class="account-login-help" data-account-login-help hidden><p>${e(text.accountLoginHelp)}</p><pre>${e(account.loginCommand)}</pre>${button('account-copy', text.accountCopy, attrs)}${button('account-check', text.accountCheck, attrs)}</div></td></tr>`;
+  }).join('');
+  const accounts = ACCOUNT_CLIENTS.map(client => `<section class="actor-card account-card" data-account-client="${e(client)}"><h3>${e(client)}</h3>
+    <div class="table-scroll"><table><thead><tr>${['accountLabel', 'accountId', 'accountFolder', 'accountLogin', 'accountActions'].map(key => `<th scope="col">${e(text[key])}</th>`).join('')}</tr></thead><tbody>${accountRows(client)}</tbody></table></div>
+    <form class="account-add" data-account-add data-client="${e(client)}"><label>${e(text.accountLabel)}<input name="label" placeholder="${e(text.accountLabelPlaceholder)}" maxlength="40" required></label>
+    <label>${e(text.accountFolder)}<input name="configDir" placeholder="${e(text.accountFolderPlaceholder)}" required></label>${button('account-add', text.accountAdd, `data-client="${e(client)}"`)}</form>
+    <p>${e(text.accountRemoveNote)}</p></section>`).join('');
   const tabBar = `<div class="tabs" role="tablist" aria-label="${e(text.settings)}">${tabs.map(([id], index) =>
     `<button type="button" role="tab" id="tab-${e(id)}" data-tab="${e(id)}" aria-controls="panel-${e(id)}" aria-selected="${index === 0}" tabindex="${index === 0 ? '0' : '-1'}">${e(text[`tab${id}`])}</button>`).join('')}</div>`;
-  const panels = tabs.map(([id, names]) => `<section class="panel" role="tabpanel" id="panel-${e(id)}" aria-labelledby="tab-${e(id)}">${id === 'actors' ? actors : settings(names)}</section>`).join('');
+  const panels = tabs.map(([id, names]) => `<section class="panel" role="tabpanel" id="panel-${e(id)}" aria-labelledby="tab-${e(id)}"${id === 'accounts' ? ' hidden' : ''}>${id === 'actors' ? actors : id === 'accounts' ? accounts : settings(names)}</section>`).join('');
   const launchable = ['simple', 'normal', 'hard'].every(name =>
     state.actors.some(actor => actor.classes.some(row => row.class === name && row.launchableNow)));
   const css = `
@@ -87,6 +104,7 @@ export function renderPage(state, { locale = 'en', nonce, token, instance }) {
     .field{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1.5rem;padding:1rem 0;border-bottom:1px solid var(--border)}label{font-weight:600;overflow-wrap:anywhere}small{color:var(--muted)}.field-control{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
     table{border-collapse:collapse;width:100%;margin:1rem 0}th,td{text-align:left;padding:.65rem;border-bottom:1px solid var(--border)}tbody tr:nth-child(odd){background:var(--soft)}.badge{display:inline-block;border-radius:2rem;padding:.2rem .65rem;font-size:.85rem;white-space:nowrap}.ready{color:var(--green);background:var(--green-bg)}.waiting{color:var(--amber);background:var(--amber-bg)}
     .action-bar{position:sticky;bottom:0;z-index:2;background:var(--card);border:1px solid var(--border);border-radius:1rem 1rem 0 0;padding:1rem;display:flex;align-items:center;gap:1rem}#error{color:var(--error);flex:1}pre{white-space:pre-wrap;overflow-wrap:anywhere}#review button+button{margin-left:.5rem}
+    .unknown{color:var(--muted);background:var(--bg)}.account-card td{overflow-wrap:anywhere}.account-card td button{margin:.2rem}.account-login-help{min-width:12rem;max-width:24rem}.account-add{display:flex;flex-wrap:wrap;align-items:end;gap:.75rem}.account-add label{flex:1 1 14rem;min-width:0}.account-add input{display:block;width:100%}
     header .badge{min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;border-radius:1rem}#error{min-width:0;overflow-wrap:anywhere}
     [hidden]{display:none!important}@media(max-width:700px){.field{grid-template-columns:1fr;gap:.75rem}header{gap:.5rem}.panel{padding:.75rem}header .badge{order:4;width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}.action-bar{flex-wrap:wrap}.field>*{min-width:0}.field-control input[type=text],.field-control select{flex:1 1 8rem;min-width:0}}
   `;
