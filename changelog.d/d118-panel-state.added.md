@@ -1,0 +1,1 @@
+- Add read-only `panel-state --json --client <claude|codex>` with a versioned per-client account, quota, executor run, launchability and readiness document.

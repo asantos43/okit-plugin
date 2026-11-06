@@ -19,6 +19,7 @@ A pessoa usa comandos no terminal para instalar, manter e diagnosticar o plugin 
 | `okit-plugin setup` | Propõe modelos e salva após confirmação | `okit-plugin setup --again` |
 | `okit-plugin doctor` | Diagnostica a instalação; só lê, com correção por falha | `okit-plugin doctor --client codex` |
 | `okit-plugin account` | Adiciona, lista, remove ou renomeia contas; login continua manual | `okit-plugin account list codex --json` |
+| `okit-plugin panel-state` | Ler estado versionado de um cliente; veja [esquema](state.pt-BR.md#panel-state) | `okit-plugin panel-state --json --client claude` |
 
 Veja [contas](../guide/accounts.pt-BR.md) para `add`, `list`, `remove`, `rename` e registro do coletor. Alterações de conta salvam a configuração; add cria a pasta. Remove preserva a pasta e o login.
 
