@@ -295,6 +295,28 @@ test('plugin and kit commands execute their own tool in a temporary HOME', async
   assert.equal((await detectKit({ ...f.deps, env, run })).state, 'installed');
 });
 
+// | D135 input | must pass | must refuse |
+// | existing owned command, stale false record | record ownership and remove on uninstall | leaving the command |
+// | foreign replacement | preserve user content | deleting by name alone |
+for (const foreign of [false, true]) test(`D135 reinstall recovers link ownership; foreign replacement=${foreign}`, async (t) => {
+  const f = await sharedFixture(t);
+  const flags = ['--client', 'claude-code', '--no-panel', '--no-statusline'];
+  assert.equal(await main(['install', ...flags], f.io), 0);
+  const record = await readRecord(f.destination, 'claude-code', fs);
+  record.link = false;
+  await saveRecord(f.destination, record, { fs, config: f.io.config });
+  assert.equal(await main(['install', ...flags], f.io), 0, f.output.join('\n'));
+  assert.equal((await readRecord(f.destination, 'claude-code', fs)).link, true);
+  const command = join(f.bin, record.settings.command);
+  if (foreign) {
+    await fs.unlink(command);
+    await fs.writeFile(command, join(record.path, record.bin));
+  }
+  assert.equal(await main(['uninstall', '--client', 'claude-code'], f.io), 0);
+  if (foreign) assert.equal(await fs.readFile(command, 'utf8'), join(record.path, record.bin));
+  else await assert.rejects(fs.lstat(command), { code: 'ENOENT' });
+});
+
 // PATH corpus: must pass: new shell, repeat, rollback, user edits, candidates.
 // Must refuse: duplicate blocks, editing profiles with --no-path or PATH present.
 test('managed PATH resolves and executes skill command, repeats and rolls back without duplication', async (t) => {

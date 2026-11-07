@@ -121,7 +121,7 @@ const LABEL_WIDTH = 28;
 const TEXTS = Object.freeze({
   panel: { en: 'Optional panel', 'pt-BR': 'Painel opcional' },
   panelExplain: { en: 'A board of accounts, running and recent work, with quota bars.', 'pt-BR': 'Um quadro de contas, trabalhos em andamento e recentes, com barras de cota.' },
-  panelExplain2: { en: 'Read-only; open with /okit-panel in Claude Code.', 'pt-BR': 'Somente leitura; abra com /okit-panel no Claude Code.' },
+  panelExplain2: { en: 'Read-only; opens automatically in Claude Code.', 'pt-BR': 'Somente leitura; abre automaticamente no Claude Code.' },
   panelAsk: { en: 'Install the optional panel?', 'pt-BR': 'Instalar o painel opcional?' },
   panelHow: { en: 'Turn on later: {command}', 'pt-BR': 'Ative depois: {command}' },
   panelFlag: { en: '{flag} cannot be used with --panel.', 'pt-BR': '{flag} não pode ser usado com --panel.' },
@@ -1082,6 +1082,7 @@ async function install(defaults, present, hide) {
   let client = flags['--client'] || env.OKIT_CLIENT || record?.client;
   if (!client) {
     const entries = Object.entries(clients);
+    say('');
     say(t('Which client do you want to install for?', 'Para qual cliente você quer instalar?'));
     entries.forEach(([name, executable], i) => {
       const detected = platform === 'win32' ? spawnSync('where.exe', [executable]).status === 0
@@ -1092,6 +1093,7 @@ async function install(defaults, present, hide) {
     const { createInterface } = await import('node:readline/promises');
     const stream = process.stdin.isTTY || platform === 'win32' ? process.stdin : (await import('node:fs')).createReadStream('/dev/tty');
     const input = createInterface({ input: stream, output: present.redactingStream(process.stdout, hide) });
+    say('');
     try { client = entries[Number(await input.question(t('Number: ', 'Número: '))) - 1]?.[0]; }
     finally { input.close(); if (stream !== process.stdin) stream.destroy(); }
   }
