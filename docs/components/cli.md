@@ -26,6 +26,8 @@ For Claude Code, `install` offers the optional panel after success; `--no-panel`
 
 See [accounts](../guide/accounts.md) for `add`, `list`, `remove`, `rename` and collector registration. Account changes save configuration; add creates the folder. Remove preserves the folder and login.
 
+Install/update offers model setup only for the selected clients. Each client has one numbered model list and three class questions with current defaults; a single option is shown in the confirmation table. Standalone `setup` keeps all detected clients. The final Next group shows “Run this now:” and the activation command for the profile containing the PATH block, or asks you to open a new terminal.
+
 ## Internal entry points
 
 The person does not run these: they are absent from `--help`. The client starts the collector and the hooks (see [hooks](hooks.md)); the autostart unit, the installer and the offline smoke checks start the daemon entries (see [daemon](daemon.md)).

@@ -746,17 +746,17 @@ for (const locale of LOCALES) {
     const fresh = await run(['install', '--client', CLIENT, '--statusline']);
     assert.equal(fresh.code, 0, fresh.text);
     assert.equal(countOf(fresh.text, locale), 1, fresh.text);
-    assert.match(fresh.text, locale === 'en' ? /Next: okit-plugin setup/ : /Próximo: okit-plugin setup/, fresh.text); // locale:pt-BR
+    assert.match(fresh.text, locale === 'en' ? /\nNext\nOpen a new terminal\.$/ : /\nPróximo\nAbra um terminal novo\.$/, fresh.text); // locale:pt-BR
     const same = await run(['install', '--client', CLIENT, '--statusline']);
     assert.equal(same.code, 0, same.text);
     assert.equal(countOf(same.text, locale), 1, same.text);
-    assert.ok(same.text.includes(EXPECTED_ROW[locale]), same.text);
+    assert.match(same.text, locale === 'en' ? /\nNext\nOpen a new terminal\.$/ : /\nPróximo\nAbra um terminal novo\.$/, same.text); // locale:pt-BR
     assert.doesNotMatch(same.text, /Done\. Next|Pronto\. Próximo/); // locale:pt-BR
     f.setVersion('2.0.0');
     const update = await run(['update']);
     assert.equal(update.code, 0, update.text);
     assert.equal(countOf(update.text, locale), 1, update.text);
-    assert.match(update.text, locale === 'en' ? /Next: restart Claude Code, then run: okit-plugin doctor --client claude-code/ : /Próximo: reinicie Claude Code e rode: okit-plugin doctor --client claude-code/, update.text); // locale:pt-BR
+    assert.match(update.text, locale === 'en' ? /\nNext\nOpen a new terminal\.$/ : /\nPróximo\nAbra um terminal novo\.$/, update.text); // locale:pt-BR
     const current = await run(['update']);
     assert.equal(current.code, 0, current.text);
     assert.equal(countOf(current.text, locale), 1, current.text);

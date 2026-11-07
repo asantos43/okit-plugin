@@ -12,6 +12,7 @@ import { installConfig } from '../src/install/config.js';
 import { tarGz } from '../src/release/archive.js';
 import { formatOffer } from '../src/setup/offer.js';
 import { createPresenter } from '../src/install/present.js';
+import { runSetup } from '../src/setup/setup.js';
 import { answerCheck } from './helpers/install-fixture.js';
 import { callTool } from './helpers/tools.js';
 
@@ -93,6 +94,8 @@ async function installation(t, { tty = false, ask } = {}) {
     // The payload of an installation is whole: the MCP server and the probe of the check are files of it.
     { path: 'src/mcp/server.js', mode: 0o644, data: '// fake MCP server\n' },
     { path: 'src/mcp/selfcheck-probe.js', mode: 0o644, data: '// fake probe of the check\n' },
+    { path: 'src/install/client-plugin.js', mode: 0o644, data: '// native client plugin\n' },
+    { path: 'skills/.keep', mode: 0o644, data: '' },
   ]);
   const name = (client) => `sample-${version}-${client}-linux-x64.tar.gz`;
   const selected = () => ({
@@ -200,22 +203,75 @@ test('an interactive install asks, runs the setup and keeps the installation suc
   const questions = [];
   const f = await installation(t, {
     tty: true,
-    ask: async (question) => { questions.push(question); return 'yes'; },
+    ask: async (question, recommended) => { questions.push(question); return recommended ? '' : 'yes'; },
   });
-  f.io.adapters = [fakeClient('claude-code', ['haiku', 'sonnet', 'opus'])];
+  f.io.adapters = [fakeClient('codex', ['gpt-5', 'gpt-5-mini'])];
   assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.out.join(' / '));
   assert.ok(questions.some((question) => question.includes('Choose the models now? [Y/n]')), questions.join(' / '));
   // One question per prompt, the explanation before it and the question last.
   assert.equal(questions.filter((question) => /\n/.test(question.trimEnd())).length, 0);
-  assert.ok(f.out.some((line) => /^\s*Models\s+ok\s+.*haiku.* saved$/.test(line)), f.out.join(' / '));
+  assert.ok(f.out.some((line) => /^\s*Models\s+ok\s+.*gpt-5.* saved$/.test(line)), f.out.join(' / '));
   const raw = JSON.parse(await readFile(join(f.root, 'config.json'), 'utf8'));
   assert.match(raw.setup.done.at, /^\d{4}-\d{2}-\d{2}T/);
-  assert.equal(raw.profiles['claude-code'].simple.model, 'haiku');
+  assert.equal(raw.profiles.codex.simple.model, 'gpt-5');
+});
+
+for (const selected of ['claude-code', 'all']) test(`D132 install ${selected} reviews only its clients with one list each`, async (t) => {
+  const questions = [];
+  const f = await installation(t, { tty: true, ask: async (question) => {
+    questions.push(question);
+    return /tasks \[/.test(question) ? '' : /Record quota|optional panel/.test(question) ? 'n' : 'yes';
+  } });
+  delete f.io.ui;
+  f.io.read = f.io.ask;
+  f.io.detect = async () => true;
+  f.io.loadAdapter = async () => ({ installHooks: async () => ({}), installSkill: async () => ({}) });
+  f.io.adapters = ['claude-code', 'codex', 'opencode'].map((client) => fakeClient(client,
+    client === 'claude-code' ? ['haiku', 'sonnet', 'opus'] : ['other/model', 'second/model']));
+  assert.equal(await main(['install', '--client', selected, '--no-panel'], f.io), 0, f.out.join('\n'));
+  const count = selected === 'all' ? 3 : 1;
+  assert.equal(questions.filter((question) => /tasks \[/.test(question)).length, count * 3);
+  assert.deepEqual(questions.filter((question) => /tasks \[/.test(question)).slice(0, 3),
+    ['Small tasks [1]:', 'Everyday tasks [2]:', 'Complex tasks [3]:']);
+  assert.equal(f.out.filter((line) => /^1\. haiku/.test(line)).length, 1);
+  assert.equal(f.out.filter((line) => /^1\. other\/model/.test(line)).length, count - 1);
+  if (selected !== 'all') assert.doesNotMatch(f.out.join('\n'), /Codex|OpenCode|"codex"|"opencode"/);
+  const raw = JSON.parse(await readFile(join(f.root, 'config.json'), 'utf8'));
+  assert.equal(raw.profiles['claude-code'].hard.model, 'opus');
+  if (selected !== 'all') assert.deepEqual(Object.keys(raw.profiles), ['claude-code']);
+});
+
+test('D132 a multi-client filter keeps current defaults and prints the fallback notice once', async (t) => {
+  const { home, root } = await temporaryHome(t), lines = [], questions = [];
+  await mkdir(root, { recursive: true });
+  await writeFile(join(root, 'config.json'), JSON.stringify({ profiles: { 'claude-code': { simple: { model: 'opus' } } } }));
+  const adapters = ['claude-code', 'codex', 'opencode'].map((client) => ({ CLIENT: client,
+    listModels: async () => ({ client, installed: true, models: ['haiku', 'sonnet', 'opus'], source: 'catalog' }) }));
+  const result = await runSetup({ root, env: { HOME: home }, clients: ['claude-code', 'codex'], locale: 'en',
+    adapters, run: answerCheck, out: (line) => lines.push(line),
+    ask: async (question) => { questions.push(question); return /tasks \[/.test(question) ? '' : 'yes'; } });
+  assert.equal(result.changes.length, 6);
+  assert.equal(questions[0], 'Small tasks [3]:');
+  assert.equal(lines.filter((line) => /built-in list/.test(line)).length, 1);
+  assert.doesNotMatch(lines.join('\n'), /OpenCode|opencode/);
+  assert.equal(lines.filter((line) => /^1\. haiku/.test(line)).length, 2);
+  assert.match(lines.find((line) => /^3\. opus/.test(line)), /Small tasks.*default/);
+});
+
+test('D132 a single option is explained per class in the table without model questions', async (t) => {
+  const { home, root } = await temporaryHome(t), lines = [], questions = [];
+  const result = await runSetup({ root, env: { HOME: home }, clients: ['claude-code'], locale: 'en',
+    adapters: [fakeClient('claude-code', ['one/model'])], run: answerCheck, out: (line) => lines.push(line),
+    ask: async (question) => { questions.push(question); return 'yes'; } });
+  assert.equal(result.changes.length, 3);
+  assert.equal(questions.length, 1);
+  assert.match(questions[0], /Save these choices/);
+  assert.equal(lines.filter((line) => /one\/model \(only option\)/.test(line)).length, 3);
 });
 
 test('the install setup reader treats EOF as cancellation without changing the configuration', { timeout: 2000 }, async (t) => {
   const f = await installation(t, { tty: true });
-  f.io.adapters = [fakeClient('claude-code', ['other/model'])];
+  f.io.adapters = [fakeClient('codex', ['other/model', 'second/model'])];
   Object.assign(f.io, terminal('yes\n'));
   assert.equal(await main(['install', '--client', 'codex'], f.io), 0, f.out.join(' / '));
   assert.ok(f.out.some((line) => /Setup was cancelled and nothing was saved/.test(line)), f.out.join(' / '));
@@ -291,7 +347,7 @@ test('the unreadable configuration is reported in Portuguese with --locale pt-BR
 
 test('the install setup reader with an input that already ended does not hang', { timeout: 5000 }, async (t) => {
   const f = await installation(t, { tty: true });
-  f.io.adapters = [fakeClient('claude-code', ['other/model'])];
+  f.io.adapters = [fakeClient('codex', ['other/model', 'second/model'])];
   const stdin = Readable.from([]);
   stdin.resume();
   await new Promise((resolve) => stdin.once('end', resolve));

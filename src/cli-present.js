@@ -55,8 +55,8 @@ export const commandTitle = (command, locale, action) => `${command} — ${local
   ? { setup: 'Configuração', doctor: 'Verificação da instalação' }[action] // locale:pt-BR
   : { setup: 'Setup', doctor: 'Installation check' }[action]}`;
 export const catalogFallback = (locale) => locale === 'pt-BR'
-  ? 'Não foi possível ler a lista de modelos; estas opções vêm da lista incluída no plugin.' // locale:pt-BR
-  : 'The model list could not be read; these choices come from the built-in list.';
+  ? 'Lista de modelos indisponível; usando a lista incluída.' // locale:pt-BR
+  : 'Model list unavailable; using the built-in list.';
 export function createPresenter(options = {}) {
   const ui = basePresenter(options);
   ui.text = (key, values = {}) => String(TEXTS[key]?.[ui.locale] ?? '').replace(/\{(\w+)\}/g, (_, key) => {
@@ -111,8 +111,14 @@ export function createInstallerView({ operation, command, locale, write, verbose
   // builds and touches nothing else, so a path or a message that happens to hold a command name stays as it is. A token
   // with no words is the program alone, for the texts that carry their own verb (`{command} setup`).
   const resolve = (line) => resolveTokens(line, (words, { later, program }) => (words.length ? type(words, { later, program }) : program ?? launcher(later)));
-  let menu = false, titled = false, pathHint, modelsConfirmed = false;
-  const title = () => { if (titled) return; titled = true; emit(`${command} — ${pt
+  let menu = false, titled = false, choices = false, organized = false, pathHint, modelsConfirmed = false, selectedClients;
+  const title = (installation = false) => { if (titled) return; titled = true;
+    if (installation && headers.length && operation !== 'uninstall' && (operation === 'install' || !headers.every((header) => stateOf(header.client).current))) {
+      const action = operation === 'update' ? (pt ? 'atualização para' : 'update for') : (pt ? 'instalação para' : 'install for'); // locale:pt-BR
+      emit(`${command} ${headers[0].version} — ${action} ${(selectedClients ?? [...new Set(headers.map((header) => header.client))]).join(', ')}`);
+      return;
+    }
+    emit(`${command} — ${pt
     ? { install: 'Instalação', update: 'Atualização', uninstall: 'Desinstalação' }[operation] // locale:pt-BR
     : { install: 'Install', update: 'Update', uninstall: 'Uninstall' }[operation]}`); };
   const original = { ...ui };
@@ -120,6 +126,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
   ui.command = (words = [], { later = false, program } = {}) => commandToken(words, { later, program });
   // An install into a custom folder: the doctor reads no folder of its own, so no text offers one (see `finish`).
   ui.customFolder = operation === 'install' && Boolean(launch.dest);
+  ui.beginClients = (clients) => { selectedClients = clients.map(clientLabel); };
   ui.header = (values) => {
     activeClient = normalizeClientLabel(values.client);
     headers.push({ ...values, client: activeClient });
@@ -133,12 +140,22 @@ export function createInstallerView({ operation, command, locale, write, verbose
     if (status === 'failed' && (activeClient || detail)) failures.push({ step: label, reason: detail, client: activeClient });
     globalLine = [ui.text('kit'), ui.text('models'), ui.text('policy')].includes(label);
     original.row(label, status, detail);
+    notes.at(-1).row = { label, status, detail };
     globalLine = false;
   };
   ui.note = (value) => { globalLine = typeof value !== 'string'; original.note(value); globalLine = false; };
   ui.detail = (value) => { globalLine = typeof value !== 'string'; original.detail(value); globalLine = false; };
   ui.warn = original.warn;
-  ui.summary = ({ hint }) => { pathHint = hint; original.note(ui.text('nextOpen')); };
+  ui.summary = ({ hint }) => { pathHint = hint; };
+  ui.confirm = async (read, options) => {
+    if (!choices) {
+      // The client menu precedes the installation heading when selection was interactive.
+      if (menu) titled = false;
+      title(true); choices = true;
+      emit(`\n${pt ? 'Escolhas' : 'Choices'}`); // locale:pt-BR
+    }
+    return original.confirm(read, { ...options, explain: options.explain?.slice(0, 1) });
+  };
   ui.failure = (failure) => { failures.push({ ...failure, client: failure.client ? clientLabel(failure.client) : undefined }); return []; };
   ui.sequence = (keys, values = {}) => {
     let n = 0;
@@ -173,7 +190,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
    */
   function finish({ code, before = {}, after = {}, client, dryRun = false, purge = false, checkOnly = false, flags, program = launch.program, platform = launch.platform, destination, pathReady = true }) {
     if (!menu && !headers.length && !failures.length) return;
-    if (!menu) title();
+    if (!menu) title(!code && !dryRun && !checkOnly);
     const known = Object.keys({ ...before, ...after });
     const idOf = (label) => known.find((id) => clientLabel(id) === label) ?? label.toLowerCase().replaceAll(' ', '-');
     const seen = [...new Set([...headers.map((header) => header.client), ...failures.map((failure) => failure.client).filter(Boolean)])];
@@ -309,6 +326,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
       flushNotes(say);
       return;
     }
+    organized = true;
     for (const id of ids) {
       const name = clientLabel(id), record = after[id];
       say(operation === 'install'
@@ -318,24 +336,21 @@ export function createInstallerView({ operation, command, locale, write, verbose
     }
     renderSteps(say);
     const changed = ids.filter((id) => !stateOf(id)?.current);
-    // Not ready to launch executors yet (the models are not confirmed): the next step names the doctor, which tells the gaps.
-    const notReady = !modelsConfirmed && !custom;
-    say(operation === 'install' ? `${pt ? 'Próximo' : 'Next'}: ${type(['setup'], { later: true })}${notReady // locale:pt-BR
-      ? (pt ? `; depois rode ${check} para ver se está pronto para lançar executores` : `; then run ${check} to see if you are ready to launch executors`) : ''}` // locale:pt-BR
-      : (pt ? `Próximo: reinicie ${names(changed)} e rode: ${check}` : `Next: restart ${names(changed)}, then run: ${check}`)); // locale:pt-BR
     // The doctor reads the folder of the settings and takes no folder of its own: for an install into a custom folder
     // the output says where the installation is instead of a check that would look somewhere else.
     if (operation === 'install') {
-      say(custom ? `${pt ? 'Pasta da instalação' : 'Installation folder'}: ${destination ?? options.dest} ${pt ? '(o doctor só lê a pasta dos ajustes)' : '(the doctor reads only the folder of the settings)'}` // locale:pt-BR
-        : `${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}`); // locale:pt-BR
+      notes.push({ line: custom ? `${pt ? 'Pasta da instalação' : 'Installation folder'}: ${destination ?? options.dest} ${pt ? '(o doctor só lê a pasta dos ajustes)' : '(the doctor reads only the folder of the settings)'}` // locale:pt-BR
+        : `${pt ? 'Verifique a instalação' : 'Check the installation'}: ${check}` }); // locale:pt-BR
     }
-    if (pathHint) {
-      say(pt ? 'PATH é a lista de pastas onde o terminal procura comandos.' : 'PATH is the list of folders your terminal searches for commands.'); // locale:pt-BR
-      say(pathHint);
-    }
-    if (operation === 'update') for (const id of changed.filter((id) => after[id]?.previous)) say(rollbackLine(id));
+    if (operation === 'update') for (const id of changed.filter((id) => after[id]?.previous)) notes.push({ line: rollbackLine(id) });
     flushNotes(say);
     if (verbose && notes.some(({ line }) => line.trimStart().startsWith(ui.text('kit')))) say(`${pt ? 'Confira novamente' : 'Check again'}: MCP kit_detect {}`);
+    say(`\n${pt ? 'Próximo' : 'Next'}`); // locale:pt-BR
+    if (pathHint) {
+      say(pt ? 'Execute agora:' : 'Run this now:'); // locale:pt-BR
+      say(pathHint);
+      say(pt ? 'ou abra um terminal novo' : 'or open a new terminal'); // locale:pt-BR
+    } else say(pt ? 'Abra um terminal novo.' : 'Open a new terminal.'); // locale:pt-BR
   }
   function renderSteps(say, { completed = false } = {}) {
     const multiple = new Set(steps.map((step) => step.client)).size > 1;
@@ -352,7 +367,24 @@ export function createInstallerView({ operation, command, locale, write, verbose
   }
   function flushNotes(say) {
     const multiple = new Set(headers.map((header) => header.client)).size > 1;
-    for (const { line, client } of notes) say(resolve(multiple && client ? `${client} — ${line.trimStart()}` : line));
+    if (!organized) {
+      for (const { line, client } of notes) say(resolve(multiple && client ? `${client} — ${line.trimStart()}` : line));
+      return;
+    }
+    const rows = notes.filter((note) => note.row && !(note.row.label === ui.text('selfcheckPath') && note.row.status === 'info'));
+    const labelOf = ({ row, client }) => multiple && client ? `${client} — ${row.label}` : row.label;
+    const width = Math.max(0, ...rows.map((note) => labelOf(note).length));
+    for (const note of rows) {
+      const { status, detail } = note.row;
+      const mark = BASE_TEXTS.status[status]?.[ui.locale] ?? status;
+      say(`  ${labelOf(note).padEnd(width)}  ${mark.padEnd(7)}  ${resolve(detail)}`.trimEnd());
+    }
+    const explanations = notes.filter((note) => !note.row);
+    if (explanations.length) say(`\n${pt ? 'Notas' : 'Notes'}`); // locale:pt-BR
+    for (const { line, client } of explanations) {
+      const content = resolve(multiple && client ? `${client} — ${line.trimStart()}` : line);
+      for (const item of content.split('\n')) say(`  ${item.trimStart()}`);
+    }
   }
 }
 
@@ -399,15 +431,28 @@ export function presentDiagnosis(result, { ui, command, client, clients, verbose
   if (!fixes.length) out(`${pt ? 'Verifique novamente quando precisar' : 'Check again when needed'}: ${check}`);
   if (result.gaps) out(readyLine(result, ui.locale));
 }
-export async function askNumberedModel({ ask, locale, client, className, candidates, attempts, out }) {
+export function presentModelOptions({ client, candidates, defaults, locale, out }) {
+  out(`\n${clientLabel(client)}`);
+  candidates.forEach((model, index) => {
+    const classes = Object.entries(defaults).filter(([, value]) => value === model)
+      .map(([name]) => workLabel(name, locale));
+    out(`${index + 1}. ${model}${classes.length ? ` (${classes.join(', ')} — ${locale === 'pt-BR' ? 'padrão' : 'default'})` : ''}`); // locale:pt-BR
+  });
+}
+
+export async function askNumberedModel({ ask, locale, client, className, candidates, attempts, out, recommended = candidates[0], showOptions = true }) {
   const pt = locale === 'pt-BR';
-  out(`\n${workLabel(className, locale)} — ${clientLabel(client)}`);
-  candidates.forEach((model, index) => out(`${index + 1}. ${model}${index === 0 ? (pt ? ' (recomendado)' : ' (recommended)') : ''}`));
+  if (showOptions) {
+    out(`\n${workLabel(className, locale)} — ${clientLabel(client)}`);
+    candidates.forEach((model, index) => out(`${index + 1}. ${model}${index === 0 ? (pt ? ' (recomendado)' : ' (recommended)') : ''}`)); // locale:pt-BR
+  }
+  const defaultIndex = Math.max(0, candidates.indexOf(recommended));
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const answer = await ask(pt ? 'Escolha um modelo [1]:' : 'Choose a model [1]:'); // locale:pt-BR
+    const answer = await ask(showOptions ? (pt ? 'Escolha um modelo [1]:' : 'Choose a model [1]:') // locale:pt-BR
+      : `${workLabel(className, locale)} [${defaultIndex + 1}]:`);
     if (answer == null) return { cancelled: true };
     const clean = String(answer).trim();
-    const index = clean === '' ? 0 : /^[1-9]\d*$/.test(clean) ? Number(clean) - 1 : -1;
+    const index = clean === '' ? defaultIndex : /^[1-9]\d*$/.test(clean) ? Number(clean) - 1 : -1;
     if (candidates[index]) return { value: candidates[index] };
     const options = candidates.map((_, i) => i + 1).join(pt ? ' ou ' : ' or ');
     out(pt ? `Escolha ${options}.` : `Choose ${options}.`); // locale:pt-BR
@@ -481,7 +526,7 @@ export function presentModelChoices({ locale, changes, command, out }) {
   const several = new Set(changes.map((change) => change.client)).size > 1;
   out(`| ${several ? `${pt ? 'Cliente' : 'Client'} | ` : ''}${pt ? 'Trabalho | Modelo' : 'Work | Model'} |`); // locale:pt-BR
   out(`| ${several ? '--- | ' : ''}--- | --- |`);
-  for (const change of changes) out(`| ${several ? `${clientLabel(change.client)} | ` : ''}${workLabel(change.class, locale)} | ${change.model} |`);
+  for (const change of changes) out(`| ${several ? `${clientLabel(change.client)} | ` : ''}${workLabel(change.class, locale)} | ${change.model}${change.singleOption ? (pt ? ' (única opção)' : ' (only option)') : ''} |`); // locale:pt-BR
   out(pt
     ? `\nAs escolhas valem para trabalhos futuros. Para alterá-las: ${command} setup --again` // locale:pt-BR
     : `\nThese choices apply to future work. You can change them with: ${command} setup --again`);
