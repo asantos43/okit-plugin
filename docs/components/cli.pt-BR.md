@@ -26,6 +26,8 @@ No Claude Code, `install` oferece o painel opcional após sucesso; `--no-panel` 
 
 Veja [contas](../guide/accounts.pt-BR.md) para `add`, `list`, `remove`, `rename` e registro do coletor. Alterações de conta salvam a configuração; add cria a pasta. Remove preserva a pasta e o login.
 
+Install/update oferece o setup de modelos apenas para os clientes selecionados. Cada cliente tem uma lista numerada e três perguntas por classe com os padrões atuais; uma opção única aparece na tabela de confirmação. O comando avulso `setup` mantém todos os clientes detectados. O grupo final Próximo mostra “Execute agora:” e o comando de ativação do perfil que contém o bloco do PATH, ou pede para abrir um terminal novo.
+
 ## Entradas internas
 
 A pessoa não executa estas: elas ficam fora de `--help`. O cliente inicia o coletor e os hooks (veja [hooks](hooks.pt-BR.md)); a unidade de inicialização automática, o instalador e os checks smoke offline iniciam as entradas do daemon (veja [daemon](daemon.pt-BR.md)).

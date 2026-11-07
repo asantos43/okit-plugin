@@ -11,7 +11,7 @@ import { paths } from '../store.js';
 import { environmentSnapshot } from '../env/snapshot.js';
 import { redactingStream } from '../install/present.js';
 import { labelsOf } from '../env/quota.js';
-import { askNumberedModel, catalogFallback, clientLabel, presentModelChoices, setupIntroduction } from '../cli-present.js';
+import { askNumberedModel, catalogFallback, clientLabel, presentModelChoices, presentModelOptions, setupIntroduction } from '../cli-present.js';
 export { setupResultLines } from '../cli-present.js';
 
 /**
@@ -477,10 +477,9 @@ function negative(value) {
   return /^(n|no|nao|não)$/i.test(value); // locale:pt-BR
 }
 
-async function askModel({ ask, locale, client, className, proposal, candidates, attempts, out }) {
-  const recommended = candidates[0];
+async function askModel({ ask, locale, client, className, proposal, candidates, attempts, out, compact = false, recommended = candidates[0] }) {
   if (out) {
-    return askNumberedModel({ ask: (question) => askValue(ask, question), locale, client, className, candidates, attempts, out });
+    return askNumberedModel({ ask: (question) => askValue(ask, question), locale, client, className, candidates, attempts, out, recommended, showOptions: !compact });
   }
   const values = {
     client,
@@ -544,8 +543,9 @@ function clientCanBeConfigured(client) {
  * @param {object} detected
  * @returns {object[]}
  */
-function configurableClients(detected) {
+function configurableClients(detected, selected) {
   return (detected?.clients ?? []).filter((client) => {
+    if (selected && !selected.includes(client.client)) return false;
     if (!clientCanBeConfigured(client)) return false;
     if (client.installed === true && client.source === 'listing') {
       return activeModels(client).length > 0;
@@ -572,14 +572,15 @@ function wasDone(raw) {
 }
 
 // Installation records observations, without accepting the remaining questions.
-export async function initializeDetectedConfig({ root, env, run, adapters, readQuota,
+export async function initializeDetectedConfig({ clients, root, env, run, adapters, readQuota,
   snapshot, write = writeJsonAtomic, command = DEFAULT_CONFIG.install.command } = {}) {
   const stored = await readJson(paths(root).config, {});
   assertReadableConfig(stored, 'both', command);
   const observation = await environmentSnapshot({ root, config: stored, env, run, adapters,
     readQuota, snapshot, plugin: {}, versions: {} });
   const detected = { profiles: {}, limits: { clients: {} } };
-  for (const row of observation.clients) {
+  const selected = observation.clients.filter((row) => !clients || clients.includes(row.client));
+  for (const row of selected) {
     if (row.installed !== true || row.evidence.models !== 'listing' || !row.models.length) continue;
     const proposals = observation.proposals.clients.find((entry) => entry.client === row.client);
     const profiles = {};
@@ -591,14 +592,15 @@ export async function initializeDetectedConfig({ root, env, run, adapters, readQ
     if (Object.keys(profiles).length) detected.profiles[row.client] = profiles;
     detected.limits.clients[row.client] = row.slots.total;
   }
-  const quotaSources = Object.fromEntries(observation.clients
+  const quotaSources = Object.fromEntries(selected
     .filter((row) => row.reading?.source && row.reading.source !== 'off'
       && Number.isFinite(row.quota.remainingPct))
     .map((row) => [row.client, row.reading.source]));
   if (!Object.keys(detected.profiles).length) delete detected.profiles;
   if (!Object.keys(detected.limits.clients).length) delete detected.limits;
-  if (observation.inUse || Object.keys(quotaSources).length) {
-    detected.setup = { detected: { ...(observation.inUse ? { client: observation.inUse } : {}),
+  const inUse = (!clients || clients.includes(observation.inUse)) && observation.inUse;
+  if (inUse || Object.keys(quotaSources).length) {
+    detected.setup = { detected: { ...(inUse ? { client: inUse } : {}),
       ...(Object.keys(quotaSources).length ? { quotaSources } : {}) } };
   }
   if (!Object.keys(detected).length) return { written: false, observation };
@@ -614,6 +616,7 @@ export async function initializeDetectedConfig({ root, env, run, adapters, readQ
 }
 
 export async function runSetup({
+  clients: selected,
   root,
   config,
   env = process.env,
@@ -666,12 +669,13 @@ export async function runSetup({
   const observation = await environmentSnapshot({ root, config: resolved, env, run, adapters, snapshot,
     plugin: {}, versions: {} });
   const { detected, proposals } = observation;
-  const clients = detectedByClient(detected);
+  const eligible = configurableClients(detected, selected);
+  const clients = selected ? detectedByClient({ clients: eligible }) : detectedByClient(detected);
   // Nothing was detected: no client offers a model to configure, so there is
   // nothing to write and no `setup.done` to leave behind. The setup says so
   // in one simple sentence, writes nothing, and the status keeps asking for
   // the configuration.
-  if (configurableClients(detected).length === 0) {
+  if (eligible.length === 0) {
     return {
       code: 0,
       cancelled: false,
@@ -690,15 +694,10 @@ export async function runSetup({
   const done = wasDone(stored);
 
   if (out) {
-    const names = configurableClients(detected).map((client) => clientLabel(client.client)).join(', ');
+    const names = eligible.map((client) => clientLabel(client.client)).join(', ');
     const pending = again || !done;
     if (pending && !defaults) out(setupIntroduction(locale, names));
-    const fallbackClients = configurableClients(detected).filter((client) => client.source === 'catalog');
-    for (const client of fallbackClients) {
-      if (!pending || client.source !== 'catalog') continue;
-      const reason = catalogFallback(locale);
-      out(`${fallbackClients.length > 1 ? `${clientLabel(client.client)}: ` : ''}${reason}`);
-    }
+    if (!selected && pending && eligible.some((client) => client.source === 'catalog')) out(catalogFallback(locale));
   }
 
   for (const clientProposal of proposals.clients) {
@@ -707,6 +706,7 @@ export async function runSetup({
     const active = new Set(activeModels(detectedClient));
     for (const [className, proposal] of Object.entries(clientProposal.profiles)) {
       if (proposal.source === 'omitted') continue;
+      if (selected && !defaults) continue;
       const current = storedModel(stored, clientProposal.client, className);
       if (done && !again && current !== null && active.has(current)) {
         skipped.push({ client: clientProposal.client, class: className, model: current });
@@ -744,8 +744,20 @@ export async function runSetup({
     const detectedClient = clients.get(clientProposal.client);
     if (!clientCanBeConfigured(detectedClient)) continue;
     const candidates = activeModels(detectedClient);
+    const recommendedFor = (name, proposal) => [storedModel(stored, clientProposal.client, name), proposal.model,
+      resolved.profiles?.[clientProposal.client]?.[name]?.model]
+      .find((model) => candidates.includes(model)) ?? candidates[0];
+    if (selected && !defaults && out && candidates.length) presentModelOptions({
+      client: clientProposal.client, candidates, locale, out,
+      defaults: Object.fromEntries(Object.entries(clientProposal.profiles).map(([name, proposal]) => [name, recommendedFor(name, proposal)])),
+    });
     for (const [className, proposal] of Object.entries(clientProposal.profiles)) {
-      if (proposal.source !== 'omitted') continue;
+      if (proposal.source !== 'omitted' && (!selected || defaults)) continue;
+      const current = storedModel(stored, clientProposal.client, className);
+      if (done && !again && current !== null && candidates.includes(current)) {
+        skipped.push({ client: clientProposal.client, class: className, model: current });
+        continue;
+      }
       if (defaults || candidates.length === 0) {
         omitted.push({ client: clientProposal.client, class: className });
         const advice = format('omitted', locale, {
@@ -755,9 +767,11 @@ export async function runSetup({
         guidance.push(advice);
         continue;
       }
-      const answer = await askModel({
+      const recommended = recommendedFor(className, proposal);
+      // A single available model needs no question; it remains visible in the confirmation table.
+      const answer = selected && candidates.length === 1 ? { value: candidates[0] } : await askModel({
         ask, locale, client: clientProposal.client, className,
-        proposal, candidates, attempts, out,
+        proposal, candidates, attempts, out, compact: Boolean(selected), recommended: selected ? recommended : candidates[0],
       });
       if (answer.cancelled) {
         return { code: 0, cancelled: true, changes: [], skipped, omitted, messages: [format('cancelled', locale)] };
@@ -778,11 +792,14 @@ export async function runSetup({
         client: clientProposal.client,
         class: className,
         ...valid.value,
+        ...(selected && candidates.length === 1 ? { singleOption: true } : {}),
         previous: profileValue(resolved.profiles, clientProposal.client, className),
         reason: proposal.reason,
       });
     }
   }
+
+  if (selected && out && (again || !done) && eligible.some((client) => client.source === 'catalog')) out(catalogFallback(locale));
 
   if (done && !again && changes.length === 0) {
     messages.push(format('unchanged', locale));

@@ -792,8 +792,8 @@ test('setup --defaults says no technical code when a client cannot be read', asy
       const said = output.join('\n');
       assert.doesNotMatch(said, forbidden);
       const reason = locale === 'en'
-        ? 'The model list could not be read; these choices come from the built-in list.'
-        : 'Não foi possível ler a lista de modelos; estas opções vêm da lista incluída no plugin.'; // locale:pt-BR
+        ? 'Model list unavailable; using the built-in list.'
+        : 'Lista de modelos indisponível; usando a lista incluída.'; // locale:pt-BR
       assert.equal(output.filter((line) => line === reason).length, 1, said);
       // The client keeps the catalog: the model of the catalog is saved.
       const raw = JSON.parse(await readFile(join(root, 'config.json'), 'utf8'));

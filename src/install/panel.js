@@ -22,7 +22,7 @@ export async function offerPanel(record, flags, deps) {
   const ui = presenterOf(deps);
   try {
     if (deps.tty && await ui.confirm(deps.read, {
-      explain: [ui.text('panelExplain'), panelOpeningText(ui)], question: ui.text('panelAsk'),
+      explain: [`${ui.text('panelExplain')} ${panelOpeningText(ui)}`], question: ui.text('panelAsk'),
     })) {
       await panelCommand('install', record, deps);
     } else {

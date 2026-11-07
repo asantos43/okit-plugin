@@ -68,6 +68,7 @@ function affirmative(value) {
  * @returns {Promise<{pending: boolean, offered: boolean, ran: boolean}>}
  */
 async function runOffer({
+  clients,
   root,
   command = DEFAULT_CONFIG.install.command,
   locale = 'both',
@@ -107,6 +108,7 @@ async function runOffer({
 
   try {
     const result = await runSetup({
+      clients,
       root,
       config: stored,
       env,
@@ -131,6 +133,7 @@ async function runOffer({
  * end of the run, the explanation first and the question last.
  */
 async function runOfferRow({
+  clients,
   ui,
   root,
   command = DEFAULT_CONFIG.install.command,
@@ -162,10 +165,10 @@ async function runOfferRow({
       row('skipped', ui.text('modelsDeclined', { command: program }));
       return { pending: true, offered: true, ran: false, declined: true };
     }
-    const result = await runSetup({ root, config: stored, env, run, ask, adapters, snapshot, write, command: program, ui });
+    const result = await runSetup({ clients, root, config: stored, env, run, ask, adapters, snapshot, write, command: program, ui });
     if (ui.humanOutput) {
       // An installation into a custom folder is somewhere the doctor does not look: no doctor line is offered for it.
-      ui.explain(setupResultLines(result, ui.locale, program, { doctor: !ui.customFolder }));
+      ui.explain(setupResultLines(result, ui.locale, program, { doctor: false }));
       if (result.changes.length) row('ok', ui.text('modelsSaved', { models: [...new Set(result.changes.map((change) => change.model))].join(', ') }));
       return { pending: true, offered: true, ran: true, code: result.code };
     }

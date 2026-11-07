@@ -43,8 +43,8 @@ test('install initializes detected configuration and update keeps every existing
   const initial = JSON.parse(await fs.readFile(file));
   assert.deepEqual(initial.profiles.codex, DEFAULT_CONFIG.profiles.codex);
   assert.equal(initial.limits.clients.codex, DEFAULT_CONFIG.limits.global);
-  assert.deepEqual(initial.setup.detected, { client: 'codex', quotaSources: {
-    'claude-code': 'auto', codex: 'auto', opencode: 'auto' } });
+  assert.deepEqual(initial.setup.detected, { client: 'codex', quotaSources: { codex: 'auto' } });
+  assert.deepEqual(Object.keys(initial.profiles), ['codex']);
   const bytes = await fs.readFile(file, 'utf8');
   assert.equal(await main(['install', '--client', 'codex'], f.io), 0);
   assert.equal(await fs.readFile(file, 'utf8'), bytes);

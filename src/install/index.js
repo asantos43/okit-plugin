@@ -148,6 +148,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
     if (!flags.panel && command !== 'install' && clients.some((client) => !records[client])) throw new UsageError(`Client not registered: ${flags.client}`);
     if (flags.purge && (!flags.yes || clients.length !== Object.keys(records).length)) throw new UsageError('--purge requires --yes and no remaining clients');
     const results = [];
+    ui.beginClients?.(clients);
     for (const client of clients) {
       const purge = flags.purge && client === clients.at(-1) && results.every(({ code }) => code === 0);
       const shared = Object.values(await recordsOf());
@@ -170,7 +171,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
       try {
         let observation;
         try {
-          ({ observation } = await initializeDetectedConfig({ root: ctx.root, env: ctx.env,
+          ({ observation } = await initializeDetectedConfig({ clients, root: ctx.root, env: ctx.env,
             run: ctx.run, adapters: io.setupAdapters ?? io.adapters,
             readQuota: io.readQuota ?? adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env,
               config: configOf(user), now: ctx.now }),
@@ -179,6 +180,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
           ui.warn(formatNotSaved(ui.locale, ctx.root, commandText(ui, deps.config.command, [], { later: true })));
         }
         await offerSetup({
+          clients,
           root: ctx.root,
           command: deps.config.command,
           locale: ui.locale,
