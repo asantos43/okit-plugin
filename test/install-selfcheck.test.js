@@ -1198,6 +1198,53 @@ const LOGIN_TEXTS = {
 // The link folder is not on this terminal's PATH, so the installer writes its PATH block into the profile of the shell.
 const NOT_ON_PATH = { PATH: '/usr/bin' };
 
+test('D129: bash with only .bashrc keeps its existing profile selection', async (t) => {
+  const f = await fixture(t, 'linux');
+  Object.assign(f.io.env, NOT_ON_PATH, { SHELL: '/bin/bash' });
+  await fs.writeFile(join(f.home, '.bashrc'), '# user start\n');
+  assert.equal(await main(['install', '--client', CLIENT], f.io), 0, f.output.join('\n'));
+  assert.ok((await fs.readFile(join(f.home, '.bashrc'), 'utf8')).includes(f.io.config.path.begin));
+  assert.equal(await fs.stat(join(f.home, '.profile')).catch(() => null), null);
+});
+
+const realZsh = process.platform !== 'win32' && spawnSync('zsh', ['-c', 'exit 0']).status === 0;
+test('D129: real zsh login self-check passes with only .zshrc initially present', { skip: realZsh ? false : 'no zsh on this machine' }, async (t) => {
+  const f = await fixture(t, 'linux');
+  Object.assign(f.io.env, NOT_ON_PATH, { SHELL: '/usr/bin/zsh' });
+  await fs.writeFile(join(f.home, '.zshrc'), '# user start\n');
+  const fake = f.io.run, logins = [];
+  f.io.run = async (spec) => {
+    if (!isLogin(spec)) return fake(spec);
+    logins.push(spec);
+    return runCommand(spec);
+  };
+  assert.equal(await main(['install', '--client', CLIENT], f.io), 0, f.output.join('\n'));
+  assert.deepEqual(logins.map(({ command, args }) => [command, args[0]]), [['zsh', '-lc']]);
+  assert.match(blockOf(f.lines(), 'en')[0], /ok {2}\d+ checks passed$/);
+});
+
+// D129: must pass: login profile plus existing rc, repeat and uninstall.
+// Must refuse: an rc-only zsh install, duplicate blocks or unowned text removal.
+for (const files of [['.zshrc'], [], ['.zshrc', '.zprofile']]) {
+  test(`D129: zsh profiles ${files.join(', ') || '(none)'} survive repeat and uninstall`, async (t) => {
+    const f = await fixture(t, 'linux');
+    Object.assign(f.io.env, NOT_ON_PATH, { SHELL: '/usr/bin/zsh' });
+    for (const name of files) await fs.writeFile(join(f.home, name), '# user start\n');
+    const expected = [...new Set([...files, '.zprofile'])];
+    for (let run = 0; run < 2; run++) {
+      assert.equal(await main(['install', '--client', CLIENT], f.io), 0, f.output.join('\n'));
+      for (const name of expected) {
+        const content = await fs.readFile(join(f.home, name), 'utf8');
+        assert.equal(content.split(f.io.config.path.begin).length - 1, 1, name);
+      }
+      const state = JSON.parse(await fs.readFile(join(f.destination, f.io.config.path.stateFile), 'utf8'));
+      assert.deepEqual(state.profiles.map(({ path }) => path).sort(), expected.map((name) => join(f.home, name)).sort());
+    }
+    assert.equal(await main(['uninstall'], f.io), 0, f.output.join('\n'));
+    for (const name of expected) assert.equal(await fs.readFile(join(f.home, name), 'utf8'), files.includes(name) ? '# user start\n' : '');
+  });
+}
+
 test('D103: the login launch of each shell is the configured form, and only the bare command is resolved', () => {
   const { shells } = DEFAULT_CONFIG.install.selfcheck;
   const login = (platform) => Object.fromEntries(shells[platform].map(({ name, login: form }) => [name, form]));

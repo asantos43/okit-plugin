@@ -97,7 +97,7 @@ export function activationMessage(config, { env, platform, profile, bin, locale 
 
 /**
  * The profile files of a shell that can hold the managed PATH block: the
- * existing ones, or the login profile when the shell has none.
+ * existing ones, plus the login profile when required or when none exist.
  *
  * @param {object} deps
  * @param {object} deps.fs the filesystem
@@ -115,7 +115,8 @@ export async function shellProfiles(deps, shell) {
     const path = join(home, name);
     if (await fs.stat(path).catch(missingFile)) paths.push(path);
   }
-  if (!paths.length) paths.push(join(home, shells.login));
+  const login = join(home, shells.login);
+  if ((!paths.length || shells.loginAlways) && !paths.includes(login)) paths.push(login);
   return paths;
 }
 

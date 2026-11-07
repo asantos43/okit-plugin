@@ -89,7 +89,7 @@ export const DEFAULT_CONFIG = {
     path: {
       enabled: true, candidates: [['.local', 'bin'], ['bin']], stateFile: 'managed-path.json',
       begin: '# >>> okit-plugin PATH >>>', end: '# <<< okit-plugin PATH <<<',
-      shells: { bash: { files: ['.bashrc', '.profile'], login: '.profile' }, zsh: { files: ['.zshrc', '.zprofile'], login: '.zprofile' }, fish: { files: ['.config/fish/config.fish'], login: '.config/fish/config.fish' } },
+      shells: { bash: { files: ['.bashrc', '.profile'], login: '.profile' }, zsh: { files: ['.zshrc', '.zprofile'], login: '.zprofile', loginAlways: true }, fish: { files: ['.config/fish/config.fish'], login: '.config/fish/config.fish' } },
       fallbackShell: 'bash', windowsShell: 'powershell', windowsExecutable: 'powershell.exe', windowsVariable: 'Path',
       // The environment variable that names the shell of the current terminal.
       shellVariable: 'SHELL',

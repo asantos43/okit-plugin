@@ -242,7 +242,7 @@ const filled = (item, extra = {}) => list(item, { min: 1, ...extra });
 const record = (fields, extra = {}) => ({ kind: 'record', fields, ...extra });
 const table = (open, extra = {}) => ({ kind: 'record', fields: {}, open, ...extra });
 
-const SHELL = record({ files: filled(word), login: word });
+const SHELL = record({ files: filled(word), login: word, loginAlways: optional(flag) });
 const CLIENT = record({
   executable: word, strategy: { kind: 'choice', values: ['marketplace', 'module'] }, install: optional(flag), update: optional(flag),
   module: optional(word), configEnv: variable, rootParts: filled(word), xdgEnv: optional(variable), xdgParts: optional(filled(word)),
