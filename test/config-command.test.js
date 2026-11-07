@@ -6,16 +6,33 @@ import { fileURLToPath } from 'node:url';
 
 import { TOOLS } from '../src/mcp/tools.js';
 import { formatEnvironmentReport } from '../src/env/report.js';
-import { configuredClientsOf } from '../src/profiles.js';
+import { configuredClientsOf, DEFAULT_CONFIG } from '../src/profiles.js';
 import { writeJsonAtomic } from '../src/state.js';
 import { configGet, configSet } from '../src/core/config.js';
 import { callTool } from './helpers/tools.js';
 import { quotaEnv } from './helpers/env.js';
 import { initializeDetectedConfig } from '../src/setup/setup.js';
 import { fillMissingConfig } from '../src/config.js';
+import { CONFIG_SCHEMA, entryAccepts } from '../src/config-schema.js';
 
 // The configuration of a root is read and written through the tool of the server (the assistant's side): the
 // command line has no config command of its own any more. The answers are data, not a printed text.
+
+// | Setting corpus | Must pass | Must refuse |
+// | panel.autoOpen | booleans | strings, numbers, arrays, objects and null |
+test('panel.autoOpen defaults to true and accepts only boolean settings', async t => {
+  const root = await tempRoot(t);
+  assert.equal(DEFAULT_CONFIG.panel.autoOpen, true);
+  const entry = CONFIG_SCHEMA.entries.find(entry => entry.path === 'panel.autoOpen');
+  for (const value of [false, true]) {
+    assert.equal(entryAccepts(entry, value), true);
+    await configSet(root, { key: 'panel.autoOpen', value: String(value) });
+    assert.equal(JSON.parse(await readFile(join(root, 'config.json'))).panel.autoOpen, value);
+  }
+  for (const value of ['false', 0, [], {}, null]) assert.equal(entryAccepts(entry, value), false);
+  for (const value of ['"false"', '0', '[]', '{}', 'null'])
+    await assert.rejects(configSet(root, { key: 'panel.autoOpen', value }));
+});
 
 test('reserved detected keys are ignored without polluting Object.prototype', () => {
   const detected = JSON.parse('{"__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}}}');
@@ -161,7 +178,7 @@ test('the table of the settings lists the defaults with their origin', async (t)
   const root = await tempRoot(t);
   const shown = await getConfig(root);
   const entries = shown.entries.filter((entry) => !entry.path.startsWith('codexQuota.') && !entry.path.startsWith('telemetry.'));
-  assert.equal(entries.length, 55);
+  assert.equal(entries.length, 56);
   assert.deepEqual(entries.filter((entry) => entry.path.startsWith('accountPolicy.'))
     .map(({ path, value, origin }) => ({ path, value, origin })), [
     { path: 'accountPolicy.enforcePace', value: false, origin: 'default' },

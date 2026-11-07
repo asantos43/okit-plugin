@@ -163,18 +163,18 @@ test('single-group panels omit outer details; summaries count all descendant con
   }
 });
 
-test('tabs link seven panels and retain 88 fields and 48 actor controls without script', () => {
+test('tabs link eight panels and retain 89 fields and 48 actor controls without script', () => {
   for (const locale of ['en', 'pt-BR']) {
     const html = renderPage(buildState(), { locale, nonce: 'test', token: 'token' }).replace(/<script\b[\s\S]*?<\/script>/g, '');
     assert.ok(html.includes(`tabindex="-1">${locale === 'en' ? 'Accounts' : 'Contas'}</button>`));
-    const ids = ['actors', 'accounts', 'limits', 'language', 'profiles', 'telemetry', 'todo'];
-    assert.equal((html.match(/role="tab"/g) ?? []).length, 7);
-    assert.equal((html.match(/role="tabpanel"/g) ?? []).length, 7);
+    const ids = ['actors', 'accounts', 'limits', 'language', 'profiles', 'telemetry', 'todo', 'other'];
+    assert.equal((html.match(/role="tab"/g) ?? []).length, 8);
+    assert.equal((html.match(/role="tabpanel"/g) ?? []).length, 8);
     for (const [index, id] of ids.entries()) {
       assert.ok(html.includes(`id="tab-${id}" data-tab="${id}" aria-controls="panel-${id}" aria-selected="${index === 0}" tabindex="${index === 0 ? 0 : -1}">${labels[locale][`tab${id}`]}</button>`));
       assert.ok(html.includes(`role="tabpanel" id="panel-${id}" aria-labelledby="tab-${id}"${id === 'accounts' ? ' hidden' : ''}>`));
     }
-    assert.equal((html.match(/ data-path="/g) ?? []).length, 88);
+    assert.equal((html.match(/ data-path="/g) ?? []).length, 89);
     assert.equal((html.match(/ data-(?:actor-path|actor)="/g) ?? []).length, 48);
     const paths = [...html.matchAll(/ data-path="([^"]+)"/g)].map(match => match[1]);
     assert.deepEqual(paths.sort(), buildState().fields.map(field => field.path).sort());
@@ -183,7 +183,7 @@ test('tabs link seven panels and retain 88 fields and 48 actor controls without 
     for (const [index, id] of ids.entries()) {
       const expected = buildState().fields.filter(field => id === 'limits'
         ? ['limits', 'lowQuotaPct', 'daemon', 'smoke', 'accountPolicy', 'codexQuota'].includes(field.path.split('.')[0])
-        : field.path.split('.')[0] === id);
+        : field.path.split('.')[0] === (id === 'other' ? 'panel' : id));
       for (const field of expected) assert.ok(panels[index][1].includes(`data-path="${field.path}"`));
     }
   }

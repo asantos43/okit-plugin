@@ -27,6 +27,7 @@ const lineOf = (text, index) => text.slice(0, index).split('\n').length;
 
 /** The top-level keys, with the type the code expects and where a wrong value is refused. `range` is [min, max]. */
 export const TOP_LEVEL_KEYS = Object.freeze({
+  panel: { type: 'object', checkedBy: 'CONFIG_SCHEMA panel.autoOpen; panel-state defaults automatic opening unless explicitly false' },
   accountPolicy: { type: 'object', checkedBy: 'configOf (ConfigError accountPolicy), CONFIG_SCHEMA accountPolicy.*' },
   accounts: { type: 'object', checkedBy: 'configOf / accountsProblem (ConfigError accountsSetting); accounts-cli uses the pure mutations' },
   language: { type: 'choice', values: ['en', 'pt-BR'], checkedBy: 'resolveLocale (a value that is not a language is ignored as a saved language and refused as --locale)' },

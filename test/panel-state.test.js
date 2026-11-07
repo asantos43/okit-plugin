@@ -11,6 +11,13 @@ import { readJson } from '../src/state.js';
 import { main } from '../src/cli.js';
 
 const now = Date.parse('2026-11-06T12:00:00Z');
+test('panel state carries the auto-open setting read from config.json', async t => {
+  const ctx = await world(t);
+  for (const [panel, expected] of [[undefined, true], [{ autoOpen: true }, true], [{ autoOpen: false }, false]]) {
+    await put(ctx.root, 'config.json', { panel });
+    assert.deepEqual((await panelState(ctx, 'claude')).panel, { autoOpen: expected });
+  }
+});
 async function world(t) {
   const home = await mkdtemp(join(tmpdir(), 'panel-state-'));
   t.after(() => rm(home, { recursive: true, force: true }));

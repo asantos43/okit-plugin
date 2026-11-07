@@ -125,7 +125,7 @@ const LABEL_WIDTH = 28;
 // {name} placeholders; the 'pt-BR' side is Brazilian Portuguese.
 const TEXTS = Object.freeze({
   panel: { en: 'Optional panel', 'pt-BR': 'Painel opcional' },
-  panelExplain: { en: 'Read-only accounts, work and quota board; open with /okit-panel in Claude Code.', 'pt-BR': 'Quadro de contas, trabalhos e cota para consulta; abra com /okit-panel no Claude Code.' },
+  panelExplain: { en: 'A board of accounts, running and recent work, with quota bars.', 'pt-BR': 'Um quadro de contas, trabalhos em andamento e recentes, com barras de cota.' },
   panelExplain2: { en: 'Read-only; open with /okit-panel in Claude Code.', 'pt-BR': 'Somente leitura; abra com /okit-panel no Claude Code.' },
   panelAsk: { en: 'Install the optional panel?', 'pt-BR': 'Instalar o painel opcional?' },
   panelHow: { en: 'Turn on later: {command}', 'pt-BR': 'Ative depois: {command}' },

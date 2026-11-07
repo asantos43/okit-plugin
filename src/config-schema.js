@@ -107,6 +107,12 @@ export const CONFIG_SCHEMA = Object.freeze({
       },
     },
     {
+      path: 'panel.autoOpen', type: 'boolean', defaultPath: 'panel.autoOpen',
+      constraint: { en: 'a boolean', 'pt-BR': 'um booleano' },
+      description: { en: 'Open the installed Claude Code panel at session start.',
+        'pt-BR': 'Abrir o painel instalado do Claude Code ao iniciar a sessão.' },
+    },
+    {
       path: 'accountPolicy.enforcePace', type: 'boolean', defaultPath: 'accountPolicy.enforcePace',
       constraint: { en: 'a boolean', 'pt-BR': 'um booleano' },
       description: { en: 'Defer hard work when weekly use is ahead of pace; inactive until account policy is connected.',
@@ -183,6 +189,7 @@ export const CONFIG_SCHEMA = Object.freeze({
 
 /** True when `value` (read from the saved file, already JSON) is one the entry takes: its type, minimum and maximum. */
 export function entryAccepts(entry, value) {
+  if (entry.type === 'boolean') return typeof value === 'boolean';
   if (entry.type === 'string') return typeof value === 'string' && value.trim() !== '' && (entry.allowedValues ?? [value]).includes(value);
   if (entry.type === 'integer' ? !Number.isSafeInteger(value) : entry.type === 'number' ? !Number.isFinite(value) : false) return false;
   return !(entry.minimum !== undefined && value < entry.minimum) && !(entry.maximum !== undefined && value > entry.maximum);

@@ -4,7 +4,10 @@
 
 O mod desenha o schema 1 de `okit-plugin panel-state --json --client claude`.
 A entrada é o export nomeado `register` em `register.js`. Depois de carregado
-pelo host de mods, `/okit-panel` abre ou fecha o painel **okit plugin**.
+pelo host de mods, o painel **okit plugin** abre automaticamente ao iniciar a sessão.
+Defina `panel.autoOpen` como `false` no `config.json` da raiz de estado para desligar;
+`/okit-panel` continua abrindo ou fechando. O ajuste vem do campo `panel.autoOpen`
+do mesmo comando `panel-state`.
 A instalação é opcional e não foi ligada ao instalador padrão; D120 cuida do
 empacotamento. O núcleo funciona sem esta pasta.
 
@@ -12,7 +15,9 @@ O cabeçalho mostra `okit plugin · claude · N accounts · ready: yes|no`, com 
 do comando. Os blocos são **ACCOUNTS**, **RUNNING**, **RECENT**, **LAUNCHABLE NOW**
 e **Readiness**, com a linha e os avisos existentes ao final. Contas mostram só
 aliases, marcador running/idle, barras de sessão (5 h) e semana, percentual restante,
-reset em UTC e tempo até ele. `null` aparece como `unknown`; zero como `0%`.
+reset local em 24 h e tempo até ele (`4h35m` ou `1d 21h`).
+Colunas alinham entre contas; resets a mais de 24 h incluem o dia da semana.
+`!` marca menos de 20% restante. `null` aparece como `unknown`; zero como `0% left`.
 Execuções live não antigas mostram conta, demanda quando salva, modelo, esforço,
 duração e último progresso. Recent inclui concluídas, falhas, antigas e status
 desconhecidos, com duração e motivo de erro quando salvo. Contas sem cadastro
