@@ -98,7 +98,11 @@ with at least two spaces between the label and its status.
 
 Questions put the explanation first and the question last, with the default
 capitalised: `[y/N]` in English, `[s/N]` in Portuguese. `y` and `s` mean yes in
-either language.
+either language. A blank line precedes each explanation block and separates it from the question.
+The optional panel description occupies three lines: the account/work board, automatic opening in Claude Code,
+and `panel.autoOpen: false` in `config.json` plus `/okit-panel` to toggle it.
+Claude Code asks `Choose the models now? [Y/n]` for its own models and prints a Models result row.
+Uninstall removes a reused plugin-owned command after the last account/client is removed, while preserving foreign files.
 Each step prints its result once. Model setup is offered only after a successful
 install or update, never after failure, during `--dry-run` or with `update --check`.
 

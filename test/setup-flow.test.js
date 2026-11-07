@@ -4,7 +4,7 @@ import { writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Readable, Writable } from 'node:stream';
+import { PassThrough, Readable, Writable } from 'node:stream';
 import test from 'node:test';
 
 import { main } from '../src/cli.js';
@@ -214,6 +214,35 @@ test('an interactive install asks, runs the setup and keeps the installation suc
   const raw = JSON.parse(await readFile(join(f.root, 'config.json'), 'utf8'));
   assert.match(raw.setup.done.at, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(raw.profiles.codex.simple.model, 'gpt-5');
+});
+
+for (const locale of ['en', 'pt-BR']) test(`D135 Claude terminal keeps panel and model questions alive: ${locale}`, async (t) => {
+  const f = await installation(t, { tty: true });
+  delete f.io.ui;
+  // A previous client's confirmation must not suppress the Claude offer.
+  const confirmed = Object.fromEntries(['simple', 'normal', 'hard'].map((name) => [name, { model: 'gpt-5', effort: 'medium' }]));
+  await writeFile(join(f.root, 'config.json'), JSON.stringify({ install: f.config,
+    setup: { done: { at: '2026-11-01T00:00:00.000Z', profiles: { codex: confirmed } } } }));
+  const stdin = new PassThrough(), prompts = [];
+  stdin.isTTY = true;
+  t.after(() => stdin.destroy());
+  f.io.stdin = stdin;
+  f.io.output = new Writable({ write(chunk, _encoding, done) {
+    const question = chunk.toString();
+    prompts.push(question);
+    setImmediate(() => stdin.write(/panel|painel/.test(question) ? 'n\n' : /Save|Salvar/.test(question) ? 'y\n' : '\n')); // locale:pt-BR
+    done();
+  } });
+  f.io.detect = async (name) => name === 'claude';
+  f.io.adapters = [fakeClient('claude-code', ['haiku', 'sonnet', 'opus'])];
+  assert.equal(await main(['install', '--client', 'claude-code', '--no-statusline', '--locale', locale], f.io), 0);
+  assert.match(prompts.join('\n'), /optional panel|painel opcional/);
+  assert.match(prompts.join('\n'), /Choose the models now\? \[Y\/n\]|Escolher os modelos agora\? \[S\/n\]/); // locale:pt-BR
+  assert.match(f.out.join('\n'), /\s+(Models|Modelos)\s+ok\s/); // locale:pt-BR
+  assert.doesNotMatch(f.out.join('\n'), /Codex|OpenCode/);
+  const saved = JSON.parse(await readFile(join(f.root, 'config.json'), 'utf8'));
+  assert.deepEqual(saved.setup.done.profiles.codex, confirmed);
+  assert.deepEqual(Object.keys(saved.setup.done.profiles['claude-code']), ['simple', 'normal', 'hard']);
 });
 
 for (const selected of ['claude-code', 'all']) test(`D132 install ${selected} reviews only its clients with one list each`, async (t) => {

@@ -154,7 +154,10 @@ export function createInstallerView({ operation, command, locale, write, verbose
       title(true); choices = true;
       emit(`\n${pt ? 'Escolhas' : 'Choices'}`); // locale:pt-BR
     }
-    return original.confirm(read, { ...options, explain: options.explain?.slice(0, 1) });
+    emit('');
+    for (const line of options.explain ?? []) emit(resolve(line));
+    emit('');
+    return ui.answer(await read(ui.question(options.question, options.defaultYes)), options.defaultYes);
   };
   ui.failure = (failure) => { failures.push({ ...failure, client: failure.client ? clientLabel(failure.client) : undefined }); return []; };
   ui.sequence = (keys, values = {}) => {
@@ -176,11 +179,13 @@ export function createInstallerView({ operation, command, locale, write, verbose
   ui.explain = (lines) => {
     if (lines[0] === ui.text('clientChoose')) {
       title(); menu = true;
+      emit('');
       emit(pt ? 'Escolha um cliente de programação antes de instalar.' : 'Choose a coding client before installing.'); // locale:pt-BR
       for (const line of lines.slice(1)) emit(line.trimStart().replace(/^(\d+\. )(\S+)(.*)$/, (_, number, client, state) => {
         offered.push(client);
         return `${number}${clientLabel(client)}${state}`;
       }));
+      emit('');
     } else if (!lines.includes(ui.text('dryRunDone'))) { title(); lines.forEach((line) => emit(resolve(line))); }
   };
   return { ui, finish };
@@ -448,6 +453,7 @@ export async function askNumberedModel({ ask, locale, client, className, candida
   }
   const defaultIndex = Math.max(0, candidates.indexOf(recommended));
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    out('');
     const answer = await ask(showOptions ? (pt ? 'Escolha um modelo [1]:' : 'Choose a model [1]:') // locale:pt-BR
       : `${workLabel(className, locale)} [${defaultIndex + 1}]:`);
     if (answer == null) return { cancelled: true };
@@ -530,6 +536,7 @@ export function presentModelChoices({ locale, changes, command, out }) {
   out(pt
     ? `\nAs escolhas valem para trabalhos futuros. Para alterá-las: ${command} setup --again` // locale:pt-BR
     : `\nThese choices apply to future work. You can change them with: ${command} setup --again`);
+  out('');
   return pt ? 'Salvar estas escolhas? [s/N]:' : 'Save these choices? [y/N]:'; // locale:pt-BR
 }
 export const setupIntroduction = (locale, names) => locale === 'pt-BR'

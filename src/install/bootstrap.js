@@ -149,6 +149,7 @@ async function install(defaults, present, hide) {
   let client = flags['--client'] || env.OKIT_CLIENT || record?.client;
   if (!client) {
     const entries = Object.entries(clients);
+    say('');
     say(t('Which client do you want to install for?', 'Para qual cliente você quer instalar?'));
     entries.forEach(([name, executable], i) => {
       const detected = platform === 'win32' ? spawnSync('where.exe', [executable]).status === 0
@@ -159,6 +160,7 @@ async function install(defaults, present, hide) {
     const { createInterface } = await import('node:readline/promises');
     const stream = process.stdin.isTTY || platform === 'win32' ? process.stdin : (await import('node:fs')).createReadStream('/dev/tty');
     const input = createInterface({ input: stream, output: present.redactingStream(process.stdout, hide) });
+    say('');
     try { client = entries[Number(await input.question(t('Number: ', 'Número: '))) - 1]?.[0]; }
     finally { input.close(); if (stream !== process.stdin) stream.destroy(); }
   }
