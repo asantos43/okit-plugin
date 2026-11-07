@@ -26,6 +26,10 @@ const LABEL_WIDTH = 28;
 // {name} placeholders; the 'pt-BR' side is Brazilian Portuguese.
 export const TEXTS = Object.freeze({
   panel: { en: 'Optional panel', 'pt-BR': 'Painel opcional' },
+  panelExplain: { en: 'A board of accounts, running and recent work, with quota bars.', 'pt-BR': 'Um quadro de contas, trabalhos em andamento e recentes, com barras de cota.' },
+  panelExplain2: { en: 'Read-only; open with /okit-panel in Claude Code.', 'pt-BR': 'Somente leitura; abra com /okit-panel no Claude Code.' },
+  panelAsk: { en: 'Install the optional panel?', 'pt-BR': 'Instalar o painel opcional?' },
+  panelHow: { en: 'Turn on later: {command}', 'pt-BR': 'Ative depois: {command}' },
   panelFlag: { en: '{flag} cannot be used with --panel.', 'pt-BR': '{flag} não pode ser usado com --panel.' },
   panelRefreshFailed: { en: 'Panel {action} failed; continuing the main operation: {reason}', 'pt-BR': 'A ação {action} do painel falhou; continuando a operação principal: {reason}' },
   panelOnlyClaude: { en: '--panel is available only for Claude Code; use --client {client}.', 'pt-BR': '--panel está disponível apenas para Claude Code; use --client {client}.' },

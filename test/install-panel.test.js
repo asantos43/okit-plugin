@@ -25,6 +25,7 @@ const PANEL = 'adapters/claude-code/panel';
 
 async function world(t) {
   const f = await fixture(t);
+  f.io.ask = async () => '';
   const fake = join(f.home, 'claude');
   const source = `#!${process.execPath}
 const fs = require('node:fs');
@@ -62,7 +63,7 @@ else {
   f.call = (command, ...flags) => main([command, '--client', CLIENT, ...flags], f.io);
   f.entries = async (root = f.io.clientRoot) => JSON.parse(await fs.readFile(join(root, 'fake-plugins.json'), 'utf8'));
   f.seed = async (...flags) => {
-    assert.equal(await f.call('install', '--no-statusline', ...flags), 0, f.output.join('\n'));
+    assert.equal(await f.call('install', '--no-statusline', '--no-panel', ...flags), 0, f.output.join('\n'));
     const folder = join((await f.record()).path, PANEL, '.claude-plugin');
     await fs.mkdir(folder, { recursive: true });
     await fs.copyFile(`${PANEL}/.claude-plugin/plugin.json`, join(folder, 'plugin.json'));
@@ -247,7 +248,7 @@ test('panel rejects unrelated flags by name in both locales', async (t) => {
   for (const locale of ['en', 'pt-BR']) {
     for (const [command, flag, value] of [['uninstall', '--purge'], ['install', '--yes'],
       ['install', '--dest', f.destination], ['install', '--from', '.'], ['install', '--no-link'],
-      ['install', '--statusline'], ['install', '--set-execution-policy']]) {
+      ['install', '--statusline'], ['install', '--no-panel'], ['install', '--set-execution-policy']]) {
       f.clear();
       assert.equal(await f.call(command, '--panel', '--locale', locale, flag, ...(value ? [value] : [])), 2);
       assert.ok(f.output.join('\n').includes(flag));
@@ -256,6 +257,135 @@ test('panel rejects unrelated flags by name in both locales', async (t) => {
     }
     assert.equal(await f.call('install', '--panel', '--locale', locale, '--verbose', '--dry-run'), 0);
   }
+});
+
+// | Offer input | Must pass | Must refuse |
+// | tty yes | install and own panel | losing account scope |
+// | tty no / non-tty | later hint | installing panel |
+// | disabled / owned / dry-run / update / other client | silence | asking |
+// | panel failure | warning and exit 0 | failing main install |
+test('update and check never offer an absent panel', async (t) => {
+  const f = await world(t);
+  await f.seed();
+  const before = await f.record();
+  f.io.tty = true;
+  let questions = 0;
+  f.io.read = async () => { questions++; return 'y'; };
+  f.setVersion('2.0.0');
+  f.clear();
+  assert.equal(await f.call('update', '--check', '--no-statusline'), 0);
+  assert.deepEqual(await f.record(), before);
+  assert.equal(await f.call('update', '--no-statusline'), 0);
+  assert.equal(questions, 0);
+  assert.equal((await f.record()).panel, undefined);
+  assert.doesNotMatch(f.output.join('\n'), /Turn on later/);
+});
+
+test('Codex install never offers the Claude panel', async (t) => {
+  const f = await fixture(t);
+  f.io.ask = async () => '';
+  f.io.tty = true;
+  let questions = 0;
+  f.io.read = async () => { questions++; return ''; };
+  assert.equal(await main(['install', '--client', 'codex', '--no-statusline'], f.io), 0, f.output.join('\n'));
+  assert.equal(questions, 0);
+  assert.doesNotMatch(f.output.join('\n'), /optional panel|Turn on later/);
+});
+
+test('default and extra accounts are each offered their own panel', async (t) => {
+  const f = await world(t);
+  const file = join(f.root, 'config.json'), work = join(f.home, 'work');
+  const user = JSON.parse(await fs.readFile(file, 'utf8'));
+  user.accounts = { [CLIENT]: [{ id: 'work', label: 'Work', configDir: work }] };
+  await fs.writeFile(file, JSON.stringify(user));
+  await f.seed();
+  let questions = 0;
+  f.io.tty = true;
+  f.io.read = async () => { questions++; return 'y'; };
+  assert.equal(await f.call('install', '--no-statusline'), 0);
+  assert.equal(await f.call('install', '--no-statusline', '--account', 'work'), 0);
+  assert.equal(questions, 2);
+  const record = await f.record();
+  assert.deepEqual(record.panel, { identity: ID });
+  assert.deepEqual(record.accounts.work.panel, { identity: ID });
+  assert.ok((await f.entries(work)).includes(ID));
+});
+
+test('dry-run neither asks nor writes a panel or installation record', async (t) => {
+  const f = await world(t);
+  f.io.tty = true;
+  f.io.read = async () => assert.fail('dry-run must not ask');
+  assert.equal(await f.call('install', '--no-statusline', '--dry-run'), 0);
+  assert.equal(await f.record(), null);
+  assert.deepEqual(f.commands, []);
+  assert.doesNotMatch(f.output.join('\n'), /Turn on later/);
+  await f.seed();
+  const before = await f.record(), entries = await f.entries();
+  let questions = 0;
+  f.io.read = async () => { questions++; return 'y'; };
+  f.commands.length = 0;
+  assert.equal(await f.call('install', '--no-statusline', '--dry-run'), 0);
+  assert.equal(questions, 0);
+  assert.deepEqual(await f.record(), before);
+  assert.deepEqual(await f.entries(), entries);
+  assert.deepEqual(f.commands, []);
+});
+
+test('offered panel failure warns and leaves the main install successful', async (t) => {
+  const f = await world(t);
+  await f.seed();
+  failPanel(f, 'install', 'panel unavailable');
+  f.clear();
+  f.io.tty = true;
+  f.io.read = async () => 'y';
+  assert.equal(await f.call('install', '--no-statusline'), 0);
+  assert.match(f.output.join('\n'), /warn.*Panel install failed/);
+  assert.equal((await f.record()).panel, undefined);
+});
+
+test('tty no and non-tty install nothing and print the localized later hint', async (t) => {
+  for (const tty of [true, false]) for (const locale of ['en', 'pt-BR']) {
+    const f = await world(t);
+    await f.seed();
+    f.clear();
+    let questions = 0;
+    f.io.tty = tty;
+    f.io.read = async () => { questions++; return ''; };
+    assert.equal(await f.call('install', '--no-statusline', '--locale', locale), 0);
+    assert.equal(questions, tty ? 1 : 0);
+    assert.equal((await f.record()).panel, undefined);
+    assert.ok(!(await f.entries()).includes(ID));
+    assert.match(f.output.join('\n'), locale === 'en'
+      ? /Turn on later: okit-plugin install --panel/ : /Ative depois: okit-plugin install --panel/); // locale:pt-BR
+  }
+});
+
+test('--no-panel suppresses both the question and the hint', async (t) => {
+  const f = await world(t);
+  f.io.tty = true;
+  let questions = 0;
+  f.io.read = async () => { questions++; return ''; };
+  assert.equal(await f.call('install', '--no-statusline', '--no-panel'), 0);
+  assert.equal(questions, 0);
+  assert.doesNotMatch(f.output.join('\n'), /optional panel|Turn on later/);
+  assert.equal((await f.record()).panel, undefined);
+});
+
+test('tty yes offers the panel, installs it and records ownership', async (t) => {
+  const f = await world(t);
+  await f.seed();
+  f.clear();
+  let questions = 0;
+  f.io.tty = true;
+  f.io.read = async (question) => { questions++; assert.match(question, /Install the optional panel/); return 'y'; };
+  assert.equal(await f.call('install', '--no-statusline'), 0);
+  assert.equal(questions, 1);
+  assert.deepEqual((await f.record()).panel, { identity: ID });
+  assert.ok((await f.entries()).includes(ID));
+  assert.match(f.output.join('\n'), /board of accounts, running and recent work, with quota bars/);
+  assert.match(f.output.join('\n'), /Read-only; open with \/okit-panel in Claude Code/);
+  assert.equal(await f.call('install', '--no-statusline'), 0);
+  assert.equal(questions, 1);
 });
 
 test('invalid panel list refuses install and removal without writing', async (t) => {

@@ -1,0 +1,1 @@
+Offer the optional Claude Code panel after a successful install, with an unattended later hint and `--no-panel` to skip both. / Oferecer o painel opcional do Claude Code após instalar com sucesso, com dica posterior sem terminal e `--no-panel` para pular ambos.
