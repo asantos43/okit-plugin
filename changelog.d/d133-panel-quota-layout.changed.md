@@ -1,0 +1,1 @@
+English: Align panel quota rows, mark low quota and show local reset times with compact durations. / Português: Alinha as cotas do painel, marca cotas baixas e mostra renovação local com durações compactas.

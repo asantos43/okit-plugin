@@ -1,11 +1,11 @@
 okit plugin · claude · 2 accounts · ready: no
 ╔═ ACCOUNTS ═══════════════════════════════════════════════════════════════════╗
 ║ Personal · idle                                                              ║
-║ session (5 h): unknown                                                       ║
-║ week: unknown                                                                ║
+║   session 5h              unknown                                            ║
+║   week                    unknown                                            ║
 ║ Work · idle                                                                  ║
-║ session (5 h): unknown                                                       ║
-║ week: unknown                                                                ║
+║   session 5h              unknown                                            ║
+║   week                    unknown                                            ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ╔═ RUNNING ════════════════════════════════════════════════════════════════════╗
 ║ No live runs.                                                                ║

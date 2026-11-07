@@ -9,6 +9,14 @@ export function register(on) {
   let cached = { ok: false, error: 'Loading state…' };
   /** @type {ReturnType<typeof createRefresh> | undefined} */
   let refresh;
+  /** @param {Parameters<typeof createRefresh>[0]} deps @param {() => Promise<void>} open */
+  const openPane = async (deps, open) => {
+    refresh?.close();
+    refresh = createRefresh(deps);
+    cached = { ok: false, error: 'Loading state…' };
+    await open();
+    refresh.open();
+  };
   on('session.start', async ($, event, next) => {
     refresh?.close();
     cached = { ok: false, error: 'Loading state…' };
@@ -16,6 +24,15 @@ export function register(on) {
     catch {}
     try { await $.command.register({ name: 'okit-panel', description: 'Open or close the okit plugin panel' }); }
     catch {}
+    try {
+      const state = await loadState((args, options) => $.process.run(args, options));
+      if (!state.ok || state.state.panel?.autoOpen !== false) await openPane({
+        clock: { every: (ms, tick) => $.clock.every(ms, tick) },
+        load: () => loadState((args, options) => $.process.run(args, options)),
+        visible: async () => (await $.ui.panes()).some(pane => pane.id === PANE),
+        publish(value) { cached = value; $.ui.invalidate('ui.render'); },
+      }, () => $.ui.open({ id: PANE, title: 'okit plugin' }));
+    } catch { refresh?.close(); }
     return next(event);
   });
   on('command.run', { command: 'okit-panel' }, async $ => {
@@ -26,16 +43,12 @@ export function register(on) {
       refresh?.close();
       return { text: 'okit plugin panel closed.' };
     }
-    refresh?.close();
-    refresh = createRefresh({
+    await openPane({
       clock: { every: (ms, tick) => $.clock.every(ms, tick) },
       load: () => loadState((args, options) => $.process.run(args, options)),
       visible: async () => (await $.ui.panes()).some(pane => pane.id === PANE),
       publish(value) { cached = value; $.ui.invalidate('ui.render'); },
-    });
-    cached = { ok: false, error: 'Loading state…' };
-    await $.ui.open({ id: PANE, title: 'okit plugin' });
-    refresh.open();
+    }, () => $.ui.open({ id: PANE, title: 'okit plugin' }));
     return { text: 'okit plugin panel opened.' };
     } catch (error) { refresh?.close(); return unavailable(error); }
   });

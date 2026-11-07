@@ -383,7 +383,8 @@ test('tty yes offers the panel, installs it and records ownership', async (t) =>
   assert.deepEqual((await f.record()).panel, { identity: ID });
   assert.ok((await f.entries()).includes(ID));
   assert.match(f.output.join('\n'), /board of accounts, running and recent work, with quota bars/);
-  assert.match(f.output.join('\n'), /Read-only; open with \/okit-panel in Claude Code/);
+  assert.match(f.output.join('\n'), /Read-only; opens automatically in Claude Code/);
+  assert.match(f.output.join('\n'), /panel.autoOpen to false.*\/okit-panel toggles/);
   assert.equal(await f.call('install', '--no-statusline'), 0);
   assert.equal(questions, 1);
 });

@@ -59,7 +59,7 @@ client is a configured client; class is simple, normal or hard. Each field defau
 <a id="defaults"></a>
 ## Defaults and consumers
 
-Inventory generated from DEFAULT_CONFIG in [profiles.js](../../src/profiles.js) and the schema in [config.js](../../src/config.js). Each key shows its default and consuming module; empty objects accept named entries. Arrays are complete values. ¹ Long text, messages and instruction lists use the literal values in the linked defaults file, kept there for lookup without duplicating maintainer instructions.
+Inventory generated from DEFAULT_CONFIG in [profiles.js](../../src/profiles.js) and the schema in [config.js](../../src/config.js). Each key shows its default and consuming module; empty objects accept named entries. Arrays are complete values. ¹ Long text, messages and instruction lists use the literal values in the linked defaults file, kept there for lookup without duplicating maintainer instructions. `panel.autoOpen` = `true` (boolean): the installed Claude Code panel opens at session start. Set it to `false` in the state root's `config.json` to disable automatic opening. The adapter reads it through `okit-plugin panel-state --json --client claude` (`panel.autoOpen` in the response); `/okit-panel` still toggles the pane.
 
 | Keys = defaults | Where read and effect |
 | :- | :- |
