@@ -1,4 +1,4 @@
-import { elapsed, quotaBar } from './formatters.js';
+import { elapsed, localTimestamps, quotaRows } from './formatters.js';
 import { frameLines, wrapText } from './frame.js';
 
 export const COMMAND = Object.freeze(['okit-plugin', 'panel-state', '--json', '--client', 'claude']);
@@ -36,6 +36,8 @@ export function parseState(stdout) {
 /** @param {any} value */
 function validState(value) {
   return value.client === 'claude' && typeof value.readiness === 'string' &&
+    (value.panel === undefined || (record(value.panel) &&
+      (value.panel.autoOpen === undefined || typeof value.panel.autoOpen === 'boolean'))) &&
     Array.isArray(value.warnings) && value.warnings.every(/** @param {unknown} w */ w => typeof w === 'string') &&
     Array.isArray(value.accounts) && value.accounts.every(/** @param {any} a */ a => record(a) &&
       typeof a.id === 'string' && typeof a.label === 'string' && record(a.quota) &&
@@ -51,10 +53,10 @@ function readableRun(r) {
   return record(r);
 }
 
-/** @param {import('./types.js').Result} result @param {number} width @param {number} [now] */
-export function boardLines(result, width, now = Date.now()) {
+/** @param {import('./types.js').Result} result @param {number} width @param {number} [now] @param {string} [timeZone] */
+export function boardLines(result, width, now = Date.now(), timeZone) {
   const w = Number.isFinite(width) ? Math.max(1, Math.min(240, Math.floor(width))) : 80;
-  return viewModel(result, now).flatMap((block, index) => result.ok && index === 0
+  return viewModel(result, now, timeZone).flatMap((block, index) => result.ok && index === 0
     ? wrapText(block.title, w) : frameLines(block.title, block.rows, w));
 }
 
@@ -69,17 +71,17 @@ export async function loadState(run) {
   }
 }
 
-/** @param {import('./types.js').Result} result @param {number} [now] */
-export function viewModel(result, now = Date.now()) {
+/** @param {import('./types.js').Result} result @param {number} [now] @param {string} [timeZone] */
+export function viewModel(result, now = Date.now(), timeZone) {
   if (!result.ok) return [{ title: 'okit plugin', rows: [result.error] }];
   const { state } = result;
   const labels = new Map(state.accounts.map(account => [account.id, account.label]));
   /** @param {string | null} id */
   const accountName = id => labels.get(id ?? '') ?? 'unknown account';
-  const accounts = state.accounts.flatMap(account => [
+  const quotas = quotaRows(state.accounts, now, timeZone);
+  const accounts = state.accounts.flatMap((account, index) => [
     `${account.label} · ${state.runs.some(run => run.account === account.id && run.status === 'live' && !run.stale) ? 'running' : 'idle'}`,
-    `session (5 h): ${quotaBar(account.quota.session, now)}`,
-    `week: ${quotaBar(account.quota.weekly, now)}`,
+    quotas[index * 2], quotas[index * 2 + 1],
   ]);
   const newest = [...state.runs].sort((a, b) =>
     (Date.parse(b.started_at ?? '') || 0) - (Date.parse(a.started_at ?? '') || 0));
@@ -112,5 +114,6 @@ export function viewModel(result, now = Date.now()) {
   { title: 'Readiness', rows: [state.readiness,
     ...(state.runs.length || state.skipped_runs ? [] : ['No runs.']),
     ...(state.skipped_runs ? [`${state.skipped_runs} ${state.skipped_runs === 1 ? 'run' : 'runs'} skipped (unreadable)`] : []),
-    ...state.warnings.map(warning => `Warning: ${warning}`)] }];
+    ...state.warnings.map(warning => `Warning: ${warning}`)] }]
+    .map(block => ({ ...block, rows: block.rows.map(row => localTimestamps(row, now, timeZone)) }));
 }

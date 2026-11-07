@@ -12,12 +12,12 @@ O painel opcional, exclusivo do Claude Code e somente para leitura, mostra conta
 <a id="use"></a>
 ## Abrir e fechar
 
-2. Dentro do Claude Code, use o comando `okit-panel` (`/okit-panel`) para abrir ou fechar o painel. Ele atualiza a cada 3 s (mínimo de 2 s) enquanto aberto; nenhuma atualização roda quando está fechado.
+2. O painel instalado abre automaticamente quando o Claude Code inicia. Defina `panel.autoOpen` como `false` no `config.json` da raiz de estado para desligar isso. O comando `okit-panel` (`/okit-panel`) continua abrindo ou fechando o painel. Ele atualiza a cada 3 s (mínimo de 2 s) enquanto aberto; nenhuma atualização roda quando está fechado.
 
 <a id="board"></a>
 ## O que o quadro mostra
 
-- ACCOUNTS: apelidos em execução ou ociosos, barras da sessão (5 h) e da semana, percentual restante, horários de renovação em UTC e tempo que falta.
+- ACCOUNTS: apelidos em execução ou ociosos, barras alinhadas de session 5h e semana, percentual restante, horários locais de renovação em 24 h e tempo que falta (`4h35m` ou `1d 21h`). Renovações a mais de 24 h incluem o dia da semana; `!` marca menos de 20% restante e cotas ausentes mostram `unknown`.
 - RUNNING: execuções ativas e sua última linha de progresso.
 - RECENT: execuções concluídas, com falha ou que não estão mais ativas (stale).
 - LAUNCHABLE NOW: contas aptas para trabalho simple/normal/hard/critic.
@@ -30,12 +30,11 @@ Como é o quadro (uma representação em texto, não uma captura da tela real do
 okit plugin · claude · 2 accounts · ready: no
 ╔═ ACCOUNTS ═══════════════════════════════════════════════════════════════════╗
 ║ Personal · running                                                           ║
-║ session (5 h): [████████░░] 80% left · resets 2026-11-06T17:00:00.000Z (in   ║
-║ 5h00m)                                                                       ║
-║ week: unknown                                                                ║
+║   session 5h [████████░░] 80% left resets 17:00 (in 5h00m)                   ║
+║   week                    unknown                                            ║
 ║ Work · idle                                                                  ║
-║ session (5 h): unknown                                                       ║
-║ week: unknown                                                                ║
+║   session 5h              unknown                                            ║
+║   week                    unknown                                            ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ╔═ RUNNING ════════════════════════════════════════════════════════════════════╗
 ║ one: live · demand sample-demand · account Personal · actor hard · opus ·    ║

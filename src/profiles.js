@@ -27,6 +27,7 @@ const posixShell = (name, executable = name, { login = true } = {}) => ({ name, 
   ...(login ? { login: name === 'fish' ? ['-l', '-c', 'command -v {command}'] : ['-lc', 'command -v {command}'] } : {}) });
 
 export const DEFAULT_CONFIG = {
+  panel: { autoOpen: true },
   trajectory: {
     enabled: false, dir: 'trajectory', retentionDays: 7,
     maxBytes: 10 * 1024 * 1024, maxFileBytes: 1024 * 1024,

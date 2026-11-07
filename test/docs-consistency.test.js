@@ -45,6 +45,9 @@ test('panel guides have matching sections, readable spacing and the exact render
   assert.deepEqual(ids(en), ids(pt), 'explicit anchors');
   assert.equal(en.trimEnd().split('\n').length, pt.trimEnd().split('\n').length);
   for (const text of [en, pt]) {
+    assert.match(text, /panel.autoOpen.*false/);
+    assert.match(text, /4h35m.*1d 21h/);
+    assert.match(text, /`!`.*20%/);
     assert.ok(text.trimEnd().split('\n').length <= 90, 'panel line budget');
     const content = prose(text);
     for (const heading of content.matchAll(/^## .+$/gm)) {
@@ -55,6 +58,15 @@ test('panel guides have matching sections, readable spacing and the exact render
     assert.equal(boards.length, 1, 'one board rendering');
     assert.deepEqual(Buffer.from(boards[0][1]),
       await readFile(resolve(root, 'test/fixtures/panel-board-populated-80.txt')));
+  }
+});
+
+test('panel READMEs and configuration explain automatic opening in both languages', async () => {
+  for (const suffix of ['', '.pt-BR']) {
+    for (const base of ['adapters/claude-code/panel/README', 'docs/components/configuration']) {
+      const text = await read(`${base}${suffix}.md`);
+      for (const token of ['panel.autoOpen', 'false', 'config.json', 'panel-state']) assert.ok(text.includes(token));
+    }
   }
 });
 

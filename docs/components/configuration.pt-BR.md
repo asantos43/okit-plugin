@@ -59,7 +59,7 @@ client é um cliente configurado; class é simple, normal ou hard. O padrão de 
 <a id="defaults"></a>
 ## Inventário de padrões e consumidores
 
-Lista gerada a partir de DEFAULT_CONFIG em [profiles.js](../../src/profiles.js) e do esquema em [config.js](../../src/config.js). Cada chave aparece com padrão e módulo consumidor; objetos vazios admitem entradas por nome. Arrays são valores completos. ¹ Textos longos, mensagens e listas de instruções usam os valores literais do arquivo de padrões vinculado, preservados ali para consulta sem duplicar instruções de manutenção.
+Lista gerada a partir de DEFAULT_CONFIG em [profiles.js](../../src/profiles.js) e do esquema em [config.js](../../src/config.js). Cada chave aparece com padrão e módulo consumidor; objetos vazios admitem entradas por nome. Arrays são valores completos. ¹ Textos longos, mensagens e listas de instruções usam os valores literais do arquivo de padrões vinculado, preservados ali para consulta sem duplicar instruções de manutenção. `panel.autoOpen` = `true` (booleano): o painel instalado do Claude Code abre ao iniciar a sessão. Defina como `false` no `config.json` da raiz de estado para desligar a abertura automática. O adaptador lê via `okit-plugin panel-state --json --client claude` (`panel.autoOpen` na resposta); `/okit-panel` continua alternando o painel.
 
 | Chaves = padrões | Onde são lidas e efeito |
 | :- | :- |

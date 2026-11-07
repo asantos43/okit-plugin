@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { clipText, frameLines, textWidth, wrapText } from '../adapters/claude-code/panel/frame.js';
-import { elapsed, formatHm, quotaBar } from '../adapters/claude-code/panel/formatters.js';
+import { elapsed, formatHm, localTime, quotaBar, quotaRows } from '../adapters/claude-code/panel/formatters.js';
 import { COMMAND, PROCESS_OPTIONS, boardLines, loadState, parseState, viewModel } from '../adapters/claude-code/panel/panel.js';
 import { createRefresh } from '../adapters/claude-code/panel/refresh.js';
 import { register } from '../adapters/claude-code/panel/register.js';
@@ -10,7 +10,7 @@ import { register } from '../adapters/claude-code/panel/register.js';
 const empty = JSON.parse(await readFile(new URL('./fixtures/panel-state-v1.json', import.meta.url), 'utf8'));
 const populated = JSON.parse(await readFile(new URL('./fixtures/panel-state-v1-populated.json', import.meta.url), 'utf8'));
 const response = state => ({ exitCode: 0, stdout: JSON.stringify(state) });
-const text = result => viewModel(result, Date.parse('2026-11-06T12:00:00Z')).flatMap(b => [b.title, ...b.rows]).join('\n');
+const text = result => viewModel(result, Date.parse('2026-11-06T12:00:00Z'), 'UTC').flatMap(b => [b.title, ...b.rows]).join('\n');
 const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 
 // | Source corpus | Must pass | Must refuse |
@@ -30,7 +30,7 @@ test('whole boards match golden output at 40 and 80 cells', async () => {
   for (const name of ['populated', 'idle', 'failed']) {
     const state = await readFile(new URL(`./fixtures/panel-state-v1-${name}.json`, import.meta.url), 'utf8');
     for (const width of [40, 80]) {
-      const lines = boardLines(parseState(state), width, Date.parse('2026-11-06T12:00:00Z'));
+      const lines = boardLines(parseState(state), width, Date.parse('2026-11-06T12:00:00Z'), 'UTC');
       assert.equal(lines.join('\n') + '\n', await readFile(new URL(`./fixtures/panel-board-${name}-${width}.txt`, import.meta.url), 'utf8'));
       for (const line of lines) assert.ok(textWidth(line) <= width);
     }
@@ -72,15 +72,58 @@ test('ported elapsed and quota formatters preserve unknown, zero and reset durat
   for (const [seconds, expected] of [[7, '0:07'], [723, '12:03'], [59.999, '0:59'], [60, '1:00'], [-1, '0:00'], [null, 'unknown']])
     assert.equal(elapsed(seconds), expected);
   assert.equal(formatHm(15300), '4h15m');
-  assert.equal(formatHm(176400), '2d1h');
+  assert.equal(formatHm(176400), '2d 1h');
+  assert.equal(formatHm(162900), '1d 21h');
+  assert.equal(formatHm(16559.999), '4h35m');
   assert.equal(quotaBar(null, 0), 'unknown');
-  assert.equal(quotaBar({ remaining_pct: 0, resets_at: null }, 0), '[░░░░░░░░░░] 0% left · reset unknown');
-  assert.equal(quotaBar({ remaining_pct: 100, resets_at: null }, 0), '[██████████] 100% left · reset unknown');
-  assert.match(quotaBar({ remaining_pct: 50, resets_at: '1970-01-01T04:15:00Z' }, 0), /resets 1970-01-01T04:15:00.000Z \(in 4h15m\)/);
+  assert.equal(quotaBar({ remaining_pct: 0, resets_at: null }, 0, 'UTC'), '! [░░░░░░░░░░] 0% left reset unknown');
+  assert.equal(quotaBar({ remaining_pct: 100, resets_at: null }, 0, 'UTC'), '[██████████] 100% left reset unknown');
+  assert.match(quotaBar({ remaining_pct: 50, resets_at: '1970-01-01T04:15:00Z' }, 0, 'UTC'), /resets 04:15 \(in 4h15m\)/);
   assert.match(quotaBar({ remaining_pct: 50, resets_at: '1970-01-01T04:15:00Z' }, 15300001), /\(passed\)$/);
   assert.match(quotaBar({ remaining_pct: 50, resets_at: '1970-01-01T04:15:00Z' }, 15300000), /\(in 0h00m\)$/);
   for (const [remaining_pct, expected] of [[33.3333333333, 33], [1e21, 100], [-5, 0]])
     assert.match(quotaBar({ remaining_pct, resets_at: null }, 0), new RegExp(` ${expected}% left`));
+});
+
+test('quota helpers use explicit local zones, day durations, rounding and a plain low marker', () => {
+  const now = Date.parse('2026-11-07T15:45:00Z');
+  const session = { remaining_pct: 96.6, resets_at: '2026-11-07T20:20:00Z' };
+  const week = { remaining_pct: 18, resets_at: '2026-11-09T13:00:00Z' };
+  assert.equal(localTime(Date.parse(session.resets_at), now, 'UTC'), '20:20');
+  assert.equal(localTime(Date.parse(session.resets_at), now, 'America/Sao_Paulo'), '17:20');
+  assert.match(quotaBar(session, now, 'UTC'), /97% left resets 20:20 \(in 4h35m\)/);
+  assert.match(quotaBar(week, now, 'UTC'), /^! .*18% left resets Mon 13:00 \(in 1d 21h\)/);
+  for (const [pct, low] of [[19.9, true], [20, false], [0, true]])
+    assert.equal(quotaBar({ remaining_pct: pct, resets_at: null }, now, 'UTC').startsWith('!'), low);
+  assert.equal(localTime(Date.parse('2026-11-08T00:00:00Z'), now, 'UTC'), '00:00');
+  assert.equal(formatHm(86400), '1d 0h');
+  assert.equal(formatHm(86399.999), '23h59m');
+});
+
+test('quota columns align across accounts and board widths 1..240 wrap safely without ISO text', () => {
+  const state = structuredClone(populated), now = Date.parse('2026-11-07T15:45:00Z');
+  state.accounts[0].quota = { session: { remaining_pct: 97, resets_at: '2026-11-07T20:20:00Z' },
+    weekly: { remaining_pct: 18, resets_at: '2026-11-09T13:00:00Z' } };
+  state.accounts[1].quota = { session: null, weekly: { remaining_pct: 100, resets_at: null } };
+  state.runs[0].last_progress = 'Checked 2026-11-07T20:20:00.000Z';
+  const rows = quotaRows(state.accounts, now, 'UTC');
+  assert.equal(rows[0].indexOf('['), rows[1].indexOf('['));
+  assert.equal(rows[0].indexOf('['), rows[3].indexOf('['));
+  assert.equal(rows[0].indexOf('97%'), rows[2].indexOf('unknown'));
+  assert.equal(rows[0].indexOf('resets'), rows[1].indexOf('resets'));
+  assert.equal(rows[0].indexOf('resets'), rows[3].indexOf('reset unknown'));
+  const result = parseState(JSON.stringify(state));
+  assert.doesNotMatch(viewModel(result, now, 'UTC').flatMap(b => b.rows).join('\n'), /\d{4}-\d\d-\d\dT/);
+  for (const width of [30, 40, 80, ...Array.from({ length: 240 }, (_, i) => i + 1)]) {
+    const lines = boardLines(result, width, now, 'UTC');
+    assert.ok(lines.every(line => textWidth(line) <= width));
+    if (width >= 80) assert.ok(lines.some(line => line.includes(rows[0])), 'render keeps column padding');
+    if ([30, 40, 80].includes(width)) {
+      assert.match(lines.join('\n'), /97%[\s║]*left/);
+      assert.match(lines.join('\n'), /unknown/);
+      assert.match(lines.join('\n'), /! week/);
+    }
+  }
 });
 
 test('ported clipping and frames fit narrow, wide and combining text without terminal controls', () => {
@@ -145,8 +188,8 @@ test('view model shows no runs, two accounts, failed and stale runs, and both qu
   const blocks = viewModel(parseState(JSON.stringify(state)), 0);
   assert.deepEqual(blocks.slice(1).map(b => b.title), ['ACCOUNTS', 'RUNNING', 'RECENT', 'LAUNCHABLE NOW', 'Readiness']);
   assert.equal(blocks[0].title, 'okit plugin · claude · 2 accounts · ready: no');
-  assert.match(blocks[1].rows.join('\n'), /Personal · running\nsession \(5 h\): .* 0%[\s\S]*week: unknown/);
-  assert.match(blocks[1].rows.join('\n'), /Work · idle\nsession \(5 h\): unknown[\s\S]*week: .*75%/);
+  assert.match(blocks[1].rows.join('\n'), /Personal · running\n! session 5h .* 0%[\s\S]*week +unknown/);
+  assert.match(blocks[1].rows.join('\n'), /Work · idle\n +session 5h +unknown[\s\S]*week .*75%/);
   assert.match(blocks[3].rows.join('\n'), /failure: failed .*account Work/);
   assert.match(blocks[3].rows.join('\n'), /old: live · stale .*account unknown account/);
   assert.match(blocks[2].rows.join('\n'), /actor hard · opus · effort high · elapsed 0:02/);
@@ -429,6 +472,39 @@ test('rejected toggle close keeps refreshing until a successful close', async ()
   assert.equal(cancelled, 1);
 });
 
+test('session start auto-opens by default/true, respects false and silently tolerates open failure', async () => {
+  for (const setting of [undefined, true, false, 'failure']) {
+    const handlers = new Map(), opened = [], commands = [];
+    let panes = [], timers = 0;
+    const state = structuredClone(empty);
+    if (setting === undefined) delete state.panel;
+    else state.panel = { autoOpen: setting !== false };
+    const engine = {
+      process: { run: async () => response(state) },
+      command: { register: async command => commands.push(command) },
+      clock: { every: () => { timers++; return { cancel() {} }; } },
+      ui: { panes: async () => panes, invalidate() {}, close: async () => { panes = []; },
+        open: async pane => { opened.push(pane); if (setting === 'failure') throw Error('host refused'); panes = [pane]; } },
+    };
+    register((event, ...args) => handlers.set(event, args.at(-1)));
+    assert.equal(await handlers.get('session.start')(engine, 'event', event => event), 'event');
+    await settle();
+    assert.equal(commands[0].name, 'okit-panel');
+    assert.equal(opened.length, setting === false ? 0 : 1);
+    assert.equal(timers > 0, setting !== false && setting !== 'failure');
+    if (setting === 'failure') {
+      assert.match((await handlers.get('command.run')(engine)).text, /unavailable: host refused/);
+      continue;
+    }
+    const toggle = () => handlers.get('command.run')(engine);
+    if (setting === false) assert.match((await toggle()).text, /opened/);
+    assert.match((await toggle()).text, /closed/);
+    assert.match((await toggle()).text, /opened/);
+    assert.equal(panes.length, 1);
+    await toggle();
+  }
+});
+
 test('ported registration opens the titled pane, renders cached data and cancels on reset', async () => {
   const hooks = [], commands = [], opened = [], closed = [];
   let tick, calls = 0, cancelled = 0, invalidated = 0, finish;
@@ -473,7 +549,7 @@ test('ported registration opens the titled pane, renders cached data and cancels
     finish(response(populated)); await settle();
     const tree = await invoke('ui.render');
     assert.match(JSON.stringify(tree), /Personal/);
-    assert.match(JSON.stringify(tree), /week: unknown/);
+    assert.match(JSON.stringify(tree), /week +unknown/);
     for (const width of [1e21, NaN, -10]) {
       const rendered = await invoke('ui.render', width);
       const max = Number.isNaN(width) ? 80 : width < 0 ? 1 : 240;

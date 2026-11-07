@@ -1,0 +1,1 @@
+English: Open the installed Claude Code panel at session start; panel.autoOpen=false disables it and /okit-panel still toggles it. / Português: Abre o painel instalado do Claude Code ao iniciar a sessão; panel.autoOpen=false desliga isso e /okit-panel continua alternando o painel.

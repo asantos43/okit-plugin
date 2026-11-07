@@ -41,6 +41,8 @@ const cleanText = text => text.replace(/[\u200b-\u200f\u2028-\u202e\u2060-\u2064
 export function wrapText(text, width) {
   const max = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
   if (!max) return [];
+  const clean = cleanText(text);
+  if (clean.trim() && textWidth(clean) <= max) return [clean];
   const rows = [];
   const hardRows = new Set();
   let row = '';

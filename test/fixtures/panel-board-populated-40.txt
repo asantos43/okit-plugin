@@ -2,13 +2,12 @@ okit plugin · claude · 2 accounts ·
 ready: no
 ╔═ ACCOUNTS ═══════════════════════════╗
 ║ Personal · running                   ║
-║ session (5 h): [████████░░] 80% left ║
-║ · resets 2026-11-06T17:00:00.000Z    ║
-║ (in 5h00m)                           ║
-║ week: unknown                        ║
+║ session 5h [████████░░] 80% left     ║
+║ resets 17:00 (in 5h00m)              ║
+║   week                    unknown    ║
 ║ Work · idle                          ║
-║ session (5 h): unknown               ║
-║ week: unknown                        ║
+║   session 5h              unknown    ║
+║   week                    unknown    ║
 ╚══════════════════════════════════════╝
 ╔═ RUNNING ════════════════════════════╗
 ║ one: live · demand sample-demand ·   ║

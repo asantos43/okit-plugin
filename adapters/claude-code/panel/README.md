@@ -4,7 +4,10 @@
 
 This small mod draws schema 1 from `okit-plugin panel-state --json --client claude`.
 Its entry point is the named `register` export in `register.js`. Once loaded by
-the mod host, `/okit-panel` opens or closes the **okit plugin** pane. Installation
+the mod host, the **okit plugin** pane opens automatically at session start.
+Set `panel.autoOpen` to `false` in the state root's `config.json` to disable this;
+`/okit-panel` still opens or closes it. The setting comes from the same
+`panel-state` command's `panel.autoOpen` field. Installation
 is opt-in; default installation does not load it. Packaging belongs to D120.
 The core works without this directory.
 
@@ -12,7 +15,9 @@ The header shows `okit plugin · claude · N accounts · ready: yes|no`, with re
 from the command. Framed sections follow: **ACCOUNTS**, **RUNNING**, **RECENT**,
 **LAUNCHABLE NOW**, then **Readiness** with the existing line and warnings.
 Accounts show only aliases, running/idle markers, session (5 h) and week bars,
-percent left, UTC reset time and time until reset. Null is `unknown`; zero is `0%`.
+percent left, local 24 h reset time and time until reset (`4h35m` or `1d 21h`).
+Columns align across accounts; resets more than 24 h away include the weekday.
+`!` marks less than 20% left. Null is `unknown`; zero is `0% left`.
 Live, non-stale runs show account alias, demand when saved, model, effort,
 elapsed and last progress. Recent includes finished, failed, stale and unknown
 statuses with elapsed and a saved error reason when available. Unknown accounts
