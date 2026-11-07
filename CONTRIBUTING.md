@@ -21,6 +21,13 @@ The package version is 0.4.0. Use Node.js >=20; no dependency installation is re
 
 Add one line under `[Unreleased]` in `CHANGELOG.md` describing your change.
 
+## Version bump checklist
+
+- Keep `adapters/claude-code/panel/.claude-plugin/plugin.json` at the same
+  version as `package.json` when bumping the package version.
+- Run `node --test test/install-panel.test.js` to verify the committed panel
+  manifest and generated release payload.
+
 ## Code of Conduct
 
 Please read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
