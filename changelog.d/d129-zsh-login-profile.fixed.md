@@ -1,1 +1,2 @@
 Always write the zsh managed PATH block to `.zprofile` as well as any existing `.zshrc`, so login shells and the install self-check find the command. / Sempre gravar o bloco de PATH gerenciado do zsh em `.zprofile` e em qualquer `.zshrc` existente, para que shells de login e a autoverificação da instalação encontrem o comando.
+Keep the committed panel manifest in step with the package version. / Manter o manifesto versionado do painel em sincronia com a versão do pacote.
