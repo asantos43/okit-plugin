@@ -11,6 +11,8 @@ People use terminal commands to install, maintain and diagnose the plugin and ma
 
 `--help` shows options; installation can change the command name through `install.command`.
 
+For Claude Code, `install` offers the optional panel after success; `--no-panel` skips the question and hint. Enable it later with `okit-plugin install --panel` (isolated mode; cannot combine with `--no-panel`). `update` accepts `--no-panel` and only refreshes panels already installed, without asking.
+
 | Command | Purpose | Example |
 | :- | :- | :- |
 | `okit-plugin install` | Install payload and register client | `okit-plugin install --client codex --dry-run` |

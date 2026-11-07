@@ -3,6 +3,7 @@ import { DEFAULT_CONFIG } from '../profiles.js';
 import { OperationalError, UsageError, exitCodeFor } from './exit.js';
 import { saveRecord } from './place.js';
 import { presenterOf } from './present.js';
+import { commandText } from './command-token.js';
 
 export const PANEL_NAME = 'okit-plugin-panel';
 export const PANEL_CLIENT = DEFAULT_CONFIG.statuslineRegistration.client;
@@ -10,6 +11,26 @@ const ownerOf = (record, deps) => deps.accountScope && !deps.accountScope.isDefa
   ? record?.accounts?.[deps.accountScope.id] : record;
 export const panelOf = (record, deps) => ownerOf(record, deps)?.panel;
 export const forgetPanel = (record, deps) => { const owner = ownerOf(record, deps); if (owner) delete owner.panel; };
+
+/** Offer only after the main registration has succeeded in this account. */
+export async function offerPanel(record, flags, deps) {
+  if (record.client !== PANEL_CLIENT || flags['no-panel'] || panelOf(record, deps)
+    || deps.dryRun || flags.check) return;
+  const ui = presenterOf(deps);
+  try {
+    if (deps.tty && await ui.confirm(deps.read, {
+      explain: [ui.text('panelExplain'), ui.text('panelExplain2')], question: ui.text('panelAsk'),
+    })) {
+      await panelCommand('install', record, deps);
+    } else {
+      const command = commandText(ui, deps.config.command, ['install', '--panel',
+        ...(deps.accountScope && !deps.accountScope.isDefault ? ['--account', deps.accountScope.id] : [])], { later: true });
+      ui.row(ui.text('panel'), 'skipped', ui.text('panelHow', { command }));
+    }
+  } catch (error) {
+    ui.warn(ui.text('panelRefreshFailed', { action: 'install', reason: error.message }));
+  }
+}
 
 async function run(deps, args) {
   const command = { command: deps.config.clients[PANEL_CLIENT].executable, args: ['plugin', ...args] };

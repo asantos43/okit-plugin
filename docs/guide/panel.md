@@ -7,7 +7,7 @@ An optional, read-only panel for Claude Code only shows accounts by alias, never
 <a id="install"></a>
 ## Install
 
-1. Run `okit-plugin install --panel` after installing the main Claude Code plugin; add `--client claude-code --account <id>` to select a saved account by id.
+1. A terminal offers the optional panel after a successful Claude Code install, for the account being installed. Use `--no-panel` to skip both the question and the later hint. Without a terminal, installation only prints the hint. Turn it on later with `okit-plugin install --panel`; add `--client claude-code --account <id>` to select a saved account by id. Updates only refresh an installed panel.
 
 <a id="use"></a>
 ## Open and close

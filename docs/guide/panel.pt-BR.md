@@ -7,7 +7,7 @@ O painel opcional, exclusivo do Claude Code e somente para leitura, mostra conta
 <a id="install"></a>
 ## Instalar
 
-1. Execute `okit-plugin install --panel` após instalar o plugin principal do Claude Code; adicione `--client claude-code --account <id>` para selecionar uma conta salva pelo id.
+1. O terminal oferece o painel opcional após uma instalação bem-sucedida do Claude Code, para a conta sendo instalada. Use `--no-panel` para pular a pergunta e a dica posterior. Sem terminal, a instalação apenas imprime a dica. Ative depois com `okit-plugin install --panel`; adicione `--client claude-code --account <id>` para selecionar uma conta salva pelo id. Atualizações apenas atualizam um painel já instalado.
 
 <a id="use"></a>
 ## Abrir e fechar

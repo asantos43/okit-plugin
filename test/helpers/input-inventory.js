@@ -159,6 +159,7 @@ export const FLAG_TABLE = Object.freeze([
   { flag: '--no-open', value: 'none', commands: ['configUi'], invalid: [] },
   { flag: '--idle-minutes', value: 'finite minutes in (0, 35791]', commands: ['configUi'], invalid: ['0', 'abc', '99999'] },
   { flag: '--panel', value: 'none', commands: ['install', 'uninstall'], invalid: [] },
+  { flag: '--no-panel', value: 'none', commands: ['install', 'update'], invalid: [] },
   { flag: '--client', value: 'client name', commands: ['install', 'update', 'uninstall', 'doctor'], invalid: NAMES },
   // The id of a saved account: an id that is not saved or not an id is refused; `update` refuses the flag itself (it moves
   // every registered account), and without `--client` (or with `all`) the client of the account is not named.

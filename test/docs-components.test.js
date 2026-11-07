@@ -116,6 +116,11 @@ for (const suffix of ['', '.pt-BR']) {
     }
     assert.deepEqual(flagsOf('install', ['--panel', '--client', 'claude-code', '--account', 'work']),
       { panel: true, client: 'claude-code', account: 'work' });
+    for (const command of ['install', 'update']) {
+      assert.deepEqual(flagsOf(command, ['--no-panel']), { 'no-panel': true });
+    }
+    assert.ok(guide.includes('`--no-panel`'));
+    assert.ok((await read(`cli${suffix}.md`)).includes('`--no-panel`'));
     assert.ok(guide.includes('`okit-panel`'));
     assert.match(await source('adapters/claude-code/panel/register.js'), /name: 'okit-panel'/);
     assert.ok(guide.includes('`okit-plugin panel-state --json --client claude`'));

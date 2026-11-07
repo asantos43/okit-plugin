@@ -16,7 +16,7 @@ import { registrationPlan, mcpNotes, register } from './register.js';
 import { mcpPlan, ensureMcp, shown } from './mcp-register.js';
 import { activate, backup, rollback } from './update.js';
 import { uninstall } from './uninstall.js';
-import { PANEL_CLIENT, panelCommand } from './panel.js';
+import { PANEL_CLIENT, panelCommand, offerPanel } from './panel.js';
 import { resolvedRecord } from './where.js';
 import { localSource } from './source.js';
 import { detectKit } from './kit.js';
@@ -310,6 +310,13 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
     const moving = !target ? [] : command === 'update' ? registered : [target];
     // Where the MCP entry and the status bar are looked after: the named account, or every registered one on an update.
     const acting = !target ? [null] : command === 'update' ? registered : [target];
+    const offeringPanel = command === 'install';
+    const panelAfterSuccess = async (record, succeeded) => {
+      if (offeringPanel && succeeded) {
+        for (const account of acting) await offerPanel(record, flags, scoped(account));
+      }
+      return exitCodeFor(succeeded ? 'ok' : 'operational');
+    };
     /** Registers the payload where the named account has not been yet, and notes it in the record. */
     const registerNamed = async (record) => {
       const done = await register(record, scoped(target), 'install');
@@ -379,7 +386,8 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
       if (link && deps.dryRun) finishLink(ui, next('link'), null, { dryRun: true, command: deps.config.command, bin: deps.bin });
       else if (link) finishLink(ui, next('link'), await applyLink(current, deps));
       // Up to date is not enough: the install must also work (a dry run and --check change nothing, so they check nothing).
-      return exitCodeFor(!flags.check && !deps.dryRun && !await verifyInstall(current, selected.version, deps) ? 'operational' : 'ok');
+      const succeeded = flags.check || deps.dryRun || await verifyInstall(current, selected.version, deps);
+      return await panelAfterSuccess(current, succeeded);
     }
     if (flags.check) {
       const next = ui.sequence(quota ? ['quota'] : [], { client: label });
@@ -464,7 +472,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
         next('smoke').ok();
       }
       // The install is left in place when it does not work: the rows say what to fix.
-      return exitCodeFor(await verifyInstall(record, selected.version, deps) ? 'ok' : 'operational');
+      return await panelAfterSuccess(record, await verifyInstall(record, selected.version, deps));
     } finally { if (!local) await fs.rm(downloaded.folder, { recursive: true, force: true }); }
   } catch (error) {
     const step = stage ? ui.text(stage, { client: label }) : '';

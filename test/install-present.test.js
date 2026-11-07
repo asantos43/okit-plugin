@@ -275,6 +275,7 @@ function legacyInstallLines(locale, platform) {
       '[5/5] Quota recording  skipped  off. To turn it on: okit-plugin install --client claude-code --statusline',
       `  Self-check (Claude Code)  ok  ${checks} checks passed`,
       ...(windows ? ['  Command (git-bash)  skipped  git-bash is not installed'] : []),
+      '  Optional panel  skipped  Turn on later: okit-plugin install --panel',
       '  Models  -  not set yet. Run: okit-plugin setup',
       '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit',
       windows ? `Done. Next: 1. open a new terminal  2. in this terminal instead: ${HINT('<bin>')}  3. restart Claude Code  4. ask your assistant to call \`status\``
@@ -292,6 +293,7 @@ function legacyInstallLines(locale, platform) {
     '[5/5] Registro de cota  pulado  desligado. Para ligar: okit-plugin install --client claude-code --statusline',
     `  Autoverificação (Claude Code)  ok  ${checks} verificações passaram`,
     ...(windows ? ['  Comando (git-bash)  pulado  git-bash não está instalado'] : []),
+    '  Painel opcional  pulado  Ative depois: okit-plugin install --panel',
     '  Modelos  -  ainda não definidos. Rode: okit-plugin setup',
     '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração',
     windows ? `Pronto. Próximo: 1. abra um terminal novo  2. neste terminal, rode antes: ${HINT('<bin>')}  3. reinicie o Claude Code  4. peça ao seu assistente para chamar \`status\``
@@ -417,6 +419,7 @@ function retainedEvidence(locale, platform, update = false) {
     update ? '  Servidor MCP de Claude Code substituído por esta instalação' : '  Servidor MCP registrado no Claude Code',
     `  Autoverificação (Claude Code)  ok  ${checks} verificações passaram`,
     ...(windows ? ['  Comando (git-bash)  pulado  git-bash não está instalado'] : []),
+    ...(!update ? ['  Painel opcional  pulado  Ative depois: okit-plugin install --panel'] : []),
     '  Modelos  -  ainda não definidos. Rode: okit-plugin setup',
     '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração',
     '  abra um terminal novo']
@@ -424,6 +427,7 @@ function retainedEvidence(locale, platform, update = false) {
       update ? '  MCP server of Claude Code replaced by this installation' : '  MCP server registered in Claude Code',
       `  Self-check (Claude Code)  ok  ${checks} checks passed`,
       ...(windows ? ['  Command (git-bash)  skipped  git-bash is not installed'] : []),
+      ...(!update ? ['  Optional panel  skipped  Turn on later: okit-plugin install --panel'] : []),
       '  Models  -  not set yet. Run: okit-plugin setup',
       '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit',
       '  open a new terminal'];
