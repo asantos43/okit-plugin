@@ -47,7 +47,7 @@ const NAMES = [
 const roots = [];
 
 test('profile_pick uses valid default profiles without a configuration or setup', async () => {
-  const server = harness({ root: await tempRoot() });
+  const server = harness({ root: await tempRoot(), env: {} });
   for (const [client, profiles] of Object.entries(DEFAULT_CONFIG.profiles)) {
     for (const [effort, expected] of Object.entries(profiles)) {
       const frame = await server.call('profile_pick', { client, effort });
@@ -310,7 +310,7 @@ test('profile_pick uses the profiles in config.json', async () => {
       },
     },
   });
-  const server = harness({ root: dir });
+  const server = harness({ root: dir, env: {} });
 
   const normal = await server.call('profile_pick', { client: 'alpha', effort: 'normal' });
   assert.equal(normal.result.isError, false);

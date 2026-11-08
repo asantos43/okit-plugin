@@ -4,6 +4,8 @@
 
 Skills guide the model according to the role and intent recognized by the client.
 
+The shared Director, Executor and Critic skills work and delegate only within their own client. Other clients in the table are informational, not launch targets; these roles never offer to launch actors in another client. The Director does not run other clients' agents. To use another client's actors, the Producer opens that client's own session. Slots and caps are shared across clients.
+
 <a id="loading"></a>
 ## Loading
 

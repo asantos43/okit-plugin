@@ -138,7 +138,7 @@ test('status displays automatic source, real windows and age in both languages',
   await writeFile(join(directory, 'rollout-status.jsonl'), quotaEvent(42));
   const read = adapterQuotaReader(opts);
   for (const [locale, words] of [['en', 'automatic (1 minute ago)'], ['pt-BR', 'automática (há 1 minuto)']]) { // locale:pt-BR
-    const table = await statusTable(root, { clients: ['codex'], readQuota: read,
+    const table = await statusTable(root, { client: 'codex', clients: ['codex'], readQuota: read,
       now: opts.now, locale, cache: new Map() });
     assert.equal(table.rows[0].fiveHour, 58);
     assert.equal(table.rows[0].week, 61);
@@ -206,7 +206,7 @@ test('empty sessions fall back to manual; newer manual and equal timestamps win'
   await writeFile(file, JSON.stringify(sample));
   assert.deepEqual(await readQuota(opts), { source: 'manual', ...sample, ageMinutes: 1 });
   for (const [locale, words] of [['en', 'manual (1 minute ago)'], ['pt-BR', 'manual (há 1 minuto)']]) { // locale:pt-BR
-    const table = await statusTable(root, { clients: ['codex'], readQuota: adapterQuotaReader(opts),
+    const table = await statusTable(root, { client: 'codex', clients: ['codex'], readQuota: adapterQuotaReader(opts),
       now: opts.now, locale, cache: new Map() });
     assert.ok(table.markdown.includes(words));
   }

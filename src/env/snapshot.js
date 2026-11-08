@@ -139,7 +139,7 @@ export async function environmentSnapshot(deps = {}) {
   if (deps.client !== undefined && !known.includes(deps.client)) {
     return { unknownClient: true };
   }
-  const inUse = detectClient(deps.env);
+  const inUse = deps.sessionClient ?? detectClient(deps.env);
   const probes = new Map();
   const run = deps.run ?? (async ({ command, args, timeout, timeoutMs, env, cwd }) => ({
     ...await exec(command, args, { timeout: timeoutMs ?? timeout, env, cwd }), code: 0,

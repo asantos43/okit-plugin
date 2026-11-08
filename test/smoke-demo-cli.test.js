@@ -6,7 +6,7 @@ import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { callTool } from './helpers/tools.js';
-import { TOOLS } from '../src/mcp/tools.js';
+import { TOOLS, SMOKE_DEMO_DESCRIPTIONS } from '../src/mcp/tools.js';
 import { configOf } from '../src/profiles.js';
 import { actorPairs } from '../src/env/snapshot.js';
 import { smokeDemo } from '../src/smoke/demo/entry.js';
@@ -26,6 +26,34 @@ async function fixture(t, client = 'codex') {
 }
 
 const tool = TOOLS.find((item) => item.name === 'smoke_demo');
+
+// | Must pass | Must refuse |
+// | caller client or unknown caller | another client, including preview and confirmed run |
+test('D137 smoke refuses other clients before probing or launching', async (t) => {
+  assert.match(SMOKE_DEMO_DESCRIPTIONS.en, /calling client only/);
+  assert.match(SMOKE_DEMO_DESCRIPTIONS['pt-BR'], /somente no cliente desta sessão/); // locale:pt-BR
+  for (const caller of ['claude-code', 'codex', 'opencode']) {
+    const deps = await fixture(t, caller);
+    for (const client of ['claude-code', 'codex', 'opencode'].filter((name) => name !== caller)) {
+      for (const dryRun of [true, false]) {
+        const args = { client, dryRun, confirm: 'old-preview' };
+        const result = await smokeDemo(args, deps);
+        assert.equal(result.status, 'refused');
+        assert.equal(result.exitCode, 2);
+        assert.match(result.text, new RegExp(`Run it from ${client}'s own session`));
+        assert.equal(JSON.parse(await tool.handler(args, deps)).status, 'refused');
+        const translated = await smokeDemo({ ...args, locale: 'pt-BR' }, deps);
+        assert.match(translated.text, /Execute em uma sessão própria/); // locale:pt-BR
+      }
+    }
+    const local = await smokeDemo({ dryRun: true }, deps);
+    assert.equal(local.plan.client, caller);
+    deps.snapshot.inUse = null;
+    deps.client = () => assert.fail('a runner function is not a calling client');
+    const unknown = await smokeDemo({ client: caller, dryRun: true }, deps);
+    assert.equal(unknown.status, 'preview');
+  }
+});
 
 function launcher(client, calls, costUsd = 0.01) {
   return (command, args, options) => {
@@ -347,7 +375,7 @@ test('an aborted signal stops new helper calls, removes the practice folder and 
 test('the MCP tool passes the process environment when its context has none', async (t) => {
   const permissions = { 'claude-code': ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN',
     'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_BASE_URL'], codex: ['OPENAI_API_KEY', 'OPENAI_BASE_URL'], opencode: [] };
-  const keys = ['PATH', 'UNRELATED_SECRET', ...Object.values(permissions).flat()];
+  const keys = ['PATH', 'OKIT_CLIENT', 'UNRELATED_SECRET', ...Object.values(permissions).flat()];
   const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   t.after(() => {
     for (const key of keys) if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key];
@@ -355,6 +383,7 @@ test('the MCP tool passes the process environment when its context has none', as
   process.env.PATH = '/process/bin'; process.env.UNRELATED_SECRET = 'must-not-leak';
   for (const key of Object.values(permissions).flat()) process.env[key] = `process-${key}`;
   for (const client of Object.keys(permissions)) {
+    process.env.OKIT_CLIENT = client;
     const { env, ...ctx } = await fixture(t, client), calls = [];
     assert.equal(Object.hasOwn(ctx, 'env'), false);
     ctx.config.smoke.maxTokens = 15; ctx.spawn = launcher(client, calls);

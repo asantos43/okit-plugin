@@ -115,7 +115,8 @@ export function mcpPlan(record, deps, action = 'install') {
   const get = format === 'json'
     ? [settings.executable, 'mcp', 'get', name, '--json']
     : [settings.executable, 'mcp', 'get', name];
-  const add = [settings.executable, 'mcp', 'add', ...scopeWords, name, '--', deps.config.node, path];
+  const add = [settings.executable, 'mcp', 'add', ...scopeWords, name,
+    '--env', `OKIT_CLIENT=${record.client}`, '--', deps.config.node, path];
   const remove = [settings.executable, 'mcp', 'remove', name, ...scopeWords];
   // What a dry run shows: the read and the write the action would do.
   return { get, add, remove, steps: action === 'uninstall' ? [get, remove] : [get, add], scope, cwd: mcpCwd(deps, record), format };

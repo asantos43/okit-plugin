@@ -84,7 +84,7 @@
     }
   },
   "smoke_demo": {
-    "description": "Preview practice work and confirm its allowance ceiling.",
+    "description": "Preview practice work on the calling client only and confirm its allowance ceiling.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -543,7 +543,7 @@
     }
   },
   "limits_status": {
-    "description": "Reports caps and live runs by account. Optional client/account select one; live sums all runs.",
+    "description": "Reports caps and live runs shared across clients by account. Optional client/account select one; live sums all runs.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -712,7 +712,7 @@
     }
   },
   "profile_pick": {
-    "description": "Chooses an assistant for the work, using built-in choices before setup. Low allowance selects a lighter choice.",
+    "description": "Chooses an assistant for the calling client by default. Other clients are informational, not launchable from this session. Low allowance selects a lighter choice.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -752,7 +752,6 @@
         }
       },
       "required": [
-        "client",
         "effort"
       ],
       "additionalProperties": false

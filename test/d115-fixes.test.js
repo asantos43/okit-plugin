@@ -141,7 +141,7 @@ test('round 4: account guidance targets stable ids and can be followed without c
     detectClients: async () => ({ clients: [{ client: 'codex', installed: true, models: [], source: 'listing' }] }) });
   assert.ok(noModels.plugin.missing.some(entry => entry.item === 'models' && entry.account === 'work' && entry.client === 'codex'));
   for (const locale of ['en', 'pt-BR']) {
-    const text = (await statusTable(root, { snapshot: noModels, locale, demands: [] })).markdown;
+    const text = (await statusTable(root, { snapshot: noModels, client: 'codex', locale, demands: [] })).markdown;
     assert.match(text, /codex \((?:account|conta) work\)/);
     assert.match(formatEnvironmentReport(noModels, locale), /codex \((?:account|conta) work\)/);
   }

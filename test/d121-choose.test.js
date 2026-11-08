@@ -308,7 +308,7 @@ test('doctor and actors expose the current policy choice and its reason in both 
   assert.equal(choice.account, 'a');
   assert.equal(choice.reason.code, 'chosen');
   for (const locale of ['en', 'pt-BR']) {
-    const actors = await listActors({ snapshot, locale });
+    const actors = await listActors({ snapshot, client: 'codex', locale });
     assert.deepEqual(actors.accountChoices, snapshot.accountChoices);
     assert.ok(actors.markdown.includes(accountReasonText(choice.reason, locale)));
     const doctor = readinessRows({ snapshot, ui: { locale }, program: 'okit-plugin' });
@@ -334,8 +334,9 @@ test('absent clients have no policy choices, with or without a saved default', a
       const actors = await listActors({ snapshot, client: 'codex', locale });
       const doctor = readinessRows({ snapshot, ui: { locale }, program: 'okit-plugin' });
       assert.equal(doctor.rows.filter((row) => row.id === 'account-policy').length, installed ? 1 : 0);
-      if (!installed) assert.deepEqual(actors.notes, [locale === 'en'
-        ? 'codex: not installed (optional).' : 'codex: não instalado (opcional).']); // locale:pt-BR
+      if (!installed) assert.deepEqual(actors.notes, locale === 'en'
+        ? ['codex: not installed (optional).', 'Slots and caps are shared across clients.']
+        : ['codex: não instalado (opcional).', 'Slots e limites compartilhados entre clientes.']); // locale:pt-BR
     }
   }
 });

@@ -1,6 +1,6 @@
 // Read-only presentation of environment actors and launch restrictions.
 import { configOf } from './profiles.js';
-import { ageOf, labelsOf, quotaOrigin } from './env/quota.js';
+import { ageOf, labelsOf, quotaOrigin, callingClient, isolationNotes } from './env/quota.js';
 import { environmentSnapshot } from './env/snapshot.js';
 import { accountRows, accountName, shownWarnings, warningText } from './env/account-rows.js';
 import { accountReasonText } from './accounts-choose.js';
@@ -10,8 +10,12 @@ const cell = (value) => String(value).replaceAll('|', '\\|').replace(/[\r\n]+/g,
 
 export function formatActors(result) {
   const line = (values) => `| ${values.map(cell).join(' | ')} |`;
-  return [line(result.columns), line(result.columns.map(() => '---')),
-    ...result.actors.map((actor) => line(actor.cells)), ...result.notes].join('\n');
+  return [...(result.actors.length || (!result.informational?.length && !result.notes.includes(result.otherLabel))
+    ? [line(result.columns), line(result.columns.map(() => '---')),
+      ...result.actors.map((actor) => line(actor.cells))] : []),
+    ...(result.informational?.length ? [result.otherLabel,
+      line(result.columns.filter((_, i) => i !== 6)), line(result.columns.filter((_, i) => i !== 6).map(() => '---')),
+      ...result.informational.map((actor) => line(actor.cells))] : []), ...result.notes].join('\n');
 }
 
 export async function listActors(deps = {}) {
@@ -21,9 +25,14 @@ export async function listActors(deps = {}) {
   const messages = settings.messages[deps.locale] ?? settings.messages.en;
   const snapshot = await environmentSnapshot({ ...deps, config, view: 'selected', orders: [] });
   const actors = [];
+  const informational = [];
+  const caller = callingClient(deps);
+  const selected = deps.client ?? (deps.all ? null : caller);
   const notes = [];
-  if (!deps.client && !deps.all && !snapshot.inUse) notes.push(labelsOf(deps.locale).unknownClient);
+  if (!deps.client && !deps.all && !caller) notes.push(labelsOf(deps.locale).unknownClient);
   for (const observation of accountRows(snapshot.clients)) {
+    if (selected && observation.client !== selected) continue;
+    const other = caller && observation.client !== caller;
     if (observation.installed === false) {
       // A client with several saved accounts has one row for each, and one note.
       const note = `${observation.client}: ${labelsOf(deps.locale).optional}.`;
@@ -63,16 +72,23 @@ export async function listActors(deps = {}) {
       actor.cells = [client, actor.model, actor.effort ?? messages.missing,
         [...actor.sizes, ...(actor.critic ? [messages.critic] : [])].join(', ') || messages.missing, freeSlots,
         quotaText, actor.canLaunch ? messages.yes : messages.no, actor.reasons.join(' ') || messages.missing];
-      actors.push(actor);
+      if (other) {
+        actor.cells.splice(6, 1);
+        delete actor.canLaunch;
+        informational.push(actor);
+      } else actors.push(actor);
     }
-    for (const { size, alternative } of observation.sizeCoverage.gaps) {
+    for (const { size, alternative } of other ? [] : observation.sizeCoverage.gaps) {
       notes.push(fill(messages.gap, { client, size, alternative: alternative ?? messages.none }));
     }
   }
-  const accountChoices = snapshot.accountChoices ?? [];
+  if (!informational.length && caller && snapshot.clients.some((row) => row.client !== caller
+    && (!selected || row.client === selected))) notes.push(isolationNotes(deps.locale).other);
+  notes.push(isolationNotes(deps.locale).shared);
+  const accountChoices = (snapshot.accountChoices ?? []).filter((choice) => !selected || choice.client === selected);
   for (const choice of accountChoices) notes.push(`${choice.client} (${choice.actorClass}): ${choice.account ?? '—'}. ${accountReasonText(choice.reason, deps.locale)}`);
-  const result = { columns: messages.columns, actors, notes, accountChoices,
-    clients: snapshot.clients.map((row) => row.client), missing: snapshot.plugin.missing };
+  const result = { columns: messages.columns, actors, informational, otherLabel: isolationNotes(deps.locale).other, notes, accountChoices,
+    clients: snapshot.clients.filter((row) => !selected || row.client === selected).map((row) => row.client), missing: snapshot.plugin.missing };
   result.markdown = formatActors(result);
   return result;
 }

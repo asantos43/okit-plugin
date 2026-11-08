@@ -608,7 +608,7 @@ test('daemonStatus with options.table answers the markdown and the capacity line
     alpha: { source: 'api', windows: [{ minutes: 300, remainingPct: 72, resetsInMinutes: 30 }] },
     beta: { source: 'off' },
   });
-  const table = { clients: ['alpha', 'beta'], readQuota, now: () => SLOT, cache: new Map() };
+  const table = { all: true, clients: ['alpha', 'beta'], readQuota, now: () => SLOT, cache: new Map() };
 
   const status = await daemonStatus(root, { now: SLOT, table });
 
@@ -617,9 +617,11 @@ test('daemonStatus with options.table answers the markdown and the capacity line
   assert.deepEqual(Object.keys(status.table), ['markdown', 'capacityLine']);
   const lines = status.table.markdown.split('\n');
   assert.equal(lines[0], '| Subscription | 5h remaining | Week remaining | Resets in | Status | Source (age) |');
-  assert.equal(lines[2], '| alpha | 72% | - | 30m | green | api (0s) |');
-  assert.equal(lines[3], '| beta | - | - | - | No quota value recorded. Call `quota_set` with the client "beta" and the percentage that is left. | - |');
-  assert.equal(status.table.capacityLine, 'Executor slots (running/limit; one executor at a time): alpha: 0/3 (default), 3 available; beta: 0/3 (default), 3 available.\nMinimum quota to launch: 15%.');
+  assert.equal(lines[2], '');
+  assert.equal(lines[3], 'Other clients: informational, not launchable from this session.');
+  assert.equal(lines[6], '| alpha | 72% | - | 30m | green | api (0s) |');
+  assert.equal(lines[7], '| beta | - | - | - | No quota value recorded. Call `quota_set` with the client "beta" and the percentage that is left. | - |');
+  assert.equal(status.table.capacityLine, 'Executor slots (running/limit; one executor at a time): alpha: 0/3 (default), 3 available; beta: 0/3 (default), 3 available.\nMinimum quota to launch: 15%.\nSlots and caps are shared across clients.');
   assert.deepEqual(calls, ['alpha', 'beta']);
 });
 

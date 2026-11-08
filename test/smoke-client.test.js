@@ -695,7 +695,7 @@ test('demo previews both clients without spending and retains confirmation prote
       const config = await loadConfig(f.root);
       const snapshot = { now: Date.now(), config, inUse: client, clients: [{ client,
         quota: { source: 'automatic', remainingPct: 80, ageMinutes: 1 }, candidates: [], slots: {} }] };
-      const deps = { ...f.io, snapshot, spawn: () => assert.fail('preview must not spawn'),
+      const deps = { ...f.io, env: { ...f.io.env, OKIT_CLIENT: client }, snapshot, spawn: () => assert.fail('preview must not spawn'),
         actor: { run: () => assert.fail('preview must not launch') } };
       const preview = await smokeDemo({ client, locale, dryRun: true }, deps);
       assert.equal(preview.exitCode, 0); assert.equal(preview.plan.client, client);

@@ -35,8 +35,8 @@ export async function releaseSlotOperation(root, args) {
 /** Reports the concurrency caps and the live runs per client. */
 export async function limitsStatusOperation(root, args, deps) {
   const a = argsOf('limits_status', args, [], ['client', 'account']);
-  return limitsStatus(root, await configOf(deps, root), {
+  return { ...await limitsStatus(root, await configOf(deps, root), {
     client: a.account === undefined ? optionalText('limits_status', a, 'client') : requiredText('limits_status', a, 'client'),
     account: optionalText('limits_status', a, 'account'),
-  });
+  }), scope: 'shared across clients' };
 }

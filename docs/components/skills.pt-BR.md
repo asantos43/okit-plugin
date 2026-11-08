@@ -4,6 +4,8 @@
 
 As skills orientam o modelo conforme o papel e a intenção reconhecidos pelo cliente.
 
+As skills compartilhadas de Director, Executor e Critic trabalham e delegam apenas no próprio cliente. Outros clientes na tabela são informativos, não destinos de execução; esses papéis nunca oferecem iniciar atores em outro cliente. O Director não executa agentes de outros clientes. Para usar atores de outro cliente, o Produtor abre uma sessão no próprio cliente desejado. Vagas e limites são compartilhados entre clientes.
+
 <a id="loading"></a>
 ## Carregamento
 

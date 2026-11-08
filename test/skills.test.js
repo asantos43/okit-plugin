@@ -22,6 +22,34 @@ assert.ok(TOOLS.size > 0, 'the server publishes its tools');
 
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
 const OLD_CLI = /\bkit\s+(?:daemon|autostart|status|inbox|smoke|client-smoke|hook)\b/;
+const CROSS_CLIENT_OFFER = /can run in other clients|can (?:run|launch) (?:an actor|actors|agents) in (?:another|other) clients?|posso (?:iniciar|executar) atores em outro cliente|podem executar em outros clientes/i;
+
+// | Corpus | Must pass | Must refuse |
+// | Own session | Other clients are informational | - |
+// | Launch offer | - | can run in other clients; can launch actors in another client |
+test('isolation phrase guard accepts information and refuses launch offers', () => {
+  assert.doesNotMatch('Other clients are informational, not launch targets.', CROSS_CLIENT_OFFER);
+  for (const offer of ['Actors can run in other clients', 'I can launch actors in another client',
+    'I can run an actor in another client', 'Posso iniciar atores em outro cliente']) {
+    assert.match(offer, CROSS_CLIENT_OFFER);
+  }
+});
+
+test('shared roles require Isolation and skills and guides never offer cross-client launches', async () => {
+  for (const folder of await skillFolders()) {
+    const { fields, body } = await readSkill(folder);
+    assert.doesNotMatch(`${fields.description}\n${body}`, CROSS_CLIENT_OFFER, folder);
+    if (['okit-director', 'okit-executor', 'okit-critic'].includes(folder)) {
+      assert.match(body, /^## Isolation$/m, folder);
+    }
+  }
+  for (const path of ['guide/ask-the-director', 'components/skills']) {
+    for (const suffix of ['.md', '.pt-BR.md']) {
+      const url = new URL(`../docs/${path}${suffix}`, import.meta.url);
+      assert.doesNotMatch(await readFile(url, 'utf8'), CROSS_CLIENT_OFFER, url.pathname);
+    }
+  }
+});
 
 const PORTUGUESE_TEXT = /[\u00e1\u00e0\u00e2\u00e3\u00e9\u00ea\u00ed\u00f3\u00f4\u00f5\u00fa\u00e7\u00c1\u00c9\u00cd\u00d3\u00da\u00c7]|\b(?:nao|voce|uma|para o|sessao|teste|cota|ajudante|ajudantes|configuracao|disponivel|obrigado|como|ordem)\b/i;
 

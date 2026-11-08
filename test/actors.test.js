@@ -26,6 +26,63 @@ async function fixture(t) {
     })) }) };
 }
 
+// | Must pass | Must refuse |
+// | caller only by default; unknown caller keeps all | foreign actors presented as launchable |
+test('D137 isolates actors, including precomputed snapshots and explicit selection', async (t) => {
+  const deps = { ...await fixture(t), env: { OKIT_CLIENT: 'claude-code' } };
+  const local = await listActors(deps);
+  assert.deepEqual(local.clients, ['claude-code']);
+  assert.equal(local.informational.length, 0);
+  const all = await listActors({ ...deps, all: true });
+  assert.equal(all.actors.length, 4);
+  assert.equal(all.informational.length, 8);
+  assert.ok(all.informational.every((actor) => !Object.hasOwn(actor, 'canLaunch') && actor.cells.length === 7));
+  const otherTable = all.markdown.split(all.otherLabel)[1];
+  assert.match(otherTable, /codex/);
+  assert.doesNotMatch(otherTable, /Can launch|start: (yes|no)/i);
+  assert.match(all.otherLabel, /other clients: informational, not launchable from this session/i);
+  const explicit = await listActors({ ...deps, client: 'codex' });
+  assert.equal(explicit.actors.length, 0);
+  assert.equal(explicit.informational.length, 4);
+  assert.doesNotMatch(explicit.markdown, /Can launch|start: (yes|no)/i);
+  const snapshot = await statusTable(deps.root, { ...deps, all: true, demands: [] });
+  const cached = await listActors({ ...deps, snapshot: snapshot.snapshot });
+  assert.deepEqual(cached.clients, ['claude-code']);
+  for (const input of [{}, { all: true }, { client: 'codex' }]) {
+    const status = await statusTable(deps.root, { ...deps, ...input, demands: [] });
+    assert.deepEqual(status.rows.map((row) => row.client), input.all ? ['claude-code', 'codex', 'opencode']
+      : [input.client ?? 'claude-code']);
+    assert.match(status.capacityLine, /shared across clients/);
+    if (input.all || input.client) {
+      assert.match(status.markdown, /Other clients: informational, not launchable/);
+      assert.ok(status.rows.filter((row) => row.client !== 'claude-code')
+        .every((row) => row.actors.every((actor) => !Object.hasOwn(actor, 'canLaunch'))));
+      assert.ok(status.snapshot.clients.filter((row) => row.client !== 'claude-code')
+        .every((row) => row.candidates.every((actor) => !Object.hasOwn(actor, 'canLaunch'))));
+    }
+  }
+  const unknown = await listActors({ ...deps, env: {} });
+  assert.equal(unknown.actors.length, 12);
+  assert.match(unknown.notes.join('\n'), /Showing all clients; pass/);
+});
+
+test('D137 filters foreign rows from a precomputed all-client snapshot unless all is requested', async (t) => {
+  const deps = { ...await fixture(t), env: { OKIT_CLIENT: 'claude-code' } };
+  const { snapshot } = await statusTable(deps.root, { ...deps, all: true, demands: [] });
+  assert.deepEqual(snapshot.clients.map((row) => row.client), ['claude-code', 'codex', 'opencode']);
+  const local = await listActors({ ...deps, snapshot });
+  assert.equal(local.informational.length, 0);
+  assert.deepEqual(local.clients, ['claude-code']);
+  assert.doesNotMatch(local.markdown, /^\| (?:codex|opencode) \|/m);
+  const all = await listActors({ ...deps, snapshot, all: true });
+  assert.deepEqual(all.clients, ['claude-code', 'codex', 'opencode']);
+  assert.equal(all.informational.length, 8);
+  assert.deepEqual([...new Set(all.informational.map((actor) => actor.client))], ['codex', 'opencode']);
+  assert.ok(all.informational.every((actor) => !Object.hasOwn(actor, 'canLaunch')));
+  assert.match(all.markdown, /^\| codex \|/m);
+  assert.match(all.markdown, /^\| opencode \|/m);
+});
+
 for (const client of ['claude-code', 'codex', 'opencode']) test(`injected profiles for ${client}`, async (t) => {
   const deps = await fixture(t);
   const result = await listActors({ ...deps, client });
@@ -97,7 +154,8 @@ test('unknown client and disabled profiles give actionable explanations', async 
     const messages = DEFAULT_CONFIG.actors.messages[locale];
     const result = await listActors({ ...deps, profiles: {}, client: 'codex', locale });
     assert.equal(result.actors.length, 0);
-    assert.deepEqual(result.notes, [messages.empty.replace('{client}', 'codex')]);
+    assert.equal(result.notes[0], messages.empty.replace('{client}', 'codex'));
+    assert.equal(result.notes.length, 2);
     assert.match(messages.empty, locale === 'en' ? /Check the profiles in the plugin configuration/ : /Confira os perfis na configuração do plugin/); // locale:pt-BR
     assert.doesNotMatch(JSON.stringify(messages), /D50|O30|Producer|Produtor/);
     assert.doesNotMatch(result.markdown, /D50|O30|Producer|Produtor/);
@@ -213,7 +271,7 @@ test('the markdown of the actors has one line per actor and no line breaks', asy
   const deps = await fixture(t);
   const actors = await listActors({ ...deps, client: 'codex' });
   const out = actors.markdown.split('\n');
-  assert.equal(out.length, 6 + actors.accountChoices.length);
+  assert.equal(out.length, 7 + actors.accountChoices.length);
   assert.ok(out.every((line) => !line.includes('\n')));
   assert.match(out[0], /^\| Client \|/);
   assert.equal(out.filter((line) => line.startsWith('| codex |')).length, 4);

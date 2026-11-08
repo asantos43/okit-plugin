@@ -11,6 +11,7 @@ import { classify } from '../classify.js';
 import { profilePick } from '../profiles.js';
 import { record } from '../telemetry/index.js';
 import { configOf } from './context.js';
+import { callingClient, isolationNotes } from '../env/quota.js';
 import { argsOf, optionalQuota, optionalText, requiredText } from './tool-arguments.js';
 
 /** Classifies a demand as simple, normal or hard and says why. */
@@ -26,12 +27,16 @@ export async function classifyOperation(root, args) {
 /** Chooses an assistant for the work, using built-in choices before setup. */
 export async function profilePickOperation(root, args, deps) {
   const a = argsOf('profile_pick', args, ['client', 'effort', 'quota']);
+  const caller = callingClient(deps);
+  const client = optionalText('profile_pick', a, 'client') ?? caller ?? requiredText('profile_pick', a, 'client');
+  const config = await configOf(deps, root);
   const profile = profilePick({
-    client: requiredText('profile_pick', a, 'client'),
+    client,
     effort: requiredText('profile_pick', a, 'effort'),
     quota: optionalQuota('profile_pick', a, 'quota'),
-    config: await configOf(deps, root),
+    config,
   });
-  await record(root, 'profile.choice', { client: a.client, ...profile });
-  return profile;
+  await record(root, 'profile.choice', { client, ...profile });
+  return caller && caller !== client
+    ? { ...profile, informational: true, note: isolationNotes(deps?.locale ?? config.language).other } : profile;
 }
