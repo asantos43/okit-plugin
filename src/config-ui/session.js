@@ -15,7 +15,7 @@ export async function openConfigSession(root, args, deps = {}) {
   const reused = sessions.has(key);
   if (!reused) {
     const pending = (deps.startConfigServer ?? startConfigServer)({ root, locale,
-      env: deps.env, background: true });
+      env: deps.env, background: true, install: deps.install });
     sessions.set(key, pending);
     pending.then((session) => session.closed.then(() => {
       if (sessions.get(key) === pending) sessions.delete(key);

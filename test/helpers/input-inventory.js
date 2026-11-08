@@ -289,6 +289,9 @@ export function envLiterals() {
 // refusal of usage (exit 2); a file of another program that we would have to change and cannot preserve is unreadable.
 
 export const FILE_RULES = Object.freeze([
+  { file: 'install-job.lock (install ownership)', readBy: 'src/config-ui/install-jobs.js', unreadable: 2, wrongType: 2,
+    proof: 'test/config-ui-install-jobs.test.js#cross-process lock',
+    note: 'Exclusive mode-0600 PID/start-time/nonce record; live, malformed or unreadable holders refuse with HTTP 409, dead PIDs may be reclaimed. No token or job state is stored.' },
   { file: 'quota/collector-<client>.<id>.json (collector restoration metadata)', readBy: 'src/quota/collector-registration.js (savedCollector, ensureCollector)', unreadable: 0, wrongType: 0,
     proof: 'test/d146-collector-registration.test.js#foreign command and settings are preserved',
     note: 'Optional statusline restoration record before plugin installation; missing metadata falls back to the existing installation record. Unreadable metadata prevents best-effort registration or skips handoff, never fails account add. The statusline path/backup/previous/hash are reused by planStatusline/applyStatusline; installer handoff requires the expected account settings path.' },
@@ -394,6 +397,8 @@ const STATE_OF_OTHER_COMMANDS = 'state of a command outside this inventory (I9 l
  * FILE_RULES row; `excluded` says why the file is not an input of this inventory.
  */
 export const READ_POINTS = Object.freeze([
+  { file: 'src/config-ui/install-jobs.js', arg: /^file$/, rule: 'install-job.lock (install ownership)' },
+  { file: 'src/config-ui/install-jobs.js', arg: /^JSON.stringify\(value,/, excluded: 'Redacted in-memory job snapshot, not an external file or executable input.' },
   { file: 'src/quota/collector-registration.js', arg: /^(metadata\(ctx\.root, account\)|file)$/, rule: 'quota/collector-<client>.<id>.json (collector restoration metadata)' },
   { file: 'src/quota/collector-registration.js', arg: /^join\(folder, config\.statuslineRegistration\.settingsFile\)$/, rule: 'settings.json of an account (collector state)' },
   { file: 'src/doctor/command.js', arg: /^`\$\{ctx\.root\}\/config\.json`$/, rule: CONFIG_JSON },

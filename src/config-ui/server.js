@@ -21,6 +21,7 @@ import { environmentSnapshot } from '../env/snapshot.js';
 import { limitsStatus } from '../limits.js';
 import { buildState, describeAccount, accountQuota, redact, sensitive } from './state.js';
 import { renderPage } from './page.js';
+import { createInstallJobs, installError } from './install-jobs.js';
 
 const fail = (status, reason) => Object.assign(new Error(reason), { status });
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -31,8 +32,19 @@ const noClientFiles = { readFile: async () => { throw new Error('Client file rea
 export async function startConfigServer({ root, env = process.env, locale = 'en', idleMs = 600_000,
   modelTimeoutMs = 5000, closeGraceMs = 3000, detect = detectClients, observe, signals = process,
   platform = process.platform, launchLogin = launchAccountLogin, background = false,
-  loginTimeoutMs = LOGIN_TIMEOUT_MS, loginSpawn, quotaRead = requestQuotaRead } = {}) {
+  loginTimeoutMs = LOGIN_TIMEOUT_MS, loginSpawn, quotaRead = requestQuotaRead,
+  install = {}, createServer = http.createServer } = {}) {
   const token = randomBytes(32).toString('hex');
+  const jobs = createInstallJobs({ ...install, root, env, platform, locale, token,
+    run: install.run ?? (async ({ command, args, env: childEnv, ...options }) => {
+      try { return { ...await run(command, args, { ...options, env: childEnv ?? env }), code: 0 }; }
+      catch (error) { return { code: error.code ?? 1, stdout: error.stdout ?? '', stderr: error.stderr ?? '' }; }
+    }) });
+  const safe = (value) => JSON.parse(JSON.stringify(value, (key, item) =>
+    /^x-okit-token$/i.test(key) ? '[redacted]' : typeof item === 'string'
+      ? item.replace(/([?&])token=[^\s&#"'<>]*/gi, '$1token=[redacted]')
+        .replace(/x-okit-token\s*[:=]\s*\S+/gi, 'x-okit-token: [redacted]').replaceAll(token, '[redacted]') : item)
+    .replaceAll(token, '[redacted]'));
   const observations = new Map();
   const controllers = new Set();
   const logins = createAccountLogins({ env, platform, redact, timeoutMs: loginTimeoutMs,
@@ -40,25 +52,29 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
     onSuccess: (client, id) => quotaRead({ root, env }, client, id, { force: true }) });
   let timer, graceTimer, port, activeInstance, stopping = false, resolveClosed;
   const closed = new Promise((resolve) => { resolveClosed = resolve; });
-  const server = http.createServer((request, response) => {
+  const server = createServer((request, response) => {
     handle(request, response).catch((error) => {
       if (error.status === 413) response.setHeader('Connection', 'close');
       const status = typeof error.status === 'number' ? error.status
         : error instanceof Refusal || error instanceof UsageError ? 422 : 500;
-      if (!response.headersSent) send(response, status, { reason: status === 500 ? 'Request failed.' : redact(error.message) });
+      if (!response.headersSent) send(response, status, { reason: status === 500 ? 'Request failed.'
+        : localizeReason(redact(error.message), locale), ...(error.code && typeof error.status === 'number'
+          ? { code: error.code } : {}) });
       else response.destroy();
     });
   });
   const close = () => {
     if (stopping) return closed;
     stopping = true;
-    logins.close();
     clearTimeout(timer);
     clearTimeout(graceTimer);
-    signals.removeListener('SIGINT', close);
-    for (const controller of controllers) controller.abort();
-    server.close(() => resolveClosed());
-    server.closeAllConnections();
+    void jobs.close().finally(() => {
+      signals.removeListener('SIGINT', close);
+      logins.close();
+      for (const controller of controllers) controller.abort();
+      server.close(() => resolveClosed());
+      server.closeAllConnections();
+    });
     return closed;
   };
   const touch = () => {
@@ -67,8 +83,9 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
   };
   const send = (response, status, value) => {
     response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store',
+      'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
       'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
-    response.end(JSON.stringify(value));
+    response.end(JSON.stringify(safe(value)));
   };
   async function refresh(config, client) {
     if (!Object.hasOwn(config.profiles, client)) throw fail(422, 'Unknown client.');
@@ -159,11 +176,12 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
       request.once('error', reject);
     });
     try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
-    catch { throw fail(422, 'Invalid JSON.'); }
+    catch { throw fail(request.url.startsWith('/api/install/') ? 400 : 422, 'Invalid JSON.'); }
   }
   async function handle(request, response) {
     const url = new URL(request.url, 'http://127.0.0.1');
     authorize(request, url);
+    if (stopping) throw fail(409, 'Session is closing.');
     if (url.pathname !== '/api/keepalive') clearTimeout(graceTimer);
     touch();
     const routes = { '/': 'GET', '/api/state': 'GET', '/api/config': 'PUT',
@@ -171,11 +189,23 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
       '/api/account-login': 'POST',
       '/api/account-login/status': 'POST', '/api/account-login/cancel': 'POST', '/api/account-logout': 'POST',
       '/api/models/refresh': 'POST', '/api/close': 'POST', '/api/keepalive': 'POST' };
+    Object.assign(routes, { '/api/install/plan': 'POST', '/api/install/apply': 'POST',
+      '/api/install/job': 'GET', '/api/install/answer': 'POST', '/api/install/cancel': 'POST' });
     if (!Object.hasOwn(routes, url.pathname)) throw fail(404, 'Not found.');
     if (request.method !== routes[url.pathname]) throw fail(405, 'Method not allowed.');
     if (url.pathname === '/') return page(response, url.searchParams.get('locale'));
     if (url.pathname === '/api/state') return send(response, 200, await state(url.searchParams.get('locale') ?? locale));
+    if (url.pathname === '/api/install/job') {
+      const cursor = url.searchParams.get('after') ?? '0';
+      if (!/^\d+$/.test(cursor) || !Number.isSafeInteger(Number(cursor))) throw installError(400, 'Invalid install request.');
+      return send(response, 200, jobs.snapshot(Number(cursor)));
+    }
     const input = await body(request);
+    if (url.pathname.startsWith('/api/install/')) {
+      const action = url.pathname.slice('/api/install/'.length);
+      if (action === 'cancel' && (!object(input) || Object.keys(input).length)) throw installError(400, 'Invalid install request.');
+      return send(response, 200, await jobs[action](input));
+    }
     if (url.pathname === '/api/keepalive') {
       const ok = typeof input?.instance === 'string' && input.instance === activeInstance;
       if (ok) clearTimeout(graceTimer);
@@ -183,6 +213,7 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
     }
     if (url.pathname === '/api/close') {
       if (input?.grace === true) {
+        if (jobs.active()) return send(response, 200, { closed: false, detached: true });
         if (typeof input.instance !== 'string' || input.instance !== activeInstance) {
           return send(response, 200, { closed: false });
         }

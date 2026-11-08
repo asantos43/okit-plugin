@@ -332,6 +332,17 @@ export const TEXTS = Object.freeze({
 // A pattern matches the whole reason and its captures fill $1..; a reason that
 // matches none is shown as raised. The tests walk this table and the raise sites.
 export const REASONS = [
+  [/^Invalid install request\.$/, 'Solicitação de instalação inválida.', 'Invalid install request.'], // locale:pt-BR
+  [/^Install cancelled at a safe boundary\.$/, 'Instalação cancelada entre etapas seguras.', 'Install cancelled at a safe boundary.'], // locale:pt-BR
+  [/^Install lock held; close the other installer and review again\.$/, 'Instalação bloqueada; feche o outro instalador e revise novamente.', 'Install lock held; close the other installer and review again.'], // locale:pt-BR
+  [/^Install session is full or closing; reopen and review again\.$/, 'Sessão cheia ou encerrando; reabra e revise novamente.', 'Install session is full or closing; reopen and review again.'], // locale:pt-BR
+  [/^Install session is busy; poll or reopen after completion\.$/, 'Sessão ocupada; consulte o progresso ou reabra após concluir.', 'Install session is busy; poll or reopen after completion.'], // locale:pt-BR
+  [/^Install question requires a typed preview\.$/, 'A pergunta de instalação exige uma prévia tipada.', 'Install question requires a typed preview.'], // locale:pt-BR
+  [/^Install question expired; poll again\.$/, 'A pergunta expirou; consulte o progresso novamente.', 'Install question expired; poll again.'], // locale:pt-BR
+  [/^Idempotency key belongs to another plan\.$/, 'A chave de idempotência pertence a outro plano.', 'Idempotency key belongs to another plan.'], // locale:pt-BR
+  [/^Install preview is incomplete; review again\.$/, 'A prévia está incompleta; revise novamente.', 'Install preview is incomplete; review again.'], // locale:pt-BR
+  [/^stale-plan$/, 'O plano mudou; revise novamente.', 'stale-plan'], // locale:pt-BR
+  [/^Session is closing\.$/, 'A sessão está encerrando.', 'Session is closing.'], // locale:pt-BR
   [/^Install preview cannot write or start processes\.$/, 'A prévia da instalação não pode gravar nem iniciar processos.', 'Install preview cannot write or start processes.'], // locale:pt-BR
   [/^Usage client failed\.$/, 'Falha no cliente de uso.', 'Usage client failed.'], // locale:pt-BR
   [/^Usage client closed without a reading\.$/, 'O cliente de uso encerrou sem uma leitura.', 'Usage client closed without a reading.'], // locale:pt-BR
