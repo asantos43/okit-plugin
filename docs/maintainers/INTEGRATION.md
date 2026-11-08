@@ -95,7 +95,7 @@ Operational reference: [skills](../components/skills.md).
 <a id="section-6"></a>
 ## 6. Shared glossary
 
-Implemented in the six skills: use this vocabulary in all six role/environment/setup/smoke skills, tool descriptions in `src/mcp/tools.js` and messages in `src/profiles.js`, status and env. Synonyms help route a question; they do not erase the distinctions below. The Producer is the person requesting and authorizing work.
+Implemented in the seven skills: use this vocabulary in all seven role/environment/setup/smoke/configuration skills, tool descriptions in `src/mcp/tools.js` and messages in `src/profiles.js`, status and env. Synonyms help route a question; they do not erase the distinctions below. The Producer is the person requesting and authorizing work.
 
 **Work vocabulary / Vocabulário de trabalho**
 
@@ -122,13 +122,13 @@ Operational reference: [skills](../components/skills.md).
 <a id="section-8"></a>
 ## 8. Steps 2–4 and acceptance
 
-Steps 2–4 are complete. `test/env-flow.test.js` exercises all three adapters with temporary HOME, injected clock/quota/slots and fake clients. `test/skills.test.js` checks the same bilingual routing map and glossary in all six skills.
+Steps 2–4 are complete. `test/env-flow.test.js` exercises all three adapters with temporary HOME, injected clock/quota/slots and fake clients. `test/skills.test.js` checks the same bilingual routing map and glossary in all seven skills.
 
 | Step | Files to change | Acceptance |
 | :- | :- | :- |
 | 2 — One source | `src/env/report.js`, `src/status.js`, `src/actors.js`, `src/profiles.js`, `src/cli.js`, `src/mcp/tools.js`, `src/setup/detect.js`, `src/setup/setup.js`, `src/install/link.js`, adapter quota readers; `test/env-report.test.js` | Done: env owns observations and derivations; status/actors/quota/setup/PATH consume them. No dependency cycle. For the same injected snapshot, client, models, source/age, slot counts and missing items agree; confirmed access and configured candidates remain explicit. Each external probe runs once per request. |
 | 3 — Role delivery (done) | `src/roles.js`, `src/hook-session-start.js`, `src/install/role-block.js`, installer registration/client plugin, release hook wiring; the three adapters and role skills; `test/roles.test.js` and the three adapter tests | Native fixtures prove main-session Director and explicit Executor/Critic, preserved user instructions/configuration, model+effort, bilingual complete answers, clarification/unsupported results and read-only questions. Unsupported formats remain explicit limitations; whole flow is covered in step 4; real-client smoke stays separate. |
-| 4 — Whole flow and routing (done) | `test/env-flow.test.js`, `test/env-report.test.js`, `test/docs-consistency.test.js`, `test/docs-links.test.js`, `src/smoke/client.js`, `src/smoke/client-checks.js`, `src/smoke/checks-install.js`, all six `skills/okit-*/SKILL.md` named in this design | Temporary HOME and fake clients exercise discovery → missing setup → confirmed setup → env/status/actors/quota agreement → role answer → offline demonstration. Inject time/quota/slots and isolate client/state paths; no real account, home or network. Routing covers both languages. Fake-client success is not evidence of a real-client smoke pass. |
+| 4 — Whole flow and routing (done) | `test/env-flow.test.js`, `test/env-report.test.js`, `test/docs-consistency.test.js`, `test/docs-links.test.js`, `src/smoke/client.js`, `src/smoke/client-checks.js`, `src/smoke/checks-install.js`, all seven `skills/okit-*/SKILL.md` named in this design | Temporary HOME and fake clients exercise discovery → missing setup → confirmed setup → env/status/actors/quota agreement → role answer → offline demonstration. Inject time/quota/slots and isolate client/state paths; no real account, home or network. Routing covers both languages. Fake-client success is not evidence of a real-client smoke pass. |
 
 | Must pass | Must refuse or report unknown |
 | :- | :- |

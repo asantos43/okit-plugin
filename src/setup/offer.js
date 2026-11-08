@@ -8,7 +8,7 @@ import { readJson } from '../state.js';
 import { paths } from '../store.js';
 import { commandText } from '../install/command-token.js';
 import { localizeReason } from '../install/present.js';
-import { setupPending, DEFAULT_CONFIG } from '../profiles.js';
+import { setupPending, DEFAULT_CONFIG, PROFILE_EFFORTS } from '../profiles.js';
 import { runSetup, setupResultLines, formatUnreadable, isReadableConfig, CONFIG_UNREADABLE } from './setup.js';
 
 // Every text here is simple, bilingual and free of demand or order ids.
@@ -57,6 +57,12 @@ function affirmative(value) {
   return answer === '' || /^(y|yes|s|sim)$/i.test(answer);
 }
 
+// A confirmation for another client cannot confirm the client being installed.
+function pendingForClients(stored, clients) {
+  return setupPending(stored) || Boolean(clients?.some((client) => Object.keys(PROFILE_EFFORTS).some((name) =>
+    !stored.setup?.done?.profiles?.[client]?.[name])));
+}
+
 /**
  * Offers the setup at the end of an installation: the line that says what is
  * missing, and, on an interactive terminal, the question that runs it. Without
@@ -88,7 +94,7 @@ async function runOffer({
     out(formatUnreadable(locale, command));
     return { pending: true, offered: false, ran: false, failed: true };
   }
-  if (!setupPending(stored)) return { pending: false, offered: false, ran: false };
+  if (!pendingForClients(stored, clients)) return { pending: false, offered: false, ran: false };
 
   out(formatOffer('offer', locale, { command }));
   // Without a terminal there is nobody to answer, so the offer is the end of it.
@@ -109,6 +115,7 @@ async function runOffer({
   try {
     const result = await runSetup({
       clients,
+      again: !setupPending(stored) && pendingForClients(stored, clients),
       root,
       config: stored,
       env,
@@ -153,7 +160,7 @@ async function runOfferRow({
     row('skipped', formatUnreadable(ui.locale, program));
     return { pending: true, offered: false, ran: false, failed: true };
   }
-  if (!setupPending(stored)) return { pending: false, offered: false, ran: false };
+  if (!pendingForClients(stored, clients)) return { pending: false, offered: false, ran: false };
   // Without a terminal there is nobody to answer, so the row says how to do it later.
   if (!tty || typeof ask !== 'function') {
     row('info', ui.text('modelsPending', { command: program }));
@@ -165,11 +172,13 @@ async function runOfferRow({
       row('skipped', ui.text('modelsDeclined', { command: program }));
       return { pending: true, offered: true, ran: false, declined: true };
     }
-    const result = await runSetup({ clients, root, config: stored, env, run, ask, adapters, snapshot, write, command: program, ui });
+    const result = await runSetup({ clients, root, config: stored, env, run, ask, adapters, snapshot, write, command: program, ui,
+      again: !setupPending(stored) && pendingForClients(stored, clients) });
     if (ui.humanOutput) {
       // An installation into a custom folder is somewhere the doctor does not look: no doctor line is offered for it.
       ui.explain(setupResultLines(result, ui.locale, program, { doctor: false }));
       if (result.changes.length) row('ok', ui.text('modelsSaved', { models: [...new Set(result.changes.map((change) => change.model))].join(', ') }));
+      else row(result.cancelled ? 'skipped' : 'info', result.messages[0] ?? ui.text('modelsPending', { command: program }));
       return { pending: true, offered: true, ran: true, code: result.code };
     }
     const models = [...new Set(result.changes.map((change) => change.model))];

@@ -235,6 +235,23 @@ test('E14 accepts a released notice and refuses incorrect quota notice replies',
   }
 });
 
+// | Reply | Must pass | Must refuse |
+// | config_ui_open | simulated private URL and ten-minute idle timeout | missing or incorrect page metadata |
+test('E14 refuses incorrect configuration page replies', async (t) => {
+  for (const answer of [{ url: 'https://example.com', idleMinutes: 10 },
+    { url: 'http://127.0.0.1:1/?token=smoke-only', idleMinutes: 0 }]) {
+    await t.test(JSON.stringify(answer), async inner => {
+      const tool = TOOLS.find(entry => entry.name === 'config_ui_open');
+      inner.mock.method(tool, 'handler', async () => JSON.stringify(answer));
+      const record = await runOne(FEATURE_CHECKS.find(entry => entry.id === 'E14'), await depsOf(inner));
+      assert.equal(record.status, 'fail');
+      assert.match(record.error, /configuration tool must return/);
+      assert.equal(tool.handler.mock.callCount(), 1);
+      assert.deepEqual(tool.handler.mock.calls[0].arguments[0], { open: false });
+    });
+  }
+});
+
 test('a check whose module call throws is reported as a failure', async (t) => {
   const check = FEATURE_CHECKS.find((entry) => entry.id === 'E12');
   const deps = await depsOf(t, {

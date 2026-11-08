@@ -9,7 +9,7 @@ As ferramentas MCP expõem operações validadas do núcleo ao assistente do cli
 <a id="tools"></a>
 ## Contrato das ferramentas
 
-O servidor expõe 29 ferramentas. Entradas são objetos JSON; ? indica campo opcional. Respostas são texto JSON com resultado ou recusa; argumentos inválidos geram erro. Escrita de estado não lança modelo nem gasta cota por si só. A lista das ferramentas custa 14494 bytes de JSON, cerca de 3624 tokens de contexto, e vinte e quatro delas são geradas do registro de operações (`src/core/operations.js`), então uma função do núcleo é descrita uma vez só.
+O servidor expõe 30 ferramentas. Entradas são objetos JSON; ? indica campo opcional. Respostas são texto JSON com resultado ou recusa; argumentos inválidos geram erro. Escrita de estado não lança modelo nem gasta cota por si só. A lista das ferramentas custa 13264 bytes de JSON, cerca de 3316 tokens de contexto, e vinte e cinco delas são geradas do registro de operações (`src/core/operations.js`), então uma função do núcleo é descrita uma vez só.
 
 | Nome | Propósito e retorno | Entradas | Efeito |
 | :- | :- | :- | :- |
@@ -37,6 +37,7 @@ O servidor expõe 29 ferramentas. Entradas são objetos JSON; ? indica campo opc
 | `order_list` | Consulta instruções ativas; ordens e estado derivado | appliesTo? | leitura |
 | `order_remove` | Revoga instrução; ordem com motivo/histórico preservado | id, reason? | escrita |
 | `config_get` | Lê os ajustes de uma raiz; todas as entradas do esquema, ou uma delas | key? | leitura |
+| `config_ui_open` | Abre/reutiliza página de configuração; url privada com token, idleMinutes, reused | locale?, open? (padrão true) | servidor local da sessão; pedido opcional ao navegador |
 | `config_set` | Grava um ajuste de uma raiz; o que era e o que passou a ser; sem valor o ajuste é removido | key, value? | escrita |
 | `quota_show` | Lê a cota registrada dos clientes de uma raiz, ou de um cliente | client?, account? | leitura |
 | `quota_set` | Registra a cota de um cliente; a porcentagem que resta e sua janela | client, account?, pct, windowMinutes? | escrita |

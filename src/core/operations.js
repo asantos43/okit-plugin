@@ -33,6 +33,23 @@ import { todoCheck } from './todo.js';
 
 export const OPERATIONS = [
   {
+    name: 'config_ui_open',
+    description: {
+      en: 'Opens or reuses the session configuration page; returns its private URL, idleMinutes and reused.',
+      'pt-BR': 'Abre ou reutiliza a página de configuração da sessão; retorna URL privada, idleMinutes e reused.',
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        locale: LOCALE_SCHEMA,
+        open: { type: 'boolean', default: true, description: 'Ask the OS to open the browser; false only returns the URL.' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    handler: async (root, args, deps) => (await import('../config-ui/session.js')).openConfigSession(root, args, deps),
+  },
+  {
     name: 'config_get',
     description: {
       en: 'Reads the settings of a root: every entry of the schema, or one of them when a key is given.',

@@ -17,13 +17,17 @@ export function localTime(timestamp, now, timeZone) {
     hourCycle: 'h23', ...(timestamp - now > 86400000 ? { weekday: 'short' } : {}) })
     .format(timestamp).replace(',', '');
 }
+/** @param {number | null} percent @returns {'ok' | 'warn' | 'low' | 'dim'} */
+export function quotaTone(percent) {
+  return percent === null ? 'dim' : percent >= 50 ? 'ok' : percent >= 20 ? 'warn' : 'low';
+}
 /** @param {import('./types.js').Quota | null} window @param {number} now @param {string} [timeZone] */
 export function quotaColumns(window, now, timeZone) {
   if (window === null) return [' ', ' '.repeat(12), 'unknown', ''];
   const pct = Math.round(Math.max(0, Math.min(100, window.remaining_pct)));
   const filled = Math.round(Math.max(0, Math.min(100, pct)) / 10);
   const reset = window.resets_at === null ? NaN : Date.parse(window.resets_at);
-  return [window.remaining_pct < 20 ? '!' : ' ', `[${'█'.repeat(filled)}${'░'.repeat(10 - filled)}]`, `${pct}% left`,
+  return [quotaTone(window.remaining_pct) === 'low' ? '!' : ' ', `[${'█'.repeat(filled)}${'░'.repeat(10 - filled)}]`, `${pct}% left`,
     Number.isFinite(reset) ? `resets ${localTime(reset, now, timeZone)} (${reset < now ? 'passed' : `in ${formatHm((reset - now) / 1000)}`})`
       : 'reset unknown'];
 }

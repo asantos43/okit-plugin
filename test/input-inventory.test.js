@@ -31,6 +31,13 @@ import {
 // source reads an input that no row names, so a new input cannot skip this test.
 
 const LOCALES = ['en', 'pt-BR'];
+// | config_ui_open | Must pass | Must refuse |
+// | optional inputs | open boolean, en/pt-BR | nonboolean open, other locales, unknown keys |
+test('input inventory: configuration page tool refuses inputs outside its schema', async () => {
+  for (const args of [{ open: 1 }, { open: null }, { locale: 'fr' }, { extra: true }]) {
+    await assert.rejects(callTool('config_ui_open', args, { root: '.', config: {} }));
+  }
+});
 const COMMANDS = [
   ['install', '--client', 'claude-code', '--dry-run'], ['update'], ['uninstall'], ['setup', '--defaults'],
 ];

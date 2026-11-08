@@ -207,6 +207,7 @@ test('I1/R12-2: every refusal the code raises is translated, in the modules the 
 const WRITERS = ['redactingWriter', 'redactingStream', 'door'];
 // Places that touch a stream or start a process without the door, each with the reason it is safe.
 const DOOR_EXCEPTIONS = new Map([
+  ['src/cli.js: process.stdout.isTTY', 'reads whether the output is a terminal; writes nothing'],
   ['src/install/bootstrap.js: stdio inherit', 'the child is this program (okit-plugin install ...): its own output already goes through the cli door'],
   ['src/install/index.js: process.stdout.isTTY', 'reads whether the output is a terminal; writes nothing'],
   ['src/install/bootstrap.js: process.stdout.isTTY', 'reads whether the output is a terminal; writes nothing'],

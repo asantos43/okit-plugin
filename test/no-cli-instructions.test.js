@@ -43,7 +43,7 @@ const FIVE = ['install', 'update', 'uninstall', 'setup', 'doctor'];
 const COMMAND = DEFAULT_CONFIG.install.command;
 // The tools the server publishes: a skill names them by name.
 const TOOL_NAMES_SET = new Set(TOOL_NAMES);
-// Non-tool tokens actually used by the six skills, with their field/argument meaning.
+// Non-tool tokens actually used by the seven skills, with their field/argument meaning.
 const SKILL_TOKENS = new Map([
   ['okit', 'legacy install.command value'], ['kit', 'legacy install.command alias'],
   ['pass', 'critic verdict value'], ['revise', 'critic verdict value'], ['reject', 'critic verdict value'],

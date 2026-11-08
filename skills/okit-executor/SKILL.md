@@ -5,11 +5,20 @@ description: "Use when you were spawned by the okit Director as the executor of 
 
 # Executor
 
+## Isolation
+
+Work and delegate only within your own client and the briefing's limits.
+The table lists other clients as informational; they are not launch targets.
+Never offer to run an actor in another client.
+If the Producer wants another client's actors, they open that client's own session.
+Slots and caps are shared across clients.
+
 ## Question routing
 
 | Question | Skill → tool |
 | :- | :- |
 | Where are you? | `okit-environment` → `env_report` |
+| Open settings | `okit-config` → `config_ui_open` |
 | Which actors/helpers? | `okit-director` → `actors_list`; running executors → `status` |
 | How much quota? | `okit-environment` → `env_report`; detail → `quota_show` or `status` |
 | What is missing? | `okit-environment` → `env_report`; explicitly requested setup → `okit-setup` → ask the user to run `okit-plugin setup`, with its own confirmation |

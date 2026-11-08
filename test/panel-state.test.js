@@ -15,8 +15,10 @@ test('panel state carries the auto-open setting read from config.json', async t 
   const ctx = await world(t);
   for (const [panel, expected] of [[undefined, true], [{ autoOpen: true }, true], [{ autoOpen: false }, false]]) {
     await put(ctx.root, 'config.json', { panel });
-    assert.deepEqual((await panelState(ctx, 'claude')).panel, { autoOpen: expected });
+    assert.deepEqual((await panelState(ctx, 'claude')).panel, { autoOpen: expected, color: true });
   }
+  await put(ctx.root, 'config.json', { panel: { color: false } });
+  assert.deepEqual((await panelState(ctx, 'claude')).panel, { autoOpen: true, color: false });
 });
 async function world(t) {
   const home = await mkdtemp(join(tmpdir(), 'panel-state-'));

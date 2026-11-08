@@ -10,6 +10,7 @@ description: Use when the user invokes /okit-setup or asks to configure the plug
 | Question | Skill → tool |
 | :- | :- |
 | Where are you? | `okit-environment` → `env_report` |
+| Open settings | `okit-config` → `config_ui_open` |
 | Which actors/helpers? | `okit-director` → `actors_list`; running executors → `status` |
 | How much quota? | `okit-environment` → `env_report`; detail → `quota_show` or `status` |
 | What is missing? | `okit-environment` → `env_report`; explicitly requested setup → `okit-setup` → ask the user to run `okit-plugin setup`, with its own confirmation |

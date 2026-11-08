@@ -28,7 +28,7 @@ const noClientFiles = { readFile: async () => { throw new Error('Client file rea
 
 export async function startConfigServer({ root, env = process.env, locale = 'en', idleMs = 600_000,
   modelTimeoutMs = 5000, closeGraceMs = 3000, detect = detectClients, observe, signals = process,
-  platform = process.platform, launchLogin = launchAccountLogin } = {}) {
+  platform = process.platform, launchLogin = launchAccountLogin, background = false } = {}) {
   const token = randomBytes(32).toString('hex');
   const observations = new Map();
   const controllers = new Set();
@@ -54,7 +54,10 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
     server.closeAllConnections();
     return closed;
   };
-  const touch = () => { clearTimeout(timer); timer = setTimeout(close, idleMs); };
+  const touch = () => {
+    clearTimeout(timer); timer = setTimeout(close, idleMs);
+    if (background) timer.unref();
+  };
   const send = (response, status, value) => {
     response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
@@ -175,6 +178,7 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
           return send(response, 200, { closed: false });
         }
         graceTimer = setTimeout(close, closeGraceMs);
+        if (background) graceTimer.unref();
       }
       else response.once('finish', close);
       send(response, 200, { closed: true });
@@ -279,6 +283,7 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
     server.listen(0, '127.0.0.1', resolve);
   });
   port = server.address().port;
+  if (background) server.unref();
   signals.on('SIGINT', close);
   touch();
   return { url: `http://127.0.0.1:${port}/?token=${token}`, token, port, server, close, closed };

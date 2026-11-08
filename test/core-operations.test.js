@@ -79,7 +79,7 @@ const MOVED = [
 
 test('the registry holds one entry per operation of the core', () => {
   assert.deepEqual(OPERATIONS.map((entry) => entry.name).sort(), [
-    'acquire_slot', 'actors_list', 'classify', 'config_get', 'config_set', 'daemon', 'env_report', 'inbox_add',
+    'acquire_slot', 'actors_list', 'classify', 'config_get', 'config_set', 'config_ui_open', 'daemon', 'env_report', 'inbox_add',
     'inbox_claim', 'inbox_list', 'inbox_release', 'inbox_set_status', 'kit_detect', 'limits_status', 'order_add',
     'order_list', 'order_remove', 'profile_pick', 'quota_notice', 'quota_set', 'quota_show', 'release_slot', 'status',
     'todo_check',
@@ -422,8 +422,8 @@ test('the component index says what the registry holds today', async () => {
   for (const text of [english, portuguese]) {
     for (const name of names) assert.ok(text.includes(name), name);
   }
-  assert.match(english, /twenty-four operations/);
-  assert.match(portuguese, /vinte e quatro operações/); // locale:pt-BR
+  assert.match(english, /twenty-five operations/);
+  assert.match(portuguese, /vinte e cinco operações/); // locale:pt-BR
   assert.doesNotMatch(english, /MCP tools call the same entries/);
   assert.doesNotMatch(portuguese, /ferramentas MCP chamam as mesmas entradas/);
 });

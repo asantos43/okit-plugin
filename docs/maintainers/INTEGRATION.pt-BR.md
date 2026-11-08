@@ -95,7 +95,7 @@ Exemplo ao usuário: “Sou o Director. Organizo seu trabalho, escolho ajudantes
 <a id="section-6"></a>
 ## 6. Shared glossary
 
-Implementado nas seis skills: usar este vocabulário nas seis skills de papel/ambiente/setup/smoke, descrições de ferramentas em `src/mcp/tools.js` e mensagens em `src/profiles.js`, status e env. Sinônimos ajudam a encaminhar perguntas; não eliminam as distinções abaixo. O Produtor é a pessoa que pede e autoriza o trabalho.
+Implementado nas sete skills: usar este vocabulário nas sete skills de papel/ambiente/setup/smoke/configuração, descrições de ferramentas em `src/mcp/tools.js` e mensagens em `src/profiles.js`, status e env. Sinônimos ajudam a encaminhar perguntas; não eliminam as distinções abaixo. O Produtor é a pessoa que pede e autoriza o trabalho.
 
 **Work vocabulary / Vocabulário de trabalho**
 
@@ -122,13 +122,13 @@ Referência operacional: [skills](../components/skills.pt-BR.md).
 <a id="section-8"></a>
 ## 8. Steps 2–4 and acceptance
 
-Os passos 2–4 estão concluídos. `test/env-flow.test.js` exercita os três adaptadores com HOME temporário, relógio/cota/vagas injetados e clientes falsos. `test/skills.test.js` verifica o mesmo mapa bilíngue e glossário nas seis skills.
+Os passos 2–4 estão concluídos. `test/env-flow.test.js` exercita os três adaptadores com HOME temporário, relógio/cota/vagas injetados e clientes falsos. `test/skills.test.js` verifica o mesmo mapa bilíngue e glossário nas sete skills.
 
 | Passo | Arquivos a mudar | Aceite |
 | :- | :- | :- |
 | 2 — Fonte única | `src/env/report.js`, `src/status.js`, `src/actors.js`, `src/profiles.js`, `src/cli.js`, `src/mcp/tools.js`, `src/setup/detect.js`, `src/setup/setup.js`, `src/install/link.js`, leitores de cota dos adaptadores; `test/env-report.test.js` | Feito: env cuida das observações e derivações; status/atores/cota/setup/PATH as consomem. Sem ciclo de dependências. No mesmo retrato injetado, cliente, modelos, fonte/idade, vagas e pendências concordam; acesso confirmado e candidatos configurados ficam explícitos. Cada consulta externa roda uma vez por pedido. |
 | 3 — Entrega de papel (feito) | `src/roles.js`, `src/hook-session-start.js`, `src/install/role-block.js`, registro/plugin do instalador, ligação do hook no release; os três adaptadores e skills de papel; `test/roles.test.js` e os três testes de adaptador | Fixtures nativas comprovam Director principal e Executor/Critic explícitos, instruções/configuração preservadas, modelo+esforço, respostas completas bilíngues, esclarecimento/falta de suporte e perguntas somente leitura. Formatos sem suporte são limitações explícitas; fluxo inteiro coberto no passo 4; smoke real continua separado. |
-| 4 — Fluxo inteiro e encaminhamento (feito) | `test/env-flow.test.js`, `test/env-report.test.js`, `test/docs-consistency.test.js`, `test/docs-links.test.js`, `src/smoke/client.js`, `src/smoke/client-checks.js`, `src/smoke/checks-install.js`, as seis `skills/okit-*/SKILL.md` nomeadas neste desenho | HOME temporário e clientes falsos exercitam descoberta → setup ausente → setup confirmado → concordância env/status/atores/cota → resposta de papel → demonstração offline. Injetar relógio/cota/vagas e isolar caminhos dos clientes/estado; sem conta, pasta pessoal ou rede reais. Encaminhamento cobre os dois idiomas. Sucesso com clientes falsos não comprova smoke em cliente real. |
+| 4 — Fluxo inteiro e encaminhamento (feito) | `test/env-flow.test.js`, `test/env-report.test.js`, `test/docs-consistency.test.js`, `test/docs-links.test.js`, `src/smoke/client.js`, `src/smoke/client-checks.js`, `src/smoke/checks-install.js`, as sete `skills/okit-*/SKILL.md` nomeadas neste desenho | HOME temporário e clientes falsos exercitam descoberta → setup ausente → setup confirmado → concordância env/status/atores/cota → resposta de papel → demonstração offline. Injetar relógio/cota/vagas e isolar caminhos dos clientes/estado; sem conta, pasta pessoal ou rede reais. Encaminhamento cobre os dois idiomas. Sucesso com clientes falsos não comprova smoke em cliente real. |
 
 | Deve passar | Deve recusar ou informar desconhecido |
 | :- | :- |

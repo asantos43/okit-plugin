@@ -429,8 +429,10 @@ export async function applyLink(record, deps, previous = null, remove = false) {
       }
       const actual = info.isSymbolicLink() ? await fs.readlink(item.path) : await fs.readFile(item.path, 'utf8');
       const expected = item.target ?? item.content;
-      if (actual !== expected && actual !== (old[index]?.target ?? old[index]?.content)
-        && !owned.some((items) => actual === (items[index]?.target ?? items[index]?.content))) {
+      const plannedType = item.target ? info.isSymbolicLink() : info.isFile();
+      const known = plannedType && (actual === expected || actual === (old[index]?.target ?? old[index]?.content)
+        || owned.some((items) => actual === (items[index]?.target ?? items[index]?.content)));
+      if (!known && !await pluginExecutable(item.path, deps)) {
         ui.warn(ui.text('foreignLink', { path: item.path })); conflict = item.path; continue;
       }
       if (!remove && actual === expected) continue;

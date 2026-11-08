@@ -8,8 +8,8 @@ import { commandText } from './command-token.js';
 export const PANEL_NAME = 'okit-plugin-panel';
 export const PANEL_CLIENT = DEFAULT_CONFIG.statuslineRegistration.client;
 const panelOpeningText = (ui) => ui.locale === 'pt-BR'
-  ? 'Somente leitura; abre automaticamente no Claude Code. Defina panel.autoOpen como false no config.json para desligar; /okit-panel alterna o painel.' // locale:pt-BR
-  : 'Read-only; opens automatically in Claude Code. Set panel.autoOpen to false in config.json to disable; /okit-panel toggles the pane.';
+  ? 'Somente leitura; abre automaticamente no Claude Code.\nDefina panel.autoOpen como false no config.json para desligar; /okit-panel alterna o painel.' // locale:pt-BR
+  : 'Read-only; opens automatically in Claude Code.\nSet panel.autoOpen to false in config.json to disable; /okit-panel toggles the pane.';
 const ownerOf = (record, deps) => deps.accountScope && !deps.accountScope.isDefault
   ? record?.accounts?.[deps.accountScope.id] : record;
 export const panelOf = (record, deps) => ownerOf(record, deps)?.panel;
@@ -22,7 +22,7 @@ export async function offerPanel(record, flags, deps) {
   const ui = presenterOf(deps);
   try {
     if (deps.tty && await ui.confirm(deps.read, {
-      explain: [`${ui.text('panelExplain')} ${panelOpeningText(ui)}`], question: ui.text('panelAsk'),
+      explain: [ui.text('panelExplain'), ...panelOpeningText(ui).split('\n')], question: ui.text('panelAsk'),
     })) {
       await panelCommand('install', record, deps);
     } else {

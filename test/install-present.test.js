@@ -172,10 +172,10 @@ for (const locale of LOCALES) test(`D112 installer absent-client, download, curr
     ui.explain([ui.text('clientChoose'), ...['claude-code', 'codex', 'opencode'].map((id, index) => `  ${index + 1}. ${id} (${ui.text('clientDetected')})`)]);
     ui.failure({ reason: ui.text('clientNoTty') });
   }, { code: 2 });
-  assert.deepEqual(menu, pt ? ['okit-plugin — Instalação', 'Escolha um cliente de programação antes de instalar.',
-    '1. Claude Code (encontrado)', '2. Codex (encontrado)', '3. OpenCode (encontrado)',
+  assert.deepEqual(menu, pt ? ['okit-plugin — Instalação', '', 'Escolha um cliente de programação antes de instalar.',
+    '1. Claude Code (encontrado)', '2. Codex (encontrado)', '3. OpenCode (encontrado)', '',
     'Instale para Claude Code: okit-plugin install --client claude-code', 'Instale para Codex: okit-plugin install --client codex', 'Instale para OpenCode: okit-plugin install --client opencode']
-    : ['okit-plugin — Install', 'Choose a coding client before installing.', '1. Claude Code (found)', '2. Codex (found)', '3. OpenCode (found)',
+    : ['okit-plugin — Install', '', 'Choose a coding client before installing.', '1. Claude Code (found)', '2. Codex (found)', '3. OpenCode (found)', '',
       'Install for Claude Code: okit-plugin install --client claude-code', 'Install for Codex: okit-plugin install --client codex', 'Install for OpenCode: okit-plugin install --client opencode']);
 });
 
@@ -222,11 +222,11 @@ for (const locale of LOCALES) test(`D112 setup first run, ready and cancelled: $
   const work = pt ? ['Tarefas pequenas', 'Tarefas do dia a dia', 'Tarefas complexas'] : ['Small tasks', 'Everyday tasks', 'Complex tasks'];
   const expected = [pt ? 'okit-plugin — Configuração' : 'okit-plugin — Setup',
     pt ? 'Escolha modelos para Codex; nada é salvo até sua confirmação.' : 'Choose models for Codex; nothing is saved until you confirm.'];
-  for (const name of work) expected.push(`\n${name} — Codex`, pt ? '1. sol (recomendado)' : '1. sol (recommended)', '2. astra', pt ? 'Escolha um modelo [1]:' : 'Choose a model [1]:');
+  for (const name of work) expected.push(`\n${name} — Codex`, pt ? '1. sol (recomendado)' : '1. sol (recommended)', '2. astra', '', pt ? 'Escolha um modelo [1]:' : 'Choose a model [1]:');
   expected.push(pt ? '\nEscolhas de modelos' : '\nModel choices', pt ? '| Trabalho | Modelo |' : '| Work | Model |', '| --- | --- |',
     ...work.map((name, index) => `| ${name} | ${index === 2 ? 'astra' : 'sol'} |`),
     pt ? '\nAs escolhas valem para trabalhos futuros. Para alterá-las: okit-plugin setup --again' : '\nThese choices apply to future work. You can change them with: okit-plugin setup --again',
-    pt ? 'Salvar estas escolhas? [s/N]:' : 'Save these choices? [y/N]:',
+    '', pt ? 'Salvar estas escolhas? [s/N]:' : 'Save these choices? [y/N]:',
     pt ? '3 escolhas de modelos salvas para Codex.' : 'Saved 3 model choices for Codex.',
     pt ? 'Nenhum valor de cota registrado. Peça ao seu assistente para chamar `quota_set` com o cliente "codex" e a porcentagem que resta.'
       : 'No quota value recorded. Ask your assistant to call `quota_set` with the client "codex" and the percentage that is left.',
@@ -718,6 +718,18 @@ test('y and s both mean yes, in either language; an empty answer is the default'
     assert.equal(ui.question('Q?'), locale === 'en' ? 'Q? [y/N] ' : 'Q? [s/N] ');
     assert.equal(ui.question('Q?', true), locale === 'en' ? 'Q? [Y/n] ' : 'Q? [S/n] ');
   }
+});
+
+for (const locale of LOCALES) test(`D135 every confirm explanation line has space around it: ${locale}`, async () => {
+  const lines = [];
+  const { ui } = createInstallerView({ operation: 'install', command: 'okit-plugin', locale, write: (line) => lines.push(line) });
+  const explain = [ui.text('panelExplain'), ui.text('panelExplain2'), 'panel.autoOpen /okit-panel'];
+  await ui.confirm(async (question) => { lines.push(question); return ''; }, { explain, question: ui.text('panelAsk') });
+  assert.deepEqual(lines.slice(-6), ['', ...explain, '', ui.question(ui.text('panelAsk'))]);
+  await ui.confirm(async (question) => { lines.push(question); return ''; }, {
+    explain: [ui.text('modelsExplain')], question: ui.text('modelsAsk'), defaultYes: true,
+  });
+  assert.deepEqual(lines.slice(-4), ['', ui.text('modelsExplain'), '', ui.question(ui.text('modelsAsk'), true)]);
 });
 
 test('a prompt is the explanation first and one question last, and y or s are accepted at the models question', async (t) => {
@@ -1310,4 +1322,30 @@ test('no line of the installer output carries a sentence of the other language, 
       }
     }
   }
+});
+
+// Must pass: remaining percent on a TTY. Must refuse: pipe, NO_COLOR, unrelated rows and following limits.
+import { test as quotaColorTest } from 'node:test';
+import quotaAssert from 'node:assert/strict';
+import { quotaPercent, createPresenter as quotaPresenter, presentDiagnosis as quotaDiagnosis } from '../src/cli-present.js';
+quotaColorTest('quota CLI colors exact boundaries only on a TTY and preserves piped and NO_COLOR bytes', () => {
+  for (const [value, code] of [[100, 32], [50, 32], [49, 33], [20, 33], [19.9, 31], [0, 31]]) {
+    const plain = `Weekly quota is ${value}%; it must be above 15%.`;
+    quotaAssert.equal(quotaPercent(plain, { isTTY: true, env: {} }), plain.replace(`${value}%`, `\x1b[${code}m${value}%\x1b[0m`));
+    quotaAssert.equal(quotaPercent(plain, { isTTY: false, env: {} }), plain);
+    quotaAssert.equal(quotaPercent(plain, { isTTY: true, env: { NO_COLOR: '' } }), plain);
+  }
+  quotaAssert.equal(quotaPercent('unknown', { isTTY: true, env: {} }), 'unknown');
+});
+quotaColorTest('doctor renders colored account-policy quota percentages and leaves unrelated percentages plain', () => {
+  const render = (options) => {
+    const lines = [], ui = quotaPresenter({ write() {}, ...options });
+    quotaDiagnosis({ failed: 0, warnings: 0, rows: ['account-policy', 'models'].map(id =>
+      ({ id, label: id, status: 'ok', detail: 'Session quota is 12%; it must be above 15%.' })) },
+      { ui, command: 'okit-plugin', out: line => lines.push(line) });
+    return lines.join('\n');
+  };
+  const plain = render({ isTTY: false, env: {} });
+  quotaAssert.equal(render({ isTTY: true, env: { NO_COLOR: '' } }), plain);
+  quotaAssert.equal(render({ isTTY: true, env: {} }), plain.replace('12%', '\x1b[31m12%\x1b[0m'));
 });

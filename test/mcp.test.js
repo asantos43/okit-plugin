@@ -17,6 +17,7 @@ const NAMES = [
   'telemetry_export',
   'todo_sync',
   'smoke_demo',
+  'config_ui_open',
   'config_get',
   'config_set',
   'quota_show',

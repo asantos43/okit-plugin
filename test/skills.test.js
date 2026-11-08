@@ -10,7 +10,7 @@ import { installSkill } from '../adapters/claude-code/index.js';
 import { TOOL_NAMES } from '../src/mcp/tools.js';
 
 const SKILLS_DIR = fileURLToPath(new URL('../skills/', import.meta.url));
-const EXPECTED_SKILLS = ['okit-critic', 'okit-director', 'okit-environment', 'okit-executor', 'okit-setup', 'okit-smoke'];
+const EXPECTED_SKILLS = ['okit-config', 'okit-critic', 'okit-director', 'okit-environment', 'okit-executor', 'okit-setup', 'okit-smoke'];
 const MAX_DESCRIPTION = 300;
 const MAX_BODY_LINES = 80;
 const FENCE = '---';
@@ -22,6 +22,34 @@ assert.ok(TOOLS.size > 0, 'the server publishes its tools');
 
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
 const OLD_CLI = /\bkit\s+(?:daemon|autostart|status|inbox|smoke|client-smoke|hook)\b/;
+const CROSS_CLIENT_OFFER = /can run in other clients|can (?:run|launch) (?:an actor|actors|agents) in (?:another|other) clients?|posso (?:iniciar|executar) atores em outro cliente|podem executar em outros clientes/i;
+
+// | Corpus | Must pass | Must refuse |
+// | Own session | Other clients are informational | - |
+// | Launch offer | - | can run in other clients; can launch actors in another client |
+test('isolation phrase guard accepts information and refuses launch offers', () => {
+  assert.doesNotMatch('Other clients are informational, not launch targets.', CROSS_CLIENT_OFFER);
+  for (const offer of ['Actors can run in other clients', 'I can launch actors in another client',
+    'I can run an actor in another client', 'Posso iniciar atores em outro cliente']) {
+    assert.match(offer, CROSS_CLIENT_OFFER);
+  }
+});
+
+test('shared roles require Isolation and skills and guides never offer cross-client launches', async () => {
+  for (const folder of await skillFolders()) {
+    const { fields, body } = await readSkill(folder);
+    assert.doesNotMatch(`${fields.description}\n${body}`, CROSS_CLIENT_OFFER, folder);
+    if (['okit-director', 'okit-executor', 'okit-critic'].includes(folder)) {
+      assert.match(body, /^## Isolation$/m, folder);
+    }
+  }
+  for (const path of ['guide/ask-the-director', 'components/skills']) {
+    for (const suffix of ['.md', '.pt-BR.md']) {
+      const url = new URL(`../docs/${path}${suffix}`, import.meta.url);
+      assert.doesNotMatch(await readFile(url, 'utf8'), CROSS_CLIENT_OFFER, url.pathname);
+    }
+  }
+});
 
 const PORTUGUESE_TEXT = /[\u00e1\u00e0\u00e2\u00e3\u00e9\u00ea\u00ed\u00f3\u00f4\u00f5\u00fa\u00e7\u00c1\u00c9\u00cd\u00d3\u00da\u00c7]|\b(?:nao|voce|uma|para o|sessao|teste|cota|ajudante|ajudantes|configuracao|disponivel|obrigado|como|ordem)\b/i;
 
@@ -69,7 +97,7 @@ test('English demonstration requests route to the smoke skill', async () => {
   for (const term of ['smoke_demo', 'planHash', 'Never approve automatically', 'measured usage']) assert.ok(smoke.body.includes(term));
 });
 
-test('all six skills share English routing, glossary and read-only boundaries', async () => {
+test('all skills share English routing, glossary and read-only boundaries', async () => {
   for (const name of EXPECTED_SKILLS) {
     const { body } = await readSkill(name);
     for (const phrase of ['Where are you?', 'Which actors/helpers?', 'How much quota?',
@@ -219,8 +247,21 @@ test('parseFrontMatter refuses a file it cannot trust', () => {
   assert.throws(() => parseFrontMatter(null), /must be text/);
 });
 
-test('the plugin ships director, executor, critic, smoke and setup skills', async () => {
+test('the plugin ships seven shared skills', async () => {
   assert.deepEqual(await skillFolders(), EXPECTED_SKILLS);
+});
+
+test('configuration skill calls the shared tool and routing tables lead to it', async () => {
+  const { fields, body } = await readSkill('okit-config');
+  for (const term of ['/okit-config', 'open the configuration page', 'settings page']) {
+    assert.ok(fields.description.includes(term), term);
+  }
+  for (const term of ['config_ui_open', 'never write', 'inbox', 'idleMinutes', 'update the plugin and restart the client',
+    'never run a foreground server through the agent shell',
+    '/okit-plugin:okit-config', 'Claude Code', 'Codex', 'opencode']) assert.ok(body.includes(term), term);
+  for (const folder of EXPECTED_SKILLS.filter(name => name !== 'okit-config')) {
+    assert.ok((await readSkill(folder)).body.includes('| Open settings | `okit-config` → `config_ui_open` |'));
+  }
 });
 
 test('every skill names itself after its folder and describes when to use it', async () => {
