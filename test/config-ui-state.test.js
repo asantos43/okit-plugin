@@ -79,6 +79,17 @@ test('account descriptions and page state use the injected Windows platform', as
   assert.equal(buildState({ raw, platform: 'win32' }).accounts.find(item => item.id === 'work').loginCommand, command);
 });
 
+test('page state supplies the normalized server home and platform separator', () => {
+  for (const [platform, env, home, pathSeparator] of [
+    ['linux', { HOME: '/home/user/../user/' }, '/home/user', '/'],
+    ['win32', { HOME: '/ignored', USERPROFILE: 'C:\\Users\\User\\' }, 'C:\\Users\\User', '\\'],
+  ]) {
+    const state = buildState({ platform, env });
+    assert.equal(state.home, home);
+    assert.equal(state.pathSeparator, pathSeparator);
+  }
+});
+
 test('unreadable login state stays unknown and default commands reflect saved accounts', async () => {
   const account = { client: 'codex', id: 'default', label: 'default', configDir: null };
   const config = { accounts: { codex: [] } };

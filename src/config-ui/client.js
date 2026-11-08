@@ -1,4 +1,6 @@
-export function clientMain(win) {
+import { accountSlug, proposedAccountFolder } from '../accounts.js';
+
+export function clientMain(win, slugify = accountSlug, proposeFolder = proposedAccountFolder) {
   const doc = win.document;
   const state = JSON.parse(doc.getElementById('state').textContent);
   const text = state.labels;
@@ -38,7 +40,20 @@ export function clientMain(win) {
     }
   };
   if (tabs.length) selectTab(tabs.find(tab => win.location.hash === `#tab=${tab.dataset.tab}`) ?? tabs[0]);
-  doc.addEventListener('input', updateDots);
+  const manualFolders = new WeakSet();
+  doc.addEventListener('input', event => {
+    updateDots();
+    const source = event.target;
+    const form = source.closest?.('[data-account-add]');
+    if (!form) return;
+    const folder = form.querySelector('[name="configDir"]');
+    if (source === folder) {
+      if (folder.value) { manualFolders.add(folder); return; }
+      manualFolders.delete(folder);
+    }
+    if (!manualFolders.has(folder)) folder.value = proposeFolder(form.dataset.client,
+      slugify(form.querySelector('[name="label"]').value), state.home, state.pathSeparator);
+  });
   let pending = [];
   doc.addEventListener('change', event => {
     const source = event.target;
@@ -250,4 +265,5 @@ export function clientMain(win) {
   });
 }
 
-export const clientSource = () => '(' + clientMain.toString() + ')(window)';
+export const clientSource = () => '(' + clientMain.toString()
+  + ')(window, ' + accountSlug.toString() + ', ' + proposedAccountFolder.toString() + ')';

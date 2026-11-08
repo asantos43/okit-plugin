@@ -145,10 +145,22 @@ export function accountOfConfigDir({ client, config, env = {}, platform = proces
   return accounts[0];
 }
 
+/** Base slug shared by account ids and folder suggestions; empty names stay empty. */
+export function accountSlug(name) {
+  return String(name ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32).replace(/-+$/g, '');
+}
+
+/** Suggest a folder from a base slug; the server supplies its platform's path join. */
+export function proposedAccountFolder(client, slug, home, separator, join = null) {
+  if (!slug || !home || !['claude-code', 'codex'].includes(client)) return '';
+  const folder = `.${client === 'codex' ? 'codex' : 'claude'}-${slug}`;
+  return join ? join(home, folder) : `${home}${home.endsWith(separator) ? '' : separator}${folder}`;
+}
+
 /** Generate a bounded slug once, reserving default and resolving collisions. */
 export function newAccountId(name, existingIds = []) {
-  const base = String(name).normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'account';
+  const base = accountSlug(name) || 'account';
   const used = new Set([DEFAULT_ACCOUNT_ID, ...existingIds]);
   let id = base;
   for (let n = 2; used.has(id); n += 1) {

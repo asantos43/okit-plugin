@@ -44,6 +44,53 @@ function request(session, path, { method = 'GET', headers = {}, value, raw } = {
   });
 }
 
+// | Folder corpus | Must pass | Must refuse |
+// | API add | missing/empty folder from a sluggable name | collision, relative, unsluggable name |
+test('account add derives empty folders and refuses taken proposals without overwriting', async t => {
+  for (const locale of ['en', 'pt-BR']) for (const client of ['claude-code', 'codex']) {
+    const session = await fixture(t, { locale });
+    const prefix = client === 'codex' ? 'codex' : 'claude';
+    for (const [label, configDir, slug] of [['Work Account', '', 'work-account'], ['Trabalho Ação', undefined, 'trabalho-acao']]) { // locale:pt-BR
+      const result = await request(session, '/api/account-add', { method: 'POST', value: { client, label, configDir } });
+      assert.equal(result.status, 200, result.text);
+      assert.equal(result.json().account.configDir, join(session.root, `.${prefix}-${slug}`));
+      assert.ok((await stat(result.json().account.configDir)).isDirectory());
+    }
+    const configPath = join(session.root, 'config.json');
+    const before = await readFile(configPath, 'utf8');
+    const folder = join(session.root, `.${prefix}-work-account`);
+    await writeFile(join(folder, 'keep'), 'untouched');
+    const duplicate = await request(session, '/api/account-add', { method: 'POST', value: { client, label: 'Work@Account' } });
+    assert.equal(duplicate.status, 422);
+    assert.equal(duplicate.json().reason, locale === 'pt-BR'
+      ? `A pasta da conta "${folder}" já está em uso. Escolha outro nome ou pasta.` // locale:pt-BR
+      : `Account folder "${folder}" is already in use. Choose another name or folder.`);
+    assert.equal(await readFile(configPath, 'utf8'), before);
+    assert.equal(await readFile(join(folder, 'keep'), 'utf8'), 'untouched');
+  }
+});
+
+test('account add refuses proposals matching the default and still validates absolute paths', async t => {
+  for (const locale of ['en', 'pt-BR']) for (const client of ['claude-code', 'codex']) {
+    const session = await fixture(t, { locale });
+    const folderName = `.${client === 'codex' ? 'codex' : 'claude'}-work`;
+    const configPath = join(session.root, 'config.json');
+    const before = JSON.stringify({ install: { clients: { [client]: { rootParts: [folderName] } } } });
+    await writeFile(configPath, before);
+    for (const patch of [{}, { configDir: 'relative' }, { label: '☀!?' }, { label: '' }]) {
+      const result = await request(session, '/api/account-add', { method: 'POST',
+        value: { client, label: 'Work', configDir: '', ...patch } });
+      assert.equal(result.status, 422, result.text);
+      if (Object.keys(patch).length === 0) assert.equal(result.json().reason, locale === 'pt-BR'
+        ? `A pasta da conta "${join(session.root, folderName)}" já está em uso. Escolha outro nome ou pasta.` // locale:pt-BR
+        : `Account folder "${join(session.root, folderName)}" is already in use. Choose another name or folder.`);
+      else assert.equal(result.json().reason, localizeReason('Account folder must be absolute on this system.', locale));
+      assert.equal(await readFile(configPath, 'utf8'), before);
+    }
+    assert.equal((await readdir(session.root)).includes(folderName), false);
+  }
+});
+
 test('account login must refuse unknown client, missing or non-string id, and unknown account without launching', async t => {
   const calls = [];
   const session = await fixture(t, { launchLogin: async input => { calls.push(input); return { launched: true }; } });
@@ -248,7 +295,7 @@ test('account state uses install folders, saved default commands and unknown log
   assert.doesNotMatch(response.text, /PRIVATE-CREDENTIAL/);
 });
 
-test('new account refusals use the exact shared CLI reasons in both locales', async t => {
+test('new account refusals localize folder conflicts and shared CLI reasons in both locales', async t => {
   for (const locale of ['en', 'pt-BR']) {
     const session = await fixture(t, { locale });
     for (const client of ['claude-code', 'codex']) {
@@ -263,6 +310,9 @@ test('new account refusals use the exact shared CLI reasons in both locales', as
         assert.throws(() => withAccountAdded(raw, input.client, input.label, input.configDir), error => {
           reason = localizeReason(error.message, locale); return true;
         });
+        if (patch.configDir === value.configDir) reason = locale === 'pt-BR'
+          ? `A pasta da conta "${value.configDir}" já está em uso. Escolha outro nome ou pasta.` // locale:pt-BR
+          : `Account folder "${value.configDir}" is already in use. Choose another name or folder.`;
         const refused = await request(session, '/api/account-add', { method: 'POST', value: input });
         assert.equal(refused.status, 422);
         assert.deepEqual(refused.json(), { reason });

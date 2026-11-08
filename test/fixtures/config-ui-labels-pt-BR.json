@@ -33,6 +33,7 @@
   "no": "Não",
   "error": "Falha na solicitação",
   "accountLabel": "Nome", "accountId": "ID", "accountFolder": "Pasta de configuração", "accountLogin": "Login", "accountActions": "Ações",
+  "accountFolderSuggestion": "Pasta sugerida a partir do nome; você pode alterá-la.",
   "clientDefault": "Padrão do cliente", "loggedIn": "Conectado", "notLoggedIn": "Não conectado", "loginUnknown": "Desconhecido",
   "loggedInTitle": "Existe um indicador local de login; o acesso não foi verificado.",
   "notLoggedInTitle": "Nenhum indicador local de login foi encontrado.",

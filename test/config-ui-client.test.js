@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { clientMain, clientSource } from '../src/config-ui/client.js';
 import { labels } from '../src/config-ui/labels.js';
+import { runInNewContext } from 'node:vm';
 
 function fixture(responses = [], controls = [], actors = [], hash = '', summaries = [], accounts = {}) {
   const handlers = {}, calls = [];
@@ -9,7 +10,9 @@ function fixture(responses = [], controls = [], actors = [], hash = '', summarie
   nodes.review.scrolls = []; nodes.review.focuses = [];
   nodes.review.scrollIntoView = options => { nodes.review.scrolls.push(options); };
   nodes.review.focus = options => { nodes.review.focuses.push(options); };
-  nodes.state = { textContent: JSON.stringify({ expectedMtime: 42, actors, accounts: accounts.state ?? [], labels: labels.en, locale: 'en', instance: 'page-instance' }) };
+  nodes.state = { textContent: JSON.stringify({ expectedMtime: 42, actors, accounts: accounts.state ?? [],
+    labels: labels[accounts.locale ?? 'en'], locale: accounts.locale ?? 'en', instance: 'page-instance',
+    home: accounts.home ?? '/home/user', pathSeparator: accounts.separator ?? '/' }) };
   let reloads = 0;
   const tabs = ['actors', 'limits', 'language', 'profiles', 'telemetry', 'todo', ...(accounts.rows ? ['accounts'] : [])].map(id => ({
     dataset: { tab: id }, attributes: {}, classList: { toggle(name, value) { this[name] = value; } },
@@ -33,7 +36,8 @@ function fixture(responses = [], controls = [], actors = [], hash = '', summarie
     fetch: async (path, options) => { calls.push({ path, ...options });
       const result = (path === '/api/keepalive' ? undefined : responses.shift()) ?? { status: 200, value: {} };
       return { status: result.status, json: async () => result.value }; } };
-  clientMain(win);
+  if (accounts.serialized) runInNewContext(clientSource(), { window: win });
+  else clientMain(win);
   const startup = calls.splice(0);
   const click = (action, dataset = {}) => handlers.click({ target: { closest: () => ({ dataset: { action, ...dataset } }) } });
   const tabClick = index => handlers.click({ target: { closest: () => tabs[index] } });
@@ -69,6 +73,28 @@ function accountFixture(responses = [], login = 'logged-out', navigator = {}) {
   return { ...f, row, input, pre, help, paragraph, confirm, remove, fields, accounts, button, control,
     badge, terminal, loginButton, confirmButton, accountClick: click };
 }
+
+test('account folder follows the name, pauses for manual edits and resumes when cleared in both locales', () => {
+  for (const locale of ['en', 'pt-BR']) for (const client of ['claude-code', 'codex']) {
+    for (const [home, separator] of [['/home/user/', '/'], ['C:\\Users\\User', '\\']]) {
+      const f = fixture([], [], [], '', [], { locale, home, separator, serialized: true });
+      const label = { value: '' }, folder = { value: '' };
+      const form = { dataset: { client }, querySelector: selector => selector === '[name="label"]' ? label : folder };
+      label.closest = folder.closest = () => form;
+      const type = (field, value) => { field.value = value; f.handlers.input({ target: field }); };
+      const prefix = `${home}${home.endsWith(separator) ? '' : separator}.${client === 'codex' ? 'codex' : 'claude'}-`;
+      type(label, ''); assert.equal(folder.value, '');
+      type(label, '☀!?'); assert.equal(folder.value, '');
+      type(label, 'Work Account'); assert.equal(folder.value, prefix + 'work-account');
+      type(label, 'Trabalho Ação'); assert.equal(folder.value, prefix + 'trabalho-acao'); // locale:pt-BR
+      type(folder, home + separator + 'custom');
+      type(label, 'Other'); assert.equal(folder.value, home + separator + 'custom');
+      type(folder, ''); assert.equal(folder.value, prefix + 'other');
+      type(label, 'Next'); assert.equal(folder.value, prefix + 'next');
+      type(label, ''); assert.equal(folder.value, '');
+    }
+  }
+});
 
 test('Accounts add posts its fields and reloads state while preserving the tab', async () => {
   const f = accountFixture();

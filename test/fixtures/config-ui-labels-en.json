@@ -33,6 +33,7 @@
   "no": "No",
   "error": "Request failed",
   "accountLabel": "Label", "accountId": "ID", "accountFolder": "Config folder", "accountLogin": "Login", "accountActions": "Actions",
+  "accountFolderSuggestion": "Folder proposed from the name; you can change it.",
   "clientDefault": "Client default", "loggedIn": "Logged in", "notLoggedIn": "Not logged in", "loginUnknown": "Unknown",
   "loggedInTitle": "A local login marker exists; access has not been verified.",
   "notLoggedInTitle": "No local login marker was found.",
