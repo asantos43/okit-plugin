@@ -49,7 +49,9 @@ test('D95 R2: absent actors say optional without configuration instructions', as
   const snapshot = await environmentSnapshot(readings({ client: 'codex', versions: { codex: { installed: false } } }));
   for (const locale of ['en', 'pt-BR']) {
     const result = await listActors({ snapshot, client: 'codex', locale });
-    assert.deepEqual(result.notes, [locale === 'en' ? 'codex: not installed (optional).' : 'codex: não instalado (opcional).']); // locale:pt-BR
+    assert.deepEqual(result.notes, locale === 'en'
+      ? ['codex: not installed (optional).', 'Slots and caps are shared across clients.']
+      : ['codex: não instalado (opcional).', 'Slots e limites compartilhados entre clientes.']); // locale:pt-BR
     assert.doesNotMatch(result.markdown, /Check the profiles|Confira os perfis|setup/); // locale:pt-BR
     assert.deepEqual(result.actors, []);
   }
@@ -412,7 +414,7 @@ test('unknown and expired quota never authorize confirmed actors', async () => {
     recordedAt: '2026-10-26T10:00:00Z' }]) {
     const snapshot = await environmentSnapshot(readings({ client: 'codex',
       now: () => Date.parse('2026-10-26T12:00:00Z'), readQuota: async () => quota }));
-    const actors = await listActors({ snapshot });
+    const actors = await listActors({ snapshot, client: 'codex' });
     assert.ok(actors.actors.some((actor) => actor.confirmed));
     assert.ok(actors.actors.every((actor) => !actor.canLaunch));
   }

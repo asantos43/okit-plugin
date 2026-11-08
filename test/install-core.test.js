@@ -1144,7 +1144,7 @@ test('marketplace clients run configured commands; codex prints /plugins instruc
     ['plugin', 'marketplace', 'add'], ['plugin', 'install', 'okit-plugin@okit-plugin'],
     ['mcp', 'get', 'okit'], ['mcp', 'add', '--scope'],
   ]);
-  assert.deepEqual(commands.at(-1).args, ['mcp', 'add', '--scope', 'user', 'okit', '--', f.deps.config.node,
+  assert.deepEqual(commands.at(-1).args, ['mcp', 'add', '--scope', 'user', 'okit', '--env', 'OKIT_CLIENT=claude-code', '--', f.deps.config.node,
     join(f.destination, 'src/mcp/server.js')]);
   const manual = await register({ ...record, client: 'codex' }, deps);
   assert.ok(manual.detail.includes('/plugins'), manual.detail);
