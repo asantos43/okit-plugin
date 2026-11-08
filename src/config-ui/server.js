@@ -2,7 +2,7 @@ import http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { join } from 'node:path';
+import path, { join } from 'node:path';
 import * as filesystem from 'node:fs/promises';
 import { configOf } from '../profiles.js';
 import { readJson } from '../state.js';
@@ -11,9 +11,10 @@ import { Refusal } from '../core/refusal.js';
 import { UsageError, OperationalError } from '../install/exit.js';
 import { localizeReason } from '../install/present.js';
 import { changeAccount } from '../accounts-cli.js';
-import { withAccountRenamed, accountFiles, accountsOf, accountEnv, ACCOUNT_CLIENTS, requireAccount } from '../accounts.js';
+import { withAccountRenamed, accountFiles, accountsOf, accountEnv, ACCOUNT_CLIENTS, requireAccount,
+  accountSlug, proposedAccountFolder } from '../accounts.js';
 import { launchLogin as launchAccountLogin } from '../accounts-login-launch.js';
-import { defaultFolderOf } from '../install/config.js';
+import { defaultFolderOf, homeOf } from '../install/config.js';
 import { detectClients, confirmedModels } from '../env/models.js';
 import { environmentSnapshot } from '../env/snapshot.js';
 import { limitsStatus } from '../limits.js';
@@ -114,7 +115,7 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
           ? readJson(join(root, 'quota', accountFiles(client, id).reading), null) : null });
     const accountStates = await Promise.all(ACCOUNT_CLIENTS.flatMap((client) => accountsOf(loaded.raw, client))
       .map((account) => describeAccount(account, loaded.raw, { env, platform })));
-    return buildState({ ...loaded, observations: readings, snapshot, accountStates, platform, locale: chosenLocale });
+    return buildState({ ...loaded, observations: readings, snapshot, accountStates, platform, env, locale: chosenLocale });
   }
   function authorize(request, url) {
     const hosts = [`127.0.0.1:${port}`, `localhost:${port}`];
@@ -236,19 +237,30 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
     }
   }
   async function change(input, response, action) {
+    let directory = input?.configDir;
     try {
       if (!object(input) || typeof input.client !== 'string' || !ACCOUNT_CLIENTS.includes(input.client)) {
         throw new UsageError('Unsupported account client.');
       }
       if (action === 'remove' && typeof input.id !== 'string') throw new UsageError('Invalid account id.');
+      if (action === 'add' && (directory === undefined || directory === '')) {
+        const paths = platform === 'win32' ? path.win32 : path.posix;
+        directory = proposedAccountFolder(input.client, accountSlug(input.label), homeOf(env, platform), paths.sep, paths.join);
+      }
       const result = await changeAccount({ root, env, platform, fs: filesystem }, action,
-        { client: input.client, name: action === 'add' ? input.label : input.id, directory: input.configDir },
+        { client: input.client, name: action === 'add' ? input.label : input.id, directory },
         async (next) => ({ expectedMtime: await configMtime(root),
           ...(action === 'add' ? { account: await describeAccount(accountsOf(next, input.client).at(-1), next, { env, platform }) }
             : { client: input.client, id: input.id }) }));
       send(response, 200, redact(result));
     } catch (error) {
       if (!(error instanceof UsageError || error instanceof OperationalError)) throw error;
+      if (action === 'add' && error.message === 'Account folders must be unique within the client.') {
+        const reason = locale === 'pt-BR'
+          ? `A pasta da conta "${directory}" já está em uso. Escolha outro nome ou pasta.` // locale:pt-BR
+          : `Account folder "${directory}" is already in use. Choose another name or folder.`;
+        return send(response, 422, { reason: redact(reason) });
+      }
       send(response, 422, { reason: localizeReason(redact(error.message), locale) });
     }
   }

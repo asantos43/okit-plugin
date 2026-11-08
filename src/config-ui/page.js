@@ -81,7 +81,7 @@ export function renderPage(state, { locale = 'en', nonce, token, instance }) {
   const accounts = ACCOUNT_CLIENTS.map(client => `<section class="actor-card account-card" data-account-client="${e(client)}"><h3>${e(client)}</h3>
     <div class="table-scroll"><table><thead><tr>${['accountLabel', 'accountId', 'accountFolder', 'accountLogin', 'accountActions'].map(key => `<th scope="col">${e(text[key])}</th>`).join('')}</tr></thead><tbody>${accountRows(client)}</tbody></table></div>
     <form class="account-add" data-account-add data-client="${e(client)}"><label>${e(text.accountLabel)}<input name="label" placeholder="${e(text.accountLabelPlaceholder)}" maxlength="40" required></label>
-    <label>${e(text.accountFolder)}<input name="configDir" placeholder="${e(text[client === 'codex' ? 'accountFolderPlaceholderCodex' : 'accountFolderPlaceholderClaude'])}" required></label>${button('account-add', text.accountAdd, `data-client="${e(client)}"`)}</form>
+    <label>${e(text.accountFolder)}<input name="configDir" placeholder="${e(text[client === 'codex' ? 'accountFolderPlaceholderCodex' : 'accountFolderPlaceholderClaude'])}" aria-describedby="folder-note-${e(client)}" required><small class="account-note" id="folder-note-${e(client)}">${e(text.accountFolderSuggestion)}</small></label>${button('account-add', text.accountAdd, `data-client="${e(client)}"`)}</form>
     <p>${e(text.accountRemoveNote)}</p></section>`).join('');
   const tabBar = `<div class="tabs" role="tablist" aria-label="${e(text.settings)}">${tabs.map(([id], index) =>
     `<button type="button" role="tab" id="tab-${e(id)}" data-tab="${e(id)}" aria-controls="panel-${e(id)}" aria-selected="${index === 0}" tabindex="${index === 0 ? '0' : '-1'}">${e(text[`tab${id}`])}</button>`).join('')}</div>`;

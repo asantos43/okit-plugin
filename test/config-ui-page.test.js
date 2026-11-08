@@ -43,6 +43,8 @@ test('Accounts cells keep localized headings and client folder placeholders', ()
     const cards = [...html.matchAll(/<section class="actor-card account-card"[^]*?<\/section>/g)];
     assert.equal(cards.length, 2);
     for (const [index, [card]] of cards.entries()) {
+      assert.ok(card.includes(`<small class="account-note" id="folder-note-${index ? 'codex' : 'claude-code'}">${text.accountFolderSuggestion}</small>`));
+      assert.ok(card.includes(`aria-describedby="folder-note-${index ? 'codex' : 'claude-code'}"`));
       assert.ok(card.includes(`placeholder="/home/you/.${index ? 'codex' : 'claude'}-work"`));
       const headings = [...card.matchAll(/<th scope="col">([^<]+)<\/th>/g)].map(match => match[1]);
       assert.deepEqual(headings, ['accountLabel', 'accountId', 'accountFolder', 'accountLogin', 'accountActions'].map(key => text[key]));

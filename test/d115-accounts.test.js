@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { accountsOf, accountKey, accountFiles, accountEnv, accountOfConfigDir, newAccountId,
-  validateLabel, withAccountAdded, withAccountRemoved, withAccountRenamed } from '../src/accounts.js';
+  validateLabel, withAccountAdded, withAccountRemoved, withAccountRenamed,
+  accountSlug, proposedAccountFolder } from '../src/accounts.js';
 import { configOf } from '../src/profiles.js';
 import { EXTRA_KEYS } from '../src/config-schema.js';
 import { paths } from '../src/store.js';
@@ -16,6 +17,24 @@ import { readQuota as codexQuota } from '../adapters/codex/index.js';
 import { adapterQuotaReader } from '../src/env/quota.js';
 
 const now = () => Date.UTC(2026, 10, 4);
+// | Corpus | Must pass | Must refuse/propose nothing |
+// | slug | spaces, case, accents, symbols, bounded text | blank, symbols only |
+test('base slug and folder proposals share the id seed without inventing an empty name', () => {
+  for (const [name, expected] of [['Work Account', 'work-account'], ['Trabalho Ação', 'trabalho-acao'], // locale:pt-BR
+    [' A/@B! ', 'a-b'], ['', ''], ['☀!?', ''], ['  ', ''],
+    ['A'.repeat(40), 'a'.repeat(32)], ['a'.repeat(31) + ' b', 'a'.repeat(31)]]) {
+    assert.equal(accountSlug(name), expected);
+    assert.equal(newAccountId(name), expected || 'account');
+    for (const [client, prefix] of [['claude-code', 'claude'], ['codex', 'codex']]) {
+      assert.equal(proposedAccountFolder(client, accountSlug(name), '/home/user/', '/'),
+        expected ? `/home/user/.${prefix}-${expected}` : '');
+      assert.equal(proposedAccountFolder(client, accountSlug(name), 'C:\\Users\\User', '\\'),
+        expected ? `C:\\Users\\User\\.${prefix}-${expected}` : '');
+    }
+  }
+  assert.equal(newAccountId('Work Account', ['work-account']), 'work-account-2');
+  assert.equal(proposedAccountFolder('codex', accountSlug('Work Account'), '/home/user', '/'), '/home/user/.codex-work-account');
+});
 const sample = (used) => Buffer.from(JSON.stringify({ rate_limits: {
   five_hour: { used_percentage: used, resets_at: now() / 1000 + 3600 },
 } }));
