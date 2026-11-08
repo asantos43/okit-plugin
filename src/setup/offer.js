@@ -9,7 +9,7 @@ import { paths } from '../store.js';
 import { commandText } from '../install/command-token.js';
 import { clientLabel, localizeReason } from '../install/present.js';
 import { workLabel } from '../cli-present.js';
-import { proposeProfiles } from '../env/models.js';
+import { proposeProfiles, profileEfforts } from '../env/models.js';
 import { setupPending, configOf, DEFAULT_CONFIG, PROFILE_EFFORTS } from '../profiles.js';
 import { environmentSnapshot } from '../env/snapshot.js';
 import { runSetup, setupResultLines, formatUnreadable, isReadableConfig, CONFIG_UNREADABLE } from './setup.js';
@@ -167,7 +167,7 @@ function currentModels(ui, stored, clients) {
   return clients.flatMap((client, index) => [
     ...(index ? [''] : []), ui.text(pendingForClients(stored, [client]) ? 'modelsSuggested' : 'modelsCurrent', { client: clientLabel(client) }),
     ...Object.entries(profiles[client] ?? {}).map(([name, profile]) =>
-      `${workLabel(name, ui.locale)}: ${profile?.model ?? '—'}`),
+      `${workLabel(name, ui.locale)}: ${profile?.model ?? '—'}${profileEfforts(client).length ? ` (${profile?.effort ?? '—'})` : ''}`),
   ]);
 }
 

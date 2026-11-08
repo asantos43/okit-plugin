@@ -605,9 +605,17 @@ export function presentModelChoices({ locale, changes, command, out, defaultYes 
   const pt = locale === 'pt-BR';
   out(pt ? '\nEscolhas de modelos' : '\nModel choices'); // locale:pt-BR
   const several = new Set(changes.map((change) => change.client)).size > 1;
-  out(`| ${several ? `${pt ? 'Cliente' : 'Client'} | ` : ''}${pt ? 'Trabalho | Modelo' : 'Work | Model'} |`); // locale:pt-BR
-  out(`| ${several ? '--- | ' : ''}--- | --- |`);
-  for (const change of changes) out(`| ${several ? `${clientLabel(change.client)} | ` : ''}${workLabel(change.class, locale)} | ${change.model}${change.singleOption ? (pt ? ' (única opção)' : ' (only option)') : ''} |`); // locale:pt-BR
+  const efforts = changes.some((change) => change.effortSupported !== false && change.effort !== undefined);
+  const header = [...(several ? [pt ? 'Cliente' : 'Client'] : []), pt ? 'Trabalho' : 'Work', pt ? 'Modelo' : 'Model', // locale:pt-BR
+    ...(efforts ? [pt ? 'Esforço' : 'Effort'] : [])]; // locale:pt-BR
+  const rows = changes.map((change) => [...(several ? [clientLabel(change.client)] : []), workLabel(change.class, locale),
+    `${change.model}${change.singleOption ? (pt ? ' (única opção)' : ' (only option)') : ''}`, // locale:pt-BR
+    ...(efforts ? [change.effortSupported !== false ? change.effort ?? '—' : '—'] : [])]);
+  const widths = header.map((cell, i) => Math.max(cell.length, ...rows.map((row) => String(row[i]).length)));
+  const aligned = (row) => row.map((cell, i) => String(cell).padEnd(widths[i])).join('  ').trimEnd();
+  out(aligned(header));
+  out(widths.map((width) => '-'.repeat(width)).join('  '));
+  rows.forEach((row) => out(aligned(row)));
   out(pt
     ? `\nAs escolhas valem para trabalhos futuros. Para alterá-las: ${command} setup --again` // locale:pt-BR
     : `\nThese choices apply to future work. You can change them with: ${command} setup --again`);

@@ -115,10 +115,10 @@ for (const locale of LOCALES) test(`D112 critic 6: the model rows carry the clie
   const pt = locale === 'pt-BR';
   const rows = (changes) => { const output = []; presentModelChoices({ locale, changes, command: 'okit-plugin', out: (line) => output.push(line) }); return output; };
   const several = rows([{ client: 'codex', class: 'simple', model: 'gpt-a' }, { client: 'claude-code', class: 'simple', model: 'sonnet-b' }]);
-  assert.ok(several.includes(`| Codex | ${pt ? 'Tarefas pequenas' : 'Small tasks'} | gpt-a |`), several.join('\n')); // locale:pt-BR
-  assert.ok(several.includes(`| Claude Code | ${pt ? 'Tarefas pequenas' : 'Small tasks'} | sonnet-b |`), several.join('\n')); // locale:pt-BR
+  assert.match(several.join('\n'), pt ? /Codex\s+Tarefas pequenas\s+gpt-a/ : /Codex\s+Small tasks\s+gpt-a/); // locale:pt-BR
+  assert.match(several.join('\n'), pt ? /Claude Code\s+Tarefas pequenas\s+sonnet-b/ : /Claude Code\s+Small tasks\s+sonnet-b/); // locale:pt-BR
   const one = rows([{ client: 'codex', class: 'simple', model: 'gpt-a' }]);
-  assert.ok(one.includes(`| ${pt ? 'Tarefas pequenas' : 'Small tasks'} | gpt-a |`), one.join('\n')); // locale:pt-BR
+  assert.match(one.join('\n'), pt ? /Tarefas pequenas\s+gpt-a/ : /Small tasks\s+gpt-a/); // locale:pt-BR
 });
 
 for (const locale of LOCALES) test(`D112 critic 7: the follow-ups of the doctor use the resolved program: ${locale}`, () => {
@@ -449,7 +449,7 @@ for (const locale of LOCALES) test(`D112 round 4, 3: the setup accepted for an i
   assert.ok(!setupResultLines(saved, locale, 'okit-plugin', { doctor: false }).some((line) => line.includes('doctor')));
   assert.ok(!setupResultLines({ ...saved, changes: [], skipped: [{ client: 'codex' }] }, locale, 'okit-plugin', { doctor: false }).some((line) => line.includes('doctor')));
 
-  const output = [], answers = ['y', '1', '1', '2', 'yes'];
+  const output = [], answers = ['y', '1', '', '1', '', '2', '', 'yes'];
   const dest = '/data/custom';
   const view = createInstallerView({ operation: 'install', command: 'okit-plugin', locale, write: (line) => output.push(line),
     launch: { program: RUNNING, platform: 'linux', linked: false, dest } });
@@ -560,10 +560,10 @@ for (const locale of LOCALES) test(`D112 round 6, 3: setup --defaults names ever
   f.io.run = answerCheck;
   assert.equal(await main(['setup', '--defaults'], f.io), 0, f.output.join('\n'));
   const text = f.output.join('\n');
-  assert.ok(f.output.some((line) => line.includes(pt ? 'Trabalho | Modelo' : 'Work | Model')), text); // locale:pt-BR
-  for (const model of ['haiku', 'sonnet', 'opus']) assert.ok(f.output.some((line) => line.startsWith('| ') && line.endsWith(`| ${model} |`)), `${model}\n${text}`);
+  assert.match(text, pt ? /Trabalho\s+Modelo\s+Esforço/ : /Work\s+Model\s+Effort/); // locale:pt-BR
+  for (const model of ['haiku', 'sonnet', 'opus']) assert.ok(f.output.some((line) => line.includes(model)), `${model}\n${text}`);
   for (const work of pt ? ['Tarefas pequenas', 'Tarefas do dia a dia', 'Tarefas complexas'] : ['Small tasks', 'Everyday tasks', 'Complex tasks']) { // locale:pt-BR
-    assert.ok(f.output.some((line) => line.startsWith('| ') && line.includes(work)), `${work}\n${text}`);
+    assert.ok(f.output.some((line) => line.startsWith(work)), `${work}\n${text}`);
   }
 });
 

@@ -53,7 +53,7 @@ export const TEXTS = Object.freeze({
   unlink: { en: 'Remove command and PATH', 'pt-BR': 'Remover comando e PATH' },
   remove: { en: 'Remove files', 'pt-BR': 'Remover arquivos' },
   models: { en: 'Models', 'pt-BR': 'Modelos' },
-  kit: { en: 'Kit (optional)', 'pt-BR': 'Kit (opcional)' },
+  kit: { en: 'OKit (optional)', 'pt-BR': 'OKit (opcional)' },
   upToDate: { en: 'Up to date', 'pt-BR': 'Em dia' },
   newVersion: { en: 'New version available', 'pt-BR': 'Nova versão disponível' },
   status: {
@@ -97,6 +97,9 @@ export const TEXTS = Object.freeze({
   linkUser: { en: '{command}  (added to your user PATH)', 'pt-BR': '{command}  (adicionado ao PATH do seu usuário)' },
   linkProfile: { en: '{command}  (PATH set in {where})', 'pt-BR': '{command}  (PATH ajustado em {where})' },
   linkExisting: { en: '{command}  (already on your PATH)', 'pt-BR': '{command}  (já está no seu PATH)' },
+  linkRelinked: { en: '{command}  (repointed to this installation)', 'pt-BR': '{command}  (redirecionado para esta instalação)' },
+  linkRun: { en: 'Run:', 'pt-BR': 'Rode:' },
+  linkShadowed: { en: 'Another command takes precedence on PATH: {path}. Run: {run}', 'pt-BR': 'Outro comando tem prioridade no PATH: {path}. Rode: {run}' },
   linkManual: { en: '{command}  (not on your PATH yet: add {where})', 'pt-BR': '{command}  (ainda fora do PATH: adicione {where})' },
   pathCheck: { en: 'PATH check', 'pt-BR': 'Verificação do PATH' },
   pathMissing: { en: 'not found on PATH yet', 'pt-BR': 'ainda não encontrado no PATH' },
@@ -143,7 +146,7 @@ export const TEXTS = Object.freeze({
   kitLineBroken: { en: 'kit: broken ({path}; {reason})', 'pt-BR': 'kit: com defeito ({path}; {reason})' },
   recordIgnored: { en: 'Installation record ignored (not a JSON object): {path}', 'pt-BR': 'Registro de instalação ignorado (não é um objeto JSON): {path}' },
   kitOverlap: { en: 'See docs/maintainers/ARCHITECTURE.md#kit-and-plugin-overlap-d1 for overlap rules.', 'pt-BR': 'Veja docs/maintainers/ARCHITECTURE.md#kit-and-plugin-overlap-d1 para as regras de sobreposição.' },
-  kitHint: { en: 'Needed only for the orchestration workflow: INSTALL.md#orchestration-kit', 'pt-BR': 'Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração' },
+  kitHint: { en: 'Needed only for the OKit orchestration workflow: INSTALL.md#orchestration-kit', 'pt-BR': 'Só é necessário para o fluxo de orquestração do OKit: INSTALL.pt-BR.md#kit-de-orquestração' },
   modelsExplain: { en: 'Choose models for small, everyday and complex tasks; review later with {command} setup.', 'pt-BR': 'Escolha modelos para tarefas pequenas, do dia a dia e complexas; revise depois com {command} setup.' },
   autostartExplain: { en: 'Start the daemon with this machine using {kind}.', 'pt-BR': 'Iniciar o daemon com esta máquina usando {kind}.' },
   autostartFile: { en: 'Autostart writes: {path}', 'pt-BR': 'A inicialização automática grava: {path}' },
@@ -792,11 +795,13 @@ export function finishLink(ui, step, linked, { dryRun = false, command = '', bin
   if (dryRun) return step.plan(`${command} -> ${bin}`);
   if (!linked) return step.skip(ui.text('linkOff'));
   if (linked.how === 'conflict') {
-    const reason = ui.text('linkConflict', { path: linked.where });
+    const conflict = ui.text('linkConflict', { path: linked.where });
+    const reason = linked.run ? `${conflict} ${ui.text('linkRun')} ${linked.run}` : conflict;
     step.fail(reason);
     throw new Error(reason);
   }
-  const key = { changed: linked.user ? 'linkUser' : 'linkProfile', existing: 'linkExisting', manual: 'linkManual' }[linked.how];
+  if (linked.how === 'shadowed') return step.skip(ui.text('linkShadowed', { path: linked.resolved, run: linked.run }));
+  const key = { changed: linked.user ? 'linkUser' : 'linkProfile', relinked: 'linkRelinked', existing: 'linkExisting', manual: 'linkManual' }[linked.how];
   const notes = linked.how !== 'manual' && linked.resolved == null && 'resolved' in linked ? [ui.text('pathMissing')] : [];
   return step.ok(ui.text(key, { command: linked.command, where: linked.where }), notes);
 }

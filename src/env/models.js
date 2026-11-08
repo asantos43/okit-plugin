@@ -8,6 +8,12 @@ import { DEFAULT_CONFIG, PROFILE_EFFORTS, configOf } from '../profiles.js';
 const DEFAULT_ADAPTERS = [claudeCode, codex, opencode]
   .filter((adapter) => Object.hasOwn(DEFAULT_CONFIG.profiles, adapter.CLIENT));
 
+// Offer only efforts accepted by both the adapter and the profile schema.
+export function profileEfforts(client) {
+  const accepted = DEFAULT_ADAPTERS.find((adapter) => adapter.CLIENT === client)?.capabilities().efforts ?? [];
+  return [...new Set(Object.values(PROFILE_EFFORTS))].filter((effort) => accepted.includes(effort));
+}
+
 export const DETECT_MESSAGES = Object.freeze({
   error: 'The model list for {client} could not be read, so the catalog is used.',
   listed: 'The configured model "{model}" is active in the detected list.',

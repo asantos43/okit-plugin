@@ -68,13 +68,14 @@ test('cancelled wizard never offers autostart or changes the installation', asyn
   f.io.ask = async (question) => {
     f.questions.push(question);
     assert.notEqual(question, 'Background service — runs waiting work while your client is closed. Start it with this machine? [y/N]:', 'cancelled setup asked about autostart');
-    assert.match(question, /^(Choose a model|Save these choices\?)/);
+    assert.match(question, /^(Choose a model|Effort|Save these choices\?)/);
     return ''; // Accept the recommended models, then cancel the save confirmation.
   };
   assert.equal(await main(['setup'], f.io), 0);
-  assert.equal(f.questions.length, 4);
-  assert.ok(f.questions.slice(0, 3).every((question) => question.startsWith('Choose a model')));
-  assert.match(f.questions[3], /^Save these choices\?/);
+  assert.equal(f.questions.length, 7);
+  assert.equal(f.questions.filter((question) => question.startsWith('Choose a model')).length, 3);
+  assert.equal(f.questions.filter((question) => question.startsWith('Effort')).length, 3);
+  assert.match(f.questions[6], /^Save these choices\?/);
   assert.deepEqual(f.output.slice(-2), ['Cancelled. Nothing was saved.', 'Try again when ready: okit-plugin setup']);
   assert.deepEqual(f.ran, []);
   assert.deepEqual(f.written, []);

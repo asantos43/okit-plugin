@@ -9,6 +9,7 @@ import { configOf, DEFAULT_CONFIG, PROFILE_EFFORTS } from '../profiles.js';
 import { readJson, withLock, writeJsonAtomic } from '../state.js';
 import { paths } from '../store.js';
 import { environmentSnapshot } from '../env/snapshot.js';
+import { profileEfforts } from '../env/models.js';
 import { redactingStream } from '../install/present.js';
 import { labelsOf } from '../env/quota.js';
 import { askNumberedModel, catalogFallback, clientLabel, presentModelChoices, presentModelOptions, setupIntroduction } from '../cli-present.js';
@@ -40,7 +41,8 @@ export function setupReader({ stdin = process.stdin, output = process.stdout } =
       // The input ended between two questions: the prompt is not written
       // again, but the lines that already arrived are still answers.
       if (!closed) {
-        reader.setPrompt(`${question}${suffix} `);
+        // A question that ends in a colon keeps it last: "Effort (simple: low, high) [low]: ".
+        reader.setPrompt(question.endsWith(':') ? `${question.slice(0, -1)}${suffix}: ` : `${question}${suffix} `);
         reader.prompt();
       }
       const answer = await lines.next();
@@ -504,6 +506,22 @@ async function askModel({ ask, locale, client, className, proposal, candidates, 
   return { invalid: true };
 }
 
+async function askEffort({ ask, locale, client, className, recommended, attempts, out }) {
+  const allowed = profileEfforts(client);
+  if (!allowed.length) return { value: recommended };
+  const fallback = allowed.includes(recommended) ? recommended : allowed[0];
+  const label = locale === 'pt-BR' ? 'Esforço' : 'Effort'; // locale:pt-BR
+  // With a presenter the default is part of the question, as in the numbered model question; otherwise the ask adds it.
+  const question = `${label} (${className}: ${allowed.join(', ')})${out ? ` [${fallback}]` : ''}:`;
+  for (let count = 0; count < attempts; count += 1) {
+    const answer = await askValue(ask, question, out ? undefined : fallback);
+    if (answer === undefined || answer === null) return { cancelled: true };
+    const value = String(answer).trim() || fallback;
+    if (allowed.includes(value)) return { value };
+  }
+  return { invalid: true };
+}
+
 async function confirmSetup({ ask, locale, attempts, changes, ui, out, command, defaultYes = false }) {
   // With a presenter the reason is said once, the choices are listed, and the question comes last.
   let question = ui ? ui.question(ui.text('modelsSave'), defaultYes) : formatConfirmation(locale, changes);
@@ -713,7 +731,7 @@ export async function runSetup({
     const active = new Set(activeModels(detectedClient));
     for (const [className, proposal] of Object.entries(clientProposal.profiles)) {
       if (proposal.source === 'omitted') continue;
-      if (selected && !defaults) continue;
+      if (!defaults && (selected || again)) continue;
       const current = storedModel(stored, clientProposal.client, className);
       if (done && !again && current !== null && active.has(current)) {
         skipped.push({ client: clientProposal.client, class: className, model: current });
@@ -733,6 +751,7 @@ export async function runSetup({
         client: clientProposal.client,
         class: className,
         ...valid.value,
+        ...(profileEfforts(clientProposal.client).length ? {} : { effortSupported: false }),
         previous: profileValue(resolved.profiles, clientProposal.client, className),
         reason: proposal.reason,
       });
@@ -754,12 +773,12 @@ export async function runSetup({
     const recommendedFor = (name, proposal) => [storedModel(stored, clientProposal.client, name), proposal.model,
       resolved.profiles?.[clientProposal.client]?.[name]?.model]
       .find((model) => candidates.includes(model)) ?? candidates[0];
-    if (selected && !defaults && out && candidates.length) presentModelOptions({
+    if ((selected || again) && !defaults && out && candidates.length) presentModelOptions({
       client: clientProposal.client, candidates, locale, out,
       defaults: Object.fromEntries(Object.entries(clientProposal.profiles).map(([name, proposal]) => [name, recommendedFor(name, proposal)])),
     });
     for (const [className, proposal] of Object.entries(clientProposal.profiles)) {
-      if (proposal.source !== 'omitted' && (!selected || defaults)) continue;
+      if (proposal.source !== 'omitted' && ((!selected && !again) || defaults)) continue;
       const current = storedModel(stored, clientProposal.client, className);
       if (done && !again && current !== null && candidates.includes(current)) {
         skipped.push({ client: clientProposal.client, class: className, model: current });
@@ -778,19 +797,23 @@ export async function runSetup({
       // A single available model needs no question; it remains visible in the confirmation table.
       const answer = selected && candidates.length === 1 ? { value: candidates[0] } : await askModel({
         ask, locale, client: clientProposal.client, className,
-        proposal, candidates, attempts, out, compact: Boolean(selected), recommended: selected ? recommended : candidates[0],
+        proposal, candidates, attempts, out, compact: Boolean(selected || again), recommended: recommended,
       });
       if (answer.cancelled) {
         return { code: 0, cancelled: true, changes: [], skipped, omitted, messages: [format('cancelled', locale)] };
       }
       // Every answer was invalid until the attempts ran out: input the command does not accept, usage (2).
       if (answer.invalid) throw new SetupRefusal(format('invalidAnswer', locale), 'usage');
+      const effort = await askEffort({ ask, locale, client: clientProposal.client, className, attempts, out,
+        recommended: stored.profiles?.[clientProposal.client]?.[className]?.effort ?? proposal.effort });
+      if (effort.cancelled) return { code: 0, cancelled: true, changes: [], skipped, omitted, messages: [format('cancelled', locale)] };
+      if (effort.invalid) throw new SetupRefusal(format('invalidAnswer', locale), 'usage');
       const valid = validateProfile(
         resolved,
         clientProposal.client,
         className,
         answer.value,
-        proposal.effort,
+        effort.value,
       );
       if (valid.error) {
         throw new SetupRefusal(refusalText(locale, clientProposal.client, className, valid.error), 'usage');
@@ -799,6 +822,7 @@ export async function runSetup({
         client: clientProposal.client,
         class: className,
         ...valid.value,
+        ...(profileEfforts(clientProposal.client).length ? {} : { effortSupported: false }),
         ...(selected && candidates.length === 1 ? { singleOption: true } : {}),
         previous: profileValue(resolved.profiles, clientProposal.client, className),
         reason: proposal.reason,
