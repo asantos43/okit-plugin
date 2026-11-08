@@ -27,7 +27,7 @@ const posixShell = (name, executable = name, { login = true } = {}) => ({ name, 
   ...(login ? { login: name === 'fish' ? ['-l', '-c', 'command -v {command}'] : ['-lc', 'command -v {command}'] } : {}) });
 
 export const DEFAULT_CONFIG = {
-  panel: { autoOpen: true },
+  panel: { autoOpen: true, color: true },
   trajectory: {
     enabled: false, dir: 'trajectory', retentionDays: 7,
     maxBytes: 10 * 1024 * 1024, maxFileBytes: 1024 * 1024,
@@ -759,6 +759,10 @@ export function configOf(config) {
     if (problem) throw new ConfigError('accountsSetting', { key: problem.key });
   }
   const merged = { ...DEFAULT_CONFIG, ...(config ?? {}) };
+  merged.panel = { ...DEFAULT_CONFIG.panel, ...config?.panel };
+  if (typeof merged.panel.color !== 'boolean') {
+    throw new ConfigError('accountPolicy', { key: 'panel.color', range: 'true | false' });
+  }
   merged.accountPolicy = { ...DEFAULT_CONFIG.accountPolicy, ...config?.accountPolicy };
   if (config?.accountPolicy !== undefined && (!config.accountPolicy || typeof config.accountPolicy !== 'object'
     || Array.isArray(config.accountPolicy))) throw new ConfigError('accountPolicy', { key: 'accountPolicy', range: 'object' });

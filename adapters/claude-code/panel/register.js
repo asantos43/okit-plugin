@@ -1,4 +1,4 @@
-import { boardLines, loadState } from './panel.js';
+import { boardLines, boardTones, loadState } from './panel.js';
 import { createRefresh } from './refresh.js';
 
 const PANE = 'okit-plugin';
@@ -56,7 +56,13 @@ export function register(on) {
     const { Box, Text } = $.ui.resolve(event);
     const width = Math.max(1, (event.props?.bodyColumns ?? 80) - 2);
     const lines = boardLines(cached, width);
-    return h(Box, { flexDirection: 'column' }, ...lines.map((line, index) => h(Text, { key: String(index) }, line)));
+    const tones = boardTones(cached, width);
+    const colors = { ok: 'success', warn: 'warning', low: 'error', dim: 'inactive' };
+    return h(Box, { flexDirection: 'column' }, ...lines.map((line, index) => {
+      const tone = tones[index];
+      const color = cached.ok && cached.state.panel?.color !== false && tone ? colors[tone] : undefined;
+      return h(Text, { key: String(index), ...(color ? { color } : {}) }, line);
+    }));
   });
 }
 

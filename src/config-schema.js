@@ -113,6 +113,14 @@ export const CONFIG_SCHEMA = Object.freeze({
         'pt-BR': 'Abrir o painel instalado do Claude Code ao iniciar a sessão.' },
     },
     {
+      path: 'panel.color', type: 'boolean', defaultPath: 'panel.color',
+      constraint: { en: 'true or false', 'pt-BR': 'true ou false' },
+      description: {
+        en: 'Use theme colors for quota rows in the panel; the percentage and low marker remain visible.',
+        'pt-BR': 'Usa as cores do tema nas cotas do painel; a porcentagem e o marcador de cota baixa continuam visíveis.',
+      },
+    },
+    {
       path: 'accountPolicy.enforcePace', type: 'boolean', defaultPath: 'accountPolicy.enforcePace',
       constraint: { en: 'a boolean', 'pt-BR': 'um booleano' },
       description: { en: 'Defer hard work when weekly use is ahead of pace; inactive until account policy is connected.',
