@@ -322,6 +322,11 @@ export const OPERATIONS = [
       type: 'object',
       properties: {
         runId: { type: 'string', description: 'Run owning the slot.' },
+        demand: { type: 'string', description: 'Demand id guarded against another live run.' },
+        cwd: { type: 'string', description: 'Working folder; resolved before reserving the slot.' },
+        owner: { type: 'object', properties: { client: { type: 'string' }, session: { type: 'string' },
+          worktree: { type: 'string' } }, required: ['client'], additionalProperties: false },
+        force: { type: 'boolean', description: 'Allow a conflict only for the same recorded owner; caps still apply.' },
         client: { type: 'string', description: 'Client the run belongs to.' },
         account: { type: 'string', pattern: '^[a-z0-9-]{1,32}$', description: 'Stable id; default if omitted.' },
         waitMs: { type: 'number', description: 'Wait in milliseconds; 0 refuses at once.' },

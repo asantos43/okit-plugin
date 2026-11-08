@@ -33,7 +33,7 @@ export function holdIsStale(hold, config, now = Date.now()) {
   return Boolean(hold) && now - Date.parse(hold.takenAt) > configOf(config).inbox.holdStaleMinutes * 60_000;
 }
 
-const sameHolder = (a, b) => a?.client === b?.client && a?.session === b?.session;
+export const sameHolder = (a, b) => a?.client === b?.client && a?.session === b?.session;
 const heldMessage = (item) => `${item.id} held by ${item.hold.client} (${item.hold.worktree ?? '-'}) since ${item.hold.takenAt}`;
 
 function clearHold(item, reason) {

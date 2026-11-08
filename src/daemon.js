@@ -10,7 +10,7 @@ import process from 'node:process';
 
 import { classify } from './classify.js';
 import { demandRef, projectName, withDemandRef } from './demand-ref.js';
-import { inboxList, inboxSetExt, inboxSetStatus } from './inbox.js';
+import { holdIsStale, inboxList, inboxSetExt, inboxSetStatus, sameHolder } from './inbox.js';
 import { acquireSlot, accountChoice, discardSlot, releaseSlot } from './limits.js';
 import { ACCOUNT_CLIENTS } from './accounts.js';
 import { accountReasonText } from './accounts-choose.js';
@@ -171,6 +171,9 @@ const newRunId = () => `${RUN_PREFIX}${randomBytes(4).toString('hex')}`;
 // given back when the spawner fails, so a refusal costs nothing.
 async function delegate(root, item, deps, settings, cache) {
   const client = item.client ?? DEFAULT_CLIENT;
+  const owner = deps.owner ?? { client };
+  if (item.hold && !holdIsStale(item.hold, settings.config) && !sameHolder(item.hold, owner)) return { skip: 'the demand is held by another owner' };
+  const cwd = await deps.spawn.resolveCwd?.(item);
   const effort = item.effort ?? classify(item).effort;
   const resumeSession = item.resumeSession ?? item.ext?.resumeSession;
   const fixedAccount = resumeSession?.account ?? item.account ?? item.ext?.account;
@@ -182,7 +185,7 @@ async function delegate(root, item, deps, settings, cache) {
   const criticOf = item.critic_of ?? item.ext?.critic_of;
   const role = item.role ?? item.ext?.role ?? (criticOf ? 'critic' : undefined);
 
-  const options = { client, profile, runId, config: settings.config,
+  const options = { client, profile, runId, config: settings.config, demand: item.id, cwd, owner, force: deps.force,
     account: fixedAccount,
     resumeSession, role, executorAccount: item.executorAccount ?? item.ext?.executorAccount };
   const prepare = async ({ runs, settings: config }) => {
@@ -209,7 +212,7 @@ async function delegate(root, item, deps, settings, cache) {
     catch (error) { return { ok: false, reason: spawnerSkip(error) }; }
     return { account: options.account, accountReason: options.accountReason };
   };
-  const slot = await acquireSlot(root, runId, { client, config: settings.config, prepare });
+  const slot = await acquireSlot(root, runId, { ...options, prepare });
   if (!slot.ok && slot.wait_until != null) await inboxSetExt(root, item.id, { wait_until: slot.wait_until });
   if (!slot.ok) return { skip: slot.reason ?? BUSY };
 
@@ -242,8 +245,8 @@ async function delegate(root, item, deps, settings, cache) {
  *
  * @returns {Promise<string>} the id the slot is held under
  */
-async function relinkSlot(root, from, to, client, config, { account, accountReason }) {
-  const options = { client, config, account, prepare: () => ({ account, accountReason }) };
+async function relinkSlot(root, from, to, client, config, { account, accountReason, demand, cwd, owner }) {
+  const options = { client, config, account, demand, cwd, owner, prepare: () => ({ account, accountReason }) };
   try {
     await releaseSlot(root, from);
     const taken = await acquireSlot(root, to, options);

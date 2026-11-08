@@ -13,13 +13,24 @@ import { argsOf, optionalMs, optionalText, requiredText } from './tool-arguments
 
 /** Reserves one concurrency slot for a run, or reports the cap that refuses it. */
 export async function acquireSlotOperation(root, args, deps) {
-  const a = argsOf('acquire_slot', args, ['runId', 'client', 'waitMs'], ['account']);
+  const a = argsOf('acquire_slot', args, ['runId', 'client', 'waitMs'], ['account', 'demand', 'cwd', 'owner', 'force']);
+  if (a.force !== undefined && typeof a.force !== 'boolean') throw new TypeError('acquire_slot: force must be a boolean');
+  let owner;
+  if (a.owner !== undefined) {
+    const holder = argsOf('acquire_slot owner', a.owner, ['client', 'session', 'worktree']);
+    owner = { client: requiredText('acquire_slot owner', holder, 'client'),
+      session: optionalText('acquire_slot owner', holder, 'session'),
+      worktree: optionalText('acquire_slot owner', holder, 'worktree') };
+  }
   return acquireSlot(
     root,
     requiredText('acquire_slot', a, 'runId'),
     {
       client: requiredText('acquire_slot', a, 'client'),
       account: optionalText('acquire_slot', a, 'account'),
+      demand: optionalText('acquire_slot', a, 'demand'),
+      cwd: optionalText('acquire_slot', a, 'cwd'),
+      owner, force: a.force,
       config: await configOf(deps, root),
       waitMs: optionalMs('acquire_slot', a, 'waitMs'),
     },

@@ -251,7 +251,7 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
     const runId = text(options.runId, 'runId');
     const file = runFile(runs, runId);
     const { selected, childEnv } = await prepare(options);
-    const dir = await demandCwd(demand?.appliesTo, fallbackCwd);
+    const dir = options.cwd ?? await demandCwd(demand?.appliesTo, fallbackCwd);
     const built = buildCommand(options.client, {
       briefing: briefingOf(demand),
       profile: options.profile,
@@ -281,6 +281,10 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
 
     try {
       await writeJsonAtomic(file, {
+        ...await readJson(file, {}).catch((error) => {
+          if (error.cause?.code === 'EISDIR') return {};
+          throw error;
+        }),
         runId, client: options.client, pid: child.pid ?? null, mode: 'PROCESS', status: 'live', startedAt,
         demand: demand.id ?? null, role: options.role ?? demand.role ?? 'executor',
         ...selected && !selected.isDefault ? { account: selected.id } : {},
@@ -353,6 +357,8 @@ export function makeSpawner({ spawn = child_process.spawn, now = Date.now, logDi
    * that would otherwise reserve a slot (and its run file) first. `runId` is optional (no slot is held yet).
    */
   spawnDemand.preflight = async (_demand, options = {}) => { await prepare(options); };
+  // Only a folder the demand names itself: the shared fallback folder must never make two demands conflict.
+  spawnDemand.resolveCwd = async (demand) => (await demandCwd(demand?.appliesTo, null)) ?? undefined;
   return spawnDemand;
 }
 

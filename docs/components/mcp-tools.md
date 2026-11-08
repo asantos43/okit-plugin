@@ -16,7 +16,7 @@ The server exposes 30 tools. Inputs are JSON objects; ? marks an optional field.
 | `trajectory_show` | Read a saved run step by step, including failed tools and tokens | run | read local files only |
 | `telemetry_status` | Inspect optional saved measurements; consent, folder, size, last export | {} | read |
 | `telemetry_export` | Export saved measurements from an optional date | since? | writes last-export receipt; sends counts only if separately enabled |
-| `acquire_slot` | Reserve a slot; result or cap refusal | runId, client, account?, waitMs? | write |
+| `acquire_slot` | Reserve a slot; result, cap or live demand/folder refusal | runId, client, account?, waitMs?, demand?, cwd?, owner?, force? | write |
 | `release_slot` | Free a slot; release result | runId | write |
 | `limits_status` | Inspect caps; client caps and live runs | client?, account? | read |
 | `status` | Inspect allowance; rows, markdown, capacityLine and optional showBefore | locale?, all?, client?, size?, slices?, executors? | read |
