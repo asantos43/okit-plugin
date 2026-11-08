@@ -7,7 +7,8 @@ Edite ajustes e perfis de atores em uma página local no navegador.
 <a id="start"></a>
 ## Iniciar
 
-1. Execute `okit-plugin config ui` para abrir a página; use `--locale en` ou `--locale pt-BR` para escolher o idioma. Guarde a URL exibida para recarregar durante esta sessão.
+1. Em uma sessão Claude Code, Codex ou opencode, invoque `/okit-config` (Claude Code: `/okit-plugin:okit-config`). A skill compartilhada chama `config_ui_open`, retornando uma URL privada com token sem bloquear a sessão. Reutiliza a página daquela sessão; `open: false` só retorna a URL. Mantenha-a na sessão, nunca em arquivos ou na fila. O host do painel Claude não oferece chamada MCP direta, por isso o comando é a skill com namespace.
+Em um terminal, execute `okit-plugin config ui`; use `--locale en` ou `--locale pt-BR`, `--no-open` para apenas exibir a URL, ou `--idle-minutes` para alterar o limite de dez minutos de inatividade. O comando fica ativo até fechar ou Ctrl+C. Instalações antigas sem a ferramenta usam essa alternativa no terminal.
 
 <a id="edit"></a>
 ## Editar
@@ -28,6 +29,6 @@ A página grava apenas `config.json`, pelo gravador atômico validado de configu
 O servidor escuta apenas em `127.0.0.1`, numa porta aleatória. Toda solicitação exige o token da sessão e passa por verificações de Host/Origin. Mantenha a URL com token privada; os links de idioma a preservam para permitir recarregar.
 O endereço com token é passado ao iniciador do navegador e fica visível na lista de processos deste computador durante a sessão. Fechar encerra a sessão; `--no-open` evita entregar o endereço a outro programa.
 
-5. Clique em Fechar para encerrar imediatamente. O servidor encerra quando a página é fechada. Ele também encerra por inatividade ou Ctrl+C. Execute o comando novamente para uma nova sessão.
+5. Clique em Fechar para encerrar imediatamente. O servidor encerra ao fechar a página, por inatividade ou quando a sessão MCP responsável termina. No terminal, Ctrl+C também encerra. Invoque a skill ou o comando novamente para abrir outra página.
 
 [Guia](README.pt-BR.md) · [English](config-ui.md)

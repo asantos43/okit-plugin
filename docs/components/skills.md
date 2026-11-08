@@ -40,6 +40,13 @@ Keeps enabled project tasks in step with saved work; asks before using a suggest
 | :- | :- | :- |
 | `okit-setup` | Guides model setup; loaded for /okit-setup or a conversational configuration request. Run the existing proposal flow, explain detected choices, ask only missing facts and save once after its final confirmation. Never edit individual settings by hand. | `okit-plugin setup`, `config_get` |
 
+<a id="okit-config"></a>
+## okit-config
+
+| Skill | Use and instruction | Main resources |
+| :- | :- | :- |
+| `okit-config` | Opens the configuration page from Claude Code, Codex or opencode via /okit-config (Claude: /okit-plugin:okit-config). Reuses the session page, shares its private URL only in the session, explains tabs and idle/session closing; older installs use a terminal. | `config_ui_open`, `okit-plugin config ui` |
+
 <a id="okit-smoke"></a>
 ## okit-smoke
 

@@ -12,11 +12,12 @@ import { TOOLS } from '../src/mcp/tools.js';
 // The bytes of the list, measured by `node scripts/measure-tools.js` and
 // rounded up to the next multiple of 500. Raising it means the list grew on
 // purpose: write down why here before the number moves.
+// D138 adds the session configuration page tool within the existing byte budget.
 const BUDGET_BYTES = 14500;
 
 // The number of tools the budget was measured for. A tool added or removed
 // changes the list the client reads, so the count moves with the budget.
-const EXPECTED_TOOLS = 29;
+const EXPECTED_TOOLS = 30;
 
 const listing = toolListing(TOOLS);
 const payload = JSON.stringify({ tools: listing });

@@ -7,7 +7,8 @@ Edit settings and actor profiles in a local browser page.
 <a id="start"></a>
 ## Start
 
-1. Run `okit-plugin config ui` to open the page; use `--locale en` or `--locale pt-BR` to choose the language. Keep the printed URL for a reload during this session.
+1. From a Claude Code, Codex or opencode session, invoke `/okit-config` (Claude Code: `/okit-plugin:okit-config`). The shared skill calls `config_ui_open`, returning a private token URL without blocking the session. It reuses that session's page; `open: false` only returns the URL. Keep it in the session, never in files or the inbox. The Claude panel host has no direct MCP-call API, so the namespaced skill is its command.
+From a terminal, run `okit-plugin config ui`; use `--locale en` or `--locale pt-BR`, `--no-open` to only print the URL, or `--idle-minutes` to change the ten-minute idle timeout. The terminal command runs until closing or Ctrl+C. Older installs without the tool use this terminal fallback.
 
 <a id="edit"></a>
 ## Edit
@@ -28,6 +29,6 @@ The page writes only `config.json`, through the validated atomic configuration w
 The server listens only on `127.0.0.1` at a random port. Every request requires the session token and passes Host/Origin checks. Keep the token URL private; language links preserve it so reload works.
 The token address is passed to the browser launcher and is visible in this computer's process list for the session's lifetime. Closing ends the session; `--no-open` avoids handing the address to another program.
 
-5. Click Close to stop immediately. The server closes when the page is closed. It also stops after inactivity or Ctrl+C. Start the command again for a new session.
+5. Click Close to stop immediately. The server closes when the page is closed, after inactivity, or when its owning MCP session ends. In a terminal, Ctrl+C also stops it. Invoke the skill or command again for a new page.
 
 [Guide](README.md) · [Português](config-ui.pt-BR.md)

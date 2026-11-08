@@ -40,6 +40,13 @@ Mantém as tarefas dos projetos habilitados em dia; pergunta antes de usar uma s
 | :- | :- | :- |
 | `okit-setup` | Orienta configuração de modelos; carregada para /okit-setup ou pedido de configuração por conversa. Executa a proposta existente, explica escolhas detectadas, pergunta só fatos ausentes e salva após confirmação final. Não edita ajustes individuais. | `okit-plugin setup`, `config_get` |
 
+<a id="okit-config"></a>
+## okit-config
+
+| Skill | Uso e instrução | Recursos principais |
+| :- | :- | :- |
+| `okit-config` | Abre a página de configuração no Claude Code, Codex ou opencode por /okit-config (Claude: /okit-plugin:okit-config). Reutiliza a página, mostra a URL privada só na sessão, explica abas e encerramento por inatividade/sessão; versões antigas usam um terminal. | `config_ui_open`, `okit-plugin config ui` |
+
 <a id="okit-smoke"></a>
 ## okit-smoke
 
