@@ -432,7 +432,7 @@ test('the output of the setup asks the assistant for the tool it names', async (
       // The question of the model takes the model; the confirmation of what is saved takes the yes.
       ask: async (question) => {
         questions += 1;
-        if (/^(Effort|Esforço)/.test(question)) return ''; // the default effort; locale:pt-BR
+        if (/^(Effort|Esforço)/.test(question)) return ''; // locale:pt-BR
         return /^(Choose a model|Escolha um modelo)/.test(question) ? 'haiku' : 'yes'; // locale:pt-BR
       },
       readQuota: async () => ({ source: 'off' }), run: async () => ({ code: 0, stdout: '' }),
