@@ -4,6 +4,8 @@ import { accountsOf, ACCOUNT_CLIENTS } from '../accounts.js';
 import { loginState, loginCommand } from '../accounts-login.js';
 import { confirmedModels } from '../env/models.js';
 import { readiness, readyLine } from '../env/ready.js';
+import path from 'node:path';
+import { homeOf } from '../install/config.js';
 
 const SECRET = /(?:password|passwd|secret|credential|authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|private[-_]?key)/i;
 const CONTENT = /(?:\b(?:Bearer|Basic)\s+\S+|\bsk-[\w-]+|-----BEGIN .*PRIVATE KEY|https?:\/\/[^\s/]+:[^\s/]+@|(?:password|secret|token|api[-_]?key)\s*[=:]\s*\S+)/i;
@@ -28,7 +30,7 @@ export async function describeAccount(account, config, context = {}) {
 }
 
 export function buildState({ raw = {}, observations = [], snapshot, locale = 'en', expectedMtime = null,
-  accountStates = [], platform = process.platform } = {}) {
+  accountStates = [], platform = process.platform, env = process.env } = {}) {
   const config = configOf(raw);
   const defaults = configOf({});
   const local = (text) => text?.[locale] ?? text?.en;
@@ -59,7 +61,10 @@ export function buildState({ raw = {}, observations = [], snapshot, locale = 'en
         classes: actorClasses(config, client, models, observed), models };
     });
   });
+  const paths = platform === 'win32' ? path.win32 : path.posix;
+  const home = homeOf(env, platform);
   return redact({ fields, actors, accounts, expectedMtime,
+    home: home ? paths.join(home, '.') : '', pathSeparator: paths.sep,
     readiness: readyLine(readiness(snapshot ?? { config, clients: [] }), locale) });
 }
 
