@@ -1,0 +1,1 @@
+Actively poll every Claude Code and Codex account each minute with credential-safe usage reads, bounded fallback, per-account retry states and immediate reads on add/install; expose rotation eligibility above the configurable 20% floor and treat stale quota as unknown.

@@ -97,6 +97,8 @@ export function viewModel(result, now = Date.now(), timeZone) {
   const accounts = state.accounts.flatMap((account, index) => [
     `${account.label} · ${state.runs.some(run => run.account === account.id && run.status === 'live' && !run.stale) ? 'running' : 'idle'}`,
     quotas[index * 2], quotas[index * 2 + 1],
+    ...(account.quota_state?.reason && !account.quota.session && !account.quota.weekly ? [account.quota_state.reason] : []),
+    ...(account.rotation ? [account.rotation.text] : []),
   ]);
   const newest = [...state.runs].sort((a, b) =>
     (Date.parse(b.started_at ?? '') || 0) - (Date.parse(a.started_at ?? '') || 0));

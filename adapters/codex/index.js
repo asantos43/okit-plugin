@@ -94,7 +94,8 @@ export async function readQuota({ stateRoot: root, env, now = Date.now, config, 
   if (automatic && (!finite(stored?.remainingPct) || !recorded
     || Date.parse(automatic.recordedAt) > recorded.ms)) return automatic;
   if (!finite(stored?.remainingPct)) return { source: 'manual' };
-  return { source: 'manual', remainingPct: stored.remainingPct,
+  return { source: stored.source === 'active-app-server' ? stored.source : 'manual', remainingPct: stored.remainingPct,
+    ...(stored.source === 'active-app-server' ? { windows: stored.windows, readAt: stored.readAt } : {}),
     ...(recorded ? { recordedAt: recorded.text,
       ageMinutes: Math.max(0, now() - recorded.ms) / 60_000 } : {}),
     ...(finite(stored.windowMinutes) ? { windowMinutes: stored.windowMinutes } : {}) };

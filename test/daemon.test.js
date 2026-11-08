@@ -26,6 +26,7 @@ const PROFILES = {
 };
 
 const CONFIG = {
+  quotaPoll: { enabled: false },
   limits: { global: 3, clients: {} },
   // A template child carries no client, so a demand without one lands here.
   profiles: { alpha: PROFILES, beta: PROFILES, unknown: PROFILES },

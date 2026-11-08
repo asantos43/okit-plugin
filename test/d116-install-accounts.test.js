@@ -75,7 +75,11 @@ const registrationCommands = (f) => f.commands.filter(({ args }) => ['plugin', '
 
 test('install of two accounts leaves each other\'s folders untouched', async (t) => {
   const f = await world(t);
+  const quotaReads = [];
+  f.io.spawn = (_command, args) => { quotaReads.push(args); return { on() {}, unref() {} }; };
   assert.equal(await f.run('install', '--client', CLIENT, '--account', 'work', '--statusline'), 0, f.output.join('\n'));
+  assert.equal(quotaReads.length, 1);
+  assert.deepEqual(quotaReads[0].slice(-3), [CLIENT, 'work', 'force']);
   // The payload is shared: one record, one folder; only the registration belongs to the account.
   const first = await f.record();
   assert.deepEqual(Object.keys(first.accounts), ['work']);
@@ -291,6 +295,11 @@ test('platforms: the folder variable of the account reaches the program on linux
 });
 
 test('the status bar registered for X writes X\'s reading when the client runs it with X\'s folder', async (t) => {
+  const probe = spawnSync(process.execPath, ['-e', 'console.log("d145-pipe-probe")'], { encoding: 'utf8' });
+  if (probe.status === 0 && probe.stdout.trim() === '') {
+    t.skip('Sandbox drops child stdout pipes; Director must run the subprocess collector proof.');
+    return;
+  }
   const f = await world(t);
   for (const account of ['work', 'personal']) {
     assert.equal(await f.run('install', '--client', CLIENT, '--account', account, '--statusline'), 0, f.output.join('\n'));

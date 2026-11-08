@@ -119,9 +119,9 @@ test('Limits groups and profile clients have native sections with accurate count
   assert.equal((byPath('codexQuota.fields').html.match(/data-path="codexQuota.fields\./g) ?? []).length, 11);
 });
 
-test('empty config opens only the first small section, with all subsections collapsed', () => {
+test('empty config opens the first small groups in Limits and Other, with subsections collapsed', () => {
   const items = sections(renderPage(buildState(), { nonce: 'test', token: 'token' }));
-  assert.deepEqual(items.filter(item => / open>/.test(item.tag)).map(item => item.path), ['limits']);
+  assert.deepEqual(items.filter(item => / open>/.test(item.tag)).map(item => item.path), ['limits', 'panel']);
 });
 
 test('the first section opens at four fields but stays collapsed at five', () => {
@@ -136,12 +136,12 @@ test('the first section opens at four fields but stays collapsed at five', () =>
   }
 });
 
-test('a nondefault daemon value opens only Daemon besides the first section', () => {
+test('a nondefault daemon value opens Daemon besides the first small groups', () => {
   const state = buildState();
   const field = state.fields.find(field => field.path === 'daemon.minQuotaPct');
   field.value = field.default + 1;
   const items = sections(renderPage(state, { nonce: 'test', token: 'token' }));
-  assert.deepEqual(items.filter(item => / open>/.test(item.tag)).map(item => item.path), ['limits', 'daemon']);
+  assert.deepEqual(items.filter(item => / open>/.test(item.tag)).map(item => item.path), ['limits', 'daemon', 'panel']);
 });
 
 test('single-group panels omit outer details; summaries count all descendant controls', () => {
@@ -165,7 +165,7 @@ test('single-group panels omit outer details; summaries count all descendant con
   }
 });
 
-test('tabs link eight panels and retain 90 fields and 48 actor controls without script', () => {
+test('tabs link eight panels and retain 93 fields and 48 actor controls without script', () => {
   for (const locale of ['en', 'pt-BR']) {
     const html = renderPage(buildState(), { locale, nonce: 'test', token: 'token' }).replace(/<script\b[\s\S]*?<\/script>/g, '');
     assert.ok(html.includes(`tabindex="-1">${locale === 'en' ? 'Accounts' : 'Contas'}</button>`));
@@ -176,7 +176,10 @@ test('tabs link eight panels and retain 90 fields and 48 actor controls without 
       assert.ok(html.includes(`id="tab-${id}" data-tab="${id}" aria-controls="panel-${id}" aria-selected="${index === 0}" tabindex="${index === 0 ? 0 : -1}">${labels[locale][`tab${id}`]}</button>`));
       assert.ok(html.includes(`role="tabpanel" id="panel-${id}" aria-labelledby="tab-${id}"${id === 'accounts' ? ' hidden' : ''}>`));
     }
-    assert.equal((html.match(/ data-path="/g) ?? []).length, 90);
+    assert.equal((html.match(/ data-path="/g) ?? []).length, 93);
+    for (const key of ['enabled', 'intervalSec', 'claudeFallbackMinutes']) {
+      assert.ok(html.includes(`data-path="quotaPoll.${key}"`));
+    }
     assert.match(html, /data-path="panel.color" data-type="boolean" type="checkbox" checked/);
     assert.equal((html.match(/ data-(?:actor-path|actor)="/g) ?? []).length, 48);
     const paths = [...html.matchAll(/ data-path="([^"]+)"/g)].map(match => match[1]);

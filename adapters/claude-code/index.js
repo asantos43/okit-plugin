@@ -203,8 +203,10 @@ function manualReading(stored, now) {
   if (remainingPct === null) return null;
   const windowMinutes = finiteNumber(stored?.windowMinutes);
   const recorded = timeOf(stored.recordedAt);
-  const automatic = stored.source === 'automatic';
-  return { source: automatic ? 'automatic' : 'user', remainingPct,
+  const active = ['active-oauth', 'active-cli'].includes(stored.source);
+  const automatic = stored.source === 'automatic' || active;
+  return { source: active ? stored.source : automatic ? 'automatic' : 'user', remainingPct,
+    ...(active ? { readAt: stored.readAt } : {}),
     ...(automatic && Array.isArray(stored.windows) ? { windows: windowsOf(stored.windows) } : {}),
     ...(windowMinutes === null ? {} : { windowMinutes }),
     ...(recorded ? { recordedAt: recorded.text,

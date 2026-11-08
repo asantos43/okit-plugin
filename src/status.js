@@ -11,6 +11,9 @@ import { labelsOf, clientsOf, rowOf, readingOf, callingClient, isolationNotes } 
 export { CLIENT_ENV_MARKERS, detectClient, LABELS, labelsOf, ageOf, quotaOrigin, clientsOf, adapterQuotaReader } from './env/quota.js';
 import { projectName, withDemandRef } from './demand-ref.js';
 import { inboxList, holdText } from './inbox.js';
+import { accountsOf } from './accounts.js';
+import { loginState } from './accounts-login.js';
+import { rotationStatus } from './quota/rotation.js';
 
 /**
  * One cell, made safe for a Markdown table: a newline would end the row and a
@@ -68,10 +71,17 @@ export async function statusTable(root, deps = {}) {
   const note = !selected && !deps.all ? `\n\n${labels.unknownClient}` : '';
 
   const observations = accountRows(snapshot.clients.filter((row) => clients.includes(row.client)));
+  const rotation = await Promise.all(observations.map(async (row) => {
+    if (!['claude-code', 'codex'].includes(row.client)) return null;
+    const account = accountsOf(config, row.client).find((entry) => entry.id === (row.account ?? 'default'));
+    const login = row.login ?? await loginState({ ...deps, client: row.client, account, config });
+    return rotationStatus({ reading: row.reading, login, config, now: snapshot.now, locale: deps.locale });
+  }));
   const remedies = snapshot.plugin.missing
     .filter((entry) => entry.item === 'models' && clients.includes(entry.client))
     .map((entry) => labels.modelsMissing(entry.client, entry.command, entry.account));
-  const rows = observations.map((row) => ({ ...row.quota,
+  const rows = observations.map((row, index) => ({ ...row.quota,
+    ...(rotation[index] ? { rotation: rotation[index] } : {}),
     // The row names the client and the account; the display text is only in the table.
     ...rowOf(row.client, readingOf(row.reading), row.quotaReadAt, snapshot.config,
       labels, snapshot.now, deps.orders, { client: row.client, account: row.account, display: accountName(row) }),
@@ -97,6 +107,8 @@ export async function statusTable(root, deps = {}) {
       + (detected && rows.some((row) => row.client !== detected)
         ? `\n\n${isolationNotes(deps.locale).other}\n${markdownOf(labels.columns, rows.filter((row) => row.client !== detected))}` : '')
       + demandTable + note + `\n\n${labels.views}`
+      + (rotation.some(Boolean) ? '\n\n' + observations.flatMap((row, index) => rotation[index]
+        ? [`${accountName(row)}: ${rotation[index].text}`] : []).join('\n') : '')
       + (remedies.length ? `\n\n${remedies.join('\n')}` : ''),
     capacityLine: [labels.capacity(capacity, floor), isolationNotes(deps.locale).shared, ...warnings].join('\n'),
     rows,

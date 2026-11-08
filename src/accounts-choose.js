@@ -7,12 +7,12 @@ const compareId = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 const pct = (value) => finiteNumber(value) !== null && value <= 100;
 
 function inspect(account, actor, runs, now, settings) {
-  const quota = quotaOf(account.reading, now);
+  const quota = quotaOf(account.reading, now, settings);
   const ownRuns = runs.filter((run) => run.client === account.client && (run.account ?? 'default') === account.id);
   const live = ownRuns.filter((run) => run.status === 'live'
     && (typeof run.startedAt !== 'number' || now - run.startedAt <= (settings.staleMinutes ?? 30) * 60_000)).length;
   const cap = account.parallelLimit ?? settings.limits?.clients?.[account.client] ?? settings.limits?.global ?? 3;
-  const minimum = settings.accountPolicy?.minQuotaPct ?? 0;
+  const minimum = settings.accountPolicy?.minQuotaPct ?? 20;
   let reason;
   if (account.login === 'logged-out') reason = { code: 'login' };
   else if (!actor.model || !actor.effort || !account.actors?.some((a) => a.model === actor.model && a.effort === actor.effort)) {
@@ -27,7 +27,11 @@ function inspect(account, actor, runs, now, settings) {
     unknown: account.login !== 'logged-in' || !quota.session || !quota.weekly || quota.headroom === null };
 }
 
-function quotaOf(reading, now) {
+export function quotaOf(reading, now, settings = {}) {
+  const readAt = Number.isFinite(reading?.readAt) ? reading.readAt : Date.parse(reading?.recordedAt);
+  if (!Number.isFinite(readAt) || now - readAt > 3 * (settings.quotaPoll?.intervalSec ?? 60) * 1000) {
+    return { session: undefined, weekly: undefined, reset: null, headroom: null, readAt: Number.isFinite(readAt) ? readAt : null };
+  }
   const windows = windowsOf(reading?.windows);
   if (!windows.length && pct(reading?.remainingPct)) windows.push({ ...reading });
   const widest = (short) => windows.filter((w) => pct(w.remainingPct)
@@ -40,7 +44,7 @@ function quotaOf(reading, now) {
   const reset = Number.isFinite(parsedReset) ? parsedReset
     : finiteNumber(weekly?.resetsInMinutes) !== null ? now + weekly.resetsInMinutes * 60_000 : null;
   const expected = reset === null ? null : Math.min(100, Math.max(0, (reset - now) / WEEK * 100));
-  return { session, weekly, reset, headroom: expected === null ? null : weekly.remainingPct - expected };
+  return { session, weekly, reset, headroom: expected === null ? null : weekly.remainingPct - expected, readAt };
 }
 
 /**

@@ -8,6 +8,9 @@ import { defaultFolderOf, homeOf } from './install/config.js';
 import { OperationalError, exitCodeFor } from './install/exit.js';
 import { presentAccount, accountInstructions, accountChanged } from './cli-present.js';
 import { isReadableConfig } from './setup/setup.js';
+import { requestQuotaRead } from './quota/active-trigger.js';
+import { adapterQuotaReader } from './env/quota.js';
+import { rotationStatus } from './quota/rotation.js';
 
 const CLIENTS = ['claude-code', 'codex'];
 
@@ -34,9 +37,14 @@ export async function accountCommand(ctx, action, args) {
   if (action !== 'list' && !client) return ctx.unknown();
   const target = paths(ctx.root);
   const load = () => loadAccounts(target);
-  const describe = async (account, settings) => ({ client: account.client, id: account.id, label: account.label,
-    configDir: account.configDir,
-    login: await loginState({ ...ctx, client: account.client, account, install: settings.install, config: settings }) });
+  const describe = async (account, settings) => {
+    const config = configOf(settings);
+    const login = await loginState({ ...ctx, client: account.client, account, config });
+    const reading = await adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env, config, now: ctx.now })(account.client, account.id)
+      .catch(() => null);
+    return { client: account.client, id: account.id, label: account.label, configDir: account.configDir, login,
+      rotation: rotationStatus({ reading, login, config, now: ctx.now(), locale: ctx.locale }) };
+  };
   if (action === 'list') {
     const raw = await load();
     const rows = await Promise.all((client ? [client] : CLIENTS).flatMap((id) => accountsOf(raw, id))
@@ -82,6 +90,7 @@ export async function changeAccount(ctx, action, { client, name, value, director
         }
       }
       await (ctx.writeConfig ?? ctx.write ?? writeJsonAtomic)(target.config, next);
+      if (action === 'add') await requestQuotaRead(ctx, client, accountsOf(next, client).at(-1).id, { force: true });
       return await saved(next);
     });
   } catch (error) { throw settingsError(error); }

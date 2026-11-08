@@ -8,6 +8,10 @@ import { adapterQuotaReader, FIVE_HOURS_MINUTES } from './env/quota.js';
 import { readiness, readyLine } from './env/ready.js';
 import { finiteNumber, windowsOf } from './quota-fields.js';
 import { UsageError } from './install/exit.js';
+import { loginState } from './accounts-login.js';
+import { pollStateFile } from './quota/active-poller.js';
+import { pollReason, rotationStatus } from './quota/rotation.js';
+import { requestQuotaRead, serviceRunning } from './quota/active-trigger.js';
 
 const RECENT_RUNS = 100;
 const MAX_RUN_BYTES = 256 * 1024;
@@ -42,7 +46,7 @@ async function installed(executable, env) {
   }))).some(Boolean);
 }
 
-/** A passive snapshot: no client processes, telemetry, persistent caches or credential reads. */
+/** Snapshot returns cached quotas; bounded active reads run in a separate worker. */
 export async function panelState(ctx, client, { readRunJson = readJson } = {}) {
   const internal = client === 'claude' ? 'claude-code' : client;
   const warnings = [];
@@ -63,6 +67,9 @@ async function configuredState(ctx, client, internal, stored, warnings, readRunJ
   const config = configOf(stored);
   const identities = accountsOf(config, internal);
   const now = ctx.now();
+  if (!await serviceRunning(ctx.root)) {
+    await Promise.all(identities.map((identity) => requestQuotaRead(ctx, internal, identity.id)));
+  }
   const runs = await records(ctx.root, now, config.staleMinutes, readRunJson);
   const present = await installed(config.install.clients[internal].executable, ctx.env);
   const byClient = {};
@@ -93,11 +100,15 @@ async function configuredState(ctx, client, internal, stored, warnings, readRunJ
     || Object.hasOwn(stored.profiles ?? {}, internal)
     || (Array.isArray(stored.configuredClients) && stored.configuredClients.includes(internal))
     || finiteNumber(row.reading?.remainingPct) !== null;
-  const accounts = saved ? identities.map((identity, index) => {
+  const accounts = saved ? await Promise.all(identities.map(async (identity, index) => {
     const account = row.accounts?.[index] ?? row;
+    const state = await readJson(join(ctx.root, 'quota', pollStateFile(internal, identity.id)), null).catch(() => null);
+    const login = await loginState({ ...ctx, client: internal, account: identity, config });
     return { id: identity.id, label: identity.label,
+      rotation: rotationStatus({ reading: account.reading, login, config, now, locale: ctx.locale ?? config.language }),
+      quota_state: state ? { state: state.state, reason: pollReason(state, ctx.locale ?? config.language) } : null,
       quota: { session: windowState(account.reading, true, now), weekly: windowState(account.reading, false, now) } };
-  }) : [];
+  })) : [];
   return { schema_version: 1, client, accounts, panel: { autoOpen: config.panel?.autoOpen !== false, color: config.panel?.color !== false },
     runs: runs.filter((run) => run.client === internal && (!run.role || run.role === 'executor')).map((run) => runState(run, now, config.staleMinutes)),
     launchable: saved ? identities.flatMap((identity, index) => (row.accounts?.[index] ?? row).candidates.map((actor) => ({
