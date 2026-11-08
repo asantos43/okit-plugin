@@ -15,8 +15,10 @@ Rotation requires more than `accountPolicy.minQuotaPct` (20 by default) in **bot
 
 ## Manage an account
 
+In the local web configuration page, **Log in** starts the account's own `claude auth login` or `codex login` process. Follow the HTTPS login link shown in the row; only the saved account folder is used. The page shows progress, supports Cancel login and Sign out, and stops unfinished children when the server closes. A second click reuses the running login. Login times out after five minutes. If the browser or process cannot open, use the terminal fallback or copy the command. No client output or credentials are shown. After success, the page requests a quota reading and shows the poller's state: not logged in, token expired, no reading or read failed.
+
 1. Add a distinct folder with a path absolute on this system, then run the printed manual login command.
-2. Check `account list`: Claude's passive collector registers automatically when the account is saved from CLI or web. Login stays manual.
+2. Check `account list`: Claude's passive collector registers automatically when the account is saved from CLI or web. Complete login using the web flow above or the printed command.
 3. Rename or remove the saved entry as needed; its id stays stable when renamed.
 
 ```sh
@@ -33,7 +35,7 @@ Use an absolute path. On Windows PowerShell, for example: `okit-plugin account a
 
 Login stays manual. On the configuration page, choose Log in in a terminal to open the client's own login for that account's folder. Sign in in that terminal window, then choose Check login. Nothing is typed for you; the quota poller only uses the access token as described above. If no window opens, copy the command and run it yourself. If the terminal opens but does not start login, use Copy and run the command yourself. Follow the printed command: `CLAUDE_CONFIG_DIR=/absolute/path/claude-work claude` or `CODEX_HOME=/absolute/path/codex-work codex`. On PowerShell: `$env:CODEX_HOME='C:\Accounts\Work'; codex` (Claude uses `CLAUDE_CONFIG_DIR` and `claude`). Every path printed for PowerShell has each quote of the string doubled, so a folder whose name holds a quote (`C:\Users\O'Brien\acc`) is still one string. A `logged-in` result means a local marker exists; it does not verify access. The default account's login is read in the folder the client uses with no override, the one your install settings name. Login detection never opens credentials; active quota reads only the token and expiry as described above. macOS Keychain and Codex keyring storage report `unknown`.
 
-For saved extra Claude accounts, CLI/web add, install and update automatically register the passive statusline collector. `doctor --fix` repairs a missing collector. Existing status-bar commands are preserved through `--previous` and an exact backup; registration never opens credential files. The default account keeps its existing flow. A failure does not fail account add: it reports Not registered with a plain reason. Login stays manual. Codex needs no status-bar collector.
+For saved extra Claude accounts, CLI/web add, install and update automatically register the passive statusline collector. `doctor --fix` repairs a missing collector. Existing status-bar commands are preserved through `--previous` and an exact backup; registration never opens credential files. The default account keeps its existing flow. A failure does not fail account add: it reports Not registered with a plain reason. Login still requires your confirmation in the client's browser flow. Codex needs no status-bar collector.
 
 The web configuration and panel show Registered when the account folder's `settings.json` invokes the collector, with Waiting for first reading until a passive reading file exists, then Reading received. Not registered means the command is missing or unreadable. Active poller readings alone do not count as a passive reading.
 

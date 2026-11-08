@@ -404,6 +404,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/quota/active-process.js', arg: /^line$/, excluded: 'Bounded client protocol output, not a user file; malformed lines are ignored and invalid windows fail the optional reading.' },
   { file: 'src/quota/active-sources.js', arg: /^`\$\{folder\}\/\.credentials.json`$/, excluded: 'Client-owned optional OAuth credentials; missing, malformed or expired credentials select the bounded CLI fallback, never a foreground refusal.' },
   { file: 'src/config-ui/server.js', arg: /^join\(root, 'quota', accountFiles\(client, id\).reading\)$/, rule: 'quota/<client>.json (the manual reading)' },
+  { file: 'src/config-ui/state.js', arg: /^path.join\(root, 'quota', pollStateFile\(client, id\)\)$/, excluded: 'D145 account poller state, read only to show a fixed state label after login; no client output or credentials' },
   { file: 'src/config-ui/server.js', arg: /^Buffer.concat\(chunks\).toString\('utf8'\)$/, excluded: 'the authenticated HTTP JSON body, bounded to 64 KiB and refused with 422 on parse failure; configSetMany validates all configuration values before writing (test/config-ui-server.test.js)' },
   { file: 'adapters/claude-code/panel/panel.js', arg: /^stdout$/, excluded: 'stdout of the fixed read-only okit-plugin panel-state --json --client claude command; bounded before parsing and validated as schema 1, with failures rendered as messages (test/panel-mod.test.js)' },
   { file: 'src/spawn-process.js', arg: /^(join\(dirname\(runs\), 'config\.json'\)|configFile)$/, rule: CONFIG_JSON },

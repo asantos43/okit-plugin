@@ -2,14 +2,189 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import http from 'node:http';
 import net from 'node:net';
-import { mkdtemp, readFile, writeFile, readdir, rm, stat, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, readdir, rm, stat, mkdir, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
+import { spawn } from 'node:child_process';
 import { startConfigServer } from '../src/config-ui/server.js';
 import { configSet, configMtime, configSetMany, schemaEntries } from '../src/core/config.js';
 import { withAccountAdded, withAccountRemoved, withAccountRenamed } from '../src/accounts.js';
 import { localizeReason } from '../src/install/present.js';
+import { loginUrl, createAccountLogins } from '../src/accounts-login-launch.js';
+import { redact } from '../src/config-ui/state.js';
+
+const pause = () => new Promise(resolve => setTimeout(resolve, 15));
+async function until(read, predicate) {
+  for (let i = 0; i < 1000; i++) {
+    const result = await read();
+    if (predicate(result)) return result;
+    await pause();
+  }
+  assert.fail('Login did not reach the expected state.');
+}
+
+// | URL corpus | Must pass | Must refuse |
+// | Client output | HTTPS auth URL | HTTP, userinfo, token, encoded token, fragment, malformed |
+test('login URL parser returns only credential-free HTTPS URLs', () => {
+  assert.equal(loginUrl('noise https://example.test/auth?state=abc more', redact), 'https://example.test/auth?state=abc');
+  for (const value of ['http://example.test', 'https://a:b@example.test', 'https://example.test/?access_token=private',
+    'https://example.test/?value=sk-private', 'https://example.test/?value=sk%2Dprivate',
+    'https://example.test/#secret', 'https://%invalid', 'https://example.test/?code=abc123',
+    'https://example.test/?client_secret=abc', 'https://example.test/?password=abc']) assert.equal(loginUrl(value, redact), null, value);
+});
+
+test('login children never use a shell and a closed server leaves a started terminal alone', async () => {
+  const calls = [], killed = [];
+  const fake = (command, args, settings) => {
+    const child = new EventEmitter();
+    Object.assign(child, { pid: 4242, stdout: new EventEmitter(), stderr: new EventEmitter(), kill: signal => killed.push(signal), unref() {} });
+    calls.push({ command, args, settings, child });
+    return child;
+  };
+  const logins = createAccountLogins({ env: { PATH: '/bin' }, platform: 'linux', redact, spawn: fake,
+    fallback: async options => { options.spawn('xterm', ['-e', 'claude'], { detached: true }); return { launched: true }; } });
+  const account = { id: 'work', configDir: '/tmp/okit-work' };
+  logins.start({ client: 'claude-code', account, saved: true }, false);
+  logins.start({ client: 'codex', account, saved: true }, true);
+  assert.equal(logins.status('claude-code', 'work').state, 'starting');
+  await logins.launchTerminal({ client: 'claude-code', account, saved: true });
+  assert.deepEqual(calls.map(call => call.command), ['claude', 'codex', 'xterm']);
+  assert.deepEqual(calls.slice(0, 2).map(call => call.settings.shell), [false, false]);
+  calls[0].child.stdout.emit('data', Buffer.from('Open https://example.test/auth?state=abc to sign in\n'));
+  assert.equal(calls.at(-1).command, 'xdg-open');
+  assert.deepEqual(calls.at(-1).args, ['https://example.test/auth?state=abc']);
+  assert.equal(calls.at(-1).settings.shell, false);
+  const kills = [];
+  const original = process.kill;
+  process.kill = (pid, signal) => { kills.push([pid, signal]); return true; };
+  try { logins.close(); } finally { process.kill = original; }
+  assert.deepEqual(kills, [[-4242, 'SIGKILL'], [-4242, 'SIGKILL']]);
+});
+
+async function loginFixture(t, client, mode = 'success', options = {}) {
+  const home = await mkdtemp(join(tmpdir(), 'okit-login-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const bin = join(home, 'bin'), folder = join(home, 'account');
+  await mkdir(bin); await mkdir(folder);
+  const source = `#!${process.execPath}
+import fs from 'node:fs';
+const args = process.argv.slice(2);
+const dir = process.env.CLAUDE_CONFIG_DIR || process.env.CODEX_HOME;
+fs.appendFileSync(process.env.HOME + '/calls', JSON.stringify({ args, dir, pid: process.pid }) + '\\n');
+const marker = dir + '/' + (args[0] === 'auth' ? '.credentials.json' : 'auth.json');
+if (args.at(-1) === 'logout') { fs.rmSync(marker, { force: true }); process.exit(0); }
+console.error('Bearer sk-PRIVATE-CREDENTIAL http://unsafe.test');
+process.stdout.write('https://example.test/auth?sta');
+setTimeout(() => console.log('te=public'), 25);
+if (process.env.LOGIN_MODE === 'failure') process.exit(7);
+if (process.env.LOGIN_MODE === 'success') setTimeout(() => { fs.writeFileSync(marker, '{}'); process.exit(0); }, 500);
+else setInterval(() => {}, 1000);
+`;
+  for (const name of ['claude', 'codex', 'xdg-open']) {
+    const file = join(bin, name);
+    await writeFile(file, name === 'xdg-open' ? `#!${process.execPath}\nprocess.exit(0);\n` : source);
+    await chmod(file, 0o755);
+  }
+  const quotaCalls = [], spawns = [];
+  const session = await fixture(t, { env: { ...process.env, HOME: home, PATH: bin, LOGIN_MODE: mode,
+    CLAUDE_CONFIG_DIR: '', CODEX_HOME: '' }, quotaRead: async (...args) => { quotaCalls.push(args); },
+    loginSpawn: (...args) => { spawns.push(args); return spawn(...args); },
+    launchLogin: async () => ({ launched: false }), ...options });
+  await writeFile(join(session.root, 'config.json'), JSON.stringify({ accounts: {
+    [client]: [{ id: 'work', label: 'Work', configDir: folder }] } }));
+  const post = (route = '/api/account-login', headers = {}, extra = {}) => request(session, route,
+    { method: 'POST', headers, value: { client, id: 'work', ...extra } });
+  const status = () => post('/api/account-login/status');
+  const calls = async () => {
+    try { return (await readFile(join(home, 'calls'), 'utf8')).trim().split('\n').map(JSON.parse); }
+    catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+  };
+  return { ...session, post, status, calls, folder, quotaCalls, spawns };
+}
+
+test('in-page login, HTTPS URL, idempotent start, quota trigger and sign out for both clients', async t => {
+  for (const client of ['claude-code', 'codex']) {
+    const f = await loginFixture(t, client);
+    const first = await f.post(undefined, {}, { command: 'false', configDir: '/ignored' });
+    assert.equal(first.status, 200); assert.equal(first.json().state, 'starting');
+    const waiting = await until(f.status, r => r.json().url !== null);
+    assert.equal(waiting.json().url, 'https://example.test/auth?state=public');
+    assert.equal((await f.post()).json().state, 'waiting-for-browser');
+    const done = await until(f.status, r => r.json().state === 'logged-in');
+    for (const response of [first, waiting, done]) {
+      assert.doesNotMatch(response.text, /PRIVATE|Bearer|http:\/\/unsafe/);
+    }
+    assert.equal((await f.calls()).length, 1);
+    assert.deepEqual((await f.calls())[0].args, client === 'codex' ? ['login'] : ['auth', 'login']);
+    assert.equal((await f.calls())[0].dir, f.folder);
+    assert.equal(f.quotaCalls.length, 1);
+    assert.equal(f.quotaCalls[0][1], client); assert.equal(f.quotaCalls[0][2], 'work');
+    await mkdir(join(f.root, 'quota'), { recursive: true });
+    for (const code of ['no-reading', 'not-logged-in', 'token-expired', 'read-failed', 'ok']) {
+      await writeFile(join(f.root, 'quota', `${client}.work.state.json`), JSON.stringify({ state: code, reason: 'Bearer sk-PRIVATE' }));
+      const state = await request(f, '/api/state');
+      const account = state.json().accounts.find(a => a.client === client && a.id === 'work');
+      assert.equal(account.quota.state, code);
+      assert.doesNotMatch(state.text, /PRIVATE|Bearer/);
+    }
+    await f.post('/api/account-logout');
+    await until(f.status, r => r.json().state === 'logged-out');
+    const state = (await request(f, '/api/state')).json();
+    assert.equal(state.accounts.find(a => a.client === client && a.id === 'work').login, 'logged-out');
+    assert.deepEqual((await f.calls())[1].args, client === 'codex' ? ['logout'] : ['auth', 'logout']);
+  }
+});
+
+test('cancel, timeout, close and failure expose plain states and kill login processes', async t => {
+  for (const mode of ['cancel', 'timeout', 'close', 'failure']) {
+    const f = await loginFixture(t, 'codex', mode === 'failure' ? 'failure' : 'wait',
+      { loginTimeoutMs: mode === 'timeout' ? 3000 : 20000 });
+    await f.post();
+    const calls = await until(f.calls, rows => rows.length > 0);
+    if (mode === 'cancel') assert.equal((await f.post('/api/account-login/cancel')).json().state, 'cancelled');
+    else if (mode === 'close') await f.close();
+    else {
+      const result = await until(f.status, r => r.json().state === (mode === 'timeout' ? 'timed-out' : 'failed'));
+      assert.equal(result.json().reason, mode === 'timeout' ? 'Login timed out.' : 'Login failed. Use the command in a terminal.');
+      assert.doesNotMatch(result.text, /PRIVATE|Bearer/);
+    }
+    await until(async () => { try { process.kill(calls[0].pid, 0); return false; } catch { return true; } }, Boolean);
+  }
+});
+
+// | Authorization corpus | Must pass | Must refuse before spawn |
+// | Start/status/cancel/logout | loopback + page token | foreign Origin/Host, missing/wrong token |
+test('all login actions refuse foreign origin/host and absent or wrong tokens before spawn', async t => {
+  const f = await loginFixture(t, 'codex');
+  for (const route of ['/api/account-login', '/api/account-login/status', '/api/account-login/cancel', '/api/account-logout']) {
+    for (const headers of [{ origin: 'https://foreign.test' }, { host: 'foreign.test' },
+      { 'x-okit-token': null }, { 'x-okit-token': 'wrong' }]) {
+      assert.equal((await f.post(route, headers)).status, 403);
+    }
+  }
+  assert.deepEqual(await f.calls(), []);
+  assert.equal(f.spawns.length, 0);
+});
+
+test('default environment selection, unsafe folders and spawn failure stay bounded', async t => {
+  const env = { HOME: '/test/home', CODEX_HOME: '/inherited', PATH: '' }, calls = [];
+  const manager = createAccountLogins({ env, platform: 'linux', redact,
+    spawn: (...args) => { calls.push(args); throw new Error('Bearer sk-PRIVATE'); },
+    fallback: async () => ({ launched: false }) });
+  t.after(() => manager.close());
+  for (const saved of [false, true]) {
+    const result = manager.start({ client: 'codex', account: { id: 'default', configDir: null }, saved });
+    assert.equal(result.state, 'failed');
+    assert.equal(calls.at(-1)[2].env.CODEX_HOME, saved ? undefined : '/inherited');
+    assert.equal(calls.at(-1)[2].env.HOME, env.HOME);
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE|Bearer/);
+  }
+  for (const configDir of ['/bad;folder', '/bad\nfolder', '/bad$(command)', '/bad"folder']) {
+    assert.equal(manager.start({ client: 'codex', account: { id: 'bad', configDir } }).reason, 'Unsafe account folder.');
+  }
+  assert.equal(calls.length, 2);
+});
 
 async function filesOnly(root) {
   const entries = await readdir(root, { recursive: true, withFileTypes: true });
@@ -112,12 +287,14 @@ test('account login uses saved extra and default, ignoring request commands and 
   await writeFile(join(session.root, 'config.json'), JSON.stringify(saved));
   for (const id of ['work', 'default']) {
     const result = await request(session, '/api/account-login', { method: 'POST', value: {
-      client: 'codex', id, configDir: '/request/folder', command: 'bad command' } });
+      client: 'codex', id, configDir: '/request/folder', command: 'bad command', action: 'terminal' } });
     assert.equal(result.status, 200, result.text);
     assert.deepEqual(result.json(), { launched: true, terminal: 'injected', token: '[Redacted]' });
     const expectedAccount = { client: 'codex', id, label: id === 'work' ? 'Work' : 'default',
       configDir: id === 'work' ? '/saved/work' : null, isDefault: id === 'default', key: id === 'work' ? 'codex:work' : 'codex' };
-    assert.deepEqual(calls.at(-1), { client: 'codex', account: expectedAccount, saved: true, platform: 'darwin', env });
+    const { spawn, ...actual } = calls.at(-1);
+    assert.equal(typeof spawn, 'function');
+    assert.deepEqual(actual, { client: 'codex', account: expectedAccount, saved: true, platform: 'darwin', env });
     assert.strictEqual(calls.at(-1).env, env);
     assert.equal(calls.length, id === 'work' ? 1 : 2);
   }
@@ -138,7 +315,7 @@ test('injected Windows platform agrees across account add, state and login launc
   assert.equal(state.status, 200, state.text);
   assert.equal(state.json().accounts.find(account => account.id === 'work').loginCommand, command);
   const login = await request(session, '/api/account-login', { method: 'POST',
-    value: { client: 'codex', id: 'work' } });
+    value: { client: 'codex', id: 'work', action: 'terminal' } });
   assert.equal(login.status, 200, login.text);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].platform, 'win32');
@@ -148,7 +325,7 @@ test('injected Windows platform agrees across account add, state and login launc
 test('account login failure stays 200 and current saved config is checked on each request', async t => {
   const calls = [], result = { launched: false, reason: 'no-terminal' };
   const session = await fixture(t, { launchLogin: async input => { calls.push(input); return result; } });
-  const post = id => request(session, '/api/account-login', { method: 'POST', value: { client: 'claude-code', id } });
+  const post = id => request(session, '/api/account-login', { method: 'POST', value: { client: 'claude-code', id, action: 'terminal' } });
   assert.deepEqual((await post('default')).json(), result);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].saved, false);
@@ -290,8 +467,10 @@ test('account state uses install folders, saved default commands and unknown log
   const rows = response.json().accounts.filter(account => account.client === 'codex');
   assert.deepEqual(rows, [{ client: 'codex', id: 'default', label: 'default', configDir: null,
     collector: { state: 'not-needed', text: 'No status-bar collector needed' }, login: 'logged-in', loginCommand: process.platform === 'win32'
-      ? 'Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue; codex login' : 'env -u CODEX_HOME codex login' },
-  { client: 'codex', id: 'work', label: 'Work', configDir, collector: { state: 'not-needed', text: 'No status-bar collector needed' }, login: 'unknown', loginCommand: `CODEX_HOME=${configDir} codex login` }]);
+      ? 'Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue; codex login' : 'env -u CODEX_HOME codex login',
+    quota: { state: 'no-reading', reason: 'No reading yet.' } },
+  { client: 'codex', id: 'work', label: 'Work', configDir, collector: { state: 'not-needed', text: 'No status-bar collector needed' }, login: 'unknown', loginCommand: `CODEX_HOME=${configDir} codex login`,
+    quota: { state: 'no-reading', reason: 'No reading yet.' } }]);
   assert.doesNotMatch(response.text, /PRIVATE-CREDENTIAL/);
 });
 

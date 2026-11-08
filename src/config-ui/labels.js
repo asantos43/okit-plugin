@@ -17,6 +17,11 @@ export const labels = {
     loginUnknownTitle: 'Login may be kept somewhere the plugin does not read, such as the macOS Keychain.',
     accountRemove: 'Remove', accountConfirmRemove: 'Confirm remove', accountLoginCommand: 'Log in',
     accountCopy: 'Copy', accountCopied: 'Copied', accountCheck: 'Check login',
+    accountLogout: 'Sign out', accountCancelLogin: 'Cancel login',
+    loginStates: { starting: 'Starting', 'waiting-for-browser': 'Waiting for the browser',
+      'logged-in': 'Logged in', 'logged-out': 'Signed out', failed: 'Failed', cancelled: 'Cancelled', 'timed-out': 'Timed out' },
+    quotaStates: { ok: 'Reading received', 'not-logged-in': 'Not logged in',
+      'token-expired': 'Token expired', 'no-reading': 'No reading', 'read-failed': 'Read failed' },
     accountCopyFallback: 'Press Ctrl+C to copy',
     accountSaveFirst: 'Save or reset your other changes first: this action reloads the page.',
     accountTerminalOpenedClaude: 'A terminal window was opened for this account. Type /login there if it asks, then choose Check login.',
@@ -54,6 +59,11 @@ export const labels = {
     loginUnknownTitle: 'O login pode estar onde o plugin não lê, como nas Chaves do macOS.',
     accountRemove: 'Remover', accountConfirmRemove: 'Confirmar remoção', accountLoginCommand: 'Entrar',
     accountCopy: 'Copiar', accountCopied: 'Copiado', accountCheck: 'Verificar login',
+    accountLogout: 'Sair', accountCancelLogin: 'Cancelar login', // locale:pt-BR
+    loginStates: { starting: 'Iniciando', 'waiting-for-browser': 'Aguardando o navegador', // locale:pt-BR
+      'logged-in': 'Conectado', 'logged-out': 'Desconectado', failed: 'Falhou', cancelled: 'Cancelado', 'timed-out': 'Tempo esgotado' }, // locale:pt-BR
+    quotaStates: { ok: 'Leitura recebida', 'not-logged-in': 'Não conectado', // locale:pt-BR
+      'token-expired': 'Token vencido', 'no-reading': 'Sem leitura', 'read-failed': 'Falha na leitura' }, // locale:pt-BR
     accountCopyFallback: 'Pressione Ctrl+C para copiar',
     accountSaveFirst: 'Salve ou restaure suas outras alterações primeiro: esta ação recarrega a página.',
     accountTerminalOpenedClaude: 'Uma janela de terminal foi aberta para esta conta. Digite /login nela se solicitado e depois escolha Verificar login.',

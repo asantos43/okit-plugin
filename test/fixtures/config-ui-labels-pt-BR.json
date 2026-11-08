@@ -1,4 +1,7 @@
 {
+  "accountLogout": "Sair", "accountCancelLogin": "Cancelar login",
+  "loginStates": { "starting": "Iniciando", "waiting-for-browser": "Aguardando o navegador", "logged-in": "Conectado", "logged-out": "Desconectado", "failed": "Falhou", "cancelled": "Cancelado", "timed-out": "Tempo esgotado" },
+  "quotaStates": { "ok": "Leitura recebida", "not-logged-in": "Não conectado", "token-expired": "Token vencido", "no-reading": "Sem leitura", "read-failed": "Falha na leitura" },
   "title": "Configuração",
   "actors": "Atores",
   "settings": "Ajustes",

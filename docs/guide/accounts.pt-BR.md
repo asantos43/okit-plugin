@@ -15,8 +15,10 @@ A rotação exige mais que `accountPolicy.minQuotaPct` (20 por padrão) em **amb
 
 ## Gerenciar uma conta
 
+Na configuração web local, **Entrar** inicia o processo `claude auth login` ou `codex login` da própria conta, usando apenas a pasta salva. Siga o link HTTPS mostrado na linha e acompanhe o progresso. **Cancelar login** encerra o processo; **Sair** executa o logout da conta. Fechar o servidor encerra os processos pendentes. Um segundo clique reutiliza o login em andamento, com limite de cinco minutos. Se o navegador ou processo não abrir, use o terminal ou copie o comando. Nenhuma saída do cliente ou credencial é exibida. Após entrar, a página solicita uma leitura de cota e mostra o estado do poller: não conectado, token vencido, sem leitura ou falha na leitura.
+
 1. Adicione uma pasta distinta com caminho absoluto neste sistema e execute o comando impresso de login manual.
-2. Confira `account list`: o coletor passivo Claude é registrado automaticamente ao salvar a conta pelo CLI ou web. O login continua manual.
+2. Confira `account list`: o coletor passivo Claude é registrado automaticamente ao salvar a conta pelo CLI ou web. Conclua o login pelo fluxo web acima ou pelo comando impresso.
 3. Renomeie ou remova o registro conforme necessário; o id fica estável ao renomear.
 
 ```sh
@@ -33,7 +35,7 @@ Use um caminho absoluto. No Windows PowerShell, por exemplo: `okit-plugin accoun
 
 O login é manual. Se o terminal abrir sem iniciar o login, use Copiar e execute o comando manualmente. Siga o comando impresso: `CLAUDE_CONFIG_DIR=/caminho/absoluto/claude-trabalho claude` ou `CODEX_HOME=/caminho/absoluto/codex-trabalho codex`. No PowerShell: `$env:CODEX_HOME='C:\Contas\Trabalho'; codex` (Claude usa `CLAUDE_CONFIG_DIR` e `claude`). Cada aspa de uma pasta impressa para o PowerShell é dobrada, então uma pasta cujo nome tem uma aspa (`C:\Users\O'Brien\acc`) continua sendo uma só string. `logged-in` indica que existe um marcador local; não verifica acesso. O login da conta default é lido na pasta que o cliente usa sem sobrescrita, a que seus ajustes de instalação nomeiam. A detecção de login não abre credenciais; a consulta ativa lê apenas token e validade conforme descrito acima. macOS Keychain e armazenamento por keyring do Codex aparecem como `unknown`.
 
-Para contas Claude extras salvas, add pelo CLI/web, install e update registram automaticamente o coletor passivo da barra de status. `doctor --fix` repara um coletor ausente. Comandos existentes são preservados com `--previous` e backup exato; o registro nunca abre arquivos de credenciais. A conta default mantém seu fluxo atual. Uma falha não impede adicionar a conta: informa Não registrado com um motivo simples. O login continua manual. Codex não precisa de coletor na barra de status.
+Para contas Claude extras salvas, add pelo CLI/web, install e update registram automaticamente o coletor passivo da barra de status. `doctor --fix` repara um coletor ausente. Comandos existentes são preservados com `--previous` e backup exato; o registro nunca abre arquivos de credenciais. A conta default mantém seu fluxo atual. Uma falha não impede adicionar a conta: informa Não registrado com um motivo simples. O login exige sua confirmação no fluxo do navegador do cliente. Codex não precisa de coletor na barra de status.
 
 A configuração web e o painel mostram Registrado quando o `settings.json` da pasta invoca o coletor, com Aguardando primeira leitura até existir o arquivo de leitura passiva, depois Leitura recebida. Não registrado indica comando ausente ou ilegível. Leituras do poller ativo não contam como leitura passiva.
 

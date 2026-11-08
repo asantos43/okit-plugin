@@ -7,6 +7,8 @@ import { readiness, readyLine } from '../env/ready.js';
 import path from 'node:path';
 import { homeOf } from '../install/config.js';
 import { collectorState } from '../quota/collector-registration.js';
+import { readJson } from '../state.js';
+import { pollStateFile } from '../quota/active-poller.js';
 
 const SECRET = /(?:password|passwd|secret|credential|authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|private[-_]?key)/i;
 const CONTENT = /(?:\b(?:Bearer|Basic)\s+\S+|\bsk-[\w-]+|-----BEGIN .*PRIVATE KEY|https?:\/\/[^\s/]+:[^\s/]+@|(?:password|secret|token|api[-_]?key)\s*[=:]\s*\S+)/i;
@@ -31,6 +33,14 @@ export async function describeAccount(account, config, context = {}) {
       { saved: Object.hasOwn(config.accounts ?? {}, account.client) }) };
 }
 
+export async function accountQuota(root, client, id) {
+  const state = await readJson(path.join(root, 'quota', pollStateFile(client, id)), null);
+  const reasons = { ok: 'Reading received', 'not-logged-in': 'Account is not logged in.',
+    'token-expired': 'Token expired.', 'no-reading': 'No reading yet.', 'read-failed': 'Quota read failed.' };
+  const code = Object.hasOwn(reasons, state?.state) ? state.state : 'no-reading';
+  return { state: code, reason: reasons[code] };
+}
+
 export function buildState({ raw = {}, observations = [], snapshot, locale = 'en', expectedMtime = null,
   accountStates = [], platform = process.platform, env = process.env } = {}) {
   const config = configOf(raw);
@@ -48,6 +58,7 @@ export function buildState({ raw = {}, observations = [], snapshot, locale = 'en
     ? accountsOf(config, client).map((account) => ({ client, id: account.id, label: redact(account.label),
       configDir: account.configDir,
       login: accountStates.find((entry) => entry.client === client && entry.id === account.id)?.login ?? 'unknown',
+      ...((entry => entry?.quota ? { quota: entry.quota } : {})(accountStates.find((entry) => entry.client === client && entry.id === account.id))),
       ...((entry => entry?.collector ? { collector: entry.collector } : {})(accountStates.find((entry) => entry.client === client && entry.id === account.id))),
       loginCommand: loginCommand(client, account, platform, { saved: Object.hasOwn(config.accounts ?? {}, client) }) })) : []);
   const actors = Object.keys(config.profiles).flatMap((client) => {
