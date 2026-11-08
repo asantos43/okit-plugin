@@ -1,0 +1,1 @@
+Refuse concurrent live runs of the same demand or resolved working folder under the slot lock, honor inbox ownership, and allow only same-owner force with telemetry while preserving guard metadata through process launch and relinking.

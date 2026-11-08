@@ -16,7 +16,7 @@ O servidor expõe 30 ferramentas. Entradas são objetos JSON; ? indica campo opc
 | `trajectory_show` | Lê execução salva passo a passo, com ferramentas que falharam e tokens | run | lê somente arquivos locais |
 | `telemetry_status` | Consulta medições opcionais; consentimento, pasta, tamanho, última exportação | {} | leitura |
 | `telemetry_export` | Exporta medições salvas a partir de uma data opcional | since? | grava recibo; envia somente contagens se ativado separadamente |
-| `acquire_slot` | Reserva vaga; resultado ou recusa pelo limite | runId, client, account?, waitMs? | escrita |
+| `acquire_slot` | Reserva vaga; resultado ou recusa por limite ou demanda/pasta ativa | runId, client, account?, waitMs?, demand?, cwd?, owner?, force? | escrita |
 | `release_slot` | Libera vaga; resultado da liberação | runId | escrita |
 | `limits_status` | Consulta limites; limites por cliente e execuções ativas | client?, account? | leitura |
 | `status` | Consulta cota; linhas, markdown, capacityLine e showBefore opcional | locale?, all?, client?, size?, slices?, executors? | leitura |

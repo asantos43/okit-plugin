@@ -1,7 +1,8 @@
 // Concurrency cap over runs/<runId>.json. The core counts its own live runs
 // instead of trusting the client to hold the cap.
-import { readdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readdir, realpath, rm } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { sameHolder } from './holder.js';
 import { requireAccount, requireBareClient, accountsOf, accountKey } from './accounts.js';
 import { accountEnv } from './accounts.js';
 import { credentialInEnv, loginState } from './accounts-login.js';
@@ -147,10 +148,19 @@ export async function canSpawn(root, { client, account, config } = {}) {
  *
  * @param {string} root state root
  * @param {string} runId
- * @param {{client: string, account?: string, config?: object, waitMs?: number}} input
+ * @param {{client: string, account?: string, config?: object, waitMs?: number,
+ * demand?: string, cwd?: string, owner?: {client: string, session?: string, worktree?: string}, force?: boolean}} input
  * @returns {Promise<{ok: boolean, reason?: string, runId?: string, client?: string, global?: number, perClient?: number}>}
  */
-export async function acquireSlot(root, runId, { client, account, config, waitMs = 0, prepare } = {}) {
+export async function acquireSlot(root, runId, { client, account, config, waitMs = 0, prepare,
+  demand, cwd, owner, force = false } = {}) {
+  if (cwd !== undefined) {
+    try { cwd = await realpath(cwd); }
+    catch (error) {
+      if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error;
+      cwd = resolve(cwd);
+    }
+  }
   const deadline = Date.now() + Math.max(0, waitMs);
 
   for (;;) {
@@ -159,19 +169,39 @@ export async function acquireSlot(root, runId, { client, account, config, waitMs
       const settings = await settingsOf(root, config);
       const { limits } = settings;
       const runs = await readRunRecords(root);
+      const now = Date.now();
+      const liveRuns = runs.filter((run) => isLive(run, settings.staleMinutes * 60_000, now));
+      const conflicts = liveRuns.filter((run) => (demand !== undefined && run.demand === demand)
+        || (cwd !== undefined && run.cwd === cwd));
+      for (const run of conflicts) {
+        if (force && run.owner && owner && sameHolder(run.owner, owner)) continue;
+        const conflict = { runId: run.runId, client: run.client, account: run.account,
+          ageMinutes: typeof run.startedAt === 'number' ? Math.max(0, Math.floor((now - run.startedAt) / 60_000)) : null,
+          demand: run.demand, cwd: run.cwd };
+        return { ok: false, conflict,
+          reason: `Run ${run.runId} (${run.client}, account ${run.account ?? 'default'}, age ${conflict.ageMinutes ?? 'unknown'} minutes) already uses this demand or folder; wait, release it, or force by the same owner.` };
+      }
       const prepared = await prepare?.({ runs, settings });
       if (prepared?.ok === false) return prepared;
       account = prepared?.account ?? account;
       const identity = account === undefined || account === 'default' ? {} : { account };
       const key = account === undefined ? requireBareClient(client) : requireAccount(settings, client, account).key;
-      const live = tally(runs.filter((run) => isLive(run, settings.staleMinutes * 60_000, Date.now())), settings);
+      const live = tally(liveRuns, settings);
       const counts = { global: live.global, perClient: live.byClient[key] ?? 0 };
       const room = checkCaps(counts, limits, client);
       if (!room.ok) return room;
       await writeJsonAtomic(runFile(root, runId), {
         runId, client, ...identity, status: 'live', startedAt: Date.now(),
+        ...demand !== undefined ? { demand } : {},
+        ...cwd !== undefined ? { cwd } : {},
+        ...owner !== undefined ? { owner } : {},
         ...prepared?.accountReason ? { chosenAccount: account, accountReason: prepared.accountReason } : {},
       });
+      // Loaded here, on the rare forced path only: the installer imports this module and must not pull measurements in.
+      if (conflicts.length) {
+        const { record: telemetryRecord } = await import('./telemetry/index.js');
+        for (const run of conflicts) await telemetryRecord(root, 'run.forced', { runId, conflictingRunId: run.runId });
+      }
       return { ok: true, runId, client, ...identity };
     });
 

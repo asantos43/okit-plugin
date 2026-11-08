@@ -1,28 +1,4 @@
 {
-  "config_ui_open": {
-    "description": "Opens or reuses the session configuration page; returns its private URL, idleMinutes and reused.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "locale": {
-          "type": "string",
-          "enum": [
-            "en",
-            "pt-BR"
-          ],
-          "default": "en",
-          "description": "Language; language (en) when omitted."
-        },
-        "open": {
-          "type": "boolean",
-          "default": true,
-          "description": "Ask the OS to open the browser; false only returns the URL."
-        }
-      },
-      "required": [],
-      "additionalProperties": false
-    }
-  },
   "trajectory_show": {
     "description": "Read a saved run step by step on this computer.",
     "inputSchema": {
@@ -112,6 +88,30 @@
           "type": "string"
         }
       },
+      "additionalProperties": false
+    }
+  },
+  "config_ui_open": {
+    "description": "Opens or reuses the session configuration page; returns its private URL, idleMinutes and reused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "locale": {
+          "type": "string",
+          "enum": [
+            "en",
+            "pt-BR"
+          ],
+          "default": "en",
+          "description": "Language; language (en) when omitted."
+        },
+        "open": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask the OS to open the browser; false only returns the URL."
+        }
+      },
+      "required": [],
       "additionalProperties": false
     }
   },
@@ -504,6 +504,36 @@
         "runId": {
           "type": "string",
           "description": "Run owning the slot."
+        },
+        "demand": {
+          "type": "string",
+          "description": "Demand id guarded against another live run."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Working folder; resolved before reserving the slot."
+        },
+        "owner": {
+          "type": "object",
+          "properties": {
+            "client": {
+              "type": "string"
+            },
+            "session": {
+              "type": "string"
+            },
+            "worktree": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "client"
+          ],
+          "additionalProperties": false
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Allow a conflict only for the same recorded owner; caps still apply."
         },
         "client": {
           "type": "string",

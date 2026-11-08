@@ -90,6 +90,28 @@
             "type": "string",
             "description": "Run owning the slot."
           },
+          "demand": {
+            "type": "string",
+            "description": "Demand id guarded against another live run."
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Working folder; resolved before reserving the slot."
+          },
+          "owner": {
+            "type": "object",
+            "properties": {
+              "client": { "type": "string" },
+              "session": { "type": "string" },
+              "worktree": { "type": "string" }
+            },
+            "required": ["client"],
+            "additionalProperties": false
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Allow a conflict only for the same recorded owner; caps still apply."
+          },
           "client": {
             "type": "string",
             "description": "Client the run belongs to."

@@ -18,7 +18,7 @@ client is a configured client; class is simple, normal or hard. Each field defau
 | Key pattern | Effect |
 | :- | :- |
 | `language` | Language used when omitted by a command or tool; default `en`, also accepts `pt-BR`. |
-| `limits.global` | Default number of executors allowed at once for each client. |
+| `limits.global` | Default number of executors allowed at once for each client. `acquire_slot` also refuses a live run of the same demand or resolved working folder (stale runs do not block): optional `demand`, `cwd`, `owner` and `force`; `force` needs the same recorded owner, obeys caps and records `run.forced` telemetry; older records without these fields never conflict. |
 | `todo.enabled` | false; enable task synchronization only for intended projects. |
 | `todo.file` | TODO.md; existing task file, inside the declared root. |
 | `todo.areaDir` | Empty; optional directory of Markdown area files. |

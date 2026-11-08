@@ -5,6 +5,7 @@ import { inScope, validateAppliesTo, validateAppliesToFilter } from './applies.j
 import { readJson, withLock, writeJsonAtomic } from './state.js';
 import { paths } from './store.js';
 import { configOf } from './profiles.js';
+import { sameHolder } from './holder.js';
 import { record } from './telemetry/index.js';
 import { todoHook, validateTodoLink } from './todo/index.js';
 
@@ -33,7 +34,7 @@ export function holdIsStale(hold, config, now = Date.now()) {
   return Boolean(hold) && now - Date.parse(hold.takenAt) > configOf(config).inbox.holdStaleMinutes * 60_000;
 }
 
-const sameHolder = (a, b) => a?.client === b?.client && a?.session === b?.session;
+export { sameHolder };
 const heldMessage = (item) => `${item.id} held by ${item.hold.client} (${item.hold.worktree ?? '-'}) since ${item.hold.takenAt}`;
 
 function clearHold(item, reason) {

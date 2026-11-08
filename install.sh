@@ -535,6 +535,8 @@ const REASONS = [
   [/^That account is not registered\.$/, 'Essa conta não está registrada.', 'That account is not registered.'],
   [/^--purge requires no remaining accounts$/, '--purge exige que não reste nenhuma conta registrada', '--purge requires no remaining accounts'],
   // The state files (src/state.js, src/limits.js): the path and what the system said stay as they are.
+  [/^Run (.+) \((.+), account (.+), age (.+) minutes\) already uses this demand or folder; wait, release it, or force by the same owner\.$/, 'A execução $1 ($2, conta $3, idade $4 minutos) já usa esta demanda ou pasta; aguarde, libere-a ou use force com o mesmo dono.', 'Run r1 (codex, account default, age 2 minutes) already uses this demand or folder; wait, release it, or force by the same owner.'], // locale:pt-BR
+  [/^the demand is held by another owner$/, 'a demanda está em posse de outro dono', 'the demand is held by another owner'], // locale:pt-BR
   [/^Cannot read (.+?): ([^]*)$/, 'Não foi possível ler $1: $2', 'Cannot read /state/config.json: unreadable'],
   [/^Invalid JSON in (.+)$/, 'JSON inválido em $1', 'Invalid JSON in /state/config.json'],
   [/^Settings could not be read\. Inspect them: MCP config_get \{\}$/, 'Não foi possível ler os ajustes. Confira: MCP config_get {}', 'Settings could not be read. Inspect them: MCP config_get {}'],

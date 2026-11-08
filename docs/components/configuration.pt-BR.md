@@ -18,7 +18,7 @@ client é um cliente configurado; class é simple, normal ou hard. O padrão de 
 | Padrão de chave | Efeito |
 | :- | :- |
 | `language` | Idioma usado quando omitido no comando ou ferramenta; padrão `en`, também aceita `pt-BR`. |
-| `limits.global` | Número padrão de executores permitidos ao mesmo tempo em cada cliente. |
+| `limits.global` | Número padrão de executores permitidos ao mesmo tempo em cada cliente. `acquire_slot` também recusa uma execução ativa da mesma demanda ou pasta de trabalho resolvida (obsoletas não bloqueiam): `demand`, `cwd`, `owner` e `force` opcionais; `force` exige o mesmo dono registrado, respeita os limites e registra telemetria `run.forced`; registros antigos sem esses campos nunca conflitam. |
 | `todo.enabled` | false; habilite a sincronização apenas nos projetos desejados. |
 | `todo.file` | TODO.md; arquivo existente dentro da raiz declarada. |
 | `todo.areaDir` | Vazio; diretório opcional de arquivos Markdown por área. |

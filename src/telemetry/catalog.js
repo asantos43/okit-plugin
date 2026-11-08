@@ -6,6 +6,7 @@ export const CATALOG = Object.freeze({
   'smoke.report': ['pass', 'partial', 'refused', 'failed'],
   'quota.check': ['green', 'yellow', 'red', 'off', 'unknown'],
   'daemon.tick': ['running', 'stopped', 'paused'],
+  'run.forced': [],
 });
 export const privateField = key => !['count', 'durationMs', 'state', 'client', 'account', 'reason', 'model', 'effort', 'role'].includes(key);
 export const projectHash = project => createHash('sha256').update(String(project)).digest('hex');
@@ -15,6 +16,10 @@ export function redact(event, fields = {}) {
   if (!Object.hasOwn(CATALOG, event)) return null;
   const safe = {};
   for (const [key, value] of Object.entries(fields)) {
+    if (event === 'run.forced' && ['runId', 'conflictingRunId'].includes(key)) {
+      if (typeof value === 'string' && /^[a-zA-Z0-9_.:+-]+$/.test(value) && !value.includes('..')) safe[key] = value;
+      continue;
+    }
     if (privateField(key)) continue;
     if (key === 'account' && (value === 'default' && event !== 'quota.check'
       || typeof value !== 'string' || !/^[a-z0-9-]{1,32}$/.test(value))) continue;
