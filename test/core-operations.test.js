@@ -40,6 +40,27 @@ const deps = (extra = {}) => ({
   ...extra,
 });
 
+test('D137 profile choice defaults to caller and foreign choices are informational', async (t) => {
+  const root = await tempRoot(t);
+  const ctx = deps({ client: 'claude-code' });
+  const local = await run('profile_pick', root, { effort: 'simple' }, ctx);
+  assert.equal(local.model, 'haiku');
+  assert.equal(local.informational, undefined);
+  const foreign = await run('profile_pick', root, { client: 'codex', effort: 'simple' }, ctx);
+  assert.equal(foreign.informational, true);
+  assert.match(foreign.note, /not launchable from this session/);
+  const translated = await run('profile_pick', root, { client: 'codex', effort: 'simple' },
+    { ...ctx, config: { language: 'pt-BR' } });
+  assert.match(translated.note, /Outros clientes: informativos/); // locale:pt-BR
+  await assert.rejects(run('profile_pick', root, { effort: 'simple' }, deps()), /client/);
+  await run('acquire_slot', root, { runId: 'local', client: 'claude-code' }, ctx);
+  await run('acquire_slot', root, { runId: 'foreign', client: 'codex' }, ctx);
+  const limits = await run('limits_status', root, {}, ctx);
+  assert.equal(limits.scope, 'shared across clients');
+  assert.equal(limits.live, 2);
+  assert.deepEqual(limits.byClient, { 'claude-code': 1, codex: 1 });
+});
+
 // The tools that came from the table of the server and kept the description
 // they always had: the one in English alone.
 const MOVED = [

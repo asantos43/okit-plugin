@@ -7,7 +7,7 @@ import { configOf } from './profiles.js';
 import { CLIENTS } from './spawn-process.js';
 import { environmentSnapshot } from './env/snapshot.js';
 import { accountRows, accountName, shownWarnings, warningText } from './env/account-rows.js';
-import { labelsOf, clientsOf, rowOf, readingOf } from './env/quota.js';
+import { labelsOf, clientsOf, rowOf, readingOf, callingClient, isolationNotes } from './env/quota.js';
 export { CLIENT_ENV_MARKERS, detectClient, LABELS, labelsOf, ageOf, quotaOrigin, clientsOf, adapterQuotaReader } from './env/quota.js';
 import { projectName, withDemandRef } from './demand-ref.js';
 import { inboxList, holdText } from './inbox.js';
@@ -29,6 +29,13 @@ function markdownOf(columns, rows) {
     line(columns.map(() => '---')),
     ...rows.map((row) => line(row.cells)),
   ].join('\n');
+}
+
+function informationalRow(row) {
+  const actors = (values) => values?.map(({ canLaunch: _launch, ...actor }) => ({ ...actor, informational: true }));
+  return { ...row, informational: true, actors: actors(row.actors), candidates: actors(row.candidates),
+    ...(row.sizeCoverage ? { sizeCoverage: { ...row.sizeCoverage, launchable: [] } } : {}),
+    ...(row.accounts ? { accounts: row.accounts.map(informationalRow) } : {}) };
 }
 
 /**
@@ -55,7 +62,7 @@ export async function statusTable(root, deps = {}) {
   }
   if (deps.all !== undefined && typeof deps.all !== 'boolean') throw new TypeError('all must be a boolean');
   const snapshot = await environmentSnapshot({ ...deps, root, config, view: 'selected' });
-  const detected = snapshot.inUse;
+  const detected = callingClient(deps) ?? snapshot.inUse;
   const selected = deps.client ?? (deps.all ? null : detected);
   const clients = selected ? [selected] : (deps.clients ?? clientsOf(config));
   const note = !selected && !deps.all ? `\n\n${labels.unknownClient}` : '';
@@ -69,7 +76,11 @@ export async function statusTable(root, deps = {}) {
     ...rowOf(row.client, readingOf(row.reading), row.quotaReadAt, snapshot.config,
       labels, snapshot.now, deps.orders, { client: row.client, account: row.account, display: accountName(row) }),
     ...(row.account ? { account: row.account } : {}),
-    models: row.models, actors: row.actors, slots: row.slots,
+    models: row.models, actors: (row.actors ?? []).map((actor) => {
+      if (!detected || row.client === detected) return actor;
+      const { canLaunch: _launch, ...informational } = actor;
+      return { ...informational, informational: true };
+    }), slots: row.slots,
     ...(row.installed === false ? { cells: [accountName(row), '-', '-', '-', labels.optional, '-'] } : {}) }));
   const capacity = observations.filter((row) => row.installed !== false).map((row) => labels.cap(accountName(row),
     row.slotEvidence.running, row.slots.total, labels.capSource[row.slotEvidence.source], row.slots.available)).join('; ');
@@ -82,11 +93,18 @@ export async function statusTable(root, deps = {}) {
     demands.map((item) => ({ cells: [item.ref, item.status, item.title, holdText(item, config, deps.locale, now())] })),
   )}`;
   return {
-    markdown: markdownOf(labels.columns, rows) + demandTable + note + `\n\n${labels.views}`
+    markdown: markdownOf(labels.columns, rows.filter((row) => !detected || row.client === detected))
+      + (detected && rows.some((row) => row.client !== detected)
+        ? `\n\n${isolationNotes(deps.locale).other}\n${markdownOf(labels.columns, rows.filter((row) => row.client !== detected))}` : '')
+      + demandTable + note + `\n\n${labels.views}`
       + (remedies.length ? `\n\n${remedies.join('\n')}` : ''),
-    capacityLine: [labels.capacity(capacity, floor), ...warnings].join('\n'),
+    capacityLine: [labels.capacity(capacity, floor), isolationNotes(deps.locale).shared, ...warnings].join('\n'),
     rows,
-    snapshot,
+    snapshot: detected ? { ...snapshot,
+      clients: snapshot.clients.filter((row) => clients.includes(row.client))
+        .map((row) => row.client === detected ? row : informationalRow(row)),
+      accountChoices: snapshot.accountChoices?.filter((choice) => clients.includes(choice.client)),
+    } : snapshot,
     missing: snapshot.plugin.missing,
     demands,
   };

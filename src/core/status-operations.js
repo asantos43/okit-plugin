@@ -18,6 +18,7 @@ import { quotaReleasedNotice } from '../quota/released.js';
 import { CLIENTS } from '../spawn-process.js';
 import { adapterQuotaReader, clientsOf, shouldShowStatus, statusTable } from '../status.js';
 import { configOf } from './context.js';
+import { callingClient } from '../env/quota.js';
 import {
   argsOf, fail, optionalChoice, optionalCount, optionalText,
 } from './tool-arguments.js';
@@ -40,6 +41,7 @@ export async function statusOperation(root, args, deps) {
     config,
     env,
     all: a.all,
+    sessionClient: callingClient(ctx),
     client: optionalChoice('status', a, 'client', CLIENTS),
     clients: clientsOf(config),
     readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: root, env, now: ctx.now, config }),
@@ -77,6 +79,7 @@ export async function actorsListOperation(root, args, deps) {
   const config = await configOf(deps, root);
   const env = ctx.env ?? process.env;
   return listActors({ ...ctx, root, config, env, all: a.all,
+    sessionClient: callingClient(ctx),
     client: optionalChoice('actors_list', a, 'client', CLIENTS),
     locale: optionalChoice('actors_list', a, 'locale', LOCALES, config),
     readQuota: ctx.readQuota ?? adapterQuotaReader({ stateRoot: root, env, now: ctx.now, config }),

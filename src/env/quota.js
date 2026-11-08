@@ -18,9 +18,24 @@ export const CLIENT_ENV_MARKERS = {
 
 /** Session markers only: a configured home does not mean a client is running. */
 export function detectClient(env = {}) {
+  if (CLIENTS.includes(env.OKIT_CLIENT)) return env.OKIT_CLIENT;
   return Object.entries(CLIENT_ENV_MARKERS).find(([, markers]) => markers.some((name) => (
     typeof env[name] === 'string' && env[name].trim() !== '' && env[name] !== '0'
   )))?.[0] ?? null;
+}
+
+export function callingClient(deps = {}) {
+  return deps.sessionClient ?? detectClient(deps.env ?? {}) ?? deps.snapshot?.inUse
+    ?? (CLIENTS.includes(deps.client) ? deps.client : null)
+    ?? (deps.env === undefined ? detectClient(process.env) : null);
+}
+
+export function isolationNotes(locale) {
+  return locale === 'pt-BR' ? { // locale:pt-BR
+    other: 'Outros clientes: informativos, não podem ser iniciados nesta sessão.', // locale:pt-BR
+    shared: 'Slots e limites compartilhados entre clientes.', // locale:pt-BR
+  } : { other: 'Other clients: informational, not launchable from this session.',
+    shared: 'Slots and caps are shared across clients.' };
 }
 
 /** A finite number, or `null`. `NaN` is not a reading and never becomes a zero. */

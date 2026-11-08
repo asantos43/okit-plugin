@@ -8,17 +8,26 @@ import { loadScenario, validateScenario } from './scenario.js';
 import { resolveLimits } from './budget.js';
 import { classify } from '../../classify.js';
 import { runDemo } from './index.js';
+import { callingClient } from '../../env/quota.js';
 
 const canonical = (value) => JSON.stringify(value, (_, item) => item && typeof item === 'object'
   && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]])) : item);
 
 export async function smokeDemo(args = {}, deps = {}) {
   const locale = args.locale ?? 'en', pt = locale === 'pt-BR';
+  const caller = callingClient(deps);
+  if (caller && args.client && args.client !== caller) {
+    const text = pt
+      ? `Esta sessão só executa smoke_demo em ${caller}. Execute em uma sessão própria de ${args.client}.` // locale:pt-BR
+      : `This session runs smoke_demo on ${caller} only. Run it from ${args.client}'s own session.`;
+    return { status: 'refused', exitCode: 2, confirmed: false, reasons: [text], text };
+  }
+  const selectedClient = args.client ?? caller ?? undefined;
   const config = configOf(deps.snapshot?.config ?? deps.config);
-  const snapshot = await environmentSnapshot({ ...deps, config, client: args.client, view: 'selected',
+  const snapshot = await environmentSnapshot({ ...deps, config, client: selectedClient, view: 'selected',
     readQuota: deps.readQuota ?? adapterQuotaReader({ stateRoot: deps.root, env: deps.env, now: deps.now, config }),
     limits: deps.limits ?? (deps.snapshot ? undefined : await limitsStatus(deps.root, config)) });
-  const client = args.client ?? snapshot.inUse;
+  const client = selectedClient ?? snapshot.inUse;
   const scenario = validateScenario(deps.scenario ?? await loadScenario());
   const limits = resolveLimits(config.smoke, scenario.demands.length);
   const preflight = smokePreflight(snapshot, client, limits);
@@ -96,6 +105,6 @@ export async function smokeDemoCommand(flags, deps) {
   }
   const result = await smokeDemo(args, deps);
   deps.out(json ? JSON.stringify(result) : result.text);
-  if (!json && args.dryRun) deps.out(`--confirm ${result.planHash}`);
+  if (!json && args.dryRun && result.planHash) deps.out(`--confirm ${result.planHash}`);
   return result.exitCode;
 }

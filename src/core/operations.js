@@ -330,7 +330,7 @@ export const OPERATIONS = [
   {
     name: 'limits_status',
     description: {
-      en: 'Reports caps and live runs by account. Optional client/account select one; live sums all runs.',
+      en: 'Reports caps and live runs shared across clients by account. Optional client/account select one; live sums all runs.',
     },
     schema: { type: 'object', properties: {
       client: { type: 'string', description: 'Client.' },
@@ -421,8 +421,8 @@ export const OPERATIONS = [
   {
     name: 'profile_pick',
     description: {
-      en: 'Chooses an assistant for the work, using built-in choices before setup. Low allowance selects a lighter choice.',
-      'pt-BR': 'Escolhe um assistente para o trabalho, usando as escolhas incluídas antes da configuração. Com pouca cota, usa uma escolha mais leve.',
+      en: 'Chooses an assistant for the calling client by default. Other clients are informational, not launchable from this session. Low allowance selects a lighter choice.',
+      'pt-BR': 'Escolhe um assistente do cliente desta sessão por padrão. Outros clientes são informativos, sem execução nesta sessão. Com pouca cota, usa uma escolha mais leve.',
     },
     schema: {
       type: 'object',
@@ -445,7 +445,7 @@ export const OPERATIONS = [
           ],
         },
       },
-      required: ['client', 'effort'],
+      required: ['effort'],
       additionalProperties: false,
     },
     handler: (root, args, deps) => profilePickOperation(root, args, deps),

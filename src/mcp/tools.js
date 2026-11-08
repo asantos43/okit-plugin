@@ -14,6 +14,7 @@ import {
 import { LOCALES } from '../profiles.js';
 import { CLIENTS } from '../spawn-process.js';
 import { stateRoot } from '../store.js';
+import { detectClient } from '../env/quota.js';
 import { todoRun } from '../todo/index.js';
 import { status as telemetryStatus, exportTelemetry } from '../telemetry/index.js';
 import { toolsFromRegistry } from './registry-tools.js';
@@ -30,7 +31,8 @@ export { loadConfig };
  * temporary folder.
  */
 export function makeContext(root) {
-  return { root: root === undefined ? stateRoot() : stateRoot({ [HOME_ENV]: root }) };
+  return { root: root === undefined ? stateRoot() : stateRoot({ [HOME_ENV]: root }),
+    sessionClient: detectClient(process.env) };
 }
 
 // A tool answers with the JSON of what the core returned, so a refusal
@@ -39,9 +41,14 @@ const reply = (value) => JSON.stringify(value);
 
 // The order of the table is the order `tools/list` reports, and the names are
 // what the rest of the plugin calls.
+export const SMOKE_DEMO_DESCRIPTIONS = {
+  en: 'Preview practice work on the calling client only and confirm its allowance ceiling.',
+  'pt-BR': 'Prepara trabalhos de demonstração somente no cliente desta sessão e confirma o teto de cota.',
+};
+
 const smokeDemoTool = {
   name: 'smoke_demo',
-  description: 'Preview practice work and confirm its allowance ceiling.',
+  description: SMOKE_DEMO_DESCRIPTIONS.en,
   inputSchema: { type: 'object', properties: {
     dryRun: { type: 'boolean' }, client: { type: 'string', enum: CLIENTS },
     locale: LOCALE_SCHEMA, confirm: { type: 'string' },

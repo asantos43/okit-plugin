@@ -19,7 +19,7 @@ const UPDATE = process.env.GOLDEN_UPDATE === '1';
 // Account choices retain their D121 shape, and MCP envelopes stay unchanged.
 const DISPLAY_SHAPES = {
   status: '89ef72f99e73cb7663d0814bc04ea9abb94265b6ce3c216a8483095f303acb50',
-  actors_list: '04260e09cd5efb227b48567b76770623525e43a7da1ab58571a40f54c6bc0f12',
+  actors_list: '5090ada5aa54f0a15deb0433f70151c15297a0c53abb4da755a652e70f6d2529',
 };
 function jsonShape(value) {
   if (value === null) return 'null';

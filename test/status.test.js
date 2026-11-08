@@ -91,8 +91,8 @@ for (const locale of ['en', 'pt-BR']) test(`capacity has an explicit empty state
   t.after(() => server.stop());
   const data = server.data(await server.call('status', { locale }));
   assert.equal(data.capacityLine, locale === 'en'
-    ? 'No coding client was found.\nMinimum quota to launch: 15%.'
-    : 'Nenhum cliente de programação foi encontrado.\nCota mínima para iniciar: 15%.'); // locale:pt-BR
+    ? 'No coding client was found.\nMinimum quota to launch: 15%.\nSlots and caps are shared across clients.'
+    : 'Nenhum cliente de programação foi encontrado.\nCota mínima para iniciar: 15%.\nSlots e limites compartilhados entre clientes.'); // locale:pt-BR
   assert.doesNotMatch(data.capacityLine, /:\s*;/);
   assert.match(data.markdown, locale === 'en'
     ? /A slot allows one executor to run at a time\.\nAn actor is a model and its reasoning effort/
@@ -375,7 +375,7 @@ test('the capacity line counts the room the live runs leave, never below zero', 
   // alpha leaves 3 - 2 = 1 slot, beta leaves 3 - 0 = 3; the tightest is 1.
   assert.equal(
     table.capacityLine,
-    'Executor slots (running/limit; one executor at a time): alpha: 2/3 (default), 1 available; beta: 0/100 (client), 100 available.\nMinimum quota to launch: 15%.',
+    'Executor slots (running/limit; one executor at a time): alpha: 2/3 (default), 1 available; beta: 0/100 (client), 100 available.\nMinimum quota to launch: 15%.\nSlots and caps are shared across clients.',
   );
 
   const full = await statusTable(root, {
@@ -384,7 +384,7 @@ test('the capacity line counts the room the live runs leave, never below zero', 
   });
   assert.equal(
     full.capacityLine,
-    'Executor slots (running/limit; one executor at a time): alpha: 2/2 (default), 0 available; beta: 2/2 (default), 0 available.\nMinimum quota to launch: 15%.',
+    'Executor slots (running/limit; one executor at a time): alpha: 2/2 (default), 0 available; beta: 2/2 (default), 0 available.\nMinimum quota to launch: 15%.\nSlots and caps are shared across clients.',
     'a cap that is already crossed reads as zero, never as a negative room',
   );
 });
@@ -465,7 +465,7 @@ test('pt-BR translates the same table, and an unknown locale falls back to en', 
   const pt = await statusTable(root, { ...deps, locale: 'pt-BR' });
   assert.ok(pt.markdown.startsWith('| Assinatura | Restante 5h | Restante semana |'), pt.markdown);
   assert.ok(pt.markdown.includes('| alpha | 12% | - | 3m | vermelho: lowQuotaPct é 15% | api (0s) |'), pt.markdown); // locale:pt-BR
-  assert.equal(pt.capacityLine, 'Vagas de executores (em execução/limite; um executor por vez): alpha: 0/3 (padrão), 3 disponíveis.\nCota mínima para iniciar: 15%.'); // locale:pt-BR
+  assert.equal(pt.capacityLine, 'Vagas de executores (em execução/limite; um executor por vez): alpha: 0/3 (padrão), 3 disponíveis.\nCota mínima para iniciar: 15%.\nSlots e limites compartilhados entre clientes.'); // locale:pt-BR
   assert.equal(pt.rows[0].order, 'lowQuotaPct é 15%', 'the floor is quoted in the same language'); // locale:pt-BR
 
   const unknown = await statusTable(root, { ...deps, locale: 'fr' });
@@ -509,7 +509,7 @@ test('the status tool prints the table and the capacity line, in either language
     '| --- | --- | --- | --- | --- | --- |',
   ]);
   assert.equal(lines[2], '| claude-code | 77% | - | - | green | api (0s) |');
-  assert.equal(run.capacityLine, 'Executor slots (running/limit; one executor at a time): claude-code: 0/3 (default), 3 available.\nMinimum quota to launch: 15%.');
+  assert.equal(run.capacityLine, 'Executor slots (running/limit; one executor at a time): claude-code: 0/3 (default), 3 available.\nMinimum quota to launch: 15%.\nSlots and caps are shared across clients.');
 
   const pt = await answer({ locale: 'pt-BR' });
   assert.ok(pt.markdown.startsWith('| Assinatura |'), pt.markdown);
@@ -586,7 +586,7 @@ test('the MCP status tool answers the table and only adds showBefore when asked'
   assert.equal(plain.rows[0].fiveHour, 41, 'the number comes from the adapter reading of this root');
   assert.equal(plain.rows[0].status, 'green');
   assert.equal(plain.showBefore, undefined, 'no showBefore without the three facts');
-  assert.equal(plain.capacityLine, 'Executor slots (running/limit; one executor at a time): claude-code: 0/3 (default), 3 available; codex: 0/3 (default), 3 available; opencode: 0/3 (default), 3 available.\nMinimum quota to launch: 15%.');
+  assert.equal(plain.capacityLine, 'Executor slots (running/limit; one executor at a time): claude-code: 0/3 (default), 3 available; codex: 0/3 (default), 3 available; opencode: 0/3 (default), 3 available.\nMinimum quota to launch: 15%.\nSlots and caps are shared across clients.');
 
   const big = server.data(await server.call('status', { size: 'L' }));
   assert.equal(big.showBefore, true);

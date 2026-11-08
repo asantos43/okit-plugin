@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { detectClient } from '../src/env/quota.js';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -78,17 +79,28 @@ const argvOf = (client) => client.argv();
 test('the plan of each client is the argv of its own mcp commands', () => {
   const plan = mcpPlan(RECORD, depsOf(() => {}));
   assert.deepEqual(plan.get, ['claude', 'mcp', 'get', 'okit']);
-  assert.deepEqual(plan.add, ['claude', 'mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SERVER]);
+  assert.deepEqual(plan.add, ['claude', 'mcp', 'add', '--scope', 'user', 'okit', '--env', 'OKIT_CLIENT=claude-code', '--', CONFIG.node, SERVER]);
   assert.deepEqual(plan.remove, ['claude', 'mcp', 'remove', 'okit', '--scope', 'user']);
   const codex = mcpPlan({ ...RECORD, client: 'codex' }, depsOf(() => {}));
   assert.deepEqual(codex.get, ['codex', 'mcp', 'get', 'okit', '--json']);
-  assert.deepEqual(codex.add, ['codex', 'mcp', 'add', 'okit', '--', CONFIG.node, SERVER]);
+  assert.deepEqual(codex.add, ['codex', 'mcp', 'add', 'okit', '--env', 'OKIT_CLIENT=codex', '--', CONFIG.node, SERVER]);
   assert.deepEqual(codex.remove, ['codex', 'mcp', 'remove', 'okit']);
   // A client with no MCP registration of its own has no plan.
   assert.equal(mcpPlan({ ...RECORD, client: 'opencode' }, depsOf(() => {})), null);
   // The dry run shows the read and the write of the action.
   assert.deepEqual(plan.steps, [plan.get, plan.add]);
   assert.deepEqual(mcpPlan(RECORD, depsOf(() => {}), 'uninstall').steps, [plan.get, plan.remove]);
+});
+
+test('D137 registration identifies the caller even with foreign inherited markers', () => {
+  for (const client of ['claude-code', 'codex']) {
+    const plan = mcpPlan({ ...RECORD, client }, depsOf(() => {}));
+    const at = plan.add.indexOf('--env');
+    assert.ok(at > 0);
+    assert.equal(plan.add[at + 1], `OKIT_CLIENT=${client}`);
+    assert.equal(detectClient({ OKIT_CLIENT: client, CLAUDECODE: '1', CODEX_THREAD_ID: 'old' }), client);
+  }
+  assert.equal(detectClient({ OKIT_CLIENT: 'invalid' }), null);
 });
 
 test('the commands of the client run with the timeout of the installer', async () => {
@@ -104,7 +116,7 @@ test('an entry the client does not hold is added', async () => {
   assert.equal(result.status, 'ok');
   assert.deepEqual(argvOf(client), [
     ['mcp', 'get', 'okit'],
-    ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SERVER],
+    ['mcp', 'add', '--scope', 'user', 'okit', '--env', 'OKIT_CLIENT=claude-code', '--', CONFIG.node, SERVER],
   ]);
 });
 
@@ -122,7 +134,7 @@ test('our entry that points at the installation this one replaces is taken out a
   assert.deepEqual(argvOf(client), [
     ['mcp', 'get', 'okit'],
     ['mcp', 'remove', 'okit', '--scope', 'user'],
-    ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SERVER],
+    ['mcp', 'add', '--scope', 'user', 'okit', '--env', 'OKIT_CLIENT=claude-code', '--', CONFIG.node, SERVER],
   ]);
 });
 
@@ -164,7 +176,7 @@ test('a read that failed is not an absent entry: nothing is written', async () =
     assert.equal(result.status, 'failed', error.message);
     assert.match(result.reason, /ENOENT|ETIMEDOUT|2:|1:/, result.reason);
     // The command the person can run by hand is in the warning.
-    assert.match(result.detail, /mcp add --scope user okit --/, result.detail);
+    assert.match(result.detail, /mcp add --scope user okit --env OKIT_CLIENT=claude-code --/, result.detail);
     assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']], error.message);
   }
 });
@@ -214,7 +226,7 @@ test('a command the client refuses is a warning, never a failure', async () => {
   assert.match(result.reason, /the client refused the entry/);
   assert.match(result.detail, /the client refused the entry/, result.detail);
   // The command the person can run by hand is in the warning.
-  assert.match(result.detail, /mcp add --scope user okit --/, result.detail);
+  assert.match(result.detail, /mcp add --scope user okit --env OKIT_CLIENT=claude-code --/, result.detail);
 });
 
 test('the installation registers the MCP server of the client and goes on', async (t) => {
@@ -242,7 +254,7 @@ test('a client that is not on the machine leaves the manual MCP command in the n
   assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
   const notes = f.output.filter((line) => /mcp add/.test(line));
   assert.equal(notes.length, 1, f.output.join('\n'));
-  assert.match(notes[0], /claude mcp add --scope user okit --/, notes[0]);
+  assert.match(notes[0], /claude mcp add --scope user okit --env OKIT_CLIENT=claude-code --/, notes[0]);
   // Nothing of the MCP was run: the client is not there.
   assert.deepEqual(f.commands.filter((item) => item.args[0] === 'mcp'), []);
 });
@@ -457,7 +469,7 @@ test('the entry that names our path with spaces is left as it is: the display ca
   assert.equal(result.manual, true);
   assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
   // The warning names the commands to run by hand.
-  assert.match(result.detail, /claude mcp remove okit --scope user ; claude mcp add --scope user okit --/, result.detail);
+  assert.match(result.detail, /claude mcp remove okit --scope user ; claude mcp add --scope user okit --env OKIT_CLIENT=claude-code --/, result.detail);
 });
 
 test('the entry that names our path after a comma is not ours', async () => {
@@ -819,7 +831,7 @@ test('a client with the module strategy and a module of ours still has a plan', 
   const plan = mcpPlan(RECORD, depsOf(() => {}, config));
   assert.ok(plan);
   assert.deepEqual(plan.get, ['claude', 'mcp', 'get', 'okit']);
-  assert.deepEqual(plan.add, ['claude', 'mcp', 'add', '--scope', 'user', 'okit', '--', config.node, SERVER]);
+  assert.deepEqual(plan.add, ['claude', 'mcp', 'add', '--scope', 'user', 'okit', '--env', 'OKIT_CLIENT=claude-code', '--', config.node, SERVER]);
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -994,14 +1006,14 @@ test('a scope for a client whose own mcp commands take one is accepted, and the 
   const config = installConfig({ clients: { 'claude-code': { mcp: { scope: 'local' } } } });
   assert.equal(config.clients['claude-code'].mcp.scope, 'local');
   const plan = mcpPlan(RECORD, depsOf(() => {}, config));
-  assert.deepEqual(plan.add, ['claude', 'mcp', 'add', '--scope', 'local', 'okit', '--', config.node, SERVER]);
+  assert.deepEqual(plan.add, ['claude', 'mcp', 'add', '--scope', 'local', 'okit', '--env', 'OKIT_CLIENT=claude-code', '--', config.node, SERVER]);
   assert.deepEqual(plan.remove, ['claude', 'mcp', 'remove', 'okit', '--scope', 'local']);
 });
 
 test('the dry run shows the plan of the MCP step, with no directory of its own', () => {
   const plan = mcpPlan(CODEX, depsOf(() => {}));
   assert.deepEqual(plan.get, ['codex', 'mcp', 'get', 'okit', '--json']);
-  assert.deepEqual(plan.add, ['codex', 'mcp', 'add', 'okit', '--', CONFIG.node, CODEX_SERVER]);
+  assert.deepEqual(plan.add, ['codex', 'mcp', 'add', 'okit', '--env', 'OKIT_CLIENT=codex', '--', CONFIG.node, CODEX_SERVER]);
   assert.deepEqual(plan.remove, ['codex', 'mcp', 'remove', 'okit']);
   assert.deepEqual(plan.steps, [plan.get, plan.add]);
   assert.equal(plan.cwd, CODEX.path);
@@ -1031,7 +1043,7 @@ test('a client that does not say where an entry is kept never replaces our entry
   assert.deepEqual(client.argv().map((words) => words[1]), ['get']);
   assert.equal(client.state.global, PROJECT_ENTRY);
   // The warning names the two commands, in the order they are to be run.
-  assert.match(result.detail, /codex mcp remove okit ; codex mcp add okit --/, result.detail);
+  assert.match(result.detail, /codex mcp remove okit ; codex mcp add okit --env OKIT_CLIENT=codex --/, result.detail);
   assert.match(result.detail, new RegExp(`${CODEX_SERVER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), result.detail);
 });
 
@@ -1073,7 +1085,7 @@ test('a client that says where an entry is kept replaces ours and takes it out, 
   assert.deepEqual(argvOf(replaced), [
     ['mcp', 'get', 'okit'],
     ['mcp', 'remove', 'okit', '--scope', 'user'],
-    ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SERVER],
+    ['mcp', 'add', '--scope', 'user', 'okit', '--env', 'OKIT_CLIENT=claude-code', '--', CONFIG.node, SERVER],
   ]);
   const removed = fakeClient(claudeEntry(SERVER));
   const uninstalled = await registerMcp(RECORD, depsOf(removed.run), 'uninstall');
@@ -1251,7 +1263,7 @@ test('an entry of ours whose path holds a space is left as it is: nothing is wri
     // The warning names the commands to run by hand.
     assert.match(result.detail, /claude mcp remove okit --scope user/, result.detail);
     if (action === 'uninstall') assert.doesNotMatch(result.detail, /mcp add/, result.detail);
-    else assert.match(result.detail, /claude mcp add --scope user okit --/, result.detail);
+    else assert.match(result.detail, /claude mcp add --scope user okit --env OKIT_CLIENT=claude-code --/, result.detail);
   }
 });
 
@@ -1281,7 +1293,7 @@ test('the entry of the installation with a space that this one replaces is left 
   assert.equal(result.status, 'kept');
   assert.equal(result.manual, true);
   assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit']]);
-  assert.match(result.detail, /claude mcp remove okit --scope user ; claude mcp add --scope user okit --/, result.detail);
+  assert.match(result.detail, /claude mcp remove okit --scope user ; claude mcp add --scope user okit --env OKIT_CLIENT=claude-code --/, result.detail);
 });
 
 test('an installation whose path holds a space still adds the entry that is missing', async () => {
@@ -1290,7 +1302,7 @@ test('an installation whose path holds a space still adds the entry that is miss
   assert.equal(result.status, 'ok');
   assert.deepEqual(argvOf(client), [
     ['mcp', 'get', 'okit'],
-    ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SPACED_SERVER],
+    ['mcp', 'add', '--scope', 'user', 'okit', '--env', 'OKIT_CLIENT=claude-code', '--', CONFIG.node, SPACED_SERVER],
   ]);
   // On the uninstall there is no entry to take out.
   const uninstalled = fakeClient(null);
@@ -1322,7 +1334,7 @@ test('an installation whose path holds no space owns its entry, as before', asyn
   assert.deepEqual(argvOf(replaced), [
     ['mcp', 'get', 'okit'],
     ['mcp', 'remove', 'okit', '--scope', 'user'],
-    ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SERVER],
+    ['mcp', 'add', '--scope', 'user', 'okit', '--env', 'OKIT_CLIENT=claude-code', '--', CONFIG.node, SERVER],
   ]);
   const removed = fakeClient(claudeEntry(SERVER));
   const uninstalled = await registerMcp(RECORD, depsOf(removed.run), 'uninstall');
@@ -1441,7 +1453,7 @@ test('the command printed for the person when the client refuses is quoted for t
   // The command that ran is an argv: the path of the server is one argument.
   assert.deepEqual(calls, [
     ['mcp', 'get', 'okit'],
-    ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SPACED_SERVER],
+    ['mcp', 'add', '--scope', 'user', 'okit', '--env', 'OKIT_CLIENT=claude-code', '--', CONFIG.node, SPACED_SERVER],
   ]);
 });
 
@@ -1457,7 +1469,7 @@ test('the command of the step that ran is printed quoted for the shell', async (
   // The command that ran is still an argv: the path of the server is one argument.
   assert.deepEqual(argvOf(client), [
     ['mcp', 'get', 'okit'],
-    ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SPACED_SERVER],
+    ['mcp', 'add', '--scope', 'user', 'okit', '--env', 'OKIT_CLIENT=claude-code', '--', CONFIG.node, SPACED_SERVER],
   ]);
 });
 
@@ -1800,7 +1812,7 @@ test('the plan of Codex reads its entry as JSON, and the plan of Claude Code sta
   assert.deepEqual(codex.get, ['codex', 'mcp', 'get', 'okit', '--json']);
   assert.equal(codex.format, 'json');
   // The write of the plan does not change: only the read asks for the JSON.
-  assert.deepEqual(codex.add, ['codex', 'mcp', 'add', 'okit', '--', CONFIG.node, CODEX_SERVER]);
+  assert.deepEqual(codex.add, ['codex', 'mcp', 'add', 'okit', '--env', 'OKIT_CLIENT=codex', '--', CONFIG.node, CODEX_SERVER]);
   assert.deepEqual(codex.remove, ['codex', 'mcp', 'remove', 'okit']);
   const claude = mcpPlan(RECORD, depsOf(() => {}));
   assert.deepEqual(claude.get, ['claude', 'mcp', 'get', 'okit']);
@@ -1946,7 +1958,7 @@ test('the entry that Codex does not hold is added: the absent answer is on stder
   assert.equal(result.status, 'ok');
   assert.deepEqual(calls.map((call) => call.args), [
     ['mcp', 'get', 'okit', '--json'],
-    ['mcp', 'add', 'okit', '--', CONFIG.node, CODEX_SERVER],
+    ['mcp', 'add', 'okit', '--env', 'OKIT_CLIENT=codex', '--', CONFIG.node, CODEX_SERVER],
   ]);
 });
 
@@ -1958,7 +1970,7 @@ test('the JSON of the entry of the version it replaces is ours, and Codex still 
   assert.equal(result.status, 'kept');
   assert.equal(result.manual, true);
   assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit', '--json']]);
-  assert.match(result.detail, /codex mcp remove okit ; codex mcp add okit --/, result.detail);
+  assert.match(result.detail, /codex mcp remove okit ; codex mcp add okit --env OKIT_CLIENT=codex --/, result.detail);
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -2142,7 +2154,7 @@ test('the install repairs an entry of ours that is broken: it is taken out and w
     assert.deepEqual(argvOf(client), [
       ['mcp', 'get', 'okit'],
       ['mcp', 'remove', 'okit', '--scope', 'user'],
-      ['mcp', 'add', '--scope', 'user', 'okit', '--', CONFIG.node, SERVER],
+      ['mcp', 'add', '--scope', 'user', 'okit', '--env', 'OKIT_CLIENT=claude-code', '--', CONFIG.node, SERVER],
     ], name);
   }
 });
@@ -2163,5 +2175,5 @@ test('a client that does not say where an entry is kept is never repaired by the
   assert.equal(result.status, 'kept');
   assert.equal(result.manual, true);
   assert.deepEqual(argvOf(client), [['mcp', 'get', 'okit', '--json']]);
-  assert.match(result.detail, /codex mcp remove okit ; codex mcp add okit --/, result.detail);
+  assert.match(result.detail, /codex mcp remove okit ; codex mcp add okit --env OKIT_CLIENT=codex --/, result.detail);
 });
