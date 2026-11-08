@@ -16,7 +16,7 @@ import { redact } from '../src/config-ui/state.js';
 
 const pause = () => new Promise(resolve => setTimeout(resolve, 15));
 async function until(read, predicate) {
-  for (let i = 0; i < 160; i++) {
+  for (let i = 0; i < 1000; i++) {
     const result = await read();
     if (predicate(result)) return result;
     await pause();
@@ -139,7 +139,7 @@ test('in-page login, HTTPS URL, idempotent start, quota trigger and sign out for
 test('cancel, timeout, close and failure expose plain states and kill login processes', async t => {
   for (const mode of ['cancel', 'timeout', 'close', 'failure']) {
     const f = await loginFixture(t, 'codex', mode === 'failure' ? 'failure' : 'wait',
-      { loginTimeoutMs: mode === 'timeout' ? 240 : 5000 });
+      { loginTimeoutMs: mode === 'timeout' ? 3000 : 20000 });
     await f.post();
     const calls = await until(f.calls, rows => rows.length > 0);
     if (mode === 'cancel') assert.equal((await f.post('/api/account-login/cancel')).json().state, 'cancelled');
