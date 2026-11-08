@@ -289,7 +289,7 @@ export async function environmentSnapshot(deps = {}) {
   });
   // `record: false` takes the snapshot read-only (the doctor): the telemetry of the quota check is not written.
   if (deps.root && deps.record !== false) {
-    const { record } = await import('../telemetry/index.js');
+    const record = deps.recordTelemetry ?? (await import('../telemetry/index.js')).record;
     for (const row of rows) for (const account of row.accounts ?? [{ isDefault: true, quota: row.quota }]) await record(deps.root, 'quota.check', {
       client: row.client, state: account.quota.status, ...account.isDefault ? {} : { account: account.id },
     });

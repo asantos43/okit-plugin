@@ -266,6 +266,29 @@ function pathState(text, file, command) {
   return state;
 }
 
+/** Exact PATH edits, observed without executing PowerShell or touching a profile. */
+export async function pathProposal(deps) {
+  const { config, bin, fs } = deps;
+  if (!config.path.enabled || deps.noPath) return [];
+  if (deps.platform === config.windowsPlatform) {
+    const before = deps.windowsUserPath ?? null;
+    return [{ kind: 'windows-user-path', variable: config.path.windowsVariable, before,
+      after: before === null ? null : before.split(';').some((part) => part.toLowerCase() === bin.toLowerCase())
+        ? before : [before, bin].filter(Boolean).join(';'), requiresObservation: before === null }];
+  }
+  if (binInPath(deps)) return [];
+  const shell = currentShell(deps.env, config) ?? config.path.fallbackShell;
+  const changes = [];
+  for (const path of await shellProfiles(deps, shell)) {
+    const before = await fs.readFile(path, 'utf8').catch(missingFile) ?? '';
+    const block = profileBlock(config.path, bin, shell === 'fish');
+    const conflict = before.includes(config.path.begin) && !before.includes(block);
+    changes.push({ kind: 'profile', path, block, before,
+      after: conflict || before.includes(block) ? before : before + block, conflict });
+  }
+  return changes;
+}
+
 export async function managePath(deps, remove = false) {
   const { fs, bin, config, env } = deps;
   const settings = config.path;

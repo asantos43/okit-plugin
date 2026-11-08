@@ -426,6 +426,7 @@ const TEXTS = Object.freeze({
 // A pattern matches the whole reason and its captures fill $1..; a reason that
 // matches none is shown as raised. The tests walk this table and the raise sites.
 const REASONS = [
+  [/^Install preview cannot write or start processes\.$/, 'A prévia da instalação não pode gravar nem iniciar processos.', 'Install preview cannot write or start processes.'], // locale:pt-BR
   [/^Usage client failed\.$/, 'Falha no cliente de uso.', 'Usage client failed.'], // locale:pt-BR
   [/^Usage client closed without a reading\.$/, 'O cliente de uso encerrou sem uma leitura.', 'Usage client closed without a reading.'], // locale:pt-BR
   [/^Usage response too large\.$/, 'Resposta de uso grande demais.', 'Usage response too large.'], // locale:pt-BR
@@ -882,6 +883,64 @@ function createPresenter({ locale = 'en', verbose = false, write, unicode = fals
     },
   };
   return ui;
+}
+
+/** Same presentation interface, collecting typed calls without writing terminal text. */
+function createStructuredPresenter(options = {}) {
+  const events = [];
+  const base = createPresenter({ ...options, write: () => {} });
+  const messages = new Map();
+  let client = null;
+  const clean = (value) => JSON.parse(JSON.stringify(value, (_key, item) =>
+    typeof item === 'string' ? redact(item) : item));
+  const add = (stage, messageKey, params = {}, status = 'info') =>
+    events.push(clean({ stage, client, status, messageKey, params }));
+  const ui = { ...base, events, text(key, values = {}) {
+    const value = base.text(key, values);
+    messages.set(value, { key, values });
+    return value;
+  } };
+  for (const method of ['header', 'row', 'note', 'warn', 'detail', 'explain', 'summary', 'question', 'failure']) {
+    ui[method] = (...args) => {
+      const message = messages.get(args[0]);
+      add(method, message?.key ?? method, { args, values: message?.values ?? {} }, method === 'row' ? args[1] : 'info');
+      return method === 'failure' ? [] : base[method](...args);
+    };
+  }
+  ui.sequence = (keys, values = {}) => {
+    client = values.client ?? null;
+    add('sequence', 'sequence', { keys, values });
+    return (key) => structuredStep(key);
+  };
+  const structuredStep = (key, direct) => {
+    let ended = false;
+    const result = Object.fromEntries(['ok', 'skip', 'plan', 'fail'].map((status) => [status, (...args) => {
+      if (!ended) add(direct ? 'stepDirect' : 'step', key, { args, ...(direct ? { direct } : {}) }, status);
+      ended = true;
+    }]));
+    Object.defineProperties(result, { ended: { get: () => ended }, label: { value: direct?.[2] ?? base.text(key) } });
+    return result;
+  };
+  ui.step = (n, total, label) => structuredStep(label, [n, total, label]);
+  ui.confirm = async (read, { explain = [], question, defaultYes = false }) => {
+    ui.explain(explain);
+    return ui.answer(await read(ui.question(question, defaultYes)), defaultYes);
+  };
+  return ui;
+}
+
+/** Render typed calls; no terminal output is parsed to construct the plan. */
+function renderPlanEvents(events, ui, write = () => {}) {
+  let next;
+  for (const event of events) {
+    const { stage, messageKey, params, status } = event;
+    const args = params.args?.map((value) => value === null ? undefined : value);
+    if (stage === 'sequence') next = ui.sequence(params.keys, params.values);
+    else if (stage === 'step') next(messageKey)[status](...args);
+    else if (stage === 'stepDirect') ui.step(...params.direct)[status](...args);
+    else if (stage === 'failure') ui.failure(...args).forEach(write);
+    else ui[stage]?.(...args);
+  }
 }
 
 /** The values of the header line: the package, its version, the client, and the system. */

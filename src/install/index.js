@@ -3,7 +3,8 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DEFAULT_CONFIG, configOf } from '../profiles.js';
-import { createPresenter, planSteps, fill, localizeReason, pick, TEXTS, redactingStream, redactingWriter, resolveLocale, supportsUnicode, headerValues, clientLabel, finish, finishLink } from './present.js';
+import { createPresenter, renderPlanEvents, planSteps, fill, localizeReason, pick, TEXTS, redactingStream, redactingWriter, resolveLocale, supportsUnicode, headerValues, clientLabel, finish, finishLink } from './present.js';
+import { buildInstallPlan, collectClientPlan, collectRetainedPlan } from './plan.js';
 import { writeJsonAtomic } from '../state.js';
 import { installConfig, installPaths, clientRoot, homeOf } from './config.js';
 import { flagsOf } from './flags.js';
@@ -113,6 +114,11 @@ export async function installerCommand(command, args, ctx, io = {}) {
       unicode: supportsUnicode({ tty: io.outTty ?? Boolean(process.stdout.isTTY), env: ctx.env, platform: ctx.platform }), hide });
     const config = installConfig(user?.install, flags.dest ? { destination: flags.dest } : {});
     const locations = installPaths(config, { env: ctx.env, platform: ctx.platform, home: io.home ?? homeOf(ctx.env, ctx.platform) ?? homedir() });
+    if (['install', 'update'].includes(command) && flags['dry-run'] && !io.previewPlan) {
+      const plan = await buildInstallPlan(command, args, ctx, io);
+      renderPlanEvents(plan.events, ui, ctx.err ?? ctx.out);
+      return plan.exitCode;
+    }
     const deps = { ...ctx, ...io, fs, config, ...locations, out: ctx.out, err: ctx.err, ui, hints: [], pathNotes: [],
       statuslineConfig: configOf(user).statuslineRegistration, collectorConfig: configOf(user).statuslineCollector,
       home: io.home ?? homeOf(ctx.env, ctx.platform) ?? homedir(),
@@ -211,7 +217,8 @@ export async function installerCommand(command, args, ctx, io = {}) {
     }
     return exitCodeFor(succeeded ? 'ok' : results.every(({ code }) => code === exitCodeFor('usage')) ? 'usage' : 'operational');
   } catch (error) {
-    ui.failure({ reason: error.message, next: ui.text('nextCheck') }).forEach((item) => (ctx.err ?? ctx.out)(item));
+    const refused = io.previewPlan ? io.ui : ui;
+    refused.failure({ reason: error.message, next: refused.text('nextCheck') }).forEach((item) => (ctx.err ?? ctx.out)(item));
     return exitCodeFor(kindOf(error));
   } finally { terminalReader?.close(); }
 }
@@ -294,7 +301,10 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
     }
     /** The dependencies of one registered account (the run's own when no account is in play). */
     const scoped = (account) => (account ? depsFor(deps, account) : deps);
-    if (flags.panel) return await panelCommand(command, current, deps);
+    if (flags.panel) {
+      if (io.previewPlan && current) await collectRetainedPlan(io.previewPlan, current, flags, deps, [deps]);
+      return await panelCommand(command, current, deps);
+    }
     if (command === 'uninstall') {
       if (!current) throw new UsageError('No installation record found');
       if (flags.purge && !flags.yes) throw new UsageError('--purge requires --yes');
@@ -309,6 +319,8 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
     if (flags.rollback) {
       if (!current?.previous) throw new UsageError('No previous version retained');
       if (current.previous.client !== current.client) throw new UsageError('Previous version belongs to another client');
+      if (io.previewPlan) await collectRetainedPlan(io.previewPlan, current, flags, deps,
+        target ? deps.registered.map((account) => scoped(account)) : [deps]);
       started = !deps.dryRun;
       return await rollback(current, deps, target ? deps.registered.map((account) => ({ deps: scoped(account), action: 'update' })) : null);
     }
@@ -374,6 +386,12 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
     // An installation whose payload is not whole (the server of the MCP server was deleted) is not the installation
     // of that version: it is written again, so the fix the doctor advertises really repairs.
     const whole = current && await payloadComplete(current, deps.config, deps.fs);
+    if (io.previewPlan) await collectClientPlan(io.previewPlan, {
+      command, flags, selected, local, current, whole, named, pkg, deps,
+      releaseRequest: { config: deps.config, release, pkg, repo, client, system, arch,
+        prerelease: Boolean(flags.prerelease || current?.prerelease) },
+      accounts: acting.map((account) => scoped(account)),
+    });
     // An install touches one account. A payload of another version would move the accounts that use this one: an update does that.
     if (command === 'install' && target && current && current.version !== selected.version
       && (deps.registeredIds ?? []).some((id) => id !== target.id)) {

@@ -214,3 +214,14 @@ not accidentally restore terminal interaction to the Windows launcher.
 1. **Aliases:** `update` and `uninstall` aliases forward directly to Node, with no menus; announce deprecation before any removal, especially on Windows.
 2. **Browser acceptance:** reuse an available Playwright runner, with no new repository dependency; the Director owns browser acceptance until a CI runner is approved.
 3. **Common bootstrap:** keep the verified per-client assets; evaluate a common bootstrap only if the slice-1 audit proves it necessary.
+
+### Asset audit
+
+`payloadEntries()` includes shared `src` and shared adapters in every client asset;
+the shared configuration UI and installer therefore travel with each verified package.
+Keep per-client assets: a common bootstrap adds no required code. Select one bootstrap
+client deterministically, then pin and verify every additional selected client's asset.
+The plan never downloads packages or checksum manifests: remote payloads are trees,
+with checksum pending until apply; local user-trusted sources are walked and hashed.
+`install-scripts.js` embeds the presenter and bootstrap; presenter changes require
+regeneration of both wrappers, while acquisition and launch behavior remain unchanged.
