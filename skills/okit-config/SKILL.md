@@ -25,7 +25,7 @@ Call `config_ui_open` in Claude Code, Codex or opencode. Pass `locale` only for 
 
 The token URL is a secret: show it only in this session; never write it to a file or the inbox. An existing page is reused. It closes on idle (the returned idleMinutes), with the session, or via Close. Opening the page does not save settings.
 
-In Claude Code invoke `/okit-plugin:okit-config`; Codex and opencode use `/okit-config`. If the tool is unavailable on an older install, ask the Producer to run `okit-plugin config ui` in a terminal; never run that foreground command through the agent shell.
+In Claude Code invoke `/okit-plugin:okit-config`; Codex and opencode use `/okit-config`. If the tool is unavailable on an older install, ask the Producer to update the plugin and restart the client; never run a foreground server through the agent shell.
 
 - Actors: enable actors and choose model, effort and turn limits.
 - Accounts: manage account labels, folders and login guidance.

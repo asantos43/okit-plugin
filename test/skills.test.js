@@ -219,7 +219,7 @@ test('parseFrontMatter refuses a file it cannot trust', () => {
   assert.throws(() => parseFrontMatter(null), /must be text/);
 });
 
-test('the plugin ships director, executor, critic, smoke and setup skills', async () => {
+test('the plugin ships seven shared skills', async () => {
   assert.deepEqual(await skillFolders(), EXPECTED_SKILLS);
 });
 
@@ -228,7 +228,8 @@ test('configuration skill calls the shared tool and routing tables lead to it', 
   for (const term of ['/okit-config', 'open the configuration page', 'settings page']) {
     assert.ok(fields.description.includes(term), term);
   }
-  for (const term of ['config_ui_open', 'never write', 'inbox', 'idleMinutes', 'okit-plugin config ui',
+  for (const term of ['config_ui_open', 'never write', 'inbox', 'idleMinutes', 'update the plugin and restart the client',
+    'never run a foreground server through the agent shell',
     '/okit-plugin:okit-config', 'Claude Code', 'Codex', 'opencode']) assert.ok(body.includes(term), term);
   for (const folder of EXPECTED_SKILLS.filter(name => name !== 'okit-config')) {
     assert.ok((await readSkill(folder)).body.includes('| Open settings | `okit-config` → `config_ui_open` |'));

@@ -11,6 +11,7 @@ import process from 'node:process';
 
 import { AUTOSTART_KINDS, applyAutostart, autostartPlan, detectAutostart } from '../autostart.js';
 import { main } from '../cli.js';
+import { closeConfigSession } from '../config-ui/session.js';
 import { daemonPause, daemonResume, daemonRun, daemonStatus, tick } from '../daemon.js';
 import { inboxAdd, inboxList, inboxSetStatus } from '../inbox.js';
 import { acquireSlot, releaseSlot } from '../limits.js';
@@ -487,6 +488,7 @@ const TOOL_ARGS = {
   order_list: () => ({}),
   order_remove: (state) => ({ id: state.order, reason: 'the smoke run is over' }),
   config_get: () => ({}),
+  config_ui_open: () => ({ open: false }),
   config_set: () => ({ key: 'language', value: 'en' }),
   quota_show: () => ({}),
   quota_set: () => ({ client: 'claude-code', pct: 80 }),
@@ -504,33 +506,47 @@ async function mcpTools(deps) {
     effort: 'low', role: 'executor' }, { transcript: JSON.stringify({ type: 'turn_context',
     payload: { model: 'smoke-model', effort: 'low' } }), message: 'smoke trajectory' });
   for (const name of TOOL_NAMES) need(TOOL_ARGS[name] !== undefined, `${name} has no arguments in this check`);
-  const server = createServer({ tools: TOOLS, ctx: { ...deps, root: deps.stateRoot }, version: await serverVersion() });
+  // Like the client spawner, the page server is simulated: smoke never opens a listener or browser.
+  let closePage;
+  const closed = new Promise(resolve => { closePage = resolve; });
+  const server = createServer({ tools: TOOLS, ctx: { ...deps, root: deps.stateRoot,
+    startConfigServer: async () => ({ url: 'http://127.0.0.1:1/?token=smoke-only', closed,
+      close: async () => { closePage(); } }),
+  }, version: await serverVersion() });
 
-  let asked = 0;
-  for (const tool of TOOLS) {
-    asked += 1;
-    const line = frame(asked, 'tools/call', { name: tool.name, arguments: TOOL_ARGS[tool.name](state) });
-    const answer = await server.handle(line);
-    const text = answer?.result?.content?.[0]?.text;
-    need(typeof text === 'string' && text !== '', `${tool.name} answered nothing`);
-    need(answer.result.isError !== true, `${tool.name} refused: ${text}`);
-    const parsed = JSON.parse(text);
-    if (tool.name === 'quota_notice') {
-      need(parsed.available === true && parsed.released === true,
-        'the simulated quota-back event must release the notice');
-      need(parsed.text.includes('cota da sua assinatura do Codex voltou'),
-        'the quota-back notice must use plain words in the requested language');
+  try {
+    let asked = 0;
+    for (const tool of TOOLS) {
+      asked += 1;
+      const line = frame(asked, 'tools/call', { name: tool.name, arguments: TOOL_ARGS[tool.name](state) });
+      const answer = await server.handle(line);
+      const text = answer?.result?.content?.[0]?.text;
+      need(typeof text === 'string' && text !== '', `${tool.name} answered nothing`);
+      need(answer.result.isError !== true, `${tool.name} refused: ${text}`);
+      const parsed = JSON.parse(text);
+      if (tool.name === 'config_ui_open') {
+        need(parsed.url.startsWith('http://127.0.0.1:1/?token=smoke-only') && parsed.idleMinutes === 10,
+          'the configuration tool must return the simulated private page and idle timeout');
+      }
+      if (tool.name === 'quota_notice') {
+        need(parsed.available === true && parsed.released === true,
+          'the simulated quota-back event must release the notice');
+        need(parsed.text.includes('cota da sua assinatura do Codex voltou'),
+          'the quota-back notice must use plain words in the requested language');
+      }
+      if (tool.name === 'inbox_add') state.demand = parsed.id;
+      if (tool.name === 'order_add') state.order = parsed.id;
     }
-    if (tool.name === 'inbox_add') state.demand = parsed.id;
-    if (tool.name === 'order_add') state.order = parsed.id;
-  }
 
-  const unknown = await server.handle(frame(99, 'tools/call', { name: 'nope', arguments: {} }));
-  need(unknown?.error?.code === -32602, `an unknown tool must be -32602, got ${JSON.stringify(unknown)}`);
-  const broken = await server.handle('{ not json');
-  need(broken?.error?.code === -32700, `a bad line must be -32700, got ${JSON.stringify(broken)}`);
-  const after = await server.handle(frame(100, 'tools/list'));
-  need(after?.result?.tools?.length === TOOLS.length, 'the loop must keep reading after a bad line');
+    const unknown = await server.handle(frame(99, 'tools/call', { name: 'nope', arguments: {} }));
+    need(unknown?.error?.code === -32602, `an unknown tool must be -32602, got ${JSON.stringify(unknown)}`);
+    const broken = await server.handle('{ not json');
+    need(broken?.error?.code === -32700, `a bad line must be -32700, got ${JSON.stringify(broken)}`);
+    const after = await server.handle(frame(100, 'tools/list'));
+    need(after?.result?.tools?.length === TOOLS.length, 'the loop must keep reading after a bad line');
+  } finally {
+    await closeConfigSession(deps.stateRoot);
+  }
 }
 
 // E15: add, list and the whole status sequence, each one persisted. The

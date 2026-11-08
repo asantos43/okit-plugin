@@ -8,7 +8,7 @@ Edite ajustes e perfis de atores em uma página local no navegador.
 ## Iniciar
 
 1. Em uma sessão Claude Code, Codex ou opencode, invoque `/okit-config` (Claude Code: `/okit-plugin:okit-config`). A skill compartilhada chama `config_ui_open`, retornando uma URL privada com token sem bloquear a sessão. Reutiliza a página daquela sessão; `open: false` só retorna a URL. Mantenha-a na sessão, nunca em arquivos ou na fila. O host do painel Claude não oferece chamada MCP direta, por isso o comando é a skill com namespace.
-Em um terminal, execute `okit-plugin config ui`; use `--locale en` ou `--locale pt-BR`, `--no-open` para apenas exibir a URL, ou `--idle-minutes` para alterar o limite de dez minutos de inatividade. O comando fica ativo até fechar ou Ctrl+C. Instalações antigas sem a ferramenta usam essa alternativa no terminal.
+Em um terminal, execute `okit-plugin config ui`; use `--locale en` ou `--locale pt-BR`, `--no-open` para apenas exibir a URL, ou `--idle-minutes` para alterar o limite de dez minutos de inatividade. O comando fica ativo até fechar ou Ctrl+C. Se a ferramenta estiver indisponível em uma instalação antiga, peça ao Produtor para atualizar o plugin e reiniciar o cliente. Nunca execute um servidor em primeiro plano pelo shell do agente.
 
 <a id="edit"></a>
 ## Editar

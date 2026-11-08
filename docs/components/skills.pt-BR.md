@@ -45,7 +45,7 @@ Mantém as tarefas dos projetos habilitados em dia; pergunta antes de usar uma s
 
 | Skill | Uso e instrução | Recursos principais |
 | :- | :- | :- |
-| `okit-config` | Abre a página de configuração no Claude Code, Codex ou opencode por /okit-config (Claude: /okit-plugin:okit-config). Reutiliza a página, mostra a URL privada só na sessão, explica abas e encerramento por inatividade/sessão; versões antigas usam um terminal. | `config_ui_open`, `okit-plugin config ui` |
+| `okit-config` | Abre a página de configuração no Claude Code, Codex ou opencode por /okit-config (Claude: /okit-plugin:okit-config). Reutiliza a página, mostra a URL privada só na sessão, explica abas e encerramento por inatividade/sessão; se a ferramenta estiver indisponível, peça ao Produtor para atualizar o plugin e reiniciar o cliente. Nunca execute um servidor em primeiro plano pelo shell do agente. | `config_ui_open` |
 
 <a id="okit-smoke"></a>
 ## okit-smoke

@@ -45,7 +45,7 @@ Keeps enabled project tasks in step with saved work; asks before using a suggest
 
 | Skill | Use and instruction | Main resources |
 | :- | :- | :- |
-| `okit-config` | Opens the configuration page from Claude Code, Codex or opencode via /okit-config (Claude: /okit-plugin:okit-config). Reuses the session page, shares its private URL only in the session, explains tabs and idle/session closing; older installs use a terminal. | `config_ui_open`, `okit-plugin config ui` |
+| `okit-config` | Opens the configuration page from Claude Code, Codex or opencode via /okit-config (Claude: /okit-plugin:okit-config). Reuses the session page, shares its private URL only in the session, explains tabs and idle/session closing; if the tool is unavailable, ask the Producer to update the plugin and restart the client. Never run a foreground server through the agent shell. | `config_ui_open` |
 
 <a id="okit-smoke"></a>
 ## okit-smoke

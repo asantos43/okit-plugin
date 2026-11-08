@@ -8,7 +8,7 @@ Edit settings and actor profiles in a local browser page.
 ## Start
 
 1. From a Claude Code, Codex or opencode session, invoke `/okit-config` (Claude Code: `/okit-plugin:okit-config`). The shared skill calls `config_ui_open`, returning a private token URL without blocking the session. It reuses that session's page; `open: false` only returns the URL. Keep it in the session, never in files or the inbox. The Claude panel host has no direct MCP-call API, so the namespaced skill is its command.
-From a terminal, run `okit-plugin config ui`; use `--locale en` or `--locale pt-BR`, `--no-open` to only print the URL, or `--idle-minutes` to change the ten-minute idle timeout. The terminal command runs until closing or Ctrl+C. Older installs without the tool use this terminal fallback.
+From a terminal, run `okit-plugin config ui`; use `--locale en` or `--locale pt-BR`, `--no-open` to only print the URL, or `--idle-minutes` to change the ten-minute idle timeout. The terminal command runs until closing or Ctrl+C. If the tool is unavailable on an older install, ask the Producer to update the plugin and restart the client. Never run a foreground server through the agent shell.
 
 <a id="edit"></a>
 ## Edit
