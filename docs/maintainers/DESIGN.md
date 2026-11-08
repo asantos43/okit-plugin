@@ -15,6 +15,7 @@ Original goals, boundaries and design choices behind the shared plugin core.
 - [Open questions](#section-6)
 
 Implementation: see [ARCHITECTURE.md](ARCHITECTURE.md) for the current modules.
+Installation first-run design: [INSTALL-WIZARD.md](INSTALL-WIZARD.md).
 
 <a id="section-1"></a>
 ## Goals

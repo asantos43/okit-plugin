@@ -10,7 +10,7 @@ const TITLE = 'Orchestration Kit plugin (okit plugin)';
 const pages = ['README', 'install', 'models-and-quota', 'ask-the-director',
   'smoke-demo', 'update-and-remove', 'troubleshooting', 'accounts', 'panel', 'config-ui'];
 const names = pages.flatMap(base => [`${base}.md`, `${base}.pt-BR.md`]);
-const maintainerPages = ['README', 'ARCHITECTURE', 'INTEGRATION', 'DEMO', 'SMOKE', 'DESIGN', 'RELEASING', 'OUTPUT-REVIEW', 'OUTPUT-MOCKUPS'];
+const maintainerPages = ['README', 'ARCHITECTURE', 'INTEGRATION', 'DEMO', 'SMOKE', 'DESIGN', 'INSTALL-WIZARD', 'RELEASING', 'OUTPUT-REVIEW', 'OUTPUT-MOCKUPS'];
 const maintainerNames = maintainerPages.flatMap(base => [`${base}.md`, `${base}.pt-BR.md`]);
 const lines = text => text.trimEnd().split('\n');
 const headings = text => [...text.matchAll(/^(#{1,6}) .+$/gm)].map(m => m[1].length);
