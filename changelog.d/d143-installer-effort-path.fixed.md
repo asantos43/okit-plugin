@@ -1,0 +1,4 @@
+- Ask and save effort per work class in the shared installer/setup wizard, including current-choice review.
+- Align bilingual model confirmation columns in terminal output, including effort where supported.
+- Repoint owned stale PATH commands, preserve foreign commands with exact run instructions, and retain reload hints on reinstalls.
+- Name the optional OKit tool and its orchestration workflow consistently in installer output and guides.

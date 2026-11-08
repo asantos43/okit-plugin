@@ -23,14 +23,15 @@ for (const locale of ['en', 'pt-BR']) {
         return recommended ? '' : 'yes';
       } });
     assert.equal(result.cancelled, false);
-    assert.equal(questions.length, 4);
-    for (const question of questions) {
+    assert.equal(questions.length, 7);
+    const modelQuestions = questions.filter((question) => !/^(Effort|Esforço)/.test(question)); // locale:pt-BR
+    for (const question of modelQuestions) {
       assert.match(question, locale === 'en' ? /Recommend(?:ed|ation):/ : /Recomend(?:ado|ação):/); // locale:pt-BR
       assert.match(question, locale === 'en' ? /available assistant|future work/ : /assistente disponível|próximos trabalhos/); // locale:pt-BR
     }
     assert.match(questions[0], locale === 'en' ? /small, straightforward tasks/ : /tarefas pequenas e diretas/); // locale:pt-BR
-    assert.match(questions[1], locale === 'en' ? /everyday work/ : /trabalhos do dia a dia/);
-    assert.match(questions[2], locale === 'en' ? /complex work/ : /trabalhos complexos/);
+    assert.match(modelQuestions[1], locale === 'en' ? /everyday work/ : /trabalhos do dia a dia/);
+    assert.match(modelQuestions[2], locale === 'en' ? /complex work/ : /trabalhos complexos/);
   });
 }
 
@@ -141,7 +142,7 @@ test('interactive setup keeps every answer until the final confirmation', { time
     env: { HOME: home, OKWORK_HOME: root },
     run: falseRun(),
     adapters: [fakeClient('claude-code', ['other/model'])],
-    ...terminal('\n\n\nyes\n'),
+    ...terminal('\n\n\n\n\n\nyes\n'),
     stdout: (line) => output.push(line),
     stderr: (line) => errors.push(line),
   });
@@ -175,7 +176,7 @@ test('interactive setup asks for an omitted class and accepts its recommendation
   const questions = [];
   const ask = async (question, recommended) => {
     questions.push({ question, recommended });
-    if (question.startsWith('Choose a model')) return '';
+    if (question.includes('Choose a model') || question.startsWith('Effort')) return '';
     return 'yes';
   };
   const result = await runSetup({
@@ -202,7 +203,7 @@ test('the question for an omitted model never names the tool of the remedy', asy
   const questions = [];
   const ask = async (question) => {
     questions.push(question);
-    return question.startsWith('Choose a model') ? '' : 'yes';
+    return /^(Choose a model|Effort)/.test(question) ? '' : 'yes';
   };
   await runSetup({
     root,
@@ -228,7 +229,7 @@ test('an invalid interactive answer is asked again', async (t) => {
       invalidSent = true;
       return 'not-active';
     }
-    if (question.includes('Choose a model')) return '';
+    if (question.includes('Choose a model') || question.startsWith('Effort')) return '';
     return 'yes';
   };
   const result = await runSetup({
@@ -265,7 +266,7 @@ test('cancelling the confirmation writes nothing', async (t) => {
 test('a repeated setup does not ask again for configured active models', async (t) => {
   const { home, root } = await temporaryHome(t);
   const adapters = [fakeClient('claude-code', ['other/model'])];
-  const firstAsk = async (question) => (question.startsWith('Choose a model') ? '' : 'yes');
+  const firstAsk = async (question) => (/^(Choose a model|Effort)/.test(question) ? '' : 'yes');
   await runSetup({
     root,
     config: {},
@@ -931,4 +932,23 @@ test('the command line that cannot save says the sentence without the command be
   } finally {
     await chmod(root, 0o755);
   }
+});
+
+test('D143 the terminal prompt keeps the default before the closing colon, once', async () => {
+  const { PassThrough } = await import('node:stream');
+  const stdin = new PassThrough(), output = new PassThrough();
+  let written = '';
+  output.on('data', (chunk) => { written += chunk; });
+  const { setupReader } = await import('../src/setup/setup.js');
+  const reader = setupReader({ stdin, output });
+  const answer = reader.ask('Effort (simple: low, medium, high):', 'low');
+  stdin.write('\n');
+  assert.equal(await answer, '');
+  const withColon = reader.ask('Models?', 'x');
+  stdin.write('y\n');
+  await withColon;
+  reader.close();
+  assert.match(written, /Effort \(simple: low, medium, high\) \[low\]: /);
+  assert.doesNotMatch(written, /\[low\]: \[low\]/);
+  assert.match(written, /Models\? \[x\] /);
 });

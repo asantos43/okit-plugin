@@ -317,6 +317,70 @@ for (const foreign of [false, true]) test(`D135 reinstall recovers link ownershi
   else await assert.rejects(fs.lstat(command), { code: 'ENOENT' });
 });
 
+// | input | must pass | must refuse |
+// | owned old/legacy target | repoint to current payload | claiming stale target is current |
+// | current target | already on PATH | redundant changes |
+for (const legacy of [false, true]) test(`D143 reinstall repoints old PATH target, legacy=${legacy}`, async (t) => {
+  const f = await sharedFixture(t);
+  const flags = ['--client', 'claude-code', '--no-panel', '--no-statusline'];
+  assert.equal(await main(['install', ...flags], f.io), 0);
+  const record = await readRecord(f.destination, 'claude-code', fs);
+  const old = join(f.home, legacy ? 'okit-plugin' : '0.3.0-claude-code');
+  await fs.mkdir(join(old, 'src'), { recursive: true });
+  await fs.writeFile(join(old, 'package.json'), JSON.stringify({ name: 'okit-plugin', bin: { 'okit-plugin': 'src/cli.js' } }));
+  await fs.writeFile(join(old, 'src/cli.js'), '#!/bin/sh\n', { mode: 0o755 });
+  const link = join(f.bin, record.settings.command);
+  await fs.unlink(link);
+  await fs.symlink(join(old, 'src/cli.js'), link);
+  f.io.env.PATH = f.bin;
+  f.output.length = 0;
+  assert.equal(await main(['install', ...flags], f.io), 0, f.output.join('\n'));
+  assert.equal(await fs.realpath(link), join(record.path, record.bin));
+  assert.match(f.output.join('\n'), /repointed to this installation/);
+  f.output.length = 0;
+  assert.equal(await main(['install', ...flags], f.io), 0);
+  assert.match(f.output.join('\n'), /already on your PATH/);
+});
+
+for (const owned of [false, true]) test(`D143 shadowing PATH command owned=${owned}`, async (t) => {
+  const f = await sharedFixture(t);
+  assert.equal(await main(['install', '--client', 'codex', '--no-panel'], f.io), 0);
+  const record = await readRecord(f.destination, 'codex', fs);
+  const earlier = join(f.home, 'earlier');
+  await fs.mkdir(earlier);
+  const path = join(earlier, record.settings.command);
+  if (owned) {
+    const old = join(f.home, 'legacy');
+    await fs.cp(record.path, old, { recursive: true });
+    await fs.writeFile(join(old, 'package.json'), JSON.stringify({ name: 'okit-plugin', bin: { 'okit-plugin': record.bin } }));
+    await fs.symlink(join(old, record.bin), path);
+  }
+  else await fs.writeFile(path, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const result = await applyLink(record, { fs, config: installConfig(record.settings), bin: f.bin,
+    env: { HOME: f.home, PATH: `${earlier}:${f.bin}` }, home: f.home, destination: f.destination,
+    platform: 'linux', pathSetup: true });
+  assert.equal(result.how, owned ? 'relinked' : 'shadowed');
+  if (owned) assert.equal(await fs.realpath(path), join(record.path, record.bin));
+  if (!owned) {
+    assert.equal(await fs.readFile(path, 'utf8'), '#!/bin/sh\nexit 0\n');
+    assert.equal(result.run, `'${record.settings.node}' '${join(record.path, record.bin)}'`);
+  }
+});
+
+test('D143 up-to-date reinstall retains the profile reload hint', async (t) => {
+  const f = await sharedFixture(t);
+  const flags = ['--client', 'codex', '--no-panel'];
+  f.io.env.PATH = '';
+  f.io.env.SHELL = '/bin/bash';
+  assert.equal(await main(['install', ...flags, '--no-path'], f.io), 0);
+  f.output.length = 0;
+  assert.equal(await main(['install', ...flags], f.io), 0, f.output.join('\n'));
+  assert.match(f.output.join('\n'), /PATH set in/);
+  assert.match(f.output.join('\n'), /Run this now:/);
+  assert.match(f.output.join('\n'), /\.profile|\.bash_profile/);
+  assert.match(f.output.join('\n'), /open a new terminal/);
+});
+
 // PATH corpus: must pass: new shell, repeat, rollback, user edits, candidates.
 // Must refuse: duplicate blocks, editing profiles with --no-path or PATH present.
 test('managed PATH resolves and executes skill command, repeats and rolls back without duplication', async (t) => {

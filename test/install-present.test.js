@@ -93,7 +93,7 @@ for (const locale of LOCALES) test(`client matrix has no owner after a partial i
   assert.equal(matrix.length, 3, text);
   assert.ok(matrix.some((line) => new RegExp(`^\\s*Codex\\s+${locale === 'en' ? 'failed' : 'falhou'}$`).test(line)), text);
   assert.doesNotMatch(text, /^(Claude Code|Codex|OpenCode) — (Claude Code|Codex|OpenCode)\s+(ok|failed|falhou)$/m);
-  assert.doesNotMatch(text, /^(Claude Code|Codex|OpenCode) — .*Kit \((optional|opcional)\)/m);
+  assert.doesNotMatch(text, /^(Claude Code|Codex|OpenCode) — .*OKit \((optional|opcional)\)/m);
   assert.ok(matrix.some((line) => /^\s*OpenCode\s/.test(line)), text);
 });
 
@@ -185,7 +185,7 @@ for (const locale of LOCALES) test(`D112 installer absent-client, download, curr
 
 for (const locale of LOCALES) test(`D112 invalid answers never accumulate prefixes and fallback appears once: ${locale}`, async (t) => {
   const f = await fixture(t), output = [], questions = [], pt = locale === 'pt-BR';
-  let answers = ['bad answer', 'bad answer', '1', '1', '1', 'yes'];
+  let answers = ['bad answer', 'bad answer', '1', '', '1', '', '1', '', 'yes'];
   const result = await runSetup({ root: f.root, env: f.io.env, locale, out: (line) => output.push(line),
     config: { setup: { maxAttempts: 3 } }, adapters: [{ CLIENT: 'codex', listModels: async () => ({ client: 'codex', installed: true, models: ['sol', 'astra'], source: 'listing' }) }],
     ask: async (question) => { questions.push(question); return answers.shift(); } });
@@ -220,15 +220,19 @@ for (const locale of LOCALES) test(`D112 setup first run, ready and cancelled: $
   const f = await fixture(t), pt = locale === 'pt-BR';
   await commandsOnPath(f);
   f.io.setupAdapters = [{ CLIENT: 'codex', listModels: async () => ({ client: 'codex', installed: true, models: ['sol', 'astra'], source: 'listing' }) }];
-  let answers = ['1', '1', '2', 'yes'];
+  let answers = ['1', '', '1', '', '2', '', 'yes'];
   f.io.ask = async (question) => { f.output.push(question); return answers.shift(); };
   assert.equal(await main(['setup', '--locale', locale], f.io), 0);
   const work = pt ? ['Tarefas pequenas', 'Tarefas do dia a dia', 'Tarefas complexas'] : ['Small tasks', 'Everyday tasks', 'Complex tasks'];
   const expected = [pt ? 'okit-plugin — Configuração' : 'okit-plugin — Setup',
     pt ? 'Escolha modelos para Codex; nada é salvo até sua confirmação.' : 'Choose models for Codex; nothing is saved until you confirm.'];
-  for (const name of work) expected.push(`\n${name} — Codex`, pt ? '1. sol (recomendado)' : '1. sol (recommended)', '2. astra', '', pt ? 'Escolha um modelo [1]:' : 'Choose a model [1]:');
-  expected.push(pt ? '\nEscolhas de modelos' : '\nModel choices', pt ? '| Trabalho | Modelo |' : '| Work | Model |', '| --- | --- |',
-    ...work.map((name, index) => `| ${name} | ${index === 2 ? 'astra' : 'sol'} |`),
+  for (const [i, name] of work.entries()) expected.push(`\n${name} — Codex`, pt ? '1. sol (recomendado)' : '1. sol (recommended)', '2. astra', '', pt ? 'Escolha um modelo [1]:' : 'Choose a model [1]:',
+    `${pt ? 'Esforço' : 'Effort'} (${['simple', 'normal', 'hard'][i]}: low, medium, high) [${['low', 'medium', 'high'][i]}]:`);
+  expected.push(pt ? '\nEscolhas de modelos' : '\nModel choices',
+    ...(pt ? ['Trabalho              Modelo  Esforço', '--------------------  ------  -------',
+      'Tarefas pequenas      sol     low', 'Tarefas do dia a dia  sol     medium', 'Tarefas complexas     astra   high']
+      : ['Work            Model  Effort', '--------------  -----  ------',
+        'Small tasks     sol    low', 'Everyday tasks  sol    medium', 'Complex tasks   astra  high']),
     pt ? '\nAs escolhas valem para trabalhos futuros. Para alterá-las: okit-plugin setup --again' : '\nThese choices apply to future work. You can change them with: okit-plugin setup --again',
     '', pt ? 'Salvar estas escolhas? [s/N]:' : 'Save these choices? [y/N]:',
     pt ? '3 escolhas de modelos salvas para Codex.' : 'Saved 3 model choices for Codex.',
@@ -303,8 +307,8 @@ test('a foreign .cmd fails install with an actionable link error in either langu
 
 /** The install of Claude Code as the installer prints it. */
 function currentLines(locale) {
-  return locale === 'en' ? ['', 'Suggested models — Claude Code', 'Small tasks: haiku', 'Everyday tasks: sonnet', 'Complex tasks: opus', '', 'Confirm the suggestions: okit-plugin setup', '']
-    : ['', 'Modelos sugeridos — Claude Code', 'Tarefas pequenas: haiku', 'Tarefas do dia a dia: sonnet', 'Tarefas complexas: opus', '', 'Confirme as sugestões: okit-plugin setup', ''];
+  return locale === 'en' ? ['', 'Suggested models — Claude Code', 'Small tasks: haiku (low)', 'Everyday tasks: sonnet (medium)', 'Complex tasks: opus (high)', '', 'Confirm the suggestions: okit-plugin setup', '']
+    : ['', 'Modelos sugeridos — Claude Code', 'Tarefas pequenas: haiku (low)', 'Tarefas do dia a dia: sonnet (medium)', 'Tarefas complexas: opus (high)', '', 'Confirme as sugestões: okit-plugin setup', ''];
 }
 
 function legacyInstallLines(locale, platform) {
@@ -328,7 +332,7 @@ function legacyInstallLines(locale, platform) {
       '  Optional panel  skipped  Turn on later: okit-plugin install --panel',
       ...currentLines(locale),
       '  Models  -  not set yet. Run: okit-plugin setup',
-      '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit',
+      '  OKit (optional)  -  not found. Needed only for the OKit orchestration workflow: INSTALL.md#orchestration-kit',
       windows ? `Done. Next: 1. open a new terminal  2. in this terminal instead: ${HINT('<bin>')}  3. restart Claude Code  4. ask your assistant to call \`status\``
         : 'Done. Next: 1. open a new terminal  2. restart Claude Code  3. ask your assistant to call `status`',
     ];
@@ -347,7 +351,7 @@ function legacyInstallLines(locale, platform) {
     '  Painel opcional  pulado  Ative depois: okit-plugin install --panel',
     ...currentLines(locale),
     '  Modelos  -  ainda não definidos. Rode: okit-plugin setup',
-    '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração',
+    '  OKit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração do OKit: INSTALL.pt-BR.md#kit-de-orquestração',
     windows ? `Pronto. Próximo: 1. abra um terminal novo  2. neste terminal, rode antes: ${HINT('<bin>')}  3. reinicie o Claude Code  4. peça ao seu assistente para chamar \`status\``
       : 'Pronto. Próximo: 1. abra um terminal novo  2. reinicie o Claude Code  3. peça ao seu assistente para chamar `status`',
   ];
@@ -370,14 +374,14 @@ function legacyUpdateLines(locale, platform) {
       '[3/7] Install files  ok  <data>/2.0.0-claude-code',
       '[4/7] Register in Claude Code  ok  marketplace and plugin',
       '  MCP server of Claude Code replaced by this installation',
-      `[5/7] Command and PATH  ok  okit-plugin  (${windows ? 'added to your user PATH' : 'already on your PATH'})`,
+      `[5/7] Command and PATH  ok  okit-plugin  (${windows ? 'added to your user PATH' : 'repointed to this installation'})`,
       '[6/7] Quota recording  skipped  off. To turn it on: okit-plugin install --client claude-code --statusline',
       '[7/7] Check the install  ok',
       `  Self-check (Claude Code)  ok  ${checks} checks passed`,
       ...(windows ? ['  Command (git-bash)  skipped  git-bash is not installed'] : []),
       ...currentLines(locale),
       '  Models  -  not set yet. Run: okit-plugin setup',
-      '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit',
+      '  OKit (optional)  -  not found. Needed only for the OKit orchestration workflow: INSTALL.md#orchestration-kit',
       new RegExp(`^Done\\. Next: 1\\. open a new terminal {2}${windows ? `2\\. in this terminal instead: ${escape(HINT('<bin>'))} {2}3\\. restart Claude Code {2}4` : '2\\. restart Claude Code {2}3'}\\. ask your assistant to call \`status\`$`),
     ];
   }
@@ -389,14 +393,14 @@ function legacyUpdateLines(locale, platform) {
     '[3/7] Instalar arquivos  ok  <data>/2.0.0-claude-code',
     '[4/7] Registrar no Claude Code  ok  marketplace e plugin',
     '  Servidor MCP de Claude Code substituído por esta instalação',
-    `[5/7] Comando e PATH  ok  okit-plugin  (${windows ? 'adicionado ao PATH do seu usuário' : 'já está no seu PATH'})`,
+    `[5/7] Comando e PATH  ok  okit-plugin  (${windows ? 'adicionado ao PATH do seu usuário' : 'redirecionado para esta instalação'})`,
     '[6/7] Registro de cota  pulado  desligado. Para ligar: okit-plugin install --client claude-code --statusline',
     '[7/7] Verificar a instalação  ok',
     `  Autoverificação (Claude Code)  ok  ${checks} verificações passaram`,
     ...(windows ? ['  Comando (git-bash)  pulado  git-bash não está instalado'] : []),
     ...currentLines(locale),
     '  Modelos  -  ainda não definidos. Rode: okit-plugin setup',
-    '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração',
+    '  OKit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração do OKit: INSTALL.pt-BR.md#kit-de-orquestração',
     new RegExp(`^Pronto\\. Próximo: 1\\. abra um terminal novo {2}${windows ? `2\\. neste terminal, rode antes: ${escape(HINT('<bin>'))} {2}3\\. reinicie o Claude Code {2}4` : '2\\. reinicie o Claude Code {2}3'}\\. peça ao seu assistente para chamar \`status\`$`),
   ];
 }
@@ -438,7 +442,7 @@ function installLines(locale, platform) {
 
 function updateLines(locale, platform) {
   const path = platform === 'win32' ? (locale === 'en' ? 'added to your user PATH' : 'adicionado ao PATH do seu usuário')
-    : (locale === 'en' ? 'already on your PATH' : 'já está no seu PATH');
+    : (locale === 'en' ? 'repointed to this installation' : 'redirecionado para esta instalação');
   return locale === 'en' ? ['okit-plugin 2.0.0 — update for Claude Code', ...currentLines(locale), 'Updated Claude Code from 1.0.0 to 2.0.0.',
     '1. Download and verify: complete', '2. Back up your files: complete — <data>/backups/1700000000000',
     '3. Install files: complete', '4. Connect Claude Code: complete',
@@ -468,8 +472,8 @@ function retainedEvidence(locale, platform, update = false) {
     pt ? '  Painel opcional  pulado  Ative depois: okit-plugin install --panel' : '  Optional panel  skipped  Turn on later: okit-plugin install --panel', '',
     ...currentLines(locale).slice(1),
     pt ? '  Modelos  -  ainda não definidos. Rode: okit-plugin setup' : '  Models  -  not set yet. Run: okit-plugin setup', '',
-    pt ? '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração'
-      : '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit', '',
+    pt ? '  OKit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração do OKit: INSTALL.pt-BR.md#kit-de-orquestração'
+      : '  OKit (optional)  -  not found. Needed only for the OKit orchestration workflow: INSTALL.md#orchestration-kit', '',
     pt ? 'Instalado para Claude Code. Falta confirmar os modelos.' : 'Installed for Claude Code. Model choices still need confirmation.', '',
     pt ? 'Notas' : 'Notes', pt ? '  Verifique a instalação: okit-plugin doctor --client claude-code' : '  Check the installation: okit-plugin doctor --client claude-code', '',
     pt ? 'Próximo' : 'Next', ...(windows ? [pt ? 'Execute agora:' : 'Run this now:', HINT('<bin>'), pt ? 'ou abra um terminal novo' : 'or open a new terminal']
@@ -479,7 +483,7 @@ function retainedEvidence(locale, platform, update = false) {
     ...(windows ? ['  Comando (git-bash)  pulado  git-bash não está instalado'] : []),
     ...(!update ? ['  Painel opcional  pulado  Ative depois: okit-plugin install --panel'] : []),
     '  Modelos  -  ainda não definidos. Rode: okit-plugin setup',
-    '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração',
+    '  OKit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração do OKit: INSTALL.pt-BR.md#kit-de-orquestração',
     '\nNotas', '  O SHA-256 detecta bytes alterados; não autentica a origem.',
     update ? '  Servidor MCP de Claude Code substituído por esta instalação' : '  Servidor MCP registrado no Claude Code',
     update ? '  Volte à versão guardada: okit-plugin update --rollback' : '  Verifique a instalação: okit-plugin doctor --client claude-code',
@@ -488,7 +492,7 @@ function retainedEvidence(locale, platform, update = false) {
       ...(windows ? ['  Command (git-bash)  skipped  git-bash is not installed'] : []),
       ...(!update ? ['  Optional panel  skipped  Turn on later: okit-plugin install --panel'] : []),
       '  Models  -  not set yet. Run: okit-plugin setup',
-      '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit',
+      '  OKit (optional)  -  not found. Needed only for the OKit orchestration workflow: INSTALL.md#orchestration-kit',
       '\nNotes', '  SHA-256 detects altered bytes; it does not authenticate the source.',
       update ? '  MCP server of Claude Code replaced by this installation' : '  MCP server registered in Claude Code',
       update ? '  Return to the retained version: okit-plugin update --rollback' : '  Check the installation: okit-plugin doctor --client claude-code',
@@ -586,7 +590,7 @@ test('a broken kit is one row of the run, with its reason in the chosen language
         f.clear();
       }
       assert.equal(await main([...argv, '--locale', locale], f.io), 0, f.output.join('\n'));
-      const row = f.lines().find((line) => /Kit \((optional|opcional)\)/.test(line));
+      const row = f.lines().find((line) => /OKit \((optional|opcional)\)/.test(line));
       assert.ok(row, `${argv.join(' ')} ${locale}\n${f.output.join('\n')}`);
       assert.ok(row.includes(expected.marker), row);
       assert.ok(row.includes(expected.reason), row);
@@ -774,7 +778,7 @@ for (const locale of LOCALES) for (const mode of ['clean', 'confirmed', 'no-tty'
     const answer = async (question) => {
       questions.push(question); f.output.push(question.trimEnd());
       if (/optional panel|painel opcional|Review or change|Revisar ou alterar/.test(question) || mode === 'declined') return 'n';
-      return /Save these choices|Salvar estas escolhas|\[\d+\]/.test(question) ? '' : 'y';
+      return /Save these choices|Salvar estas escolhas|\[\d+\]|^(Effort|Esforço)/.test(question) ? '' : 'y';
     };
     f.io.ask = answer; f.io.read = answer;
     if (mode === 'confirmed') {
@@ -789,11 +793,11 @@ for (const locale of LOCALES) for (const mode of ['clean', 'confirmed', 'no-tty'
     assert.doesNotMatch(output, /^\n|\n$|\n\n\n/);
     const stepLine = /^\d+\. (Download|Baixar|Install files|Instalar arquivos|Connect|Conectar|Command|Comando|Quota|Registro)/;
     const summaryLine = /^(Installed|Instalado|Preview only|Somente prévia)/;
-    const heads = lines.filter((line) => stepLine.test(line) || /^  (Models|Modelos|Kit)/.test(line) || summaryLine.test(line));
+    const heads = lines.filter((line) => stepLine.test(line) || /^  (Models|Modelos|OKit)/.test(line) || summaryLine.test(line));
     assert.deepEqual(heads.map((line) => /^\d+/.exec(line)?.[0] ?? (/Kit/.test(line) ? 'kit' : /Models|Modelos/.test(line) ? 'models' : 'summary')),
       ['1', '2', '3', '4', '5', ...(mode === 'dry-run' ? [] : ['models']), 'kit', 'summary']);
     for (let i = 1; i < lines.length; i++) {
-      if (stepLine.test(lines[i]) || /^  (Models|Modelos|Kit|Optional panel|Painel opcional)/.test(lines[i]) || summaryLine.test(lines[i])) assert.equal(lines[i - 1], '', output);
+      if (stepLine.test(lines[i]) || /^  (Models|Modelos|OKit|Optional panel|Painel opcional)/.test(lines[i]) || summaryLine.test(lines[i])) assert.equal(lines[i - 1], '', output);
       if (/\? \[[^\]]+\]/.test(lines[i])) assert.equal(lines[i + 1], '', output);
     }
     const stored = JSON.parse(await fs.readFile(join(f.root, 'config.json'), 'utf8'));
@@ -802,7 +806,7 @@ for (const locale of LOCALES) for (const mode of ['clean', 'confirmed', 'no-tty'
     assert.equal(questions.some((q) => /models now|modelos agora/.test(q)), !['confirmed', 'no-tty', 'dry-run'].includes(mode));
     if (mode === 'confirmed') assert.match(output, pt ? /Modelos\s+ok\s+mantidos/ : /Models\s+ok\s+kept/);
     if (mode === 'empty') {
-      assert.match(output, pt ? /\| Tarefas pequenas \| haiku/ : /\| Small tasks \| haiku/);
+      assert.match(output, pt ? /Tarefas pequenas\s+haiku\s+low/ : /Small tasks\s+haiku\s+low/);
       assert.match(output, pt ? /Modelos\s+ok/ : /Models\s+ok/);
     }
   });
@@ -945,7 +949,7 @@ for (const client of ['claude-code', 'codex', 'opencode']) for (const locale of 
       if (mode === 'review-cancel') {
         assert.equal(questions.filter((q) => /\[\d+\]:$/.test(q)).length, 3, 'again must ask all three classes');
         for (const label of pt ? ['Tarefas pequenas', 'Tarefas do dia a dia', 'Tarefas complexas'] : ['Small tasks', 'Everyday tasks', 'Complex tasks']) {
-          assert.ok(lines.some((line) => line.includes(`| ${label} | saved-${client}`)), output);
+          assert.ok(lines.some((line) => line.startsWith(label) && line.includes(`saved-${client}`)), output);
         }
       }
       if (mode.startsWith('no-tty') || mode === 'update-quiet') assert.deepEqual(questions, []);
@@ -1037,7 +1041,7 @@ test('D140 saving one client keeps the summary pending for another selected clie
   ui.header({ client: 'Claude Code', version: '1' });
   ui.header({ client: 'Codex', version: '1' });
   await offerSetup({ root: f.root, clients: ['claude-code', 'codex'], ui, tty: true,
-    env: f.io.env, ask: async () => 'y', adapters: [
+    env: f.io.env, ask: async (question) => /^Effort/.test(question) ? '' : 'y', adapters: [
       { CLIENT: 'claude-code', listModels: async () => ({ client: 'claude-code', installed: true, models: ['sonnet'], source: 'listing' }) },
       { CLIENT: 'codex', listModels: async () => ({ client: 'codex', installed: false, models: [], source: 'listing' }) },
     ] });

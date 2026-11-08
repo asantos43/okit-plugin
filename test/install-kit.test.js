@@ -219,9 +219,9 @@ test('install/update summaries and status contain kit; dry-run writes nothing', 
   const before = await fs.readdir(f.home, { recursive: true });
   const readonly = { ...fs };
   for (const method of ['writeFile', 'mkdir', 'rename', 'rm', 'chmod', 'copyFile', 'symlink', 'unlink']) readonly[method] = () => { throw new Error(`unexpected write: ${method}`); };
-  // The kit is one row of the run ("Kit (optional)"), before the closing line.
-  const kitRow = () => f.output.filter((line) => line.includes('Kit (optional)'));
-  const kitInstalled = /^\s*Kit \(optional\)\s+ok\s+\S+ \(kit v1\.2\.3\)$/;
+  // The kit is one row of the run ("OKit (optional)"), before the closing line.
+  const kitRow = () => f.output.filter((line) => line.includes('OKit (optional)'));
+  const kitInstalled = /^\s*OKit \(optional\)\s+ok\s+\S+ \(kit v1\.2\.3\)$/;
   assert.equal(await main(['install', '--from', source, '--client', 'codex', '--dry-run'], { ...io, fs: readonly }), 0);
   assert.equal(kitRow().length, 1);
   assert.match(kitRow()[0], kitInstalled);
