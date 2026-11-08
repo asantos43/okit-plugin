@@ -44,6 +44,7 @@ async function world(t, { accounts = true } = {}) {
   if (accounts) {
     const saved = JSON.parse(await fs.readFile(join(f.root, 'config.json'), 'utf8'));
     saved.accounts = { [CLIENT]: [{ id: 'work', label: 'Work', configDir: f.work }, { id: 'personal', label: 'Personal', configDir: f.personal }] };
+    saved.quotaPoll = { enabled: true }; // tests that launch the active read opt in explicitly
     await fs.writeFile(join(f.root, 'config.json'), JSON.stringify(saved));
   }
   // One registry of MCP entries per client folder: the program of an account is run with that account's folder variable.
