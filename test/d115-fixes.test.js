@@ -1093,12 +1093,12 @@ test('round 8: account list and add speak the login in pt-BR; --json stays raw',
     return lines;
   };
   const human = { en: await run(['account', 'list', 'claude-code']), 'pt-BR': await run(['account', 'list', 'claude-code', '--locale', 'pt-BR']) };
-  assert.match(human.en.at(-1), /\tlogged-out\tThe account is not logged in\.$/);
-  assert.match(human['pt-BR'].at(-1), /\tdeslogada\tA conta não está logada\.$/); // locale:pt-BR
+  assert.match(human.en.at(-1), /\tlogged-out\tThe account is not logged in\.(\t[^\t]+)?$/);
+  assert.match(human['pt-BR'].at(-1), /\tdeslogada\tA conta não está logada\.(\t[^\t]+)?$/); // locale:pt-BR
   assert.doesNotMatch(human['pt-BR'].join('\n'), /logged-(in|out)|\bunknown\b/);
   assert.equal(JSON.parse((await run(['account', 'list', 'claude-code', '--json', '--locale', 'pt-BR']))[0]).at(-1).login, 'logged-out');
   const added = await run(['account', 'add', 'claude-code', 'Spare', '--config-dir', join(root, 'spare'), '--locale', 'pt-BR']);
-  assert.match(added[0], /\tdeslogada\tA conta não está logada\.$/); // locale:pt-BR
+  assert.match(added[0], /\tdeslogada\tA conta não está logada\.(\t[^\t]+)?$/); // locale:pt-BR
   assert.doesNotMatch(added[0], /logged-out/);
 });
 

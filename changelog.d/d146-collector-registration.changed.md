@@ -1,0 +1,1 @@
+Automatically register saved Claude account collectors on CLI/web add, install, update and doctor --fix, preserving previous commands and backups; show per-account registration and passive-reading states in English and Brazilian Portuguese in web config and panel, with Codex marked as needing no collector.

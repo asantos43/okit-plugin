@@ -128,6 +128,8 @@ export function clientMain(win, slugify = accountSlug, proposeFolder = proposedA
       row.querySelector('[data-account-login-help]').hidden = account.login === 'logged-in';
       row.querySelector('[data-action="account-login"]').hidden = account.login !== 'logged-in';
       row.querySelector('code').textContent = account.loginCommand;
+      const collector = row.querySelector('[data-account-collector]');
+      if (collector) collector.textContent = [account.collector?.text, account.collector?.detail, account.collector?.reason].filter(Boolean).join(': ');
     }
   };
   const save = async () => {

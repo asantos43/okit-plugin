@@ -88,7 +88,7 @@ test('install of two accounts leaves each other\'s folders untouched', async (t)
   assert.equal(first.statusline, undefined);
   const workBar = await fs.readFile(join(f.work, 'settings.json'));
   assert.ok(first.accounts.work.statusline.path.startsWith(f.work));
-  assert.equal(await exists(join(f.personal, 'settings.json')), false);
+  assert.equal(await exists(join(f.personal, 'settings.json')), true, 'D146 registers collectors for all saved extras');
   assert.equal(await exists(join(f.client, 'settings.json')), false);
 
   assert.equal(f.holds(f.work), true);

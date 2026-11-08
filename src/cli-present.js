@@ -12,7 +12,8 @@ import { commandToken, hasCommand, resolveTokens } from './install/command-token
 export * from './install/present.js';
 
 export const presentAccount = (row, locale) => [row.client, row.id, row.label, row.configDir ?? 'default',
-  loginWord(row.login, locale), ...(row.rotation ? [row.rotation.text] : [])].join('\t');
+  loginWord(row.login, locale), ...(row.rotation ? [row.rotation.text] : []),
+  ...(row.collector ? [[row.collector.text, row.collector.detail, row.collector.reason].filter(Boolean).join(': ')] : [])].join('\t');
 export const accountChanged = (action, locale) => action === 'remove'
   ? (locale === 'pt-BR' ? 'Conta removida da configuração. A pasta e o login permanecem.' : 'Account removed from configuration. The folder and login remain.') // locale:pt-BR
   : (locale === 'pt-BR' ? 'Conta renomeada. O id e o histórico permanecem.' : 'Account renamed. The id and history remain.'); // locale:pt-BR
@@ -25,7 +26,7 @@ export function accountInstructions(row, { locale, platform, command, root }) {
     ? `$env:${key}=${powershellLiteral(value)}; ` : `${key}=${quotedWord(value, 'linux')} `;
   const lines = [];
   if (row.login !== 'logged-in') lines.push(`${pt ? 'O login é manual. Execute' : 'Login is manual. Run'}: ${assignment(variable, row.configDir, platform)}${executable}`); // locale:pt-BR
-  if (row.client === 'claude-code') {
+  if (row.client === 'claude-code' && row.collector?.state !== 'registered') {
     lines.push(pt ? 'Na pasta desta conta, registre em settings.json → statusLine (type: command) o comando:' // locale:pt-BR
       : 'In this account folder, register in settings.json → statusLine (type: command) the command:');
     // Claude runs statusLine commands in a POSIX shell, including Git Bash on Windows.

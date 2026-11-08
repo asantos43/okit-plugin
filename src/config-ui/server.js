@@ -114,7 +114,7 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
         readQuota: (client, id) => ACCOUNT_CLIENTS.includes(client)
           ? readJson(join(root, 'quota', accountFiles(client, id).reading), null) : null });
     const accountStates = await Promise.all(ACCOUNT_CLIENTS.flatMap((client) => accountsOf(loaded.raw, client))
-      .map((account) => describeAccount(account, loaded.raw, { env, platform })));
+      .map((account) => describeAccount(account, loaded.raw, { root, env, platform, locale: chosenLocale })));
     return buildState({ ...loaded, observations: readings, snapshot, accountStates, platform, env, locale: chosenLocale });
   }
   function authorize(request, url) {
@@ -250,7 +250,7 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
       const result = await changeAccount({ root, env, platform, fs: filesystem }, action,
         { client: input.client, name: action === 'add' ? input.label : input.id, directory },
         async (next) => ({ expectedMtime: await configMtime(root),
-          ...(action === 'add' ? { account: await describeAccount(accountsOf(next, input.client).at(-1), next, { env, platform }) }
+          ...(action === 'add' ? { account: await describeAccount(accountsOf(next, input.client).at(-1), next, { root, env, platform, locale }) }
             : { client: input.client, id: input.id }) }));
       send(response, 200, redact(result));
     } catch (error) {

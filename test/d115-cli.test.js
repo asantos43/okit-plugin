@@ -34,6 +34,9 @@ test('add creates a private directory, preserves markers and reports login witho
     assert.equal(result.code, 0, result.text);
     assert.match(result.text, /logged-out/);
     assert.match(result.text, /Login is manual/);
+    assert.ok(result.out[0].endsWith(client === 'claude-code'
+      ? '\tRegistered: Waiting for first reading' : '\tNo status-bar collector needed'));
+    assert.doesNotMatch(result.text, /register in settings.json|OKWORK_HOME=.* statusline-collector/);
     if (process.platform !== 'win32') assert.equal((await fs.stat(directory)).mode & 0o777, 0o700);
     await fs.writeFile(join(directory, marker), 'SECRET-D115');
     result = await invoke(['list', client, '--json'], { platform: 'linux' });
@@ -44,7 +47,11 @@ test('add creates a private directory, preserves markers and reports login witho
     assert.match(result.text, /Account folders must be unique/);
     assert.doesNotMatch(result.text, /Login is manual/);
     assert.equal(await fs.readFile(join(directory, marker), 'utf8'), 'SECRET-D115');
-    assert.deepEqual(await fs.readdir(directory), [marker]);
+    assert.deepEqual((await fs.readdir(directory)).sort(), client === 'claude-code' ? [marker, 'settings.json'] : [marker]);
+    if (client === 'claude-code') {
+      const settings = JSON.parse(await fs.readFile(join(directory, 'settings.json'), 'utf8'));
+      assert.deepEqual(settings.statusLine, { type: 'command', command: "'okit-plugin' 'statusline-collector'" });
+    }
   }
 });
 
@@ -61,7 +68,17 @@ test('unknown logins and Windows PowerShell instructions', async (t) => {
   const mac = await invoke(['add', 'claude-code', 'Mac', '--config-dir', join(root, 'mac')], { platform: 'darwin' });
   assert.match(mac.text, /unknown/);
   assert.match(mac.text, /CLAUDE_CONFIG_DIR=.* claude/);
-  assert.match(mac.text, /OKWORK_HOME=.* statusline-collector/);
+  assert.ok(mac.out[0].endsWith('\tRegistered: Waiting for first reading'));
+  assert.doesNotMatch(mac.text, /register in settings.json|OKWORK_HOME=.* statusline-collector/);
+  const blocked = join(root, 'mac-blocked');
+  await fs.mkdir(blocked);
+  await fs.writeFile(join(blocked, 'settings.json'), 'not JSON');
+  const failed = await invoke(['add', 'claude-code', 'Blocked', '--config-dir', blocked], { platform: 'darwin' });
+  assert.equal(failed.code, 0, failed.text);
+  assert.ok(failed.out[0].endsWith('\tNot registered: Could not register the collector. Check account settings permissions and JSON.'));
+  assert.match(failed.text, /register in settings.json/);
+  assert.match(failed.text, /OKWORK_HOME=.* statusline-collector/);
+  assert.equal(await fs.readFile(join(blocked, 'settings.json'), 'utf8'), 'not JSON');
 });
 
 // | Corpus | Must pass | Must refuse |
@@ -119,10 +136,19 @@ test('list defaults first; rename keeps identity and quota lookup; remove keeps 
   assert.deepEqual(rows.map((row) => row.id), ['default', 'work', 'default']);
   assert.deepEqual(rows[1], { client: 'claude-code', id: 'work', label: 'New name', configDir: directory,
     login: process.platform === 'darwin' ? 'unknown' : 'logged-in',
+    collector: { state: 'registered', text: 'Registered', reading: 'reading received', detail: 'Reading received' },
     rotation: { eligible: true, known: false, readAt, reason: 'no-reading', text: 'No current reading; eligible last.' } });
   const text = await invoke(['list', 'claude-code']);
   assert.match(text.text, /claude-code\tdefault\tdefault\tdefault\t/);
   assert.ok(text.text.includes(`work\tNew name\t${directory}`));
+  assert.ok(text.out[1].endsWith('\tRegistered: Reading received'));
+  for (const [locale, collector] of [['en', { state: 'registered', text: 'Registered', reading: 'reading received', detail: 'Reading received' }],
+    ['pt-BR', { state: 'registered', text: 'Registrado', reading: 'reading received', detail: 'Leitura recebida' }]]) { // locale:pt-BR
+    const localized = await invoke(['list', 'claude-code', '--json', '--locale', locale], { now: () => readAt });
+    assert.deepEqual(JSON.parse(localized.out[0])[1].collector, collector);
+    const printed = await invoke(['list', 'claude-code', '--locale', locale]);
+    assert.ok(printed.out[1].endsWith(`\t${collector.text}: ${collector.detail}`));
+  }
   assert.equal((await invoke(['rename', 'claude-code', 'work', 'A'.repeat(40)])).code, 0);
   const removed = await invoke(['remove', 'claude-code', 'work']);
   assert.equal(removed.code, 0);

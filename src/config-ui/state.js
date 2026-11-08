@@ -6,6 +6,7 @@ import { confirmedModels } from '../env/models.js';
 import { readiness, readyLine } from '../env/ready.js';
 import path from 'node:path';
 import { homeOf } from '../install/config.js';
+import { collectorState } from '../quota/collector-registration.js';
 
 const SECRET = /(?:password|passwd|secret|credential|authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|private[-_]?key)/i;
 const CONTENT = /(?:\b(?:Bearer|Basic)\s+\S+|\bsk-[\w-]+|-----BEGIN .*PRIVATE KEY|https?:\/\/[^\s/]+:[^\s/]+@|(?:password|secret|token|api[-_]?key)\s*[=:]\s*\S+)/i;
@@ -24,6 +25,7 @@ export function redact(value, path = '') {
 /** Login probing checks markers only and reports unreadable client state as unknown. */
 export async function describeAccount(account, config, context = {}) {
   return { client: account.client, id: account.id, label: account.label, configDir: account.configDir,
+    collector: await collectorState(context, config, account),
     login: await loginState({ ...context, client: account.client, account, install: config.install, config }),
     loginCommand: loginCommand(account.client, account, context.platform,
       { saved: Object.hasOwn(config.accounts ?? {}, account.client) }) };
@@ -46,6 +48,7 @@ export function buildState({ raw = {}, observations = [], snapshot, locale = 'en
     ? accountsOf(config, client).map((account) => ({ client, id: account.id, label: redact(account.label),
       configDir: account.configDir,
       login: accountStates.find((entry) => entry.client === client && entry.id === account.id)?.login ?? 'unknown',
+      ...((entry => entry?.collector ? { collector: entry.collector } : {})(accountStates.find((entry) => entry.client === client && entry.id === account.id))),
       loginCommand: loginCommand(client, account, platform, { saved: Object.hasOwn(config.accounts ?? {}, client) }) })) : []);
   const actors = Object.keys(config.profiles).flatMap((client) => {
     const identities = accounts.filter((account) => account.client === client);

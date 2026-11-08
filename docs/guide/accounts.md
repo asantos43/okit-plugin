@@ -16,7 +16,7 @@ Rotation requires more than `accountPolicy.minQuotaPct` (20 by default) in **bot
 ## Manage an account
 
 1. Add a distinct folder with a path absolute on this system, then run the printed manual login command.
-2. Register the printed Claude collector command, if applicable, and check `account list`.
+2. Check `account list`: Claude's passive collector registers automatically when the account is saved from CLI or web. Login stays manual.
 3. Rename or remove the saved entry as needed; its id stays stable when renamed.
 
 ```sh
@@ -33,7 +33,9 @@ Use an absolute path. On Windows PowerShell, for example: `okit-plugin account a
 
 Login stays manual. On the configuration page, choose Log in in a terminal to open the client's own login for that account's folder. Sign in in that terminal window, then choose Check login. Nothing is typed for you; the quota poller only uses the access token as described above. If no window opens, copy the command and run it yourself. If the terminal opens but does not start login, use Copy and run the command yourself. Follow the printed command: `CLAUDE_CONFIG_DIR=/absolute/path/claude-work claude` or `CODEX_HOME=/absolute/path/codex-work codex`. On PowerShell: `$env:CODEX_HOME='C:\Accounts\Work'; codex` (Claude uses `CLAUDE_CONFIG_DIR` and `claude`). Every path printed for PowerShell has each quote of the string doubled, so a folder whose name holds a quote (`C:\Users\O'Brien\acc`) is still one string. A `logged-in` result means a local marker exists; it does not verify access. The default account's login is read in the folder the client uses with no override, the one your install settings name. Login detection never opens credentials; active quota reads only the token and expiry as described above. macOS Keychain and Codex keyring storage report `unknown`.
 
-For Claude Code, add prints a collector command. Register it manually as `statusLine.command` with `statusLine.type` set to `command` in that folder's `settings.json`. Preserve or chain any existing status bar as appropriate. The command sets `CLAUDE_CONFIG_DIR` and `OKWORK_HOME`, so the collector identifies the account by its folder and writes its own sample. The collector writes only the file of the account its folder names: a folder that names no saved account (the folder of an account you removed, or one that was never saved) writes nothing, so the reading of one account is never overwritten with the limits of another. The folder the client uses with no override is the default account's own folder and writes the default's file. Claude uses a POSIX shell, including Git Bash on Windows. Codex actively reads app-server quota and keeps its local session readings; it has no Claude status bar to register. The account commands never edit client files.
+For saved extra Claude accounts, CLI/web add, install and update automatically register the passive statusline collector. `doctor --fix` repairs a missing collector. Existing status-bar commands are preserved through `--previous` and an exact backup; registration never opens credential files. The default account keeps its existing flow. A failure does not fail account add: it reports Not registered with a plain reason. Login stays manual. Codex needs no status-bar collector.
+
+The web configuration and panel show Registered when the account folder's `settings.json` invokes the collector, with Waiting for first reading until a passive reading file exists, then Reading received. Not registered means the command is missing or unreadable. Active poller readings alone do not count as a passive reading.
 
 List shows the default first for each client; JSON contains `client`, `id`, `label`, `configDir` (null for default) and `login`. The [configuration page](config-ui.md) also manages these accounts in its Accounts tab: add a label and absolute folder, save labels, confirm removal, open a terminal for login or copy the command, and check login afterward. Check login refreshes badges, commands and help in place, preserving other edits. Add, rename and remove ask you to save or reset other edits first because they reload the page. Copy and terminal guidance use a polite status line; failures use the error line. For Claude Code, type `/login` in the session if asked. Remove accepts an id and only changes plugin configuration: the folder, login and recorded history remain. Default cannot be removed. Rename accepts an id or current label, changes only the label and preserves quota/history lookup by id.
 
@@ -48,7 +50,7 @@ Process launches use the account id supplied by the caller, or the reserved slot
 <a id="register"></a>
 ## Register the plugin in an account
 
-1. Run `okit-plugin install --client claude-code --account work`. Expect the plugin, its MCP entry, its hooks and (with `--statusline`) its status bar in that account's folder only; no other folder is touched.
+1. Run `okit-plugin install --client claude-code --account work`. The plugin, MCP entry and hooks belong to that account. Install and update also register passive collectors for every saved extra Claude account; the default account keeps its existing statusline flow.
 2. Repeat with another id for each account that should have the plugin. The files of the plugin are shared: one copy per client, however many accounts use it.
 3. Run `okit-plugin uninstall --client claude-code --account work` to take just that account out. The other accounts and the shared files stay until the last registration is gone.
 

@@ -99,6 +99,7 @@ export function viewModel(result, now = Date.now(), timeZone) {
     quotas[index * 2], quotas[index * 2 + 1],
     ...(account.quota_state?.reason && !account.quota.session && !account.quota.weekly ? [account.quota_state.reason] : []),
     ...(account.rotation ? [account.rotation.text] : []),
+    ...(account.collector ? [[account.collector.text, account.collector.detail, account.collector.reason].filter(Boolean).join(': ')] : []),
   ]);
   const newest = [...state.runs].sort((a, b) =>
     (Date.parse(b.started_at ?? '') || 0) - (Date.parse(a.started_at ?? '') || 0));

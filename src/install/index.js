@@ -27,6 +27,7 @@ import { registerStatusline, appliesStatusline } from './statusline.js';
 import { accountIds, depsFor, hasExtras, header, involvesAccounts, markRegistered, registeredIds, registeredTargets, requestedAccount, targetOf } from './account-scope.js';
 import { accountsOf } from '../accounts.js';
 import { requestQuotaRead } from '../quota/active-trigger.js';
+import { ensureSavedCollectors, savedCollector, clearSavedCollector } from '../quota/collector-registration.js';
 import { verifyInstall } from './selfcheck.js';
 import { executionPolicyStep } from './policy.js';
 import { commandText } from './command-token.js';
@@ -155,6 +156,10 @@ export async function installerCommand(command, args, ctx, io = {}) {
         sharedLink: shared.some((record) => record.link), sharedAutostart: shared.some((record) => record.autostart),
       }, user, records[client]);
       results.push({ client, code });
+      if (code === 0 && ['install', 'update'].includes(command) && !deps.dryRun && !flags.check && !flags.rollback && !flags['no-statusline']) {
+        const collectors = await ensureSavedCollectors({ ...ctx, fs }, user, client);
+        for (const collector of collectors) ui.note([collector.text, collector.detail, collector.reason].filter(Boolean).join(': '));
+      }
     }
     ui.endClients?.();
     if (results.length > 1) results.forEach(({ client, code }) => ui.row(clientLabel(client), code === 0 ? 'ok' : 'failed'));
@@ -336,6 +341,14 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
     const statusbar = async (record) => {
       let first = null;
       for (const account of acting) {
+        if (account && !account.isDefault && !record.accounts?.[account.id]?.statusline && !deps.dryRun && !flags.check) {
+          const held = await savedCollector(deps, account);
+          if (held?.path === join(account.root, deps.statuslineConfig.settingsFile)) {
+            record.accounts = { ...record.accounts, [account.id]: { ...record.accounts?.[account.id], statusline: held } };
+            await saveRecord(deps.destination, record, deps);
+            await clearSavedCollector(deps, account);
+          }
+        }
         const result = await registerStatusline(record, flags, scoped(account));
         if (!first) first = result;
       }

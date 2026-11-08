@@ -23,6 +23,8 @@ Cada conta mostra elegibilidade para rotação: ambas as janelas devem ter **mai
 
 ## O que o quadro mostra
 
+Cada conta também mostra o estado do coletor passivo: Registrado com Aguardando primeira leitura, depois Leitura recebida quando existir seu arquivo passivo, ou Não registrado com um motivo simples. Isso verifica o comando do `settings.json` da conta e a presença do arquivo passivo, sem abrir credenciais; leituras ativas não comprovam coleta passiva. Add pelo CLI/web, install e update registram automaticamente todas as contas Claude extras salvas; `doctor --fix` repara coletores ausentes. Comandos existentes são encadeados com `--previous` e recebem backup. O fluxo default permanece, Codex não precisa de coletor na barra de status e o login continua manual.
+
 - ACCOUNTS: apelidos em execução ou ociosos, barras alinhadas de session 5h e semana, percentual restante, horários locais de renovação em 24 h e tempo que falta (`4h35m` ou `1d 21h`). Renovações a mais de 24 h incluem o dia da semana; `!` marca menos de 20% restante e cotas ausentes mostram `unknown`.
 - RUNNING: execuções ativas e sua última linha de progresso.
 - RECENT: execuções concluídas, com falha ou que não estão mais ativas (stale).

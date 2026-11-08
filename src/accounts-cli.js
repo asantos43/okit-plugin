@@ -11,6 +11,7 @@ import { isReadableConfig } from './setup/setup.js';
 import { requestQuotaRead } from './quota/active-trigger.js';
 import { adapterQuotaReader } from './env/quota.js';
 import { rotationStatus } from './quota/rotation.js';
+import { ensureCollector, collectorState } from './quota/collector-registration.js';
 
 const CLIENTS = ['claude-code', 'codex'];
 
@@ -43,6 +44,7 @@ export async function accountCommand(ctx, action, args) {
     const reading = await adapterQuotaReader({ stateRoot: ctx.root, env: ctx.env, config, now: ctx.now })(account.client, account.id)
       .catch(() => null);
     return { client: account.client, id: account.id, label: account.label, configDir: account.configDir, login,
+      collector: await collectorState(ctx, settings, account),
       rotation: rotationStatus({ reading, login, config, now: ctx.now(), locale: ctx.locale }) };
   };
   if (action === 'list') {
@@ -90,6 +92,7 @@ export async function changeAccount(ctx, action, { client, name, value, director
         }
       }
       await (ctx.writeConfig ?? ctx.write ?? writeJsonAtomic)(target.config, next);
+      if (action === 'add') await ensureCollector(ctx, next, accountsOf(next, client).at(-1));
       if (action === 'add') await requestQuotaRead(ctx, client, accountsOf(next, client).at(-1).id, { force: true });
       return await saved(next);
     });
