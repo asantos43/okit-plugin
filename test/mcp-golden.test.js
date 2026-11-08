@@ -15,10 +15,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(HERE, 'fixtures', 'mcp-golden.json');
 const UPDATE = process.env.GOLDEN_UPDATE === '1';
 
-// D125 keeps installer locale dictionaries and English-only profile/detection defaults in the status shape.
+// D145 adds quotaPoll defaults and rotation in account rows to the status shape.
 // Account choices retain their D121 shape, and MCP envelopes stay unchanged.
 const DISPLAY_SHAPES = {
-  status: '8ecc8478492351d8f62e3d912e63d9d70cbefb9507612091cc53a65f6877f86c',
+  status: 'dac759502d96e9dd7ba4f075858cc55c957edc5aedbf8b4d33f19ba233a6d379',
   actors_list: '5090ada5aa54f0a15deb0433f70151c15297a0c53abb4da755a652e70f6d2529',
 };
 function jsonShape(value) {
@@ -40,7 +40,7 @@ test('display replies preserve the reviewed JSON shapes and MCP envelope in both
     assert.equal(frame.result.content[0].type, 'text');
     const reply = JSON.parse(frame.result.content[0].text);
     if (name === 'status') assert.deepEqual(reply.snapshot.config.accountPolicy,
-      { minQuotaPct: 0, paceMarginPct: 15, enforcePace: false });
+      { minQuotaPct: 20, paceMarginPct: 15, enforcePace: false });
     const shape = jsonShape(reply);
     const hash = createHash('sha256').update(JSON.stringify(shape)).digest('hex');
     if (UPDATE) process.stderr.write(`${name}/${locale} shape: ${hash}\n`);

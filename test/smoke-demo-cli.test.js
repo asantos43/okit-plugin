@@ -146,22 +146,22 @@ test('no-cost client without tokens and absent or wrong confirmation never launc
 });
 
 const previewBaselines = {
-  'claude-code/en': ['15e53113da23fd77e40c03bf4e1f6dad2667c31648814d4b438a9f52a9c27cf6',
+  'claude-code/en': ['5dd344067bce70d27bbe9015e854edd59b982aa8adfbc3d33ddf6c40d0f8c01d',
     '1cf99ad4c76186b5bee0fec56f578a11f1a687a191322456786c7f96a47352e3'],
-  'claude-code/pt-BR': ['0e48f70d9fed1bca9a72741378f3169a9011d2b04c134a01727632a4b43acc59',
+  'claude-code/pt-BR': ['6ceb996ad056da4207132a6068c6c1835ced8462ea439ca815ab7b7e287eec88',
     '6d6707128ce3371f4a077ce349d167d46aa2ce9d90978386a53f0b4c43e902ad'],
-  'codex/en': ['a32ca1a096fb2cf714e195f142f75947c0aa2c11ccb845017201cff88593d102',
+  'codex/en': ['c8f10969902023f9fd547f6ec57630de3ae66b5c9e2e687d72fa0493a7072cb2',
     '1c582c29c3ee7725e802c44c318a22a15cbf35545688b9e55c6096abb6aca265'],
-  'codex/pt-BR': ['03899dfb2d9c82b601d0665510a44ad295a28cd67678da7cd03d9779b18dd78e',
+  'codex/pt-BR': ['24c48c6c941e64bb4196e87b2132c55bd5a5ccb7ab4374176baedb9819f119fb',
     '6a2b20d5da03b3b26593e1040d6944c95960b3566c3015f96b2f9c6c29ab4fe7'],
-  'opencode/en': ['471fd72e9d38bd7c4b573bf96fdcfd5885717cdd31c5419f3abc613935861651',
+  'opencode/en': ['1dd60194c3f1a016cd935ba365251c6b30d9b53fa53835281e6db5044017408a',
     '5283f1e03cd4b0107dce473db5c159502bd6bba7b5fd0d42c9f962bc2372baf4'],
-  'opencode/pt-BR': ['2e831161b7940e899de7ad5cae5a739c267f7d17ecc9f6ae876e1c1c2b8f0d86',
+  'opencode/pt-BR': ['b5237fb1f3dd6329bbd3cc26af151208d78aa27be45e84af5ea891968e0d76ac',
     'a669aa1edf1fcd28201f78a933ed3b03b800b91d42724d6be8c88e78d41a3b52'],
 };
 
 test('dry-run hash and text match the committed entry without launching', async (t) => {
-  // SHA-256 of plan, including the D125 locale dictionaries, and unchanged exact preview text from the pre-D84 entry,
+  // SHA-256 of plan, including the D145 quotaPoll defaults, and unchanged exact preview text from the pre-D84 entry,
   // with the confirmed fixture and a fixed quota timestamp. No git subprocess.
   const baseline = previewBaselines;
   for (const client of ['claude-code', 'codex', 'opencode']) {

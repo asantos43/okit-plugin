@@ -518,7 +518,9 @@ test('the core reads the sample: every window, the tightest quota, automatic sou
 
 test('real previous command receives exact input and returns exact binary bytes', async (t) => {
   const root = await rootFor(t);
+  // Verify byte transport independently of the 500 ms default; deadlines have their own tests.
   const output = await collectStatusline({ input, stateRoot: root,
+    config: { statuslineCollector: { timeoutMs: 5000 } },
     previous: [process.execPath, '-e', echoInput + 'fs.writeSync(1,Buffer.from([0,255,13,10]));'] });
   assert.deepEqual(output, Buffer.concat([input, Buffer.from([0, 255, 13, 10])]));
 });

@@ -33,8 +33,9 @@ client é um cliente configurado; class é simple, normal ou hard. O padrão de 
 | `profiles.<client>.<class>.effort` | Esforço de raciocínio usado neste cliente e nesta classe de trabalho. |
 | `profiles.<client>.<class>.maxTurns` | Número máximo de voltas para este cliente e esta classe de trabalho. |
 | `lowQuotaPct` | Os perfis são rebaixados quando a cota restante fica abaixo deste percentual. |
-| `accountPolicy.minQuotaPct`; `accountPolicy.paceMarginPct`; `accountPolicy.enforcePace` | Política pura: janelas conhecidas devem superar 0%; margem do ritmo de 15 pontos; imposição padrão false. Ainda sem ligação ao lançamento. |
+| `accountPolicy.minQuotaPct`; `accountPolicy.paceMarginPct`; `accountPolicy.enforcePace` | Política de contas: janelas conhecidas devem superar 20% por padrão para rotação; margem do ritmo de 15 pontos; imposição padrão false. |
 | `daemon.minQuotaPct` | O daemon não abre demandas quando a cota restante fica abaixo deste percentual. |
+| `quotaPoll.enabled`; `quotaPoll.intervalSec`; `quotaPoll.claudeFallbackMinutes` | Leituras ativas de cota: true por padrão, a cada 60 segundos, com espera de 30 minutos entre fallbacks do Claude. Intervalos inteiros de 1 a 86400. Em `node --test`, exigem `quotaPoll.enabled: true` salvo explicitamente. |
 | `smoke.quotaFloorPct` | O smoke recusa iniciar quando a cota restante fica abaixo deste percentual. |
 | `codexQuota.sessionsDirectory` | Ajuste da leitura automática de cota do Codex. |
 | `codexQuota.sessionsEnv` | Ajuste da leitura automática de cota do Codex. |
@@ -58,7 +59,6 @@ client é um cliente configurado; class é simple, normal ou hard. O padrão de 
 
 <a id="defaults"></a>
 ## Inventário de padrões e consumidores
-
 Lista gerada a partir de DEFAULT_CONFIG em [profiles.js](../../src/profiles.js) e do esquema em [config.js](../../src/config.js). Cada chave aparece com padrão e módulo consumidor; objetos vazios admitem entradas por nome. Arrays são valores completos. ¹ Textos longos, mensagens e listas de instruções usam os valores literais do arquivo de padrões vinculado, preservados ali para consulta sem duplicar instruções de manutenção. `panel.autoOpen` = `true` (booleano): o painel instalado do Claude Code abre ao iniciar a sessão. Defina como `false` no `config.json` da raiz de estado para desligar a abertura automática. O adaptador lê via `okit-plugin panel-state --json --client claude` (`panel.autoOpen` na resposta); `/okit-panel` continua alternando o painel. `panel.color` = `true` (booleano): cotas usam cores do tema (verde em >= 50%, amarelo em >= 20%, vermelho abaixo de 20%, apagado quando desconhecida); `false` desliga as cores. O percentual e o marcador `!` permanecem. Chega ao adaptador pela mesma resposta panel-state.
 
 | Chaves = padrões | Onde são lidas e efeito |

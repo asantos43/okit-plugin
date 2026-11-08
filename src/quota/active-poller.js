@@ -22,7 +22,12 @@ export function createQuotaPoller({ root, fs = filesystem, fetch = globalThis.fe
   let cliTail = Promise.resolve();
   const directory = join(root, 'quota');
   const json = async (file) => { try { return JSON.parse(await fs.readFile(file, 'utf8')); } catch { return null; } };
-  const settings = async () => configOf(await json(join(root, 'config.json')) ?? {});
+  const settings = async () => {
+    const saved = await json(join(root, 'config.json')) ?? {};
+    const config = configOf(saved);
+    if (process.env.NODE_TEST_CONTEXT && saved.quotaPoll?.enabled !== true) config.quotaPoll.enabled = false;
+    return config;
+  };
   const atomic = async (file, value) => {
     const temp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
     try { await fs.writeFile(temp, JSON.stringify(value), { mode: 0o600 }); await fs.rename(temp, file); }
