@@ -98,7 +98,7 @@ async function configuredState(ctx, client, internal, stored, warnings, readRunJ
     return { id: identity.id, label: identity.label,
       quota: { session: windowState(account.reading, true, now), weekly: windowState(account.reading, false, now) } };
   }) : [];
-  return { schema_version: 1, client, accounts, panel: { autoOpen: config.panel?.autoOpen !== false },
+  return { schema_version: 1, client, accounts, panel: { autoOpen: config.panel?.autoOpen !== false, color: config.panel?.color !== false },
     runs: runs.filter((run) => run.client === internal && (!run.role || run.role === 'executor')).map((run) => runState(run, now, config.staleMinutes)),
     launchable: saved ? identities.flatMap((identity, index) => (row.accounts?.[index] ?? row).candidates.map((actor) => ({
       account: identity.id, model: actor.model, effort: actor.effort, can_launch: actor.canLaunch,

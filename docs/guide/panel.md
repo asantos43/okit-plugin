@@ -24,6 +24,8 @@ An optional, read-only panel for Claude Code only shows accounts by alias, never
 - Readiness: gaps that prevent launching work.
 - `unknown`: unavailable data, never zero quota.
 
+Quota rows use the host theme: at least 50% left is green (`ok`), 20% to below 50% is yellow (`warn`), below 20% is red (`low`), and unknown quota is dim (`dim`). Exactly 50% is green, 20% is yellow and 19.9% is red. Wrapped lines keep the same tone. The percent text (`12% left`) and `!` below 20% remain visible. `panel.color` defaults to `true`; set it to `false` in `config.json` for plain text. Doctor account-choice quota percentages use the same thresholds on a terminal and honor `NO_COLOR`; piped and MCP output remain plain.
+
 What the board looks like (a text rendering, not a capture of the real Claude Code screen):
 
 ```text

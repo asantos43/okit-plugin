@@ -21,6 +21,18 @@ const CONFIG = {
 
 const pick = (effort, quota, config = CONFIG) => profilePick({ client: 'alpha', effort, quota, config });
 
+// Must pass: omitted/true/false colors. Must refuse: non-boolean colors.
+test('panel colors default to true, merge with autoOpen and require a boolean', async () => {
+  const { CONFIG_SCHEMA } = await import('../src/config-schema.js');
+  assert.deepEqual(DEFAULT_CONFIG.panel, { autoOpen: true, color: true });
+  assert.deepEqual(configOf({ panel: { autoOpen: false } }).panel, { autoOpen: false, color: true });
+  assert.deepEqual(configOf({ panel: { color: false } }).panel, { autoOpen: true, color: false });
+  const entry = CONFIG_SCHEMA.entries.find(entry => entry.path === 'panel.color');
+  assert.equal(entry.type, 'boolean');
+  assert.equal(entry.defaultPath, 'panel.color');
+  for (const color of [null, 0, 'false', [], {}]) assert.throws(() => configOf({ panel: { color } }), /panel.color/);
+});
+
 test('configuration normalizes legacy limits and validates values on read', () => {
   assert.deepEqual(configOf({ limits: { global: 8 } }).limits, { global: 8, clients: {} });
   const legacy = configOf({ limits: { global: 8, perClient: 2 } });

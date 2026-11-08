@@ -163,7 +163,7 @@ test('single-group panels omit outer details; summaries count all descendant con
   }
 });
 
-test('tabs link eight panels and retain 89 fields and 48 actor controls without script', () => {
+test('tabs link eight panels and retain 90 fields and 48 actor controls without script', () => {
   for (const locale of ['en', 'pt-BR']) {
     const html = renderPage(buildState(), { locale, nonce: 'test', token: 'token' }).replace(/<script\b[\s\S]*?<\/script>/g, '');
     assert.ok(html.includes(`tabindex="-1">${locale === 'en' ? 'Accounts' : 'Contas'}</button>`));
@@ -174,7 +174,8 @@ test('tabs link eight panels and retain 89 fields and 48 actor controls without 
       assert.ok(html.includes(`id="tab-${id}" data-tab="${id}" aria-controls="panel-${id}" aria-selected="${index === 0}" tabindex="${index === 0 ? 0 : -1}">${labels[locale][`tab${id}`]}</button>`));
       assert.ok(html.includes(`role="tabpanel" id="panel-${id}" aria-labelledby="tab-${id}"${id === 'accounts' ? ' hidden' : ''}>`));
     }
-    assert.equal((html.match(/ data-path="/g) ?? []).length, 89);
+    assert.equal((html.match(/ data-path="/g) ?? []).length, 90);
+    assert.match(html, /data-path="panel.color" data-type="boolean" type="checkbox" checked/);
     assert.equal((html.match(/ data-(?:actor-path|actor)="/g) ?? []).length, 48);
     const paths = [...html.matchAll(/ data-path="([^"]+)"/g)].map(match => match[1]);
     assert.deepEqual(paths.sort(), buildState().fields.map(field => field.path).sort());

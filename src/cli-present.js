@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { quotaTone } from './quota-tone.js';
 // Human CLI views are kept separate from the presenter embedded in release scripts.
 import { createPresenter as basePresenter, TEXTS as BASE_TEXTS, clientLabel as baseClientLabel,
   redactingWriter, localizeReason, powershellLiteral } from './install/present.js';
@@ -59,11 +60,21 @@ export const catalogFallback = (locale) => locale === 'pt-BR'
   : 'Model list unavailable; using the built-in list.';
 export function createPresenter(options = {}) {
   const ui = basePresenter(options);
+  ui.quotaPercent = (text) => quotaPercent(text, options);
   ui.text = (key, values = {}) => String(TEXTS[key]?.[ui.locale] ?? '').replace(/\{(\w+)\}/g, (_, key) => {
     const value = key === 'client' ? normalizeClientLabel(values[key]) : values[key];
     return String(value ?? '');
   });
   return ui;
+}
+
+/** Color the remaining percentage in a quota detail; keep its following limit plain. */
+export function quotaPercent(text, { isTTY = process.stdout.isTTY, env = process.env } = {}) {
+  if (!isTTY || Object.hasOwn(env, 'NO_COLOR')) return text;
+  return text.replace(/(-?\d+(?:\.\d+)?)%/, (value, percent) => {
+    const code = { ok: 32, warn: 33, low: 31, dim: 90 }[quotaTone(Number(percent))];
+    return `\x1b[${code}m${value}\x1b[0m`;
+  });
 }
 
 /** The program as a person types it on this platform: the words the repairs of the doctor start with. */
@@ -410,7 +421,9 @@ export function presentDiagnosis(result, { ui, command, client, clients, verbose
   out('| --- | --- |');
   const cell = (value) => String(value).replaceAll('|', '\\|').replaceAll('\n', ' ');
   for (const [index, row] of shown.entries()) {
-    out(`| ${cell(labels[index])} | ${cell(row.detail)} |`);
+    const detail = row.id === 'quota' || row.id === 'account-policy'
+      ? ui.quotaPercent?.(row.detail) ?? row.detail : row.detail;
+    out(`| ${cell(labels[index])} | ${cell(detail)} |`);
   }
   const check = `${program} doctor${client ? ` --client ${quotedWord(client, platform)}` : ''}`;
   const fixes = [...new Set(shown.filter((row) => ['failed', 'warn'].includes(row.status) && row.fix).map((row) => row.fix))];

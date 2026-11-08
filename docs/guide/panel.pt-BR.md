@@ -24,6 +24,8 @@ O painel opcional, exclusivo do Claude Code e somente para leitura, mostra conta
 - Readiness: o que falta para iniciar o trabalho.
 - `unknown`: dado indisponível, nunca cota zero.
 
+As cotas usam o tema do cliente: a partir de 50% restante, verde (`ok`); de 20% até menos de 50%, amarelo (`warn`); abaixo de 20%, vermelho (`low`); cota desconhecida, tom apagado (`dim`). Exatamente 50% é verde, 20% é amarelo e 19.9% é vermelho. Linhas quebradas mantêm o tom. O texto percentual (`12% left`) e `!` abaixo de 20% continuam visíveis. `panel.color` tem padrão `true`; defina como `false` no `config.json` para texto sem cores. Os percentuais de cota nas razões de escolha de conta do doctor usam os mesmos limites no terminal e respeitam `NO_COLOR`; saídas canalizadas e MCP continuam sem cores.
+
 Como é o quadro (uma representação em texto, não uma captura da tela real do Claude Code):
 
 ```text

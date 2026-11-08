@@ -9,7 +9,7 @@ export type Run = {
 export type State = {
   schema_version: 1; client: 'claude'; accounts: Account[]; runs: Run[];
   readiness: string; warnings: string[]; skipped_runs?: number;
-  panel?: { autoOpen?: boolean };
+  panel?: { autoOpen?: boolean; color?: boolean };
   launchable?: { account: string; actor_classes?: string[]; can_launch: boolean }[];
 };
 export type Result = { ok: true; state: State } | { ok: false; error: string };

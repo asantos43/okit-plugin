@@ -519,6 +519,7 @@ export async function main(argv = [], io = {}) {
     plugin: io.plugin, versions: io.versions,
     out,
     err,
+    isTTY: io.isTTY ?? process.stdout.isTTY,
     command: io.command ?? DEFAULT_CONFIG.install.command,
     env: io.env ?? process.env,
     home: io.home,

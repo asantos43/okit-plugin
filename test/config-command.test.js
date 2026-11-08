@@ -178,7 +178,7 @@ test('the table of the settings lists the defaults with their origin', async (t)
   const root = await tempRoot(t);
   const shown = await getConfig(root);
   const entries = shown.entries.filter((entry) => !entry.path.startsWith('codexQuota.') && !entry.path.startsWith('telemetry.'));
-  assert.equal(entries.length, 56);
+  assert.equal(entries.length, 57);
   assert.deepEqual(entries.filter((entry) => entry.path.startsWith('accountPolicy.'))
     .map(({ path, value, origin }) => ({ path, value, origin })), [
     { path: 'accountPolicy.enforcePace', value: false, origin: 'default' },
