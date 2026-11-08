@@ -15,6 +15,7 @@ Objetivos, limites e decisões originais de desenho do núcleo compartilhado do 
 - [Open questions](#section-6)
 
 Implementação: veja os módulos atuais em [ARCHITECTURE.pt-BR.md](ARCHITECTURE.pt-BR.md).
+Design do fluxo inicial de instalação: [INSTALL-WIZARD.pt-BR.md](INSTALL-WIZARD.pt-BR.md).
 
 <a id="section-1"></a>
 ## Goals
