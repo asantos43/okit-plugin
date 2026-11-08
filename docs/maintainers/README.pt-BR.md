@@ -12,6 +12,7 @@ Contratos de desenho, provas de verificação e procedimentos de release para ma
 - [Demonstração](DEMO.pt-BR.md): cenário descartável, motor injetado, orçamentos e relatórios.
 - [Verificações smoke](SMOKE.pt-BR.md): verificações isoladas e provas exigidas dos clientes reais.
 - [Desenho](DESIGN.pt-BR.md): objetivos, limites e decisões originais de desenho.
+- [Assistente de instalação](INSTALL-WIZARD.pt-BR.md): instalador web compartilhado, bootstrap, segurança e fatias de implementação.
 - [Releases](RELEASING.pt-BR.md): artefatos, bootstrap, publicação e prova por cliente/sistema.
 - [Inventário de saídas](OUTPUT-REVIEW.pt-BR.md): saída atual da CLI e do MCP (D94), achados e decisões do Producer.
 - [Mock-ups de saída](OUTPUT-MOCKUPS.pt-BR.md): estados de saída propostos aguardando aprovação do Producer.
