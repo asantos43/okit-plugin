@@ -98,7 +98,11 @@ com pelo menos dois espaços entre o rótulo e seu estado.
 
 As perguntas trazem a explicação primeiro e a pergunta por último, com o padrão em
 maiúscula: `[s/N]` em português, `[y/N]` em inglês. `s` e `y` valem como sim nos dois
-idiomas.
+idiomas. Uma linha vazia precede cada bloco de explicação e o separa da pergunta.
+A descrição do painel opcional ocupa três linhas: o quadro de contas/trabalhos, a abertura automática no Claude Code,
+e `panel.autoOpen: false` no `config.json` junto com `/okit-panel` para alternar o painel.
+O Claude Code pergunta `Escolher os modelos agora? [S/n]` para seus próprios modelos e imprime uma linha Modelos.
+A desinstalação remove um comando reutilizado do plugin após remover a última conta/cliente, preservando arquivos de outras pessoas.
 Cada passo imprime seu resultado uma vez. A escolha de modelos só é oferecida após
 instalação ou atualização bem-sucedida, nunca após falha, em `--dry-run` ou com `update --check`.
 

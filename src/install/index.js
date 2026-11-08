@@ -2,7 +2,6 @@ import * as filesystem from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { createInterface } from 'node:readline/promises';
 import { DEFAULT_CONFIG, configOf } from '../profiles.js';
 import { createPresenter, planSteps, fill, localizeReason, pick, TEXTS, redactingStream, redactingWriter, resolveLocale, supportsUnicode, headerValues, clientLabel, finish, finishLink } from './present.js';
 import { writeJsonAtomic } from '../state.js';
@@ -20,7 +19,7 @@ import { PANEL_CLIENT, panelCommand, offerPanel } from './panel.js';
 import { resolvedRecord } from './where.js';
 import { localSource } from './source.js';
 import { detectKit } from './kit.js';
-import { applyLink, chooseLinkDirectory } from './link.js';
+import { applyLink, chooseLinkDirectory, linkPlan, pluginExecutable } from './link.js';
 import { offerSetup } from '../setup/offer.js';
 import { initializeDetectedConfig, setupReader, formatUnreadable, formatNotSaved } from '../setup/setup.js';
 import { adapterQuotaReader } from '../env/quota.js';
@@ -36,20 +35,11 @@ const packageDirectory = fileURLToPath(new URL('../../', import.meta.url));
 // The flags are read in ./flags.js, the one place the installer and the commands that replay a run share.
 export { ALLOWED_FLAGS, EXCLUSIVE_FLAGS } from './flags.js';
 
-// The terminal question: readline writes straight to its output, so the output is the redacting one.
-const readerOf = (hide) => async (question) => {
-  const input = createInterface({ input: process.stdin, output: redactingStream(process.stdout, hide) });
-  try { return await input.question(question); } finally { input.close(); }
-};
-
 /**
- * The reader of the setup the end of an installation offers: the injected
- * `ask` when the caller has one, and a terminal reader otherwise. The reader is
- * opened only when a question is really asked, and it is closed when the offer
- * ends, so the process is never held by it.
+ * One lazily opened terminal reader, shared until the installer ends.
+ * Prompts pass through the same redacting output as the rest of the run.
  */
 function setupReaderOf(io, hide) {
-  if (typeof io.ask === 'function') return { ask: io.ask, close: () => {} };
   return setupReader({ stdin: io.stdin, output: redactingStream(io.output ?? process.stdout, hide) });
 }
 
@@ -80,6 +70,9 @@ export async function installerCommand(command, args, ctx, io = {}) {
   // process said, the setup) passes through `redact` here, so no module has to remember to.
   ctx = { ...ctx, out: redactingWriter(ctx.out, hide), err: ctx.err ? redactingWriter(ctx.err, hide) : ctx.err };
   let ui = createPresenter({ locale: resolveLocale({ args, env: ctx.env }).locale, write: ctx.out, hide });
+  // Keep one terminal reader through panel, policy and model questions.
+  let terminalReader;
+  const readTerminal = (...values) => (terminalReader ??= setupReaderOf(io, hide)).ask(...values);
   try {
     // The one entry: read the configuration, decide the language, and only then read the flags, so that every
     // refusal (an unknown flag included) is said in the language of the run.
@@ -123,7 +116,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
       home: io.home ?? homeOf(ctx.env, ctx.platform) ?? homedir(),
       temporary: io.tmpdir ?? tmpdir(), now: ctx.now, platform: ctx.platform, env: ctx.env,
       fetch: io.fetch ?? globalThis.fetch, tty: io.tty ?? Boolean(process.stdin.isTTY),
-      read: io.read ?? readerOf(hide), dryRun: Boolean(flags['dry-run']),
+      read: io.read ?? readTerminal, dryRun: Boolean(flags['dry-run']),
       writeJsonAtomic: io.fs ? undefined : writeJsonAtomic };
     deps.accountsConfig = user;
     deps.pathSetup = true;
@@ -167,7 +160,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
     // The setup was not done yet: offer it. A setup that cannot run is
     // reported and never fails the installation.
     if (!flags.panel && (command === 'install' || command === 'update') && !deps.dryRun && !flags.check && succeeded) {
-      const reader = setupReaderOf(io, hide);
+      const reader = { ask: io.ask ?? readTerminal, close: () => {} };
       try {
         let observation;
         try {
@@ -208,7 +201,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
   } catch (error) {
     ui.failure({ reason: error.message, next: ui.text('nextCheck') }).forEach((item) => (ctx.err ?? ctx.out)(item));
     return exitCodeFor(kindOf(error));
-  }
+  } finally { terminalReader?.close(); }
 }
 
 /** The line of `status` for each installation record that is not a JSON object and was left out, with its file path. */
@@ -248,6 +241,7 @@ function kitRow(ui, deps, kit) {
 
 async function runClient(command, flags, ctx, io, deps, user, current) {
   let started = false;
+  let recoveredLink = false;
   let stage = null;
   const { fs, config, ui } = deps;
   const label = clientLabel(flags.client);
@@ -256,6 +250,11 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
   try {
     if (current) {
       deps.bin = current.linkDirectory ?? deps.bin;
+      if (command === 'install' && !flags['no-link'] && !current.link) {
+        for (const entry of linkPlan(current, deps)) {
+          if (await pluginExecutable(entry.path, deps)) { current.link = true; recoveredLink = true; break; }
+        }
+      }
       if (command !== 'install') deps.config = installConfig({ ...current.settings, command: config.command, ...user?.install });
       deps.clientRoot = io.clientRoot ?? clientRoot(current.client, deps);
     }
@@ -386,7 +385,10 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
       if (recorded) finish(next('quota'), recorded);
       deps.stage('link');
       if (link && deps.dryRun) finishLink(ui, next('link'), null, { dryRun: true, command: deps.config.command, bin: deps.bin });
-      else if (link) finishLink(ui, next('link'), await applyLink(current, deps));
+      else if (link) {
+        finishLink(ui, next('link'), await applyLink(current, deps));
+        if (recoveredLink) await saveRecord(deps.destination, current, deps);
+      }
       // Up to date is not enough: the install must also work (a dry run and --check change nothing, so they check nothing).
       const succeeded = flags.check || deps.dryRun || await verifyInstall(current, selected.version, deps);
       return await panelAfterSuccess(current, succeeded);
