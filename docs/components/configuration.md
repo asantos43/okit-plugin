@@ -18,7 +18,7 @@ client is a configured client; class is simple, normal or hard. Each field defau
 | Key pattern | Effect |
 | :- | :- |
 | `language` | Language used when omitted by a command or tool; default `en`, also accepts `pt-BR`. |
-| `limits.global` | Default number of executors allowed at once for each client. |
+| `limits.global` | Default number of executors allowed at once for each client. `acquire_slot` also refuses a live run of the same demand or resolved working folder (stale runs do not block): optional `demand`, `cwd`, `owner` and `force`; `force` needs the same recorded owner, obeys caps and records `run.forced` telemetry; older records without these fields never conflict. |
 | `todo.enabled` | false; enable task synchronization only for intended projects. |
 | `todo.file` | TODO.md; existing task file, inside the declared root. |
 | `todo.areaDir` | Empty; optional directory of Markdown area files. |
@@ -60,10 +60,6 @@ client is a configured client; class is simple, normal or hard. Each field defau
 <a id="defaults"></a>
 ## Defaults and consumers
 Inventory generated from DEFAULT_CONFIG in [profiles.js](../../src/profiles.js) and the schema in [config.js](../../src/config.js). Each key shows its default and consuming module; empty objects accept named entries. Arrays are complete values. ¹ Long text, messages and instruction lists use the literal values in the linked defaults file, kept there for lookup without duplicating maintainer instructions. `panel.autoOpen` = `true` (boolean): the installed Claude Code panel opens at session start. Set it to `false` in the state root's `config.json` to disable automatic opening. The adapter reads it through `okit-plugin panel-state --json --client claude` (`panel.autoOpen` in the response); `/okit-panel` still toggles the pane. `panel.color` = `true` (boolean): quota rows use theme colors (green at >= 50%, yellow at >= 20%, red below 20%, dim when unknown); `false` disables colors. Percent text and the `!` low marker remain. It reaches the adapter through the same panel-state response.
-
-Slot reservation refuses a live run of the same demand or resolved working folder. The check and reservation share one lock and reuse the cap's run records; stale runs do not block. Optional `demand`, `cwd`, `owner` (`client`, optional `session` and `worktree`) and `force` are accepted by `acquire_slot`. Folders use realpath, falling back to an absolute path when absent. The refusal identifies the run, client, account and age: wait or release it. `force` requires the same recorded owner (the inbox rule compares client and session), still obeys caps, and records `run.forced` telemetry with run ids only. Legacy records without demand/folder never conflict. The daemon skips demands held by another owner and preserves this metadata when a spawner changes the run id.
-
-Kit follow-up (outside this repository): `okit run` must enforce the same refusal, and quota waiters (`wait --quota ... && run`) need a per-demand lock.
 
 | Keys = defaults | Where read and effect |
 | :- | :- |

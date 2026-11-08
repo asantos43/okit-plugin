@@ -2,8 +2,7 @@
 // instead of trusting the client to hold the cap.
 import { readdir, realpath, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { sameHolder } from './inbox.js';
-import { record as telemetryRecord } from './telemetry/index.js';
+import { sameHolder } from './holder.js';
 import { requireAccount, requireBareClient, accountsOf, accountKey } from './accounts.js';
 import { accountEnv } from './accounts.js';
 import { credentialInEnv, loginState } from './accounts-login.js';
@@ -198,7 +197,11 @@ export async function acquireSlot(root, runId, { client, account, config, waitMs
         ...owner !== undefined ? { owner } : {},
         ...prepared?.accountReason ? { chosenAccount: account, accountReason: prepared.accountReason } : {},
       });
-      for (const run of conflicts) await telemetryRecord(root, 'run.forced', { runId, conflictingRunId: run.runId });
+      // Loaded here, on the rare forced path only: the installer imports this module and must not pull measurements in.
+      if (conflicts.length) {
+        const { record: telemetryRecord } = await import('./telemetry/index.js');
+        for (const run of conflicts) await telemetryRecord(root, 'run.forced', { runId, conflictingRunId: run.runId });
+      }
       return { ok: true, runId, client, ...identity };
     });
 
