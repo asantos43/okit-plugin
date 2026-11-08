@@ -177,6 +177,8 @@ export function createServer({ tools = TOOLS, input, output, ctx, version = FALL
       pending = '';
       if (rest.trim() !== '') await process(rest);
       await chain;
+      const { closeConfigSession } = await import('../config-ui/session.js');
+      await closeConfigSession(context.ctx.root);
     },
   };
 }

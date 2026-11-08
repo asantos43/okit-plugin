@@ -1,4 +1,31 @@
 {
+  "configUiTool": [
+    {
+      "name": "config_ui_open",
+      "description": "Opens or reuses the session configuration page; returns its private URL, idleMinutes and reused.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "locale": {
+            "type": "string",
+            "enum": [
+              "en",
+              "pt-BR"
+            ],
+            "default": "en",
+            "description": "Language; language (en) when omitted."
+          },
+          "open": {
+            "type": "boolean",
+            "default": true,
+            "description": "Ask the OS to open the browser; false only returns the URL."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    }
+  ],
   "accountTools": [
     {
       "name": "quota_show",

@@ -12,6 +12,18 @@ import { DEFAULT_CONFIG } from '../src/profiles.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const read = (file) => readFile(resolve(root, file), 'utf8');
+
+test('configuration page session entry and shared skill are documented in both languages', async () => {
+  for (const suffix of ['', '.pt-BR']) {
+    const guide = await read(`docs/guide/config-ui${suffix}.md`);
+    for (const term of ['/okit-config', '/okit-plugin:okit-config', 'config_ui_open',
+      'okit-plugin config ui', '--no-open', '--idle-minutes', 'Claude Code', 'Codex', 'opencode']) {
+      assert.ok(guide.includes(term), `${suffix}: ${term}`);
+    }
+    assert.ok((await read(`docs/components/skills${suffix}.md`)).includes('`okit-config`'));
+    assert.ok((await read(`docs/components/mcp-tools${suffix}.md`)).includes('`config_ui_open`'));
+  }
+});
 const pairs = ['README', 'INSTALL', 'docs/maintainers/ARCHITECTURE', 'docs/maintainers/DESIGN',
   'docs/maintainers/RELEASING', 'docs/maintainers/SMOKE', 'docs/maintainers/INTEGRATION', 'docs/maintainers/DEMO', 'docs/maintainers/README'];
 const guidePairs = (await readdir(resolve(root, 'docs/guide')))

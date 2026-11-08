@@ -137,6 +137,8 @@ test('MCP golden for two accounts includes D121 accountChoices with structured r
   assert.ok(snapshot.accountChoices.length > 0);
   assert.ok(snapshot.accountChoices.every((choice) => typeof choice.reason.code === 'string'));
   const actual = {};
+  actual.configUiTool = TOOLS.filter((tool) => tool.name === 'config_ui_open')
+    .map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
   actual.accountTools = TOOLS.filter((tool) => ['quota_set', 'quota_show', 'acquire_slot', 'limits_status'].includes(tool.name))
     .map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
   for (const locale of ['en', 'pt-BR']) for (const name of ['status', 'actors_list', 'env_report']) {
