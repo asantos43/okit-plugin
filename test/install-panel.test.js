@@ -377,12 +377,17 @@ test('tty yes offers the panel, installs it and records ownership', async (t) =>
   f.clear();
   let questions = 0;
   f.io.tty = true;
-  f.io.read = async (question) => { questions++; assert.match(question, /Install the optional panel/); return 'y'; };
+  f.io.read = async (question) => {
+    questions++;
+    assert.match(question, /Install the optional panel/);
+    assert.doesNotMatch(f.output.join('\n'), /panel.autoOpen|\/okit-panel|opens automatically/);
+    return 'y';
+  };
   assert.equal(await f.call('install', '--no-statusline'), 0);
   assert.equal(questions, 1);
   assert.deepEqual((await f.record()).panel, { identity: ID });
   assert.ok((await f.entries()).includes(ID));
-  assert.match(f.output.join('\n'), /board of accounts, running and recent work, with quota bars/);
+  assert.match(f.output.join('\n'), /Optional panel: a pane beside the chat with each account's remaining quota, the work in progress and the recent work\. Read-only\./);
   assert.match(f.output.join('\n'), /Read-only; opens automatically in Claude Code/);
   assert.match(f.output.join('\n'), /panel.autoOpen to false.*\/okit-panel toggles/);
   assert.equal(await f.call('install', '--no-statusline'), 0);

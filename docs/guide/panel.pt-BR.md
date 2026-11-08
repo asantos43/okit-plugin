@@ -2,7 +2,7 @@
 
 ![okit-plugin: Guia do usuário](../images/banners/guide.svg)
 
-O painel opcional, exclusivo do Claude Code e somente para leitura, mostra contas pelo apelido, nunca emails ou credenciais.
+O painel opcional, somente para leitura e ao lado da conversa do Claude Code, mostra a cota restante de cada conta, o trabalho em andamento e o recente. As contas aparecem pelo apelido, nunca emails ou credenciais. A oferta da instalação descreve esses recursos e pergunta se deve instalar; as instruções de abertura e alternância aparecem somente após instalar com sucesso.
 
 <a id="install"></a>
 ## Instalar

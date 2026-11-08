@@ -22,7 +22,7 @@ export async function offerPanel(record, flags, deps) {
   const ui = presenterOf(deps);
   try {
     if (deps.tty && await ui.confirm(deps.read, {
-      explain: [ui.text('panelExplain'), ...panelOpeningText(ui).split('\n')], question: ui.text('panelAsk'),
+      explain: [ui.text('panelExplain')], question: ui.text('panelAsk'),
     })) {
       await panelCommand('install', record, deps);
     } else {
@@ -101,6 +101,6 @@ export async function panelCommand(command, record, deps) {
   }
   await saveRecord(deps.destination, record, deps);
   ui.row(ui.text('panel'), 'ok', ui.text(command === 'install' ? 'panelInstalled' : 'panelRemoved'));
-  if (command === 'install') ui.detail(panelOpeningText(ui));
+  if (command === 'install') ui.explain(panelOpeningText(ui).split('\n'));
   return exitCodeFor('ok');
 }

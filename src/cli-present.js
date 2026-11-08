@@ -98,10 +98,33 @@ export async function programLine({ config, platform, env, fs, remaining }) {
 export function createInstallerView({ operation, command, locale, write, verbose = false, hide = [], launch: start = {} }) {
   const notes = [];
   const headers = [], steps = [], failures = [], offered = [];
-  let globalLine = false, activeClient;
-  const ui = createPresenter({ locale, write: (line) => notes.push({ line, client: globalLine ? undefined : activeClient }), verbose, hide });
+  let globalLine = false, activeClient, stepNote = false, rowNotes = false;
+  const ui = createPresenter({ locale, write: (line) => {
+    const shown = operation === 'install' && stepNote;
+    notes.push({ line, client: globalLine ? undefined : activeClient, shown });
+    if (shown) { title(true); emit(resolve(line)); }
+  }, verbose, hide });
   const pt = ui.locale === 'pt-BR';
-  const emit = redactingWriter(write, hide);
+  const rawEmit = redactingWriter(write, hide);
+  let gap = false, started = false;
+  const flushGap = () => { if (gap && started) rawEmit(''); gap = false; };
+  const emit = (value) => {
+    if (operation !== 'install') {
+      if (gap && value && !String(value).startsWith('\n')) flushGap();
+      else gap = false;
+      rawEmit(value); started = true; return;
+    }
+    for (const line of String(value).split('\n')) {
+      if (!line.trim()) { gap = started; continue; }
+      flushGap(); rawEmit(line); started = true;
+    }
+  };
+  const block = () => { if (operation === 'install') gap = started; };
+  ui.readAnswer = async (read, ...args) => {
+    flushGap();
+    try { return await read(...args); }
+    finally { gap = started; }
+  };
   const states = new Map();
   const stateOf = (label) => states.get(label) ?? states.set(label, {}).get(label);
   // The one place where a command of the output is written. `program` is the program as this terminal can start it now,
@@ -122,7 +145,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
   // builds and touches nothing else, so a path or a message that happens to hold a command name stays as it is. A token
   // with no words is the program alone, for the texts that carry their own verb (`{command} setup`).
   const resolve = (line) => resolveTokens(line, (words, { later, program }) => (words.length ? type(words, { later, program }) : program ?? launcher(later)));
-  let menu = false, titled = false, choices = false, organized = false, pathHint, modelsConfirmed = false, selectedClients;
+  let menu = false, titled = false, choices = false, organized = false, pathHint, modelsConfirmed = false, selectedClients, pendingModels;
   const title = (installation = false) => { if (titled) return; titled = true;
     if (installation && headers.length && operation !== 'uninstall' && (operation === 'install' || !headers.every((header) => stateOf(header.client).current))) {
       const action = operation === 'update' ? (pt ? 'atualização para' : 'update for') : (pt ? 'instalação para' : 'install for'); // locale:pt-BR
@@ -143,18 +166,41 @@ export function createInstallerView({ operation, command, locale, write, verbose
     headers.push({ ...values, client: activeClient });
   };
   ui.endClients = () => { activeClient = undefined; };
+  // Live steps must already name the retained CLI once the release copy is installed.
+  ui.installed = (record) => {
+    if (EPHEMERAL.test(launch.program ?? '')) {
+      launch.program = shownCommand([process.execPath, join(record.path, 'src/cli.js')], launch.platform);
+    }
+  };
+  ui.modelsState = (clients) => { pendingModels = new Set(clients.map(clientLabel)); };
   ui.row = (label, status, detail = '') => {
+    if (operation === 'install') block();
     label = normalizeClientLabel(label);
     if (label === ui.text('models') && status === 'ok') modelsConfirmed = true;
     if (label === ui.text('upToDate') && activeClient) stateOf(activeClient).current = true;
     if (label === ui.text('newVersion') && activeClient) stateOf(activeClient).newer = true;
     if (status === 'failed' && (activeClient || detail)) failures.push({ step: label, reason: detail, client: activeClient });
     globalLine = [ui.text('kit'), ui.text('models'), ui.text('policy')].includes(label);
+    if (operation === 'install' && !(label === ui.text('selfcheckPath') && status === 'info')) {
+      rowNotes = status === 'failed';
+      title(true);
+      const multiple = (selectedClients?.length ?? headers.length) > 1;
+      const owner = multiple && activeClient && !globalLine ? `${activeClient} — ` : '';
+      const mark = BASE_TEXTS.status[status]?.[ui.locale] ?? status;
+      emit(`  ${(owner + label).padEnd(48)}  ${mark.padEnd(7)}  ${resolve(detail)}`.trimEnd());
+      globalLine = false;
+      return;
+    }
     original.row(label, status, detail);
     notes.at(-1).row = { label, status, detail };
     globalLine = false;
   };
-  ui.note = (value) => { globalLine = typeof value !== 'string'; original.note(value); globalLine = false; };
+  ui.note = (value) => {
+    globalLine = typeof value !== 'string';
+    const previous = stepNote;
+    stepNote ||= operation === 'install' && rowNotes;
+    try { original.note(value); } finally { stepNote = previous; globalLine = false; }
+  };
   ui.detail = (value) => { globalLine = typeof value !== 'string'; original.detail(value); globalLine = false; };
   ui.warn = original.warn;
   ui.summary = ({ hint }) => { pathHint = hint; };
@@ -168,7 +214,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
     emit('');
     for (const line of options.explain ?? []) emit(resolve(line));
     emit('');
-    return ui.answer(await read(ui.question(options.question, options.defaultYes)), options.defaultYes);
+    return ui.answer(await ui.readAnswer(read, ui.question(options.question, options.defaultYes)), options.defaultYes);
   };
   ui.failure = (failure) => { failures.push({ ...failure, client: failure.client ? clientLabel(failure.client) : undefined }); return []; };
   ui.sequence = (keys, values = {}) => {
@@ -180,14 +226,26 @@ export function createInstallerView({ operation, command, locale, write, verbose
     const end = (status, detail = '', extra = []) => {
       if (ended) return;
       ended = true;
+      rowNotes = false;
       steps.push({ label, key, status, detail, client: headers.at(-1)?.client });
+      if (operation === 'install') {
+        title(true); block();
+        const complete = status === 'ok' && detail !== ui.text('registerMarketplaceManual');
+        const result = complete ? (pt ? 'concluído' : 'complete') : resolve(detail || (status === 'plan' ? ui.text('stepPlanned') : '')); // locale:pt-BR
+        const extraDetail = complete && detail && !['get', 'local', 'files', 'register'].includes(key) ? ` — ${resolve(detail)}` : '';
+        const name = key === 'register' ? `${pt ? 'Conectar' : 'Connect'} ${headers.at(-1)?.client}` : label; // locale:pt-BR
+        const owner = (selectedClients?.length ?? headers.length) > 1 ? `${headers.at(-1)?.client} — ` : '';
+        emit(`${steps.length}. ${owner}${name}${result || extraDetail ? `: ${result}${extraDetail}` : ''}`);
+      }
       if (status === 'failed') failures.push({ step: label, reason: detail, client: activeClient });
-      extra.forEach(ui.note);
+      stepNote = true;
+      try { extra.forEach(ui.note); } finally { stepNote = false; }
     };
     return { label, ok: (d, e) => end('ok', d, e), skip: (d, e) => end('skipped', d, e),
       plan: (d, e) => end('plan', d, e), fail: (d, e) => end('failed', d, e), get ended() { return ended; } };
   };
   ui.explain = (lines) => {
+    rowNotes = false;
     if (lines[0] === ui.text('clientChoose')) {
       title(); menu = true;
       emit('');
@@ -197,7 +255,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
         return `${number}${clientLabel(client)}${state}`;
       }));
       emit('');
-    } else if (!lines.includes(ui.text('dryRunDone'))) { title(); lines.forEach((line) => emit(resolve(line))); }
+    } else if (!lines.includes(ui.text('dryRunDone'))) { title(true); lines.forEach((line) => emit(resolve(line))); }
   };
   return { ui, finish };
   /**
@@ -301,6 +359,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
       return;
     }
     if (dryRun) {
+      block();
       say(pt ? 'Somente prévia. Nada mudou.' : 'Preview only. Nothing changed.'); // locale:pt-BR
       renderSteps(say);
       for (const scope of scopes) say(`${pt ? 'Para aplicar' : 'Apply'}${scopes.length > 1 ? ` (${clientLabel(scope)})` : ''}: ${replay({ omit: ['dry-run'], client: scope })}`);
@@ -343,10 +402,12 @@ export function createInstallerView({ operation, command, locale, write, verbose
       return;
     }
     organized = true;
+    block();
     for (const id of ids) {
       const name = clientLabel(id), record = after[id];
+      const needsModels = pendingModels ? pendingModels.has(name) : !modelsConfirmed;
       say(operation === 'install'
-        ? (pt ? `Instalado para ${name}.${modelsConfirmed ? '' : ' Falta confirmar os modelos.'}` : `Installed for ${name}.${modelsConfirmed ? '' : ' Model choices still need confirmation.'}`) // locale:pt-BR
+        ? (pt ? `Instalado para ${name}.${needsModels ? ' Falta confirmar os modelos.' : ''}` : `Installed for ${name}.${needsModels ? ' Model choices still need confirmation.' : ''}`) // locale:pt-BR
         : stateOf(id)?.current ? (pt ? `${name} está em dia.` : `${name} is up to date.`) // locale:pt-BR
           : (pt ? `${name} atualizado de ${before[id]?.version} para ${record?.version}.` : `Updated ${name} from ${before[id]?.version} to ${record?.version}.`));
     }
@@ -369,6 +430,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
     } else say(pt ? 'Abra um terminal novo.' : 'Open a new terminal.'); // locale:pt-BR
   }
   function renderSteps(say, { completed = false } = {}) {
+    if (operation === 'install') return;
     const multiple = new Set(steps.map((step) => step.client)).size > 1;
     for (const [index, step] of steps.entries()) {
       // After a failure only the steps that were done are told, and a step that was skipped with a remedy (the quota
@@ -384,10 +446,10 @@ export function createInstallerView({ operation, command, locale, write, verbose
   function flushNotes(say) {
     const multiple = new Set(headers.map((header) => header.client)).size > 1;
     if (!organized) {
-      for (const { line, client } of notes) say(resolve(multiple && client ? `${client} — ${line.trimStart()}` : line));
+      for (const { line, client, shown } of notes) if (!shown) say(resolve(multiple && client ? `${client} — ${line.trimStart()}` : line));
       return;
     }
-    const rows = notes.filter((note) => note.row && !(note.row.label === ui.text('selfcheckPath') && note.row.status === 'info'));
+    const rows = notes.filter((note) => !note.shown && note.row && !(note.row.label === ui.text('selfcheckPath') && note.row.status === 'info'));
     const labelOf = ({ row, client }) => multiple && client ? `${client} — ${row.label}` : row.label;
     const width = Math.max(0, ...rows.map((note) => labelOf(note).length));
     for (const note of rows) {
@@ -395,7 +457,7 @@ export function createInstallerView({ operation, command, locale, write, verbose
       const mark = BASE_TEXTS.status[status]?.[ui.locale] ?? status;
       say(`  ${labelOf(note).padEnd(width)}  ${mark.padEnd(7)}  ${resolve(detail)}`.trimEnd());
     }
-    const explanations = notes.filter((note) => !note.row);
+    const explanations = notes.filter((note) => !note.shown && !note.row);
     if (explanations.length) say(`\n${pt ? 'Notas' : 'Notes'}`); // locale:pt-BR
     for (const { line, client } of explanations) {
       const content = resolve(multiple && client ? `${client} — ${line.trimStart()}` : line);
@@ -539,7 +601,7 @@ export function setupResultLines(result, locale, command, { doctor = true } = {}
     `${pt ? 'Confira os clientes disponíveis' : 'Check which clients are available'}: MCP env_report {"locale":"${locale}"}`]; // locale:pt-BR
 }
 
-export function presentModelChoices({ locale, changes, command, out }) {
+export function presentModelChoices({ locale, changes, command, out, defaultYes = false }) {
   const pt = locale === 'pt-BR';
   out(pt ? '\nEscolhas de modelos' : '\nModel choices'); // locale:pt-BR
   const several = new Set(changes.map((change) => change.client)).size > 1;
@@ -550,7 +612,7 @@ export function presentModelChoices({ locale, changes, command, out }) {
     ? `\nAs escolhas valem para trabalhos futuros. Para alterá-las: ${command} setup --again` // locale:pt-BR
     : `\nThese choices apply to future work. You can change them with: ${command} setup --again`);
   out('');
-  return pt ? 'Salvar estas escolhas? [s/N]:' : 'Save these choices? [y/N]:'; // locale:pt-BR
+  return pt ? `Salvar estas escolhas? [${defaultYes ? 'S/n' : 's/N'}]:` : `Save these choices? [${defaultYes ? 'Y/n' : 'y/N'}]:`; // locale:pt-BR
 }
 export const setupIntroduction = (locale, names) => locale === 'pt-BR'
   ? `Escolha modelos para ${names}; nada é salvo até sua confirmação.` // locale:pt-BR
