@@ -23,7 +23,7 @@ const window = (remainingPct, windowMinutes, left = week / 2) => ({ remainingPct
   resetsAt: new Date(now + left).toISOString() });
 const account = (id = 'default', weekly = 80, session = 90) => ({ client: 'claude-code', id,
   login: 'logged-in', actors: [{ model: 'opus', effort: 'high' }],
-  reading: { windows: [window(session, 300), window(weekly, 10080)] } });
+  reading: { readAt: now, windows: [window(session, 300), window(weekly, 10080)] } });
 const choose = (accounts, extra = {}) => chooseAccount({ client: 'claude-code', actorClass, accounts, now, ...extra });
 const freeze = (value) => {
   if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); }
@@ -276,7 +276,7 @@ test('daemon quota telemetry separates the client from each cached account', asy
 });
 
 test('enforced pace defers before any run, waits for the instant, and leaves named accounts and continuations fixed', async (t) => {
-  const { root, deps, launches, checked } = await policyScene(t, { language: 'pt-BR', accountPolicy: { enforcePace: true } });
+  const { root, deps, launches, checked } = await policyScene(t, { language: 'pt-BR', accountPolicy: { enforcePace: true, minQuotaPct: 0 } });
   deps.quota = async () => account('a', 20).reading;
   const demand = await inboxAdd(root, { title: 'hard work', client: 'codex', effort: 'hard' });
   const first = await tick(root, deps);
@@ -415,16 +415,16 @@ test('final id tie-break is independent of input order when all scores are equal
 
 test('unknown windows rank last but do not bar; known exhausted window still bars', () => {
   const unknown = { ...account('a'), reading: null };
-  assert.equal(choose([unknown, account('z', 20, 20)]).account.id, 'z');
+  assert.equal(choose([unknown, account('z', 21, 21)]).account.id, 'z');
   assert.equal(choose([unknown]).reason.code, 'unknown');
-  unknown.reading = { windows: [window(0, 300)] };
+  unknown.reading = { readAt: now, windows: [window(0, 300)] };
   assert.equal(choose([unknown]).reason.code, 'session');
   unknown.reading = { remainingPct: 80 };
   assert.equal(choose([unknown]).account.id, 'a');
 });
 
 test('continuations pin their account even when another has more quota', () => {
-  const accounts = [account('a', 20), account('b')];
+  const accounts = [account('a', 21), account('b')];
   assert.equal(choose(accounts, { resumeSession: { account: 'a' } }).account.id, 'a');
   accounts[0].reading.windows[1].remainingPct = 0;
   assert.equal(choose(accounts, { resumeSession: { account: 'a' } }).reason.code, 'weekly');
@@ -444,13 +444,13 @@ test('critic and verifier prefer another eligible account; preference cannot ove
 });
 
 test('pacing defaults to advice; enforced hard work waits until the margin catches up', () => {
-  const accounts = [account('default', 20)];
+  const accounts = [account('default', 25)];
   assert.equal(choose(accounts).reason.code, 'ahead');
   assert.equal(choose(accounts).account, accounts[0]);
   const settings = { accountPolicy: { enforcePace: true } };
   const deferred = choose(accounts, { settings });
   assert.equal(deferred.reason.code, 'deferred');
-  assert.equal(deferred.wait_until, now + week * 0.15);
+  assert.equal(deferred.wait_until, now + week * 0.10);
   assert.ok(deferred.wait_until <= now + week / 2);
   assert.ok(choose(accounts, { settings, now: deferred.wait_until }).account);
   for (const name of ['simple', 'normal']) assert.ok(choose(accounts, {
@@ -481,7 +481,7 @@ test('recency rejects non-finite values; equal windows use the tightest quota; n
     entry.reading.windows.reverse();
     assert.equal(choose([entry]).reason.code, minutes === 300 ? 'session' : 'weekly');
   }
-  assert.equal(choose([account('a', 20)], { resumeSession: { account: 'a' },
+  assert.equal(choose([account('a', 21)], { resumeSession: { account: 'a' },
     settings: { accountPolicy: { enforcePace: true } } }).reason.code, 'ahead');
   assert.throws(() => configOf({ accountPolicy: { minQuotaPct: -1 } }), /accountPolicy.minQuotaPct.*0–100/);
   assert.throws(() => configOf({ accountPolicy: { enforcePace: 1 } }), /accountPolicy.enforcePace.*true \| false/);
@@ -536,7 +536,7 @@ test('golden account reasons in English and Brazilian Portuguese', () => {
 });
 
 test('settings defaults, partial merge, schema limits and profile lookup', () => {
-  assert.deepEqual(configOf({}).accountPolicy, { minQuotaPct: 0, paceMarginPct: 15, enforcePace: false });
+  assert.deepEqual(configOf({}).accountPolicy, { minQuotaPct: 20, paceMarginPct: 15, enforcePace: false });
   assert.equal(configOf({ accountPolicy: { enforcePace: true } }).accountPolicy.paceMarginPct, 15);
   for (const accountPolicy of [null, [], false, { minQuotaPct: -1 }, { paceMarginPct: 101 },
     { enforcePace: 'yes' }, { paceMarginPct: NaN }]) assert.throws(() => configOf({ accountPolicy }));

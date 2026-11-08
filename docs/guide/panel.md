@@ -15,6 +15,12 @@ An optional, read-only pane beside the Claude Code chat shows each account's rem
 2. The installed panel opens automatically when Claude Code starts. Set `panel.autoOpen` to `false` in the state root's `config.json` to disable this. The `okit-panel` command (`/okit-panel`) still opens or closes the pane. It refreshes every 3 s (minimum 2 s) while open; no refresh runs while closed.
 
 <a id="board"></a>
+Quota is actively read every minute for every saved Claude Code and Codex account, including default. The background service owns the poller. Without it, `panel-state` starts a due read in a separate worker, at most once per minute per account, and immediately shows the last reading. Adding an account or installing its plugin requests a read immediately. Passive status-bar and Codex session readings remain; the newest reading wins.
+
+Claude uses the fixed HTTPS OAuth usage endpoint when its account token is valid. The plugin reads only the access token and expiry in memory for that request, never stores or renews the token, and never modifies credential files. With an expired or missing token, a logged-in account uses a lean Haiku CLI fallback at most every 30 minutes. That real call uses a few tokens, can start the 5h window, and lets Claude renew its own login. Codex uses `app-server` with the account's `CODEX_HOME`, without opening `auth.json`.
+
+Each account shows rotation eligibility: both windows must have **more than 20%** remaining by default (`accountPolicy.minQuotaPct`). Missing readings and readings older than three polling intervals count as unknown and rank last. States explain missing quota: `ok` means the read succeeded; `not-logged-in` requires login; `token-expired` waits for the next permitted fallback; `read-failed` means usage could not be read; `no-reading` means none exists yet. Failures back off from 1 to 15 minutes. Configure `quotaPoll` with `enabled` (true), `intervalSec` (60), and `claudeFallbackMinutes` (30); false disables active reads.
+
 ## What the board shows
 
 - ACCOUNTS: running/idle aliases, aligned session 5h and weekly bars, percent left, local 24 h reset times and time remaining (`4h35m` or `1d 21h`). Resets more than 24 h away include the weekday; `!` marks less than 20% left and missing quota shows `unknown`.

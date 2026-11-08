@@ -139,6 +139,14 @@ export const CONFIG_SCHEMA = Object.freeze({
       description: { en: 'Each known quota window must be above this percentage.',
         'pt-BR': 'Cada janela de cota conhecida deve estar acima deste percentual.' },
     },
+    ...Object.entries(DEFAULT_CONFIG.quotaPoll).map(([key, value]) => ({
+      path: `quotaPoll.${key}`, defaultPath: `quotaPoll.${key}`,
+      type: typeof value === 'boolean' ? 'boolean' : 'integer',
+      ...(typeof value === 'number' ? { minimum: 1, maximum: 86400 } : {}),
+      constraint: { en: 'a boolean or positive interval', 'pt-BR': 'um booleano ou intervalo positivo' }, // locale:pt-BR
+      description: { en: 'Active quota polling: enabled, interval in seconds, fallback interval in minutes.',
+        'pt-BR': 'Consulta ativa de cota: habilitada, intervalo em segundos, fallback em minutos.' }, // locale:pt-BR
+    })),
     ...Object.entries(DEFAULT_CONFIG.telemetry).filter(([key]) => key !== 'rede')
       .concat(Object.entries(DEFAULT_CONFIG.telemetry.rede).map(([key, value]) => [`rede.${key}`, value]))
       .map(([key, value]) => ({

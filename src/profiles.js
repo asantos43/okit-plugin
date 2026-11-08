@@ -166,7 +166,8 @@ export const DEFAULT_CONFIG = {
     },
   },
   lowQuotaPct: 15,
-  accountPolicy: { minQuotaPct: 0, paceMarginPct: 15, enforcePace: false },
+  accountPolicy: { minQuotaPct: 20, paceMarginPct: 15, enforcePace: false },
+  quotaPoll: { enabled: true, intervalSec: 60, claudeFallbackMinutes: 30 },
   daemon: { minQuotaPct: 10 },
   limits: { global: 3, clients: {} },
   staleMinutes: 30,
@@ -764,6 +765,15 @@ export function configOf(config) {
     throw new ConfigError('accountPolicy', { key: 'panel.color', range: 'true | false' });
   }
   merged.accountPolicy = { ...DEFAULT_CONFIG.accountPolicy, ...config?.accountPolicy };
+  merged.quotaPoll = { ...DEFAULT_CONFIG.quotaPoll, ...config?.quotaPoll };
+  if (config?.quotaPoll !== undefined && (!config.quotaPoll || typeof config.quotaPoll !== 'object'
+    || Array.isArray(config.quotaPoll))) throw new ConfigError('accountPolicy', { key: 'quotaPoll', range: 'object' });
+  for (const key of ['enabled', 'intervalSec', 'claudeFallbackMinutes']) {
+    const value = merged.quotaPoll[key];
+    if (key === 'enabled' ? typeof value !== 'boolean' : !Number.isInteger(value) || value < 1 || value > 86400) {
+      throw new ConfigError('accountPolicy', { key: `quotaPoll.${key}`, range: key === 'enabled' ? 'true | false' : '1–86400' });
+    }
+  }
   if (config?.accountPolicy !== undefined && (!config.accountPolicy || typeof config.accountPolicy !== 'object'
     || Array.isArray(config.accountPolicy))) throw new ConfigError('accountPolicy', { key: 'accountPolicy', range: 'object' });
   for (const key of ['enforcePace', 'minQuotaPct', 'paceMarginPct']) {

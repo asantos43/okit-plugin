@@ -24,7 +24,9 @@ async function world(t) {
   const home = await mkdtemp(join(tmpdir(), 'panel-state-'));
   t.after(() => rm(home, { recursive: true, force: true }));
   const root = join(home, '.okwork');
-  return { root, home, now: () => now, env: { HOME: home, PATH: '' } };
+  // Existing snapshot invariants use an injected worker that never starts a client.
+  return { root, home, now: () => now, env: { HOME: home, PATH: '' },
+    spawn: () => ({ on() {}, unref() {} }) };
 }
 async function put(root, file, value) {
   const path = join(root, file);
@@ -60,7 +62,13 @@ test('populated state matches the documented versioned golden', async (t) => {
     actor: 'hard', model: 'opus', effort: 'high', demand: 'sample-demand', startedAt: now - 2000, lastProgress: 'Running checks' });
   const result = await invoke(ctx);
   assert.equal(result.code, 0);
-  assert.deepEqual(result.document, JSON.parse(await readFile(new URL('./fixtures/panel-state-v1-populated.json', import.meta.url))));
+  const expected = JSON.parse(await readFile(new URL('./fixtures/panel-state-v1-populated.json', import.meta.url)));
+  for (const account of expected.accounts) {
+    account.quota_state = null;
+    account.rotation = { eligible: false, known: false, readAt: account.id === 'default' ? now - 60_000 : null,
+      reason: 'login', text: 'The account is not logged in.' };
+  }
+  assert.deepEqual(result.document, expected);
 });
 
 test('run demand is bounded and finish reasons require saved error evidence', async (t) => {
@@ -135,7 +143,7 @@ async function treeHash(directory) {
 
 test('the command preserves files and never opens credential files or prints secrets', async (t) => {
   const ctx = await world(t);
-  await put(ctx.root, 'config.json', { profiles: { codex: {} }, telemetry: { enabled: true } });
+  await put(ctx.root, 'config.json', { profiles: { codex: {} }, telemetry: { enabled: true }, quotaPoll: { enabled: false } });
   const secret = 'sk-ant-api03-panel-state-secret';
   await put(ctx.home, '.claude/.credentials.json', { token: secret });
   await put(ctx.home, '.codex/auth.json', { token: secret });
@@ -286,7 +294,7 @@ test('unreadable credentials and Codex config do not fail or reveal secrets', {
   skip: process.getuid?.() === 0 ? 'root bypasses file permissions' : false,
 }, async (t) => {
   const ctx = await world(t);
-  await put(ctx.root, 'config.json', { configuredClients: ['claude-code', 'codex'] });
+  await put(ctx.root, 'config.json', { configuredClients: ['claude-code', 'codex'], quotaPoll: { enabled: false } });
   const files = ['.claude/.credentials.json', '.codex/auth.json', '.codex/config.toml'];
   const secret = 'panel-secret-never-print';
   for (const file of files) await put(ctx.home, file, { token: secret });

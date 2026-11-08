@@ -15,6 +15,7 @@ import { acquireSlot, accountChoice, discardSlot, releaseSlot } from './limits.j
 import { ACCOUNT_CLIENTS } from './accounts.js';
 import { accountReasonText } from './accounts-choose.js';
 import { adapterQuotaReader } from './env/quota.js';
+import { createQuotaPoller } from './quota/active-poller.js';
 import { resolveLocale } from './install/present.js';
 import { DEFAULT_CONFIG, profilePick } from './profiles.js';
 import { record as telemetryRecord } from './telemetry/index.js';
@@ -413,6 +414,11 @@ export async function daemonRun(root, deps = {}, options = {}) {
 
   return withLock(lockBase(root), async () => {
     await writeJsonAtomic(pidFile(root), { pid: process.pid, startedAt: Date.now() });
+    const quotaPoller = (deps.createQuotaPoller ?? createQuotaPoller)({ root, env: deps.env, now: deps.now });
+    const stopQuota = () => { void quotaPoller.stop(); };
+    signal?.addEventListener('abort', stopQuota, { once: true });
+    if (signal?.aborted) stopQuota();
+    else void quotaPoller.start();
     const origin = process.hrtime.bigint();
     let rotated = dayOf(typeof deps.now === 'function' ? deps.now() : Date.now());
     let passes = 0;
@@ -432,6 +438,8 @@ export async function daemonRun(root, deps = {}, options = {}) {
         if (!await pause(Math.max(0, waited), signal, sleep)) break;
       }
     } finally {
+      await quotaPoller.stop();
+      signal?.removeEventListener('abort', stopQuota);
       await rm(pidFile(root), { force: true });
     }
     return { passes };

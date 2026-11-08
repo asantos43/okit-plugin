@@ -15,6 +15,12 @@ O painel opcional, somente para leitura e ao lado da conversa do Claude Code, mo
 2. O painel instalado abre automaticamente quando o Claude Code inicia. Defina `panel.autoOpen` como `false` no `config.json` da raiz de estado para desligar isso. O comando `okit-panel` (`/okit-panel`) continua abrindo ou fechando o painel. Ele atualiza a cada 3 s (mínimo de 2 s) enquanto aberto; nenhuma atualização roda quando está fechado.
 
 <a id="board"></a>
+As cotas são consultadas ativamente a cada minuto para todas as contas salvas de Claude Code e Codex, incluindo default. O serviço de fundo mantém o poller. Sem ele, `panel-state` inicia a leitura devida em processo separado, no máximo uma vez por minuto por conta, e mostra imediatamente a última leitura. Adicionar uma conta ou instalar seu plugin solicita uma leitura imediata. As leituras passivas da barra e das sessões Codex continuam; vence a mais recente.
+
+Claude usa o endpoint HTTPS fixo de uso OAuth enquanto o token da conta é válido. O plugin lê apenas token de acesso e validade em memória para essa consulta, nunca armazena ou renova o token e nunca altera arquivos de credenciais. Com token vencido ou ausente, uma conta logada usa o fallback enxuto da CLI Haiku, no máximo a cada 30 minutos. Essa chamada real usa poucos tokens, pode iniciar a janela de 5h e permite ao Claude renovar seu próprio login. Codex usa `app-server` com o `CODEX_HOME` da conta, sem abrir `auth.json`.
+
+Cada conta mostra elegibilidade para rotação: ambas as janelas devem ter **mais de 20%** restantes por padrão (`accountPolicy.minQuotaPct`). Leituras ausentes ou com mais de três intervalos de consulta contam como desconhecidas e ficam por último. Os estados explicam a ausência de cota: `ok` indica sucesso; `not-logged-in` exige login; `token-expired` aguarda o próximo fallback permitido; `read-failed` indica falha na consulta; `no-reading` indica que ainda não há leitura. Falhas aumentam a espera de 1 até 15 minutos. Configure `quotaPoll` com `enabled` (true), `intervalSec` (60) e `claudeFallbackMinutes` (30); false desativa as consultas ativas.
+
 ## O que o quadro mostra
 
 - ACCOUNTS: apelidos em execução ou ociosos, barras alinhadas de session 5h e semana, percentual restante, horários locais de renovação em 24 h e tempo que falta (`4h35m` ou `1d 21h`). Renovações a mais de 24 h incluem o dia da semana; `!` marca menos de 20% restante e cotas ausentes mostram `unknown`.

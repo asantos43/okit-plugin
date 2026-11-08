@@ -10,6 +10,16 @@ advisory visible only to the maintainers.
 Please include the affected version, the steps to reproduce and the impact you
 observed.
 
+## Active quota credentials
+
+The quota poller reads only Claude's `claudeAiOauth.accessToken` and `expiresAt`
+in memory for one GET to the fixed HTTPS Anthropic usage endpoint. It never
+follows redirects, refreshes or stores a token, changes proxy settings, or writes
+account files. Expired tokens are never sent. Logs and persisted states contain
+fixed failure text and HTTP status only, without response bodies or headers.
+The optional lean Claude CLI fallback manages its own login; Codex rate limits
+come from app-server without opening `auth.json`.
+
 ## Supported versions
 
 Only the latest release is supported. Older versions receive no fixes.

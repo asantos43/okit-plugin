@@ -26,6 +26,7 @@ import { adapterQuotaReader } from '../env/quota.js';
 import { registerStatusline, appliesStatusline } from './statusline.js';
 import { accountIds, depsFor, hasExtras, header, involvesAccounts, markRegistered, registeredIds, registeredTargets, requestedAccount, targetOf } from './account-scope.js';
 import { accountsOf } from '../accounts.js';
+import { requestQuotaRead } from '../quota/active-trigger.js';
 import { verifyInstall } from './selfcheck.js';
 import { executionPolicyStep } from './policy.js';
 import { commandText } from './command-token.js';
@@ -471,6 +472,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
       }
       await saveRecord(deps.destination, record, deps);
       deps.stage('quota');
+      if (command === 'install') await requestQuotaRead(deps, client, target?.id ?? 'default', { force: true });
       const recorded = await statusbar(record);
       if (recorded) finish(next('quota'), recorded);
       if (refreshing) {

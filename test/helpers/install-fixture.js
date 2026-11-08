@@ -150,6 +150,8 @@ export async function fixture(t, platform = 'linux', { tty = false, ask, read } 
   const out = (line) => output.push(line);
   const mcp = mcpWorld();
   const io = { home, root, destination, bin, config, fs, fetch, platform, now: () => 1700000000000,
+    // Quota workers are verified separately; installer fixtures never start a real client.
+    spawn: () => ({ on() {}, unref() {} }),
     env: { HOME: home, PATH: platform === 'win32' ? nodes : [bin, nodes].join(delimiter) },
     pkg, arch: 'x64', tmpdir: scratch, tty, ask, read, outTty: false, clientRoot: join(home, 'client'),
     stdout: out, stderr: out, out, adapters: [], readQuota: async () => ({ source: 'off' }),
