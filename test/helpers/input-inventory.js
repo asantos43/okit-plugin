@@ -27,6 +27,7 @@ const lineOf = (text, index) => text.slice(0, index).split('\n').length;
 
 /** The top-level keys, with the type the code expects and where a wrong value is refused. `range` is [min, max]. */
 export const TOP_LEVEL_KEYS = Object.freeze({
+  quotaPoll: { type: 'object', checkedBy: 'configOf (ConfigError accountPolicy), CONFIG_SCHEMA quotaPoll.*' },
   panel: { type: 'object', checkedBy: 'CONFIG_SCHEMA panel.autoOpen; panel-state defaults automatic opening unless explicitly false' },
   accountPolicy: { type: 'object', checkedBy: 'configOf (ConfigError accountPolicy), CONFIG_SCHEMA accountPolicy.*' },
   accounts: { type: 'object', checkedBy: 'configOf / accountsProblem (ConfigError accountsSetting); accounts-cli uses the pure mutations' },
@@ -124,6 +125,7 @@ export const INSTALL_NUMBERS = Object.freeze({
 });
 /** The numbers `config set` takes; `integer` or `number`. */
 export const CONFIG_NUMBERS = Object.freeze({
+  'quotaPoll.intervalSec': ['integer', 1, 86400], 'quotaPoll.claudeFallbackMinutes': ['integer', 1, 86400],
   'accountPolicy.minQuotaPct': ['number', 0, 100], 'accountPolicy.paceMarginPct': ['number', 0, 100],
   'limits.global': ['integer', ...SIZE], 'limits.clients.<client>': ['integer', ...SIZE],
   'profiles.<client>.<class>.maxTurns': ['integer', ...SIZE],
@@ -285,6 +287,9 @@ export function envLiterals() {
 // refusal of usage (exit 2); a file of another program that we would have to change and cannot preserve is unreadable.
 
 export const FILE_RULES = Object.freeze([
+  { file: 'quota active state and leases', readBy: 'active-poller, active-trigger, panel-state', unreadable: 0, wrongType: 0,
+    proof: 'test/d145-active-quota.test.js#disabled polling',
+    note: 'Optional poll observations and timestamp leases; unreadable JSON is absent, leases remain busy unless demonstrably expired. Poller config uses configOf validation.' },
   { file: 'runs/<runId>.json (panel state)', readBy: 'src/panel-state.js', unreadable: 0, wrongType: 0,
     proof: 'test/panel-state.test.js#accounts keep both windows',
     note: 'untrusted JSON from the state root, shared with slot accounting; parsed defensively, partial, non-object and oversized records are skipped' },
@@ -381,6 +386,12 @@ const STATE_OF_OTHER_COMMANDS = 'state of a command outside this inventory (I9 l
  * FILE_RULES row; `excluded` says why the file is not an input of this inventory.
  */
 export const READ_POINTS = Object.freeze([
+  { file: 'src/quota/active-poller.js', arg: /^file$/, rule: 'quota active state and leases' },
+  { file: 'src/quota/active-trigger.js', arg: /^(file|lease)$/, rule: 'quota active state and leases' },
+  { file: 'src/panel-state.js', arg: /^join\(ctx\.root, 'quota', pollStateFile\(internal, identity.id\)\)$/, rule: 'quota active state and leases' },
+  { file: 'src/quota/active-trigger.js', arg: /^join\(root, 'daemon.pid.json'\)$/, excluded: 'Internal optional daemon ownership record; missing, malformed or dead pid means the service is not running.' },
+  { file: 'src/quota/active-process.js', arg: /^line$/, excluded: 'Bounded client protocol output, not a user file; malformed lines are ignored and invalid windows fail the optional reading.' },
+  { file: 'src/quota/active-sources.js', arg: /^`\$\{folder\}\/\.credentials.json`$/, excluded: 'Client-owned optional OAuth credentials; missing, malformed or expired credentials select the bounded CLI fallback, never a foreground refusal.' },
   { file: 'src/config-ui/server.js', arg: /^join\(root, 'quota', accountFiles\(client, id\).reading\)$/, rule: 'quota/<client>.json (the manual reading)' },
   { file: 'src/config-ui/server.js', arg: /^Buffer.concat\(chunks\).toString\('utf8'\)$/, excluded: 'the authenticated HTTP JSON body, bounded to 64 KiB and refused with 422 on parse failure; configSetMany validates all configuration values before writing (test/config-ui-server.test.js)' },
   { file: 'adapters/claude-code/panel/panel.js', arg: /^stdout$/, excluded: 'stdout of the fixed read-only okit-plugin panel-state --json --client claude command; bounded before parsing and validated as schema 1, with failures rendered as messages (test/panel-mod.test.js)' },

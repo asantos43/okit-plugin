@@ -40,11 +40,12 @@ export async function oauthWindows({ fs, folder, fetch, now, signal }) {
   if (typeof token !== 'string' || !token || !valid(expiresAt) || expiresAt <= now()) return null;
   let response;
   try {
-    if (signal.aborted) throw new Error();
+    if (signal.aborted) throw new Error('Usage read stopped.');
     response = await fetch(USAGE_URL, { method: 'GET', headers: { Authorization: `Bearer ${token}`,
       'anthropic-beta': 'oauth-2025-04-20' }, redirect: 'error', signal });
   } catch {
-    throw new Error(signal.aborted ? 'Usage read timed out.' : 'Usage request failed.');
+    if (signal.aborted) throw new Error('Usage read timed out.');
+    throw new Error('Usage request failed.');
   } finally { token = undefined; }
   if (!response.ok) throw new Error(`Usage request failed (HTTP ${Number(response.status) || 0}).`);
   try { return claudeWindows(await response.json()); }

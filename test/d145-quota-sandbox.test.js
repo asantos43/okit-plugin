@@ -20,7 +20,7 @@ test('sandbox cycle and real panel-state CLI show distinct default and extra quo
   for (const dir of [root, bin, extra, join(home, '.claude'), join(home, '.codex')]) await fs.mkdir(dir, { recursive: true });
   const env = { HOME: home, USERPROFILE: home, TMPDIR: home, PATH: bin,
     CLAUDE_CONFIG_DIR: join(home, '.claude'), CODEX_HOME: join(home, '.codex'), OKWORK_HOME: root };
-  await fs.writeFile(join(root, 'config.json'), JSON.stringify({ accounts: {
+  await fs.writeFile(join(root, 'config.json'), JSON.stringify({ quotaPoll: { enabled: true }, accounts: {
     'claude-code': [{ id: 'extra', label: 'Extra', configDir: extra }] } }));
   for (const dir of [extra, join(home, '.claude')]) await fs.writeFile(join(dir, '.credentials.json'), JSON.stringify({
     claudeAiOauth: { accessToken: 'SANDBOX_ONLY_SECRET', expiresAt: 1 } }));

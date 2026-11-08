@@ -431,6 +431,16 @@ const TEXTS = Object.freeze({
 // A pattern matches the whole reason and its captures fill $1..; a reason that
 // matches none is shown as raised. The tests walk this table and the raise sites.
 const REASONS = [
+  [/^Usage client failed\.$/, 'Falha no cliente de uso.', 'Usage client failed.'], // locale:pt-BR
+  [/^Usage client closed without a reading\.$/, 'O cliente de uso encerrou sem uma leitura.', 'Usage client closed without a reading.'], // locale:pt-BR
+  [/^Usage response too large\.$/, 'Resposta de uso grande demais.', 'Usage response too large.'], // locale:pt-BR
+  [/^Usage initialization failed\.$/, 'Falha na inicialização da consulta de uso.', 'Usage initialization failed.'], // locale:pt-BR
+  [/^Invalid usage response\.$/, 'Resposta de uso inválida.', 'Invalid usage response.'], // locale:pt-BR
+  [/^Usage read timed out\.$/, 'Tempo esgotado na leitura de uso.', 'Usage read timed out.'], // locale:pt-BR
+  [/^Usage read stopped\.$/, 'Leitura de uso interrompida.', 'Usage read stopped.'], // locale:pt-BR
+  [/^Usage request failed\.$/, 'Falha na consulta de uso.', 'Usage request failed.'], // locale:pt-BR
+  [/^Usage request failed \(HTTP (\d+|x)\)\.$/, 'Falha na consulta de uso (HTTP $1).', 'Usage request failed (HTTP 503).'], // locale:pt-BR
+  [/^Claude fallback is busy\.$/, 'O fallback do Claude está ocupado.', 'Claude fallback is busy.'], // locale:pt-BR
   [/^now must be a finite timestamp$/, 'now deve ser um timestamp finito', 'now must be a finite timestamp'],
   [/^permission denied$/i, 'permissão negada', 'permission denied'],
   [/^the installed daemon script could not be identified$/, 'não foi possível identificar o script do daemon instalado', 'the installed daemon script could not be identified'],

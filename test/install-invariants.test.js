@@ -145,6 +145,7 @@ async function installerClosure() {
 
 // A refusal whose text is not a literal, outside the presenter's own calls, and why it is not the installer's.
 const NON_LITERAL_ALLOWED = new Map([
+  ['src/quota/active-process.js: error', 'processWindows forwards only the fixed finish literals in this module; D145 bounds protocol errors and the translation corpus below verifies every forwarded reason'],
   ['src/state.js: failure', 'settingsError: only a validated OS error code is interpolated; REASONS translates the fixed template and d115-fixes tests exercise it'],
   ['src/config-schema.js: CONFIG_SCHEMA.messages.', 'assertSavedValues: the one bilingual line of `config set` (CONFIG_SCHEMA.messages.invalidValue), so that a saved value and a typed one are refused with the same words'],
   ['src/accounts.js: why.en', 'refuse: the English text of one of the account reasons, each translated by REASONS (test/d115-accounts.test.js walks them all)'],
@@ -166,6 +167,10 @@ test('I1/R12-2: every refusal the code raises is translated, in the modules the 
     if (file === 'src/install/bootstrap.js' || file === 'src/install/present.js') continue;
     const tokens = tokenize(await read(file));
     for (const call of calls(tokens)) {
+      // processWindows forwards these fixed protocol failures through finish(error).
+      if (file === 'src/quota/active-process.js' && call.last === 'finish' && call.args[0]?.t === 's') {
+        sites.push({ file, reason: call.args[0].v });
+      }
       if (!/Error$/.test(call.last) || tokens[call.at - 1]?.v !== 'new') continue;
       const first = call.args[0];
       if (call.last === 'ConfigError') {

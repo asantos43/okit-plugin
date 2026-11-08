@@ -33,8 +33,9 @@ client is a configured client; class is simple, normal or hard. Each field defau
 | `profiles.<client>.<class>.effort` | Reasoning effort used for this client and work class. |
 | `profiles.<client>.<class>.maxTurns` | Maximum number of turns for this client and work class. |
 | `lowQuotaPct` | Profiles are lowered when the remaining quota is below this percentage. |
-| `accountPolicy.minQuotaPct`; `accountPolicy.paceMarginPct`; `accountPolicy.enforcePace` | Pure account policy: known windows must exceed 0%; pace margin is 15 points; enforcement defaults to false. Not connected to launches yet. |
+| `accountPolicy.minQuotaPct`; `accountPolicy.paceMarginPct`; `accountPolicy.enforcePace` | Account policy: known windows must exceed 20% by default for rotation; pace margin is 15 points; enforcement defaults to false. |
 | `daemon.minQuotaPct` | The daemon does not open demands when the remaining quota is below this percentage. |
+| `quotaPoll.enabled`; `quotaPoll.intervalSec`; `quotaPoll.claudeFallbackMinutes` | Active quota reads default to true, every 60 seconds, with a 30-minute Claude fallback cooldown. Intervals are integers from 1 to 86400. Under `node --test`, polling requires an explicit saved `quotaPoll.enabled: true`. |
 | `smoke.quotaFloorPct` | Smoke refuses to start when the remaining quota is below this percentage. |
 | `codexQuota.sessionsDirectory` | Codex automatic quota reading setting. |
 | `codexQuota.sessionsEnv` | Codex automatic quota reading setting. |
@@ -58,7 +59,6 @@ client is a configured client; class is simple, normal or hard. Each field defau
 
 <a id="defaults"></a>
 ## Defaults and consumers
-
 Inventory generated from DEFAULT_CONFIG in [profiles.js](../../src/profiles.js) and the schema in [config.js](../../src/config.js). Each key shows its default and consuming module; empty objects accept named entries. Arrays are complete values. ¹ Long text, messages and instruction lists use the literal values in the linked defaults file, kept there for lookup without duplicating maintainer instructions. `panel.autoOpen` = `true` (boolean): the installed Claude Code panel opens at session start. Set it to `false` in the state root's `config.json` to disable automatic opening. The adapter reads it through `okit-plugin panel-state --json --client claude` (`panel.autoOpen` in the response); `/okit-panel` still toggles the pane. `panel.color` = `true` (boolean): quota rows use theme colors (green at >= 50%, yellow at >= 20%, red below 20%, dim when unknown); `false` disables colors. Percent text and the `!` low marker remain. It reaches the adapter through the same panel-state response.
 
 | Keys = defaults | Where read and effect |

@@ -108,15 +108,18 @@ test('list defaults first; rename keeps identity and quota lookup; remove keeps 
   }
   const raw = await config();
   const env = { HOME: '', CLAUDE_CONFIG_DIR: directory };
+  const readAt = Date.now();
   assert.equal(accountOfConfigDir({ client: 'claude-code', config: raw, env }).id, 'work');
-  await collectStatusline({ stateRoot: root, config: raw, env, input: Buffer.from(JSON.stringify({
+  await collectStatusline({ stateRoot: root, config: raw, env, now: () => readAt, input: Buffer.from(JSON.stringify({
     rate_limits: { five_hour: { used_percentage: 25, resets_at: Date.now() / 1000 + 3600 } },
   })) });
   assert.equal((await adapterQuotaReader({ stateRoot: root, config: raw, env })('claude-code', 'work')).remainingPct, 75);
-  const listed = await invoke(['list', '--json']);
+  const listed = await invoke(['list', '--json'], { now: () => readAt });
   const rows = JSON.parse(listed.out[0]);
   assert.deepEqual(rows.map((row) => row.id), ['default', 'work', 'default']);
-  assert.deepEqual(rows[1], { client: 'claude-code', id: 'work', label: 'New name', configDir: directory, login: process.platform === 'darwin' ? 'unknown' : 'logged-in' });
+  assert.deepEqual(rows[1], { client: 'claude-code', id: 'work', label: 'New name', configDir: directory,
+    login: process.platform === 'darwin' ? 'unknown' : 'logged-in',
+    rotation: { eligible: true, known: false, readAt, reason: 'no-reading', text: 'No current reading; eligible last.' } });
   const text = await invoke(['list', 'claude-code']);
   assert.match(text.text, /claude-code\tdefault\tdefault\tdefault\t/);
   assert.ok(text.text.includes(`work\tNew name\t${directory}`));

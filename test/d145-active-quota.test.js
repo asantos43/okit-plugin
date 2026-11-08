@@ -34,7 +34,8 @@ async function world(t, extras = []) {
   const root = join(home, 'state');
   await fs.mkdir(root);
   t.after(() => fs.rm(home, { recursive: true, force: true }));
-  const config = { accounts: { 'claude-code': extras.map((id) => ({ id, label: id, configDir: join(home, id) })) } };
+  const config = { quotaPoll: { enabled: true },
+    accounts: { 'claude-code': extras.map((id) => ({ id, label: id, configDir: join(home, id) })) } };
   const ctx = { root, home, config, clock: epoch, env: { HOME: home, PATH: '',
     CLAUDE_CONFIG_DIR: join(home, '.claude'), CODEX_HOME: join(home, '.codex'), OKWORK_HOME: root } };
   ctx.now = () => ctx.clock;
@@ -189,6 +190,20 @@ test('backoff doubles through fifteen minutes and resets after success', async (
   assert.equal((await ctx.state()).failures, 0);
   ctx.clock += 60_000; fails = true; await poller.cycle();
   assert.equal((await ctx.state()).nextTryAt - ctx.clock, 60_000);
+});
+
+// | Test polling | Must pass | Must refuse |
+// | explicit saved enabled:true | active read | omitted/false enabled, including forced trigger |
+test('test context requires explicit opt-in for both poller and CLI trigger', async (t) => {
+  const ctx = await world(t);
+  const spawn = () => assert.fail('unrequested worker');
+  for (const quotaPoll of [undefined, { enabled: false }]) {
+    ctx.config.quotaPoll = quotaPoll; await ctx.save();
+    const poller = ctx.poll({ spawn, fetch: () => assert.fail('unrequested fetch') });
+    await poller.cycle(); await poller.readNow('codex'); await poller.stop();
+    await requestQuotaRead({ ...ctx, spawn }, 'claude-code', 'default', { force: true });
+    assert.deepEqual(await fs.readdir(ctx.root), ['config.json']);
+  }
 });
 
 test('disabled polling does no IO to accounts, fetch or spawn', async (t) => {

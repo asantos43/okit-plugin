@@ -10,7 +10,10 @@ import { pollStateFile } from './active-poller.js';
 export async function requestQuotaRead({ root, env = process.env, fs = filesystem, spawn = spawnProcess,
   now = Date.now }, client, id = 'default', { force = false } = {}) {
   try {
-    const config = configOf(JSON.parse(await fs.readFile(join(root, 'config.json'), 'utf8')));
+    const saved = JSON.parse(await fs.readFile(join(root, 'config.json'), 'utf8'));
+    // Isolated CLI tests must explicitly opt in before launching detached work.
+    if (process.env.NODE_TEST_CONTEXT && saved?.quotaPoll?.enabled !== true) return;
+    const config = configOf(saved);
     if (!config.quotaPoll.enabled || !accountsOf(config, client).some((a) => a.id === id)) return;
     const directory = join(root, 'quota');
     const file = join(directory, pollStateFile(client, id));
