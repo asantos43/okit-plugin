@@ -33,7 +33,7 @@ import { diagnose } from './diagnose.js';
  * @returns {Promise<number>} the exit code
  */
 export async function doctorCommand(ctx, { locale, config, verbose = false, client, readers }) {
-  const ui = createPresenter({ locale, verbose, write: ctx.out });
+  const ui = createPresenter({ locale, verbose, write: ctx.out, isTTY: ctx.isTTY, env: ctx.env });
   const home = ctx.home ?? homeOf(ctx.env, ctx.platform) ?? homedir();
   const { destination } = installPaths(config, { ...ctx, home });
   // The records of the installation, read leniently: a record that cannot be read is a row of the diagnosis, and the

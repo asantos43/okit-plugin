@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { clipText, frameLines, textWidth, wrapText } from '../adapters/claude-code/panel/frame.js';
-import { elapsed, formatHm, localTime, quotaBar, quotaRows } from '../adapters/claude-code/panel/formatters.js';
-import { COMMAND, PROCESS_OPTIONS, boardLines, loadState, parseState, viewModel } from '../adapters/claude-code/panel/panel.js';
+import { elapsed, formatHm, localTime, quotaBar, quotaRows, quotaTone } from '../adapters/claude-code/panel/formatters.js';
+import { COMMAND, PROCESS_OPTIONS, boardLines, boardTones, loadState, parseState, viewModel } from '../adapters/claude-code/panel/panel.js';
 import { createRefresh } from '../adapters/claude-code/panel/refresh.js';
 import { register } from '../adapters/claude-code/panel/register.js';
 
@@ -470,6 +470,65 @@ test('rejected toggle close keeps refreshing until a successful close', async ()
   rejectClose = false;
   assert.deepEqual(await toggle(), { text: 'okit plugin panel closed.' });
   assert.equal(cancelled, 1);
+});
+
+test('quota tones use exact remaining-percent boundaries and preserve the low marker', () => {
+  for (const [percent, tone] of [[100, 'ok'], [50, 'ok'], [49, 'warn'], [20, 'warn'], [19.9, 'low'], [0, 'low'], [null, 'dim']]) {
+    assert.equal(quotaTone(percent), tone);
+    if (percent !== null) assert.equal(quotaBar({ remaining_pct: percent, resets_at: null }, 0).startsWith('!'), tone === 'low');
+  }
+});
+
+test('board metadata colors only quota rows and carries tones through wrapping without escapes', () => {
+  const state = structuredClone(populated);
+  state.accounts[0].quota = { session: { remaining_pct: 19.9, resets_at: null }, weekly: null };
+  const result = { ok: true, state };
+  for (const width of [1, 20, 39, 40, 80, 240]) {
+    const lines = boardLines(result, width, 0, 'UTC');
+    const tones = boardTones(result, width, 0, 'UTC');
+    assert.equal(tones.length, lines.length);
+    assert.ok(lines.every(line => !line.includes('\x1b')));
+    const session = viewModel(result, 0, 'UTC')[1].rows[1];
+    const count = wrapText(session, width < 40 ? width : width - 4).length;
+    assert.equal(tones.filter(tone => tone === 'low').length, count);
+    assert.ok(tones.includes('dim'));
+    assert.equal(tones[0], undefined);
+  }
+});
+
+test('pane Text props use host theme keys only for quota rows and honor panel.color', async () => {
+  const previousH = globalThis.h;
+  globalThis.h = (type, props, ...children) => ({ type, props, children });
+  try {
+    for (const color of [true, false]) {
+      const state = structuredClone(populated), handlers = new Map();
+      state.panel = { color };
+      state.accounts[0].quota = { session: { remaining_pct: 50, resets_at: null }, weekly: { remaining_pct: 20, resets_at: null } };
+      state.accounts[1].quota = { session: { remaining_pct: 19.9, resets_at: null }, weekly: null };
+      let panes = [];
+      const engine = { process: { run: async () => response(state) }, command: { register: async () => {} },
+        clock: { every: () => ({ cancel() {} }) },
+        ui: { close: async () => { panes = []; }, open: async pane => { panes = [pane]; },
+          panes: async () => panes, invalidate() {}, resolve: () => ({ Box: 'Box', Text: 'Text' }) } };
+      register((event, ...args) => handlers.set(event, args.at(-1)));
+      await handlers.get('session.start')(engine, {}, value => value);
+      await settle();
+      for (const width of [20, 80]) {
+        const tree = await handlers.get('ui.render')(engine, { props: { bodyColumns: width + 2 } });
+        const expected = state.accounts.flatMap(account => [account.quota.session, account.quota.weekly])
+          .map(window => ({ ok: 'success', warn: 'warning', low: 'error', dim: 'inactive' })[quotaTone(window?.remaining_pct ?? null)]);
+        const blocks = viewModel({ ok: true, state });
+        const rowColors = [undefined, expected[0], expected[1], undefined, expected[2], expected[3]];
+        const colors = blocks.flatMap((block, index) => index === 0 ? wrapText(block.title, width).map(() => undefined)
+          : [undefined, ...block.rows.flatMap((row, rowIndex) => wrapText(row, width < 40 ? width : width - 4)
+            .map(() => color && index === 1 ? rowColors[rowIndex] : undefined)), ...(width < 40 ? [] : [undefined])]);
+        assert.deepEqual(tree.children.map(child => child.props.color), colors);
+        assert.ok(tree.children.every(child => !child.children[0].includes('\x1b')));
+        if (!color) assert.ok(tree.children.every(child => !Object.hasOwn(child.props, 'color')));
+      }
+      await handlers.get('command.run')(engine);
+    }
+  } finally { globalThis.h = previousH; }
 });
 
 test('session start auto-opens by default/true, respects false and silently tolerates open failure', async () => {

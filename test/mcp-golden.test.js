@@ -18,7 +18,7 @@ const UPDATE = process.env.GOLDEN_UPDATE === '1';
 // D125 keeps installer locale dictionaries and English-only profile/detection defaults in the status shape.
 // Account choices retain their D121 shape, and MCP envelopes stay unchanged.
 const DISPLAY_SHAPES = {
-  status: '89ef72f99e73cb7663d0814bc04ea9abb94265b6ce3c216a8483095f303acb50',
+  status: '8ecc8478492351d8f62e3d912e63d9d70cbefb9507612091cc53a65f6877f86c',
   actors_list: '04260e09cd5efb227b48567b76770623525e43a7da1ab58571a40f54c6bc0f12',
 };
 function jsonShape(value) {

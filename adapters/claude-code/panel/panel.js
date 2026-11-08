@@ -1,4 +1,4 @@
-import { elapsed, localTimestamps, quotaRows } from './formatters.js';
+import { elapsed, localTimestamps, quotaRows, quotaTone } from './formatters.js';
 import { frameLines, wrapText } from './frame.js';
 
 export const COMMAND = Object.freeze(['okit-plugin', 'panel-state', '--json', '--client', 'claude']);
@@ -37,7 +37,8 @@ export function parseState(stdout) {
 function validState(value) {
   return value.client === 'claude' && typeof value.readiness === 'string' &&
     (value.panel === undefined || (record(value.panel) &&
-      (value.panel.autoOpen === undefined || typeof value.panel.autoOpen === 'boolean'))) &&
+      (value.panel.autoOpen === undefined || typeof value.panel.autoOpen === 'boolean') &&
+      (value.panel.color === undefined || typeof value.panel.color === 'boolean'))) &&
     Array.isArray(value.warnings) && value.warnings.every(/** @param {unknown} w */ w => typeof w === 'string') &&
     Array.isArray(value.accounts) && value.accounts.every(/** @param {any} a */ a => record(a) &&
       typeof a.id === 'string' && typeof a.label === 'string' && record(a.quota) &&
@@ -58,6 +59,20 @@ export function boardLines(result, width, now = Date.now(), timeZone) {
   const w = Number.isFinite(width) ? Math.max(1, Math.min(240, Math.floor(width))) : 80;
   return viewModel(result, now, timeZone).flatMap((block, index) => result.ok && index === 0
     ? wrapText(block.title, w) : frameLines(block.title, block.rows, w));
+}
+
+/** Parallel metadata for boardLines; frames and non-quota rows have no tone.
+ * @param {import('./types.js').Result} result @param {number} width @param {number} [now] @param {string} [timeZone] */
+export function boardTones(result, width, now = Date.now(), timeZone) {
+  const w = Number.isFinite(width) ? Math.max(1, Math.min(240, Math.floor(width))) : 80;
+  const tones = result.ok ? result.state.accounts.flatMap(account =>
+    [undefined, quotaTone(account.quota.session?.remaining_pct ?? null), quotaTone(account.quota.weekly?.remaining_pct ?? null)]) : [];
+  return viewModel(result, now, timeZone).flatMap((block, index) => {
+    if (result.ok && index === 0) return wrapText(block.title, w).map(() => undefined);
+    const rows = block.rows.flatMap((row, rowIndex) => wrapText(row, w < 40 ? w : w - 4)
+      .map(() => result.ok && index === 1 ? tones[rowIndex] : undefined));
+    return w < 40 ? [undefined, ...rows] : [undefined, ...rows, undefined];
+  });
 }
 
 /** @param {import('./types.js').Runner} run @returns {Promise<import('./types.js').Result>} */

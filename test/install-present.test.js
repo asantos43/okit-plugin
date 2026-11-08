@@ -1323,3 +1323,29 @@ test('no line of the installer output carries a sentence of the other language, 
     }
   }
 });
+
+// Must pass: remaining percent on a TTY. Must refuse: pipe, NO_COLOR, unrelated rows and following limits.
+import { test as quotaColorTest } from 'node:test';
+import quotaAssert from 'node:assert/strict';
+import { quotaPercent, createPresenter as quotaPresenter, presentDiagnosis as quotaDiagnosis } from '../src/cli-present.js';
+quotaColorTest('quota CLI colors exact boundaries only on a TTY and preserves piped and NO_COLOR bytes', () => {
+  for (const [value, code] of [[100, 32], [50, 32], [49, 33], [20, 33], [19.9, 31], [0, 31]]) {
+    const plain = `Weekly quota is ${value}%; it must be above 15%.`;
+    quotaAssert.equal(quotaPercent(plain, { isTTY: true, env: {} }), plain.replace(`${value}%`, `\x1b[${code}m${value}%\x1b[0m`));
+    quotaAssert.equal(quotaPercent(plain, { isTTY: false, env: {} }), plain);
+    quotaAssert.equal(quotaPercent(plain, { isTTY: true, env: { NO_COLOR: '' } }), plain);
+  }
+  quotaAssert.equal(quotaPercent('unknown', { isTTY: true, env: {} }), 'unknown');
+});
+quotaColorTest('doctor renders colored account-policy quota percentages and leaves unrelated percentages plain', () => {
+  const render = (options) => {
+    const lines = [], ui = quotaPresenter({ write() {}, ...options });
+    quotaDiagnosis({ failed: 0, warnings: 0, rows: ['account-policy', 'models'].map(id =>
+      ({ id, label: id, status: 'ok', detail: 'Session quota is 12%; it must be above 15%.' })) },
+      { ui, command: 'okit-plugin', out: line => lines.push(line) });
+    return lines.join('\n');
+  };
+  const plain = render({ isTTY: false, env: {} });
+  quotaAssert.equal(render({ isTTY: true, env: { NO_COLOR: '' } }), plain);
+  quotaAssert.equal(render({ isTTY: true, env: {} }), plain.replace('12%', '\x1b[31m12%\x1b[0m'));
+});
