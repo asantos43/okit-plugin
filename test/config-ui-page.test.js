@@ -8,7 +8,7 @@ import { schemaEntries } from '../src/core/config.js';
 
 export const ACCOUNT_SELECTORS = ['tr[data-account-id]', '[data-account-remove-confirm]',
   '[data-account-remove-open]', '[data-account-login-help]', '[data-account-add]',
-  'input[data-rename-account]', 'code', '#status', '#error'];
+  'input[data-rename-account]', 'code', '#status', '#error', '[data-login-progress]', '[data-login-url]', '[data-account-quota]'];
 
 test('real Accounts markup supplies every shared client selector', async () => {
   const state = buildState();
@@ -54,7 +54,7 @@ test('Accounts cells keep localized headings and client folder placeholders', ()
         assert.deepEqual([...row.matchAll(/<td\b[^>]*data-label="([^"]+)"/g)].map(match => match[1]), headings);
         assert.match(row, /<td class="account-id"/);
         const loginButton = row.match(/<button[^>]*data-action="account-login"[^>]*>/)[0];
-        assert.equal(/\bhidden\b/.test(loginButton), rowIndex !== 0);
+        assert.equal(/\bhidden\b/.test(loginButton), false);
         assert.ok(row.includes(`>${text.accountLoginCommand}</button>`));
         const help = row.match(/<div class="account-login-help"[^>]*>/)[0];
         assert.equal(/\bhidden\b/.test(help), rowIndex === 0);
@@ -314,7 +314,8 @@ test('hostile values stay inert in attributes, text and embedded state', () => {
   const html = renderPage(state, { nonce: hostile, token: hostile });
   assert.equal((html.match(/<script\b/g) ?? []).length, 2);
   assert.equal((html.match(/<script[^>]* nonce="/g) ?? []).length, 2);
-  assert.doesNotMatch(html, /\son\w+\s*=|https?:\/\//i);
+  // A protocol-only literal validates login links; no remote endpoint is embedded.
+  assert.doesNotMatch(html, /\son\w+\s*=|https?:\/\/(?!['"])/i);
   assert.match(html, /&lt;script&gt;/);
   const embedded = html.match(/id="state"[^>]*>(.*?)<\/script>/s)[1];
   assert.doesNotMatch(embedded, /[<>&\u2028\u2029]/);

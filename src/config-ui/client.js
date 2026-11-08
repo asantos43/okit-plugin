@@ -126,11 +126,53 @@ export function clientMain(win, slugify = accountSlug, proposeFolder = proposedA
       badge.textContent = text[key];
       badge.title = text[`${key}Title`];
       row.querySelector('[data-account-login-help]').hidden = account.login === 'logged-in';
-      row.querySelector('[data-action="account-login"]').hidden = account.login !== 'logged-in';
+      row.querySelector('[data-action="account-login"]').hidden = false;
+      const logout = row.querySelector('[data-action="account-logout"]');
+      if (logout) logout.hidden = account.login !== 'logged-in';
+      const quota = row.querySelector('[data-account-quota]');
+      if (quota) quota.textContent = text.quotaStates[account.quota?.state] ?? '';
       row.querySelector('code').textContent = account.loginCommand;
       const collector = row.querySelector('[data-account-collector]');
       if (collector) collector.textContent = [account.collector?.text, account.collector?.detail, account.collector?.reason].filter(Boolean).join(': ');
     }
+    return result.value.accounts;
+  };
+  const loginTimers = new Map();
+  const quotaTimers = new Map();
+  const followQuota = async (identity, tries = 60) => {
+    const key = `${identity.client}:${identity.id}`;
+    win.clearTimeout?.(quotaTimers.get(key));
+    const accounts = await checkAccounts(identity.client);
+    const quota = accounts?.find(account => account.id === identity.id && account.client === identity.client)?.quota;
+    if (tries > 0 && quota?.state === 'no-reading') quotaTimers.set(key, win.setTimeout(() => {
+      void followQuota(identity, tries - 1).catch(failure => error(failure.message));
+    }, 1000));
+  };
+  const showLogin = async (row, identity, result) => {
+    const key = `${identity.client}:${identity.id}`;
+    win.clearTimeout?.(loginTimers.get(key));
+    if (result.status !== 200) return error(result.value.reason);
+    const value = result.value;
+    const active = ['starting', 'waiting-for-browser'].includes(value.state);
+    const progress = row.querySelector('[data-login-progress]');
+    if (progress) progress.textContent = [text.loginStates[value.state], value.reason].filter(Boolean).join(': ');
+    const link = row.querySelector('[data-login-url]');
+    if (link) {
+      link.hidden = !value.url;
+      link.textContent = value.url ?? '';
+      if (value.url?.startsWith('https://')) link.href = value.url;
+      else link.removeAttribute('href');
+    }
+    row.querySelector('[data-account-login-help]').hidden = false;
+    row.querySelector('[data-action="account-login"]').disabled = active;
+    const cancel = row.querySelector('[data-action="account-login-cancel"]');
+    if (cancel) cancel.hidden = !active;
+    if (active) loginTimers.set(key, win.setTimeout(async () => {
+      try { await showLogin(row, identity, await request('/api/account-login/status', 'POST', identity)); }
+      catch (failure) { error(failure.message); }
+    }, 700));
+    else if (value.state === 'logged-in') await followQuota(identity);
+    else if (['logged-out', 'cancelled', 'timed-out', 'failed'].includes(value.state)) await checkAccounts(identity.client);
   };
   const save = async () => {
     for (;;) {
@@ -201,12 +243,16 @@ export function clientMain(win, slugify = accountSlug, proposeFolder = proposedA
         if (result.status === 200) await reloadState(); else error(result.value.reason);
       } else if (action === 'account-login') {
         row.querySelector('[data-account-login-help]').hidden = false;
-        target.hidden = true;
-        row.querySelector('[data-action="account-terminal"]').focus();
+        const identity = { client: target.dataset.client, id: target.dataset.accountId };
+        await showLogin(row, identity, await request('/api/account-login', 'POST', identity));
+      } else if (action === 'account-login-cancel' || action === 'account-logout') {
+        const identity = { client: target.dataset.client, id: target.dataset.accountId };
+        await showLogin(row, identity, await request(action === 'account-logout'
+          ? '/api/account-logout' : '/api/account-login/cancel', 'POST', identity));
       } else if (action === 'account-terminal') {
         target.disabled = true;
         try {
-          const result = await request('/api/account-login', 'POST', { client: target.dataset.client, id: target.dataset.accountId });
+          const result = await request('/api/account-login', 'POST', { client: target.dataset.client, id: target.dataset.accountId, action: 'terminal' });
           if (result.status === 200) {
             const reasons = { 'no-terminal': text.accountTerminalNoTerminal,
               'unsafe-folder': text.accountTerminalUnsafeFolder, 'unsupported-client': text.accountTerminalUnsupported };

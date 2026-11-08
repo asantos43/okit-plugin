@@ -54,12 +54,16 @@ function accountFixture(responses = [], login = 'logged-out', navigator = {}) {
   Object.assign(remove, focusable());
   const confirmButton = focusable(), terminal = focusable(), loginButton = { hidden: login !== 'logged-in' };
   const badge = { className: 'badge old', textContent: 'Old' };
+  const progress = {}, quota = {}, cancelLogin = { hidden: true }, logout = {};
+  const link = { hidden: true, removeAttribute(name) { delete this[name]; } };
   const row = { dataset: { client: 'codex', accountId: 'work' }, querySelector: selector => ({
     'input[data-rename-account]': input,
     '[data-account-login-help]': help, '[data-account-remove-confirm]': confirm,
     '[data-account-remove-open]': remove, code, '.badge': badge,
     '[data-confirm="true"]': confirmButton, '[data-action="account-terminal"]': terminal,
     '[data-action="account-login"]': loginButton,
+    '[data-login-progress]': progress, '[data-login-url]': link, '[data-account-quota]': quota,
+    '[data-action="account-login-cancel"]': cancelLogin, '[data-action="account-logout"]': logout,
   })[selector] };
   const fields = { '[name="label"]': { value: 'Work' }, '[name="configDir"]': { value: '/home/you/.codex-work' } };
   const form = { querySelector: selector => fields[selector] };
@@ -71,7 +75,7 @@ function accountFixture(responses = [], login = 'logged-out', navigator = {}) {
     closest: selector => selector === 'tr[data-account-id]' ? row : selector === '[data-account-add]' ? form : null });
   const click = target => f.handlers.click({ target: { closest: selector => selector === '[data-action]' ? target : null } });
   return { ...f, row, input, pre, help, paragraph, confirm, remove, fields, accounts, button, control,
-    badge, terminal, loginButton, confirmButton, accountClick: click };
+    badge, terminal, loginButton, confirmButton, progress, quota, link, cancelLogin, logout, accountClick: click };
 }
 
 test('account folder follows the name, pauses for manual edits and resumes when cleared in both locales', () => {
@@ -140,6 +144,10 @@ test('Escape, outside clicks and other row actions cancel remove confirmation', 
     f => f.accountClick(f.button('account-remove', { cancel: 'true' }))]) {
     const f = accountFixture(), button = f.button('account-remove');
     await f.accountClick(button); await cancel(f);
+    if (f.calls.length) {
+      assert.equal(f.calls[0].path, '/api/account-login');
+      f.calls.length = 0;
+    }
     assert.equal(f.confirm.hidden, true);
     assert.equal(f.remove.hidden, false);
     assert.equal(f.remove.focuses, 1);
@@ -183,7 +191,7 @@ test('Accounts terminal posts only the saved row identity and keeps help open', 
   assert.equal(f.calls.length, 1);
   assert.equal(f.calls[0].path, '/api/account-login');
   assert.equal(f.calls[0].method, 'POST');
-  assert.deepEqual(JSON.parse(f.calls[0].body), { client: f.row.dataset.client, id: f.row.dataset.accountId });
+  assert.deepEqual(JSON.parse(f.calls[0].body), { client: f.row.dataset.client, id: f.row.dataset.accountId, action: 'terminal' });
   assert.equal(f.nodes.status.textContent, labels.en.accountTerminalOpened);
   assert.equal(f.help.hidden, false);
   assert.equal(button.disabled, false);
@@ -264,9 +272,9 @@ test('Accounts copy selects the command when clipboard is missing or rejects', a
   }
 });
 
-test('Accounts login opens help and focuses the terminal; Check login updates in place', async () => {
+test('Accounts login starts the saved identity; Check login updates in place', async () => {
   for (const login of ['logged-in', 'logged-out', 'unknown']) {
-    const f = accountFixture([{ status: 200, value: { accounts: [
+    const f = accountFixture([{ status: 200, value: {} }, { status: 200, value: { accounts: [
       { client: 'codex', id: 'work', login, loginCommand: 'updated command' },
     ] } }], login);
     f.control.value = 'pt-BR'; f.handlers.input({ target: f.control });
@@ -276,9 +284,9 @@ test('Accounts login opens help and focuses the terminal; Check login updates in
     const loginButton = f.button('account-login');
     await f.accountClick(loginButton);
     assert.equal(f.help.hidden, false);
-    assert.equal(loginButton.hidden, true);
-    assert.equal(f.terminal.focuses, 1);
-    assert.equal(f.calls.length, 0);
+    assert.equal(f.calls[0].path, '/api/account-login');
+    assert.deepEqual(JSON.parse(f.calls[0].body), { client: 'codex', id: 'work' });
+    f.calls.length = 0;
     await f.accountClick(f.button('account-check'));
     assert.equal(f.calls[0].path, '/api/state?locale=en');
     assert.equal(f.calls[0].method, 'GET');
@@ -290,6 +298,45 @@ test('Accounts login opens help and focuses the terminal; Check login updates in
     assert.equal(f.pre.code.textContent, 'updated command');
     assert.equal(f.control.value, 'pt-BR');
     assert.deepEqual(f.tabs.map(tab => tab.classList['has-edits']), dots);
+  }
+});
+
+test('login polls, shows only its HTTPS link and refreshes the first quota reading in place', async () => {
+  const identity = { client: 'codex', id: 'work', login: 'logged-in', loginCommand: 'saved command' };
+  const f = accountFixture([
+    { status: 200, value: { state: 'starting' } },
+    { status: 200, value: { state: 'waiting-for-browser', url: 'https://example.test/auth' } },
+    { status: 200, value: { state: 'logged-in' } },
+    { status: 200, value: { accounts: [{ ...identity, quota: { state: 'no-reading' } }] } },
+    { status: 200, value: { accounts: [{ ...identity, quota: { state: 'read-failed' } }] } },
+  ]);
+  const timers = [];
+  f.win.setTimeout = callback => { timers.push(callback); return timers.length; };
+  f.win.clearTimeout = () => {};
+  await f.accountClick(f.button('account-login'));
+  assert.equal(f.progress.textContent, 'Starting');
+  assert.equal(f.cancelLogin.hidden, false); assert.equal(f.loginButton.disabled, true);
+  await timers.shift()();
+  assert.equal(f.link.href, 'https://example.test/auth'); assert.equal(f.link.hidden, false);
+  await timers.shift()();
+  assert.equal(f.quota.textContent, 'No reading');
+  assert.equal(f.cancelLogin.hidden, true); assert.equal(f.loginButton.disabled, false);
+  timers.shift()(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.quota.textContent, 'Read failed');
+  assert.equal(f.reloads(), 0);
+});
+
+test('cancel and sign out send only the saved row identity and refresh badges', async () => {
+  for (const [action, route, state] of [['account-login-cancel', '/api/account-login/cancel', 'cancelled'],
+    ['account-logout', '/api/account-logout', 'logged-out']]) {
+    const f = accountFixture([{ status: 200, value: { state } }, { status: 200, value: { accounts: [
+      { client: 'codex', id: 'work', login: 'logged-out', loginCommand: 'saved command' },
+    ] } }]);
+    await f.accountClick(f.button(action));
+    assert.equal(f.calls[0].path, route);
+    assert.deepEqual(JSON.parse(f.calls[0].body), { client: 'codex', id: 'work' });
+    assert.equal(f.calls[1].path, '/api/state?locale=en');
+    assert.equal(f.badge.textContent, 'Not logged in');
   }
 });
 

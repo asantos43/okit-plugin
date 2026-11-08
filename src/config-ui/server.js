@@ -13,12 +13,13 @@ import { localizeReason } from '../install/present.js';
 import { changeAccount } from '../accounts-cli.js';
 import { withAccountRenamed, accountFiles, accountsOf, accountEnv, ACCOUNT_CLIENTS, requireAccount,
   accountSlug, proposedAccountFolder } from '../accounts.js';
-import { launchLogin as launchAccountLogin } from '../accounts-login-launch.js';
+import { launchLogin as launchAccountLogin, createAccountLogins, LOGIN_TIMEOUT_MS } from '../accounts-login-launch.js';
+import { requestQuotaRead } from '../quota/active-trigger.js';
 import { defaultFolderOf, homeOf } from '../install/config.js';
 import { detectClients, confirmedModels } from '../env/models.js';
 import { environmentSnapshot } from '../env/snapshot.js';
 import { limitsStatus } from '../limits.js';
-import { buildState, describeAccount, redact, sensitive } from './state.js';
+import { buildState, describeAccount, accountQuota, redact, sensitive } from './state.js';
 import { renderPage } from './page.js';
 
 const fail = (status, reason) => Object.assign(new Error(reason), { status });
@@ -29,10 +30,14 @@ const noClientFiles = { readFile: async () => { throw new Error('Client file rea
 
 export async function startConfigServer({ root, env = process.env, locale = 'en', idleMs = 600_000,
   modelTimeoutMs = 5000, closeGraceMs = 3000, detect = detectClients, observe, signals = process,
-  platform = process.platform, launchLogin = launchAccountLogin, background = false } = {}) {
+  platform = process.platform, launchLogin = launchAccountLogin, background = false,
+  loginTimeoutMs = LOGIN_TIMEOUT_MS, loginSpawn, quotaRead = requestQuotaRead } = {}) {
   const token = randomBytes(32).toString('hex');
   const observations = new Map();
   const controllers = new Set();
+  const logins = createAccountLogins({ env, platform, redact, timeoutMs: loginTimeoutMs,
+    spawn: loginSpawn, fallback: launchLogin,
+    onSuccess: (client, id) => quotaRead({ root, env }, client, id, { force: true }) });
   let timer, graceTimer, port, activeInstance, stopping = false, resolveClosed;
   const closed = new Promise((resolve) => { resolveClosed = resolve; });
   const server = http.createServer((request, response) => {
@@ -47,6 +52,7 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
   const close = () => {
     if (stopping) return closed;
     stopping = true;
+    logins.close();
     clearTimeout(timer);
     clearTimeout(graceTimer);
     signals.removeListener('SIGINT', close);
@@ -114,7 +120,8 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
         readQuota: (client, id) => ACCOUNT_CLIENTS.includes(client)
           ? readJson(join(root, 'quota', accountFiles(client, id).reading), null) : null });
     const accountStates = await Promise.all(ACCOUNT_CLIENTS.flatMap((client) => accountsOf(loaded.raw, client))
-      .map((account) => describeAccount(account, loaded.raw, { root, env, platform, locale: chosenLocale })));
+      .map(async (account) => ({ ...await describeAccount(account, loaded.raw, { root, env, platform, locale: chosenLocale }),
+        quota: await accountQuota(root, account.client, account.id) })));
     return buildState({ ...loaded, observations: readings, snapshot, accountStates, platform, env, locale: chosenLocale });
   }
   function authorize(request, url) {
@@ -162,6 +169,7 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
     const routes = { '/': 'GET', '/api/state': 'GET', '/api/config': 'PUT',
       '/api/account-label': 'PUT', '/api/account-add': 'POST', '/api/account-remove': 'POST',
       '/api/account-login': 'POST',
+      '/api/account-login/status': 'POST', '/api/account-login/cancel': 'POST', '/api/account-logout': 'POST',
       '/api/models/refresh': 'POST', '/api/close': 'POST', '/api/keepalive': 'POST' };
     if (!Object.hasOwn(routes, url.pathname)) throw fail(404, 'Not found.');
     if (request.method !== routes[url.pathname]) throw fail(405, 'Method not allowed.');
@@ -190,7 +198,9 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
       const { config } = await load();
       return send(response, 200, redact(await refresh(config, input.client)));
     }
-    if (url.pathname === '/api/account-login') return login(input, response);
+    if (['/api/account-login', '/api/account-login/status', '/api/account-login/cancel', '/api/account-logout'].includes(url.pathname)) {
+      return login(input, response, url.pathname);
+    }
     if (url.pathname === '/api/account-label') return rename(input, response);
     if (url.pathname === '/api/account-add' || url.pathname === '/api/account-remove') {
       return change(input, response, url.pathname === '/api/account-add' ? 'add' : 'remove');
@@ -220,7 +230,7 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
       } });
     send(response, result.conflict ? 409 : 200, result.conflict ? { reason: 'Configuration changed on disk.' } : redact({ changes: result.changes }));
   }
-  async function login(input, response) {
+  async function login(input, response, route) {
     try {
       if (!object(input) || typeof input.client !== 'string' || !ACCOUNT_CLIENTS.includes(input.client)) {
         throw new UsageError('Unsupported account client.');
@@ -229,7 +239,12 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
       const { raw } = await load();
       const account = requireAccount(raw, input.client, input.id);
       const saved = Object.hasOwn(raw.accounts ?? {}, input.client);
-      const result = await launchLogin({ client: input.client, account, saved, platform, env });
+      const options = { client: input.client, account, saved, platform, env };
+      let result;
+      if (route === '/api/account-login/status') result = logins.status(input.client, input.id);
+      else if (route === '/api/account-login/cancel') result = logins.cancel(input.client, input.id);
+      else if (route === '/api/account-login' && input.action === 'terminal') result = await logins.launchTerminal(options);
+      else result = logins.start(options, route === '/api/account-logout');
       send(response, 200, redact(result));
     } catch (error) {
       if (!(error instanceof UsageError || error instanceof OperationalError || error instanceof Refusal)) throw error;

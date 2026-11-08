@@ -1,4 +1,7 @@
 {
+  "accountLogout": "Sign out", "accountCancelLogin": "Cancel login",
+  "loginStates": { "starting": "Starting", "waiting-for-browser": "Waiting for the browser", "logged-in": "Logged in", "logged-out": "Signed out", "failed": "Failed", "cancelled": "Cancelled", "timed-out": "Timed out" },
+  "quotaStates": { "ok": "Reading received", "not-logged-in": "Not logged in", "token-expired": "Token expired", "no-reading": "No reading", "read-failed": "Read failed" },
   "title": "Configuration",
   "actors": "Actors",
   "settings": "Settings",
