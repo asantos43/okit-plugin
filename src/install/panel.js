@@ -15,10 +15,17 @@ const ownerOf = (record, deps) => deps.accountScope && !deps.accountScope.isDefa
 export const panelOf = (record, deps) => ownerOf(record, deps)?.panel;
 export const forgetPanel = (record, deps) => { const owner = ownerOf(record, deps); if (owner) delete owner.panel; };
 
+/** Eligibility and exact native argv, without listing plugins or asking consent. */
+export function panelProposal(record, flags, deps) {
+  if (record.client !== PANEL_CLIENT || flags['no-panel'] || panelOf(record, deps) || flags.check) return null;
+  return { optional: true, client: record.client, account: deps.accountScope?.id ?? 'default',
+    command: deps.config.clients[PANEL_CLIENT].executable,
+    args: ['plugin', 'install', `${PANEL_NAME}@${deps.config.marketplace}`, '--scope', 'user'] };
+}
+
 /** Offer only after the main registration has succeeded in this account. */
 export async function offerPanel(record, flags, deps) {
-  if (record.client !== PANEL_CLIENT || flags['no-panel'] || panelOf(record, deps)
-    || deps.dryRun || flags.check) return;
+  if (!panelProposal(record, flags, deps) || deps.dryRun) return;
   const ui = presenterOf(deps);
   try {
     if (deps.tty && await ui.confirm(deps.read, {

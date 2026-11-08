@@ -47,6 +47,7 @@ Todo o restante é pedido ao assistente, que usa as [ferramentas MCP](mcp-tools.
 ## Efeitos e resultados
 
 Install/update/uninstall alteram registros e arquivos gerenciados; setup salva configuração após confirmação. Doctor só lê: tira o retrato com `record: false`, então não grava arquivo nem evento de telemetria. O daemon pode lançar processos e gastar cota.
+Install/update `--dry-run` renderiza o plano JSON compartilhado sem gravar, iniciar clientes ou baixar pacotes/checksums; a detecção de kit permanece somente leitura. Árvores remotas têm checksum pendente até aplicar; fontes locais são hashadas. O plano inclui caminhos, diferenças redigidas, argv e fingerprints; observações pendentes impedem consentimento. Propostas de setup/painel preservam consentimento no terminal. Propostas de setup não gravam medições mesmo habilitadas; a inicialização continua registrando observações.
 O doctor termina com `Pronto para lançar executores: sim` ou `não; faltas: …` (e `ready` e `gaps` com `--json`). Pronto significa que cada tamanho (S, M, L) tem um ator que pode lançar em um cliente instalado; clientes não instalados são opcionais. Linhas: modelos confirmados e cota registrada por cliente instalado, coletor da barra de status (com o comando para ativar) e o kit opcional.
 Saída 0 indica sucesso; 1 indica falha; uso inválido normalmente retorna 2.
 Os checks smoke offline são código interno de teste: testes e update os executam; mantenedores usam `npm run smoke` (`scripts/smoke.js`).

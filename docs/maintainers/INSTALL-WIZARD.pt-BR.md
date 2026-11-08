@@ -214,3 +214,14 @@ não podem restaurar acidentalmente interação de terminal no lançador Windows
 1. **Aliases:** os aliases `update` e `uninstall` encaminham diretamente ao Node, sem menus; anunciar depreciação antes de qualquer remoção, sobretudo no Windows.
 2. **Aceitação em navegador:** reusar runner Playwright disponível, sem nova dependência no repositório; o Diretor assume a aceitação em navegador até a aprovação de um runner de CI.
 3. **Bootstrap comum:** manter os artefatos verificados por cliente; avaliar bootstrap comum somente se a auditoria da fatia 1 provar necessário.
+
+### Auditoria dos artefatos
+
+`payloadEntries()` inclui `src` compartilhado e adaptadores compartilhados em cada artefato;
+a UI de configuração e o instalador já acompanham cada pacote verificado.
+Manter artefatos por cliente: um bootstrap comum não acrescenta código necessário.
+Selecionar um cliente inicial deterministicamente e fixar/verificar cada artefato adicional.
+O plano não baixa pacotes nem manifestos: payloads remotos são árvores, com checksum
+pendente até aplicar; fontes locais confiadas pelo usuário são percorridas e hashadas.
+`install-scripts.js` embute apresentador e bootstrap; mudanças no apresentador exigem
+regenerar ambos os wrappers, preservando aquisição e comportamento de lançamento.

@@ -460,6 +460,7 @@ test('round 12: exitCodeFor is the one policy: success 0, operational failure 1,
 // fails until it is named. Nothing here is a file as a whole: a new `throw new Error('X')` in any of these files has
 // no entry and fails, whatever else the file raises.
 const PLAIN_ERRORS = [
+  { file: 'src/install/plan.js', fragment: "new Error('Install preview cannot write", why: 'programmer: PreviewCapabilityError names an attempted write/process outside the preview capabilities; the same expression sets its operational kind' },
   { file: 'src/setup/setup.js', fragment: "new TypeError('root is required')", why: 'programmer: runSetup called without a root, a bug of the caller, never an input' },
   { file: 'src/install/bootstrap.js', fragment: 'Object.assign(new Error(text)', why: 'the same line sets `kind` and `code` with Object.assign' },
   { file: 'src/install/client-plugin.js', fragment: 'new Error(delivery.reason)', why: 'operational: the client could not deliver the plugin (the environment); the presenter translates the reason' },

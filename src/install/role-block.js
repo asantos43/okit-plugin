@@ -10,6 +10,16 @@ export async function roleBlock(path, content, { remove = false } = {}) {
     if (error.code !== 'ENOENT') throw error;
     return '';
   });
+  const plan = roleBlockProposal(path, before, content, { remove });
+  if (plan.status !== 'ready') return plan;
+  if (plan.after !== before) {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, plan.after);
+  }
+  return { status: 'ready', path, written: plan.after !== before };
+}
+
+export function roleBlockProposal(path, before, content, { remove = false } = {}) {
   const start = before.indexOf(BEGIN_ROLE);
   const end = before.indexOf(END_ROLE);
   if ((start < 0) !== (end < 0) || (start >= 0 && (end < start
@@ -19,9 +29,5 @@ export async function roleBlock(path, content, { remove = false } = {}) {
   const block = remove ? '' : `${BEGIN_ROLE}\n${content}\n${END_ROLE}`;
   const after = start >= 0 ? before.slice(0, start) + block + before.slice(end + END_ROLE.length)
     : remove ? before : before + block;
-  if (after !== before) {
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, after);
-  }
-  return { status: 'ready', path, written: after !== before };
+  return { status: 'ready', path, before, after };
 }

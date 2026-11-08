@@ -591,12 +591,16 @@ function wasDone(raw) {
 }
 
 // Installation records observations, without accepting the remaining questions.
-export async function initializeDetectedConfig({ clients, root, env, run, adapters, readQuota,
-  snapshot, write = writeJsonAtomic, command = DEFAULT_CONFIG.install.command } = {}) {
+export function proposeDetectedConfig(options = {}) {
+  return detectedConfigProposal({ ...options, record: false });
+}
+
+async function detectedConfigProposal({ clients, root, env, run, adapters, readQuota,
+  snapshot, record = false, recordTelemetry, command = DEFAULT_CONFIG.install.command } = {}) {
   const stored = await readJson(paths(root).config, {});
   assertReadableConfig(stored, 'both', command);
   const observation = await environmentSnapshot({ root, config: stored, env, run, adapters,
-    readQuota, snapshot, plugin: {}, versions: {} });
+    readQuota, snapshot, record, recordTelemetry, plugin: {}, versions: {} });
   // Reinstalling confirmed profiles is a review, not a configuration write.
   if (wasDone(stored) && clients?.every((client) => Object.keys(PROFILE_EFFORTS).every((name) => {
     const saved = stored.setup?.done?.profiles?.[client]?.[name], current = observation.config.profiles[client]?.[name];
@@ -628,6 +632,14 @@ export async function initializeDetectedConfig({ clients, root, env, run, adapte
       ...(Object.keys(quotaSources).length ? { quotaSources } : {}) } };
   }
   if (!Object.keys(detected).length) return { written: false, observation };
+  return { written: false, observation, detected };
+}
+
+export async function initializeDetectedConfig(options = {}) {
+  const { root, write = writeJsonAtomic, command = DEFAULT_CONFIG.install.command } = options;
+  const proposal = await detectedConfigProposal({ ...options, record: true });
+  const { observation, detected } = proposal;
+  if (!detected) return proposal;
   const target = paths(root);
   await mkdir(target.locks, { recursive: true });
   return withLock(join(target.locks, 'config'), async () => {
