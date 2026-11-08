@@ -393,7 +393,10 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
       deps.stage('link');
       if (link && deps.dryRun) finishLink(ui, next('link'), null, { dryRun: true, command: deps.config.command, bin: deps.bin });
       else if (link) {
-        finishLink(ui, next('link'), await applyLink(current, deps));
+        const linked = await applyLink(current, deps);
+        finishLink(ui, next('link'), linked);
+        // Up-to-date updates already print pathNotes in the Command-on-PATH row.
+        if (command === 'install') deps.hints.push(linked?.hint ?? null);
         if (recoveredLink) await saveRecord(deps.destination, current, deps);
       }
       // Up to date is not enough: the install must also work (a dry run and --check change nothing, so they check nothing).

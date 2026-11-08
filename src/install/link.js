@@ -370,6 +370,21 @@ export function linkPlan(record, deps) {
     { path: join(bin, config.command), content: shellShim(config.node, target) }];
 }
 
+async function targetsRecord(path, record, deps) {
+  const expected = linkPlan(record, { ...deps, bin: dirname(path) }).find((entry) => entry.path === path);
+  if (!expected) return false;
+  if (expected.content !== undefined) return await deps.fs.readFile(path, 'utf8').catch(() => null) === expected.content;
+  const actual = await deps.fs.realpath(path).catch(() => null);
+  const target = await deps.fs.realpath(expected.target).catch(() => resolve(expected.target));
+  return actual === target;
+}
+
+function runRecord(record, deps) {
+  const words = [deps.config.node, join(record.path, record.bin)];
+  return deps.platform === deps.config.windowsPlatform
+    ? `& ${words.map(powershellLiteral).join(' ')}` : words.map(quote).join(' ');
+}
+
 // What an earlier version wrote as the .ps1 shim of a record.
 const scriptContent = (record, config) => `& ${powershellLiteral(config.node)} ${powershellLiteral(join(record.path, record.bin))} @args\n`;
 
@@ -421,6 +436,7 @@ export async function applyLink(record, deps, previous = null, remove = false) {
     }
   }
   let conflict;
+  let relinked = false;
   for (const [index, item] of plan.entries()) {
     const info = await fs.lstat(item.path).catch((error) => { if (error.code === 'ENOENT') return null; throw error; });
     if (info) {
@@ -436,6 +452,7 @@ export async function applyLink(record, deps, previous = null, remove = false) {
         ui.warn(ui.text('foreignLink', { path: item.path })); conflict = item.path; continue;
       }
       if (!remove && actual === expected) continue;
+      if (!remove) relinked = true;
       await fs.unlink(item.path);
     }
     if (!remove) {
@@ -444,8 +461,20 @@ export async function applyLink(record, deps, previous = null, remove = false) {
       else await fs.writeFile(item.path, item.content, { flag: 'wx' });
     }
   }
-  if (conflict && !remove) return { how: 'conflict', where: conflict, command: config.command };
-  if (deps.pathSetup) return await managePath(deps, remove);
+  if (conflict && !remove) return { how: 'conflict', where: conflict, command: config.command,
+    run: runRecord(record, deps) };
+  if (deps.pathSetup) {
+    const linked = await managePath(deps, remove);
+    if (!remove && linked.resolved && !await targetsRecord(linked.resolved, record, deps)) {
+      if (await pluginExecutable(linked.resolved, deps)) {
+        const repaired = await applyLink(record, { ...deps, bin: dirname(linked.resolved), pathSetup: false }, previous)
+          .catch(() => ({ how: 'conflict' }));
+        if (repaired.how === 'conflict') return { ...linked, how: 'shadowed', run: runRecord(record, deps) };
+        relinked = true;
+      } else return { ...linked, how: 'shadowed', run: runRecord(record, deps) };
+    }
+    return relinked && linked.how === 'existing' ? { ...linked, how: 'relinked' } : linked;
+  }
   if (!remove && !binInPath(deps)) return { how: 'manual', where: bin, command: config.command, link: join(bin, config.command), hint: null };
   return { how: 'existing', where: bin, command: config.command, link: join(bin, config.command), hint: null };
 }

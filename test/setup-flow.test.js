@@ -13,6 +13,7 @@ import { tarGz } from '../src/release/archive.js';
 import { formatOffer } from '../src/setup/offer.js';
 import { createPresenter } from '../src/install/present.js';
 import { runSetup } from '../src/setup/setup.js';
+import { profileEfforts } from '../src/env/models.js';
 import { answerCheck } from './helpers/install-fixture.js';
 import { callTool } from './helpers/tools.js';
 
@@ -27,6 +28,13 @@ const PENDING_PT = /a escolha de modelos ainda não foi salva/; // locale:pt-BR
 const MODELS_PENDING = (line) => /^\s*Models\s+-\s+not set yet\. Run: /.test(line);
 const LINK_ROW = /\bCommand and PATH\b/;
 const LINK_ROW_PT = /\bComando e PATH\b/;
+
+test('D143 efforts are limited by the real adapters and profile schema', () => {
+  assert.deepEqual(profileEfforts('claude-code'), ['low', 'medium', 'high']);
+  assert.deepEqual(profileEfforts('codex'), ['low', 'medium', 'high']);
+  assert.deepEqual(profileEfforts('opencode'), ['high']);
+  assert.deepEqual(profileEfforts('unknown'), []);
+});
 
 async function temporaryHome(t) {
   const home = await mkdtemp(join(tmpdir(), 'okit-setup-flow-'));
@@ -249,7 +257,7 @@ for (const selected of ['claude-code', 'all']) test(`D132 install ${selected} re
   const questions = [];
   const f = await installation(t, { tty: true, ask: async (question) => {
     questions.push(question);
-    return /tasks \[/.test(question) ? '' : /Record quota|optional panel/.test(question) ? 'n' : 'yes';
+    return /tasks \[|^Effort/.test(question) ? '' : /Record quota|optional panel/.test(question) ? 'n' : 'yes';
   } });
   delete f.io.ui;
   f.io.read = f.io.ask;
@@ -278,7 +286,7 @@ test('D132 a multi-client filter keeps current defaults and prints the fallback 
     listModels: async () => ({ client, installed: true, models: ['haiku', 'sonnet', 'opus'], source: 'catalog' }) }));
   const result = await runSetup({ root, env: { HOME: home }, clients: ['claude-code', 'codex'], locale: 'en',
     adapters, run: answerCheck, out: (line) => lines.push(line),
-    ask: async (question) => { questions.push(question); return /tasks \[/.test(question) ? '' : 'yes'; } });
+    ask: async (question) => { questions.push(question); return /tasks \[|^Effort/.test(question) ? '' : 'yes'; } });
   assert.equal(result.changes.length, 6);
   assert.equal(questions[0], 'Small tasks [3]:');
   assert.equal(lines.filter((line) => /built-in list/.test(line)).length, 1);
@@ -291,11 +299,43 @@ test('D132 a single option is explained per class in the table without model que
   const { home, root } = await temporaryHome(t), lines = [], questions = [];
   const result = await runSetup({ root, env: { HOME: home }, clients: ['claude-code'], locale: 'en',
     adapters: [fakeClient('claude-code', ['one/model'])], run: answerCheck, out: (line) => lines.push(line),
-    ask: async (question) => { questions.push(question); return 'yes'; } });
+    ask: async (question) => { questions.push(question); return /^Effort/.test(question) ? '' : 'yes'; } });
   assert.equal(result.changes.length, 3);
-  assert.equal(questions.length, 1);
-  assert.match(questions[0], /Save these choices/);
+  assert.equal(questions.length, 4);
+  assert.match(questions[3], /Save these choices/);
   assert.equal(lines.filter((line) => /one\/model \(only option\)/.test(line)).length, 3);
+});
+
+// | input | must pass | must refuse |
+// | empty effort / valid effort | keep current / save with model | unsupported values |
+// | cancel at effort | leave configuration untouched | partial save |
+for (const again of [false, true]) test(`D143 shared wizard saves per-class effort, again=${again}`, async (t) => {
+  const { home, root } = await temporaryHome(t), questions = [];
+  const answers = ['1', 'invalid', 'high', '2', '', '3', 'low', 'yes'];
+  const result = await runSetup({ root, env: { HOME: home }, clients: again ? undefined : ['claude-code'], again,
+    locale: 'en', adapters: [fakeClient('claude-code', ['haiku', 'sonnet', 'opus'])], run: answerCheck,
+    out: () => {}, ask: async (question, recommended) => {
+      // The presenter puts the default in the question; a second one would be printed twice by the terminal.
+      assert.equal(recommended, undefined, question);
+      questions.push(question); return answers.shift();
+    } });
+  assert.equal(result.changes.length, 3);
+  const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8'));
+  assert.deepEqual(Object.values(saved.profiles['claude-code']).map(({ effort }) => effort), ['high', 'medium', 'low']);
+  assert.equal(saved.setup.done.profiles['claude-code'].simple.effort, 'high');
+  assert.equal(questions[1], 'Effort (simple: low, medium, high) [low]:');
+  assert.equal(questions[1], questions[2]);
+});
+
+test('D143 cancelling at an effort question writes nothing', async (t) => {
+  const { home, root } = await temporaryHome(t);
+  const answers = ['1', undefined];
+  const result = await runSetup({ root, env: { HOME: home }, clients: ['claude-code'], locale: 'en',
+    adapters: [fakeClient('claude-code', ['haiku', 'sonnet', 'opus'])], run: answerCheck,
+    ask: async () => answers.shift() });
+  assert.equal(result.cancelled, true);
+  assert.deepEqual(result.changes, []);
+  await assert.rejects(readFile(join(root, 'config.json')), { code: 'ENOENT' });
 });
 
 test('the install setup reader treats EOF as cancellation without changing the configuration', { timeout: 2000 }, async (t) => {
