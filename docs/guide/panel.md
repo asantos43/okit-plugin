@@ -2,7 +2,7 @@
 
 ![okit-plugin: User guide](../images/banners/guide.svg)
 
-An optional, read-only panel for Claude Code only shows accounts by alias, never emails or credentials.
+An optional, read-only pane beside the Claude Code chat shows each account's remaining quota, work in progress and recent work. Accounts appear by alias, never emails or credentials. The installation offer describes these features and asks whether to install; opening and toggle instructions appear only after installation succeeds.
 
 <a id="install"></a>
 ## Install

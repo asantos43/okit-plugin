@@ -119,6 +119,10 @@ export async function installerCommand(command, args, ctx, io = {}) {
       read: io.read ?? readTerminal, dryRun: Boolean(flags['dry-run']),
       writeJsonAtomic: io.fs ? undefined : writeJsonAtomic };
     deps.accountsConfig = user;
+    if (ui.readAnswer) {
+      const read = deps.read;
+      deps.read = (...values) => ui.readAnswer(read, ...values);
+    }
     deps.pathSetup = true;
     deps.noPath = Boolean(flags['no-path']);
     deps.bin = await chooseLinkDirectory(deps);
@@ -160,7 +164,8 @@ export async function installerCommand(command, args, ctx, io = {}) {
     // The setup was not done yet: offer it. A setup that cannot run is
     // reported and never fails the installation.
     if (!flags.panel && (command === 'install' || command === 'update') && !deps.dryRun && !flags.check && succeeded) {
-      const reader = { ask: io.ask ?? readTerminal, close: () => {} };
+      const ask = io.ask ?? readTerminal;
+      const reader = { ask: (...values) => ui.readAnswer ? ui.readAnswer(ask, ...values) : ask(...values), close: () => {} };
       try {
         let observation;
         try {
@@ -173,6 +178,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
           ui.warn(formatNotSaved(ui.locale, ctx.root, commandText(ui, deps.config.command, [], { later: true })));
         }
         await offerSetup({
+          operation: command,
           clients,
           root: ctx.root,
           command: deps.config.command,
@@ -360,6 +366,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
       throw new UsageError(ui.text('accountsOtherVersion', { version: current.version, command: deps.config.command }));
     }
     if (current?.version === selected.version && current.client === client && whole) {
+      ui.installed?.(current);
       // The same steps in a dry run as in the run itself: the command link is planned, not skipped.
       const link = !flags.check && Boolean(current.link);
       const next = ui.sequence(planSteps({ upToDate: true, quota, link, register: Boolean(named) && !flags.check }), { client: label });
@@ -446,6 +453,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
         prerelease: Boolean(flags.prerelease), settings: deps.config,
         // A first install for an extra account leaves the default account unregistered.
         ...(target && !target.isDefault && !current ? { defaultRegistered: false } : {}) }, deps);
+      ui.installed?.(record);
       next('files').ok(record.path);
       const action = refreshing ? 'update' : 'install';
       const done = await activate(record, current, deps, action, deps.stage,

@@ -504,11 +504,11 @@ async function askModel({ ask, locale, client, className, proposal, candidates, 
   return { invalid: true };
 }
 
-async function confirmSetup({ ask, locale, attempts, changes, ui, out, command }) {
+async function confirmSetup({ ask, locale, attempts, changes, ui, out, command, defaultYes = false }) {
   // With a presenter the reason is said once, the choices are listed, and the question comes last.
-  let question = ui ? ui.question(ui.text('modelsSave')) : formatConfirmation(locale, changes);
+  let question = ui ? ui.question(ui.text('modelsSave'), defaultYes) : formatConfirmation(locale, changes);
   if (out) {
-    question = presentModelChoices({ locale, changes, command, out });
+    question = presentModelChoices({ locale, changes, command, out, defaultYes });
   }
   if (ui && !out) {
     const reasons = [...new Set(changes.map((change) => reasonParts(change.reason)[ui.locale] || reasonParts(change.reason).en).filter(Boolean))];
@@ -518,7 +518,8 @@ async function confirmSetup({ ask, locale, attempts, changes, ui, out, command }
     const answer = await askValue(ask, question, undefined);
     if (answer === undefined || answer === null) return { cancelled: true };
     const clean = String(answer).trim();
-    if (clean === '' || negative(clean)) return { cancelled: true };
+    if (clean === '') return defaultYes ? { confirmed: true } : { cancelled: true };
+    if (negative(clean)) return { cancelled: true };
     if (affirmative(clean)) return { confirmed: true };
     if (out) out(format('invalidConfirmation', locale));
     else if (ui) ui.explain([format('invalidConfirmation', locale)]);
@@ -578,6 +579,11 @@ export async function initializeDetectedConfig({ clients, root, env, run, adapte
   assertReadableConfig(stored, 'both', command);
   const observation = await environmentSnapshot({ root, config: stored, env, run, adapters,
     readQuota, snapshot, plugin: {}, versions: {} });
+  // Reinstalling confirmed profiles is a review, not a configuration write.
+  if (wasDone(stored) && clients?.every((client) => Object.keys(PROFILE_EFFORTS).every((name) => {
+    const saved = stored.setup?.done?.profiles?.[client]?.[name], current = observation.config.profiles[client]?.[name];
+    return saved && saved.model === current?.model && saved.effort === current?.effort;
+  }))) return { written: false, observation };
   const detected = { profiles: {}, limits: { clients: {} } };
   const selected = observation.clients.filter((row) => !clients || clients.includes(row.client));
   for (const row of selected) {
@@ -623,6 +629,7 @@ export async function runSetup({
   run,
   ask,
   defaults = false,
+  saveDefaultYes = false,
   adapters,
   snapshot,
   write = writeJsonAtomic,
@@ -806,8 +813,12 @@ export async function runSetup({
     return { code: 0, cancelled: false, changes, skipped, omitted, messages, guidance };
   }
 
+  if (!changes.length) {
+    return { code: 0, cancelled: false, changes, skipped, omitted, guidance,
+      messages: messages.length ? messages : [format('noActiveModel', locale)] };
+  }
   if (!defaults) {
-    const confirmation = await confirmSetup({ ask, locale, attempts, changes, ui, out, command });
+    const confirmation = await confirmSetup({ ask, locale, attempts, changes, ui, out, command, defaultYes: saveDefaultYes });
     if (confirmation.cancelled) {
       return { code: 0, cancelled: true, changes: [], skipped, omitted, messages: [format('cancelled', locale)] };
     }

@@ -10,6 +10,9 @@ import { createPresenter, createInstallerView, finishLink, headerValues, pick, r
 import { EXCLUSIVE_FLAGS, ALLOWED_FLAGS } from '../src/install/index.js';
 import { presentDiagnosis } from '../src/doctor/command.js';
 import { formatNotSaved, formatUnreadable, runSetup, setupResultLines } from '../src/setup/setup.js';
+import { formatOffer, offerSetup } from '../src/setup/offer.js';
+import { DEFAULT_CONFIG } from '../src/profiles.js';
+import * as moduleAdapter from '../adapters/opencode/index.js';
 
 // Must pass / must refuse:
 // | case | must pass | must refuse |
@@ -46,10 +49,10 @@ for (const locale of LOCALES) for (const operation of ['install', 'update']) {
     const action = operation === 'update' ? (pt ? 'atualização para' : 'update for') : (pt ? 'instalação para' : 'install for'); // locale:pt-BR
     assert.equal(output[0], `okit-plugin 2.0.0 — ${action} Claude Code`);
     if (operation === 'update') assert.doesNotMatch(output[0], /— install for|— instalação para/);
-    const start = output.indexOf(pt ? '\nNotas' : '\nNotes'); // locale:pt-BR
-    const end = output.indexOf(pt ? '\nPróximo' : '\nNext'); // locale:pt-BR
+    const start = output.findIndex((line) => line.trim() === (pt ? 'Notas' : 'Notes')); // locale:pt-BR
+    const end = output.findIndex((line) => line.trim() === (pt ? 'Próximo' : 'Next')); // locale:pt-BR
     assert.ok(start >= 0 && end > start, output.join('\n'));
-    const notes = output.slice(start + 1, end);
+    const notes = output.slice(start + 1, end).filter(Boolean);
     assert.ok(notes.every((line) => /^ {2}\S/.test(line)), notes.join('\n'));
     assert.ok(notes.includes('  First note') && notes.includes('  Continued note'));
     assert.ok(notes.some((line) => line.includes(operation === 'update' ? 'update --rollback' : 'doctor --client claude-code')));
@@ -97,6 +100,7 @@ for (const locale of LOCALES) test(`client matrix has no owner after a partial i
 for (const locale of LOCALES) test(`client scope ends before shared PATH notes: ${locale}`, () => {
   const output = [];
   const { ui, finish } = createInstallerView({ operation: 'install', command: 'okit-plugin', locale, write: (line) => output.push(line) });
+  ui.beginClients(['claude-code', 'opencode']);
   ui.header({ client: 'Claude Code', version: '1' });
   ui.sequence(['register'], { client: 'Claude Code' })('register').plan();
   ui.row(ui.text('selfcheckPath'), 'info', 'client-path');
@@ -111,8 +115,8 @@ for (const locale of LOCALES) test(`client scope ends before shared PATH notes: 
   assert.match(text, new RegExp(`^1\\. Claude Code — ${connect} Claude Code: ${planned}$`, 'm'));
   assert.match(text, new RegExp(`^2\\. OpenCode — ${connect} OpenCode: ${planned}$`, 'm'));
   assert.doesNotMatch(text, /Opencode|:\s*$/m);
-  assert.ok(output.some((line) => line.startsWith('Claude Code — ') && line.endsWith(' client-path')), text);
-  assert.ok(output.some((line) => line.startsWith('OpenCode — ') && line.endsWith(' other-client-path')), text);
+  assert.ok(output.some((line) => line.trimStart().startsWith('Claude Code — ') && line.endsWith(' client-path')), text);
+  assert.ok(output.some((line) => line.trimStart().startsWith('OpenCode — ') && line.endsWith(' other-client-path')), text);
   assert.ok(output.some((line) => /^\s/.test(line) && line.endsWith(' shared-path')), text);
   assert.doesNotMatch(text, /^(Claude Code|OpenCode) — .* shared-path$/m);
 });
@@ -166,8 +170,8 @@ for (const locale of LOCALES) test(`D112 installer absent-client, download, curr
     ? ['okit-plugin — Desinstalação', 'Integração do Codex removida. O comando foi mantido para Claude Code.', 'Verifique a instalação restante: okit-plugin doctor --client claude-code']
     : ['okit-plugin — Uninstall', 'Removed Codex integration. The command is kept for Claude Code.', 'Check the remaining installation: okit-plugin doctor --client claude-code']);
   assert.deepEqual(render('install', header, { code: 0, client: 'codex', dryRun: true }), pt
-    ? ['okit-plugin — Instalação', 'Somente prévia. Nada mudou.', 'Para aplicar: okit-plugin install --client codex']
-    : ['okit-plugin — Install', 'Preview only. Nothing changed.', 'Apply: okit-plugin install --client codex']);
+    ? ['okit-plugin — Instalação', '', 'Somente prévia. Nada mudou.', 'Para aplicar: okit-plugin install --client codex']
+    : ['okit-plugin — Install', '', 'Preview only. Nothing changed.', 'Apply: okit-plugin install --client codex']);
   const menu = render('install', (ui) => {
     ui.explain([ui.text('clientChoose'), ...['claude-code', 'codex', 'opencode'].map((id, index) => `  ${index + 1}. ${id} (${ui.text('clientDetected')})`)]);
     ui.failure({ reason: ui.text('clientNoTty') });
@@ -298,6 +302,11 @@ test('a foreign .cmd fails install with an actionable link error in either langu
 });
 
 /** The install of Claude Code as the installer prints it. */
+function currentLines(locale) {
+  return locale === 'en' ? ['', 'Suggested models — Claude Code', 'Small tasks: haiku', 'Everyday tasks: sonnet', 'Complex tasks: opus', '', 'Confirm the suggestions: okit-plugin setup', '']
+    : ['', 'Modelos sugeridos — Claude Code', 'Tarefas pequenas: haiku', 'Tarefas do dia a dia: sonnet', 'Tarefas complexas: opus', '', 'Confirme as sugestões: okit-plugin setup', ''];
+}
+
 function legacyInstallLines(locale, platform) {
   const windows = platform === 'win32';
   // the checks that ran: version, the command in each shell found, the written status bar and its reading, the hook (not on Windows), the MCP server and its control API
@@ -317,6 +326,7 @@ function legacyInstallLines(locale, platform) {
       `  Self-check (Claude Code)  ok  ${checks} checks passed`,
       ...(windows ? ['  Command (git-bash)  skipped  git-bash is not installed'] : []),
       '  Optional panel  skipped  Turn on later: okit-plugin install --panel',
+      ...currentLines(locale),
       '  Models  -  not set yet. Run: okit-plugin setup',
       '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit',
       windows ? `Done. Next: 1. open a new terminal  2. in this terminal instead: ${HINT('<bin>')}  3. restart Claude Code  4. ask your assistant to call \`status\``
@@ -335,6 +345,7 @@ function legacyInstallLines(locale, platform) {
     `  Autoverificação (Claude Code)  ok  ${checks} verificações passaram`,
     ...(windows ? ['  Comando (git-bash)  pulado  git-bash não está instalado'] : []),
     '  Painel opcional  pulado  Ative depois: okit-plugin install --panel',
+    ...currentLines(locale),
     '  Modelos  -  ainda não definidos. Rode: okit-plugin setup',
     '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração',
     windows ? `Pronto. Próximo: 1. abra um terminal novo  2. neste terminal, rode antes: ${HINT('<bin>')}  3. reinicie o Claude Code  4. peça ao seu assistente para chamar \`status\``
@@ -364,6 +375,7 @@ function legacyUpdateLines(locale, platform) {
       '[7/7] Check the install  ok',
       `  Self-check (Claude Code)  ok  ${checks} checks passed`,
       ...(windows ? ['  Command (git-bash)  skipped  git-bash is not installed'] : []),
+      ...currentLines(locale),
       '  Models  -  not set yet. Run: okit-plugin setup',
       '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit',
       new RegExp(`^Done\\. Next: 1\\. open a new terminal {2}${windows ? `2\\. in this terminal instead: ${escape(HINT('<bin>'))} {2}3\\. restart Claude Code {2}4` : '2\\. restart Claude Code {2}3'}\\. ask your assistant to call \`status\`$`),
@@ -382,6 +394,7 @@ function legacyUpdateLines(locale, platform) {
     '[7/7] Verificar a instalação  ok',
     `  Autoverificação (Claude Code)  ok  ${checks} verificações passaram`,
     ...(windows ? ['  Comando (git-bash)  pulado  git-bash não está instalado'] : []),
+    ...currentLines(locale),
     '  Modelos  -  ainda não definidos. Rode: okit-plugin setup',
     '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração',
     new RegExp(`^Pronto\\. Próximo: 1\\. abra um terminal novo {2}${windows ? `2\\. neste terminal, rode antes: ${escape(HINT('<bin>'))} {2}3\\. reinicie o Claude Code {2}4` : '2\\. reinicie o Claude Code {2}3'}\\. peça ao seu assistente para chamar \`status\`$`),
@@ -411,26 +424,27 @@ function legacyUninstallLines(locale, platform) {
 function installLines(locale, platform) {
   const path = platform === 'win32' ? (locale === 'en' ? 'added to your user PATH' : 'adicionado ao PATH do seu usuário')
     : (locale === 'en' ? 'already on your PATH' : 'já está no seu PATH');
-  return locale === 'en' ? ['okit-plugin 1.0.0 — install for Claude Code',
-    'Installed for Claude Code. Model choices still need confirmation.',
-    '1. Download and verify: complete', '2. Install files: complete', '3. Connect Claude Code: complete',
+  return locale === 'en' ? ['okit-plugin 1.0.0 — install for Claude Code', '',
+    '1. Download and verify: complete', '  SHA-256 detects altered bytes; it does not authenticate the source.', '',
+    '2. Install files: complete', '', '3. Connect Claude Code: complete', '  MCP server registered in Claude Code', '',
     `4. Command and PATH: complete — okit-plugin  (${path})`,
-    '5. Quota recording: off. To turn it on: okit-plugin install --client claude-code --statusline']
-    : ['okit-plugin 1.0.0 — instalação para Claude Code', 'Instalado para Claude Code. Falta confirmar os modelos.',
-      '1. Baixar e verificar: concluído', '2. Instalar arquivos: concluído', '3. Conectar Claude Code: concluído',
+    '', '5. Quota recording: off. To turn it on: okit-plugin install --client claude-code --statusline', '']
+    : ['okit-plugin 1.0.0 — instalação para Claude Code', '',
+      '1. Baixar e verificar: concluído', '  O SHA-256 detecta bytes alterados; não autentica a origem.', '',
+      '2. Instalar arquivos: concluído', '', '3. Conectar Claude Code: concluído', '  Servidor MCP registrado no Claude Code', '',
       `4. Comando e PATH: concluído — okit-plugin  (${path})`,
-      '5. Registro de cota: desligado. Para ligar: okit-plugin install --client claude-code --statusline'];
+      '', '5. Registro de cota: desligado. Para ligar: okit-plugin install --client claude-code --statusline', ''];
 }
 
 function updateLines(locale, platform) {
   const path = platform === 'win32' ? (locale === 'en' ? 'added to your user PATH' : 'adicionado ao PATH do seu usuário')
     : (locale === 'en' ? 'already on your PATH' : 'já está no seu PATH');
-  return locale === 'en' ? ['okit-plugin 2.0.0 — update for Claude Code', 'Updated Claude Code from 1.0.0 to 2.0.0.',
+  return locale === 'en' ? ['okit-plugin 2.0.0 — update for Claude Code', ...currentLines(locale), 'Updated Claude Code from 1.0.0 to 2.0.0.',
     '1. Download and verify: complete', '2. Back up your files: complete — <data>/backups/1700000000000',
     '3. Install files: complete', '4. Connect Claude Code: complete',
     `5. Command and PATH: complete — okit-plugin  (${path})`,
     '6. Quota recording: off. To turn it on: okit-plugin install --client claude-code --statusline', '7. Check the install: complete']
-    : ['okit-plugin 2.0.0 — atualização para Claude Code', 'Claude Code atualizado de 1.0.0 para 2.0.0.',
+    : ['okit-plugin 2.0.0 — atualização para Claude Code', ...currentLines(locale), 'Claude Code atualizado de 1.0.0 para 2.0.0.',
       '1. Baixar e verificar: concluído', '2. Copiar seus arquivos: concluído — <data>/backups/1700000000000',
       '3. Instalar arquivos: concluído', '4. Conectar Claude Code: concluído',
       `5. Comando e PATH: concluído — okit-plugin  (${path})`,
@@ -448,6 +462,19 @@ function uninstallLines(locale, program) {
 
 function retainedEvidence(locale, platform, update = false) {
   const pt = locale === 'pt-BR', windows = platform === 'win32', checks = windows ? 7 : 9;
+  if (!update) return [
+    pt ? `  Autoverificação (Claude Code)  ok  ${checks} verificações passaram` : `  Self-check (Claude Code)  ok  ${checks} checks passed`, '',
+    ...(windows ? [pt ? '  Comando (git-bash)  pulado  git-bash não está instalado' : '  Command (git-bash)  skipped  git-bash is not installed', ''] : []),
+    pt ? '  Painel opcional  pulado  Ative depois: okit-plugin install --panel' : '  Optional panel  skipped  Turn on later: okit-plugin install --panel', '',
+    ...currentLines(locale).slice(1),
+    pt ? '  Modelos  -  ainda não definidos. Rode: okit-plugin setup' : '  Models  -  not set yet. Run: okit-plugin setup', '',
+    pt ? '  Kit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração: INSTALL.pt-BR.md#kit-de-orquestração'
+      : '  Kit (optional)  -  not found. Needed only for the orchestration workflow: INSTALL.md#orchestration-kit', '',
+    pt ? 'Instalado para Claude Code. Falta confirmar os modelos.' : 'Installed for Claude Code. Model choices still need confirmation.', '',
+    pt ? 'Notas' : 'Notes', pt ? '  Verifique a instalação: okit-plugin doctor --client claude-code' : '  Check the installation: okit-plugin doctor --client claude-code', '',
+    pt ? 'Próximo' : 'Next', ...(windows ? [pt ? 'Execute agora:' : 'Run this now:', HINT('<bin>'), pt ? 'ou abra um terminal novo' : 'or open a new terminal']
+      : [pt ? 'Abra um terminal novo.' : 'Open a new terminal.']),
+  ];
   return pt ? [`  Autoverificação (Claude Code)  ok  ${checks} verificações passaram`,
     ...(windows ? ['  Comando (git-bash)  pulado  git-bash não está instalado'] : []),
     ...(!update ? ['  Painel opcional  pulado  Ative depois: okit-plugin install --panel'] : []),
@@ -575,7 +602,7 @@ test('the line structure is the same on every system', async (t) => {
     assert.equal(await main(['install', '--client', 'claude-code'], f.io), 0, f.output.join('\n'));
     // Steps and rows: the label and the status; notes and the closing line: their kind.
     // A shell that is not on the machine is a skipped row of its own; which shells exist is the machine's, not the layout's.
-    shapes.push(f.lines().filter((line) => !/^  Command \(|^Run this now:|^\$env:Path|^(?:or open|Open) a new terminal/.test(line)).map((line) => (/^(\[\d\/\d\] |  )[^ ]/.test(line) ? line.split('  ').slice(0, 2).join('|') : line.slice(0, 5))).map((line, index) => (index === 0 ? 'header' : line)));
+    shapes.push(f.lines().filter((line) => line && !/^  Command \(|^Run this now:|^\$env:Path|^(?:or open|Open) a new terminal/.test(line)).map((line) => (/^(\[\d\/\d\] |  )[^ ]/.test(line) ? line.split('  ').slice(0, 2).join('|') : line.slice(0, 5))).map((line, index) => (index === 0 ? 'header' : line)));
   }
   // Platform-specific activation commands and unavailable shells were checked separately.
   assert.deepEqual(shapes[1], shapes[0]);
@@ -594,7 +621,7 @@ test('nothing is printed twice: the SHA-256 note, Release, Asset and Destination
         assert.equal(await main([...argv, '--locale', locale], f.io), 0, f.output.join('\n'));
         const lines = f.lines();
         const context = `${argv[0]} ${locale} ${platform}\n${lines.join('\n')}`;
-        assert.equal(new Set(lines).size, lines.length, `a line repeats in ${context}`);
+        assert.equal(new Set(lines.filter(Boolean)).size, lines.filter(Boolean).length, `a line repeats in ${context}`);
         const text = lines.join('\n');
         assert.ok((text.match(/does not authenticate|não autentica/g)?.length ?? 0) <= 1, `the SHA-256 note never repeats in ${context}`);
         assert.doesNotMatch(text, /Release:|Asset:|Destination:|Versão:|Arquivo:|Destino:/, context);
@@ -723,13 +750,302 @@ test('y and s both mean yes, in either language; an empty answer is the default'
 for (const locale of LOCALES) test(`D135 every confirm explanation line has space around it: ${locale}`, async () => {
   const lines = [];
   const { ui } = createInstallerView({ operation: 'install', command: 'okit-plugin', locale, write: (line) => lines.push(line) });
-  const explain = [ui.text('panelExplain'), ui.text('panelExplain2'), 'panel.autoOpen /okit-panel'];
+  const explain = [ui.text('panelExplain')];
   await ui.confirm(async (question) => { lines.push(question); return ''; }, { explain, question: ui.text('panelAsk') });
-  assert.deepEqual(lines.slice(-6), ['', ...explain, '', ui.question(ui.text('panelAsk'))]);
+  assert.deepEqual(lines.slice(-4), ['', ...explain, '', ui.question(ui.text('panelAsk'))]);
   await ui.confirm(async (question) => { lines.push(question); return ''; }, {
     explain: [ui.text('modelsExplain')], question: ui.text('modelsAsk'), defaultYes: true,
   });
   assert.deepEqual(lines.slice(-4), ['', ui.text('modelsExplain'), '', ui.question(ui.text('modelsAsk'), true)]);
+});
+
+// D140 must pass / must refuse:
+// | confirmed | current choices, default-No review, Models ok when kept | pending warning |
+// | pending, any selected client | review question | silent return |
+// | empty listing | explanation and later command | empty table or save question |
+// | every mode and language | one blank between blocks | leading/trailing/double blanks |
+for (const locale of LOCALES) for (const mode of ['clean', 'confirmed', 'no-tty', 'empty', 'declined', 'dry-run', 'yes', 'no-panel']) {
+  test(`D140 installer blocks and model truth: ${locale} ${mode}`, async (t) => {
+    const pt = locale === 'pt-BR', questions = [];
+    const f = await fixture(t, 'linux', { tty: mode !== 'no-tty' });
+    f.io.setupAdapters = [{ CLIENT: 'claude-code', listModels: async () => ({
+      client: 'claude-code', installed: true, models: mode === 'empty' ? [] : ['sonnet'], source: 'listing',
+    }) }];
+    const answer = async (question) => {
+      questions.push(question); f.output.push(question.trimEnd());
+      if (/optional panel|painel opcional|Review or change|Revisar ou alterar/.test(question) || mode === 'declined') return 'n';
+      return /Save these choices|Salvar estas escolhas|\[\d+\]/.test(question) ? '' : 'y';
+    };
+    f.io.ask = answer; f.io.read = answer;
+    if (mode === 'confirmed') {
+      const file = join(f.root, 'config.json'), config = JSON.parse(await fs.readFile(file, 'utf8'));
+      config.profiles = { 'claude-code': Object.fromEntries(['simple', 'normal', 'hard'].map((name) => [name, { model: 'sonnet', effort: 'high' }])) };
+      config.setup = { done: { profiles: config.profiles } };
+      await fs.writeFile(file, JSON.stringify(config));
+    }
+    const flags = ['dry-run', 'yes', 'no-panel'].includes(mode) ? [`--${mode}`] : [];
+    assert.equal(await main(['install', '--client', 'claude-code', '--locale', locale, ...flags], f.io), 0);
+    const lines = f.lines(), output = lines.join('\n');
+    assert.doesNotMatch(output, /^\n|\n$|\n\n\n/);
+    const stepLine = /^\d+\. (Download|Baixar|Install files|Instalar arquivos|Connect|Conectar|Command|Comando|Quota|Registro)/;
+    const summaryLine = /^(Installed|Instalado|Preview only|Somente prévia)/;
+    const heads = lines.filter((line) => stepLine.test(line) || /^  (Models|Modelos|Kit)/.test(line) || summaryLine.test(line));
+    assert.deepEqual(heads.map((line) => /^\d+/.exec(line)?.[0] ?? (/Kit/.test(line) ? 'kit' : /Models|Modelos/.test(line) ? 'models' : 'summary')),
+      ['1', '2', '3', '4', '5', ...(mode === 'dry-run' ? [] : ['models']), 'kit', 'summary']);
+    for (let i = 1; i < lines.length; i++) {
+      if (stepLine.test(lines[i]) || /^  (Models|Modelos|Kit|Optional panel|Painel opcional)/.test(lines[i]) || summaryLine.test(lines[i])) assert.equal(lines[i - 1], '', output);
+      if (/\? \[[^\]]+\]/.test(lines[i])) assert.equal(lines[i + 1], '', output);
+    }
+    const stored = JSON.parse(await fs.readFile(join(f.root, 'config.json'), 'utf8'));
+    const pending = ['simple', 'normal', 'hard'].some((name) => !stored.setup?.done?.profiles?.['claude-code']?.[name]);
+    if (mode !== 'dry-run') assert.equal(/still need confirmation|Falta confirmar/.test(output), pending, output);
+    assert.equal(questions.some((q) => /models now|modelos agora/.test(q)), !['confirmed', 'no-tty', 'dry-run'].includes(mode));
+    if (mode === 'confirmed') assert.match(output, pt ? /Modelos\s+ok\s+mantidos/ : /Models\s+ok\s+kept/);
+    if (mode === 'empty') {
+      assert.match(output, pt ? /\| Tarefas pequenas \| haiku/ : /\| Small tasks \| haiku/);
+      assert.match(output, pt ? /Modelos\s+ok/ : /Models\s+ok/);
+    }
+  });
+}
+
+// Round 2 must pass / must refuse:
+// | failure reason, with/without final period | one period before the next sentence | doubled period |
+// | no choices (listing/catalog/disabled profiles) | Models result + pending summary | any model question |
+// | candidates available | normal setup question | silently skipping |
+// | reinstall status | initial Up to date block separated from numbered steps | moving or joining it |
+for (const locale of ['en', 'pt-BR', 'both']) {
+  test(`D140 round 2 failure reason punctuation ${locale}`, () => {
+    const reason = locale === 'pt-BR' ? 'Nenhuma resposta válida foi escolhida. Nada foi salvo' : 'No valid answer was chosen. Nothing was saved';
+    for (const trailing of ['', '.']) {
+      const output = formatOffer('failed', locale, { command: 'okit-plugin', reason: reason + trailing });
+      assert.doesNotMatch(output, /\.\./);
+      assert.ok(output.includes(`${reason}. ${locale === 'pt-BR' ? 'Rode' : 'Run'} okit-plugin setup`), output);
+      assert.equal(output, formatOffer('failed', locale, { command: 'okit-plugin', reason }));
+    }
+  });
+}
+
+for (const client of ['claude-code', 'codex', 'opencode']) for (const locale of LOCALES) {
+  for (const mode of ['absent', 'empty', 'disabled', 'available']) test(`D140 round 2 model question needs choices ${client} ${locale} ${mode}`, async (t) => {
+    const f = await fixture(t), questions = [], models = [...new Set(Object.values(DEFAULT_CONFIG.profiles[client]).map((profile) => profile.model))];
+    f.io.loadAdapter = async () => moduleAdapter;
+    f.io.tty = true;
+    f.io.ask = async (question) => {
+      questions.push(question);
+      f.output.push(question.trimEnd());
+      return 'n';
+    };
+    f.io.read = f.io.ask;
+    f.io.setupAdapters = [{ CLIENT: client, listModels: async () => ({ client, installed: mode !== 'absent',
+      source: client === 'claude-code' && ['absent', 'empty'].includes(mode) ? 'catalog' : 'listing',
+      models: ['absent', 'empty'].includes(mode) ? [] : models, hidden: mode === 'empty' ? models : [],
+    }) }];
+    if (mode === 'disabled') {
+      const file = join(f.root, 'config.json'), config = JSON.parse(await fs.readFile(file, 'utf8'));
+      config.profiles = { [client]: { simple: null, normal: null, hard: null } };
+      await fs.writeFile(file, JSON.stringify(config));
+    }
+    assert.equal(await main(['install', '--client', client, '--locale', locale, '--no-panel', '--no-statusline'], f.io), 0);
+    const output = f.lines().join('\n');
+    assert.equal(questions.length, mode === 'available' ? 1 : 0, output);
+    if (mode !== 'available') assert.match(output, locale === 'en' ? /Models\s+-\s+No models are available to choose\. Enable a model in your client, then run: okit-plugin setup/ : /Modelos\s+-\s+Nenhum modelo disponível para escolher\. Ative um modelo no cliente e rode: okit-plugin setup/);
+    else {
+      assert.match(questions[0], /models now|modelos agora/);
+      const lines = f.lines(), question = lines.indexOf(questions[0].trimEnd());
+      assert.ok(question >= 0, output);
+      assert.equal(lines[question + 1], '', output);
+      assert.match(lines[question + 2], /^\s*(?:Models\s+skipped|Modelos\s+pulado)\s+/, output);
+    }
+    assert.match(output, /Model choices still need confirmation|Falta confirmar os modelos/);
+    assert.doesNotMatch(output, /\| Work \| Model \||\| Trabalho \| Modelo \||Save these choices|Salvar estas escolhas|\n\n\n/);
+  });
+}
+
+for (const client of ['claude-code', 'codex', 'opencode']) for (const locale of LOCALES) {
+  test(`D140 round 2 reinstall starts with separated status ${client} ${locale}`, async (t) => {
+    const f = await fixture(t);
+    f.io.loadAdapter = async () => moduleAdapter;
+    const args = ['install', '--client', client, '--locale', locale, '--no-panel', '--no-statusline'];
+    assert.equal(await main(args, f.io), 0);
+    f.clear();
+    assert.equal(await main(args, f.io), 0);
+    const lines = f.lines(), upToDate = lines.findIndex((line) => /(?:Up to date|Em dia)\s+ok\s+1\.0\.0/.test(line));
+    const firstStep = lines.findIndex((line) => /^1\. /.test(line));
+    assert.equal(upToDate, 1, 'Up to date is the first status line after the heading');
+    assert.equal(firstStep, upToDate + 2, lines.join('\n'));
+    assert.equal(lines[firstStep - 1], '');
+    assert.doesNotMatch(lines.join('\n'), /^\n|\n$|\n\n\n/);
+  });
+}
+
+// Round 1 must pass / must refuse:
+// | confirmed N, or cancelled review | byte-identical config, kept + true summary | a write or pending warning |
+// | first install / unavailable listing | nonempty proposals, default-Yes save | empty table |
+// | no TTY | suggested choices + setup, or confirmed choices + setup --again | any question |
+// | update, unchanged proposals | one ok row | review question |
+// | update, different proposals | default-No review | silently skipping |
+test('D140 round 1 disabled profiles never reach an empty save table', async (t) => {
+  const f = await fixture(t), output = [], questions = [];
+  const result = await runSetup({ root: f.root, clients: ['claude-code'], locale: 'en',
+    config: { profiles: { 'claude-code': { simple: null, normal: null, hard: null } } },
+    adapters: [{ CLIENT: 'claude-code', listModels: async () => ({ client: 'claude-code', installed: true, models: ['sonnet'], source: 'listing' }) }],
+    out: (line) => output.push(line), ask: async (question) => { questions.push(question); return 'y'; } });
+  assert.deepEqual(result.changes, []);
+  assert.deepEqual(questions, []);
+  assert.doesNotMatch(output.join('\n'), /\| Work \| Model \||Save these choices/);
+});
+
+for (const client of ['claude-code', 'codex', 'opencode']) for (const locale of LOCALES) {
+  for (const mode of ['keep', 'review-cancel', 'first', 'unconfirmed-edit', 'no-tty', 'no-tty-pending', 'update-quiet', 'update-change', 'update-first', 'fallback', 'confirmed-fallback']) {
+    test(`D140 round 1 ${client} ${locale} ${mode}`, async (t) => {
+      const f = await fixture(t), pt = locale === 'pt-BR', questions = [];
+      f.io.loadAdapter = async () => moduleAdapter;
+      const defaults = DEFAULT_CONFIG.profiles[client];
+      const confirmed = !['first', 'fallback', 'no-tty-pending', 'unconfirmed-edit', 'update-first'].includes(mode);
+      const custom = ['review-cancel', 'update-change', 'unconfirmed-edit', 'confirmed-fallback'].includes(mode);
+      const saved = Object.fromEntries(Object.entries(defaults).map(([name, profile]) => [name,
+        { ...profile, ...(custom ? { model: `saved-${client}` } : {}) }]));
+      f.io.setupAdapters = [{ CLIENT: client, listModels: async () => {
+        if (/fallback/.test(mode)) throw new Error('listing unavailable');
+        return { client, installed: true, source: 'listing', models: [...new Set([
+          ...Object.values(defaults).map((profile) => profile.model), ...(custom ? [`saved-${client}`] : []),
+        ])] };
+      } }];
+      if (mode.startsWith('update')) {
+        assert.equal(await main(['install', '--client', client, '--no-panel', '--no-statusline'], f.io), 0);
+        f.setVersion('2.0.0'); f.clear();
+      }
+      const file = join(f.root, 'config.json'), config = JSON.parse(await fs.readFile(file, 'utf8'));
+      if (confirmed || mode === 'unconfirmed-edit') {
+        config.profiles = { [client]: saved };
+        config.setup = { done: { profiles: { [client]: mode === 'unconfirmed-edit' ? defaults : saved } } };
+      }
+      await fs.writeFile(file, JSON.stringify(config, null, 2) + '\n');
+      const before = await fs.readFile(file, 'utf8');
+      f.io.tty = !mode.startsWith('no-tty');
+      const answer = async (question) => {
+        questions.push(question); f.output.push(question.trimEnd());
+        if (/Review or change|Revisar ou alterar/.test(question)) return mode === 'review-cancel' ? 'y' : '';
+        if (/Save these choices|Salvar estas escolhas/.test(question)) return mode === 'review-cancel' ? 'n' : '';
+        return '';
+      };
+      f.io.ask = answer; f.io.read = answer;
+      const args = mode.startsWith('update') ? ['update', '--client', client, '--no-statusline'] : ['install', '--client', client, '--no-panel', '--no-statusline'];
+      assert.equal(await main([...args, '--locale', locale], f.io), 0, f.output.join('\n'));
+      const lines = f.lines(), output = lines.join('\n');
+      const review = questions.filter((question) => /Review or change|Revisar ou alterar/.test(question));
+      assert.equal(review.length, confirmed && !['no-tty', 'update-quiet'].includes(mode) ? 1 : 0, output);
+      if (review.length) assert.equal(review[0], pt ? 'Revisar ou alterar os modelos? [s/N] ' : 'Review or change the models? [y/N] ');
+      if (confirmed) {
+        assert.equal(await fs.readFile(file, 'utf8'), before, 'review/keep must not write configuration');
+        assert.match(output, pt ? /Modelos\s+ok\s+mantidos/ : /Models\s+ok\s+kept/);
+        assert.doesNotMatch(output, /still need confirmation|Falta confirmar/);
+        if (mode !== 'update-quiet') for (const profile of Object.values(saved)) assert.ok(output.includes(profile.model), output);
+      }
+      if (mode === 'review-cancel') {
+        assert.equal(questions.filter((q) => /\[\d+\]:$/.test(q)).length, 3, 'again must ask all three classes');
+        for (const label of pt ? ['Tarefas pequenas', 'Tarefas do dia a dia', 'Tarefas complexas'] : ['Small tasks', 'Everyday tasks', 'Complex tasks']) {
+          assert.ok(lines.some((line) => line.includes(`| ${label} | saved-${client}`)), output);
+        }
+      }
+      if (mode.startsWith('no-tty') || mode === 'update-quiet') assert.deepEqual(questions, []);
+      if (mode === 'no-tty') {
+        assert.match(output, /setup --again/);
+        assert.doesNotMatch(output, /Suggested models|Modelos sugeridos|Confirm the suggestions|Confirme as sugestões/);
+      }
+      if (mode === 'no-tty-pending') {
+        assert.match(output, pt ? /Modelos sugeridos — / : /Suggested models — /);
+        assert.match(output, pt ? /Confirme as sugestões: okit-plugin setup\n/ : /Confirm the suggestions: okit-plugin setup\n/);
+        assert.doesNotMatch(output, /Current models|Modelos atuais|Change later|Altere depois|setup --again/);
+      }
+      if (['first', 'fallback', 'unconfirmed-edit', 'update-first'].includes(mode)) {
+        assert.match(questions.join('\n'), pt ? /Salvar estas escolhas\? \[S\/n\]/ : /Save these choices\? \[Y\/n\]/);
+        const after = JSON.parse(await fs.readFile(file, 'utf8'));
+        for (const name of ['simple', 'normal', 'hard']) assert.ok(after.setup?.done?.profiles?.[client]?.[name]);
+        if (mode === 'unconfirmed-edit') assert.equal(after.setup.done.profiles[client].normal.model, `saved-${client}`);
+        assert.doesNotMatch(output, /still need confirmation|Falta confirmar/);
+      }
+      if (client !== 'claude-code') assert.doesNotMatch(output, /[Oo]ptional panel|[Pp]ainel opcional/);
+      assert.doesNotMatch(output, /^\n|\n$|\n\n\n/);
+      const flat = output.split('\n');
+      for (let i = 0; i < flat.length; i++) {
+        if (/\? \[[^\]]+\]/.test(flat[i]) || /\[\d+\]:$/.test(flat[i])) assert.equal(flat[i + 1], '', output);
+      }
+      if (mode === 'no-tty-pending') assert.match(output, /still need confirmation|Falta confirmar/);
+      if (confirmed && mode !== 'update-quiet') {
+        const current = flat.findIndex((line) => /^(Current models|Modelos atuais)/.test(line));
+        assert.ok(current > 0, output); assert.equal(flat[current - 1], '', output);
+        assert.equal(flat.slice(current + 1, current + 4).filter((line) => /: /.test(line)).length, 3);
+      }
+    });
+  }
+}
+
+for (const locale of LOCALES) for (const mode of ['confirmed', 'first', 'fallback']) test(`D140 round 1 all clients share one review with separate blocks: ${locale} ${mode}`, async (t) => {
+  const f = await fixture(t), clients = ['claude-code', 'codex', 'opencode'], questions = [];
+  f.io.loadAdapter = async () => moduleAdapter;
+  f.io.setupAdapters = clients.map((client) => ({ CLIENT: client, listModels: async () => {
+    if (mode === 'fallback') throw new Error('listing unavailable');
+    return { client, installed: true, source: 'listing', models: [...new Set(Object.values(DEFAULT_CONFIG.profiles[client]).map((profile) => profile.model))] };
+  } }));
+  const file = join(f.root, 'config.json'), config = JSON.parse(await fs.readFile(file, 'utf8'));
+  config.profiles = DEFAULT_CONFIG.profiles;
+  if (mode === 'confirmed') config.setup = { done: { profiles: DEFAULT_CONFIG.profiles } };
+  await fs.writeFile(file, JSON.stringify(config, null, 2) + '\n');
+  const before = await fs.readFile(file, 'utf8');
+  f.io.tty = true;
+  f.io.ask = async (question) => { questions.push(question); f.output.push(question.trimEnd()); return ''; };
+  assert.equal(await main(['install', '--client', 'all', '--no-panel', '--no-statusline', '--locale', locale], f.io), 0);
+  if (mode === 'confirmed') {
+    assert.equal(await fs.readFile(file, 'utf8'), before);
+    assert.equal(questions.length, 1);
+  } else {
+    assert.equal(questions.filter((q) => /models now|modelos agora/.test(q)).length, 1);
+    assert.equal(questions.filter((q) => /Save these choices|Salvar estas escolhas/.test(q)).length, 1);
+    const saved = JSON.parse(await fs.readFile(file, 'utf8'));
+    for (const client of clients) for (const name of ['simple', 'normal', 'hard']) assert.ok(saved.setup?.done?.profiles?.[client]?.[name]);
+  }
+  const lines = f.lines();
+  const headers = lines.map((line, index) => (mode === 'confirmed' ? /^(Current models|Modelos atuais)/.test(line) : /^(Claude Code|Codex|OpenCode)$/.test(line)) ? index : -1).filter((index) => index >= 0);
+  assert.equal(headers.length, 3);
+  for (const index of headers) {
+    assert.equal(lines[index - 1], '');
+    if (mode === 'confirmed') assert.equal(lines[index + 4], '');
+  }
+  assert.doesNotMatch(lines.join('\n'), /still need confirmation|Falta confirmar|\n\n\n/);
+});
+
+test('D140 a confirmation for another client never hides selected pending profiles', async (t) => {
+  for (const client of ['claude-code', 'codex', 'opencode']) {
+    const f = await fixture(t, 'linux', { tty: true }), questions = [];
+    const file = join(f.root, 'config.json'), config = JSON.parse(await fs.readFile(file, 'utf8'));
+    config.setup = { done: { profiles: { other: { simple: {}, normal: {}, hard: {} } } } };
+    await fs.writeFile(file, JSON.stringify(config));
+    const ui = createPresenter({ locale: 'en', write: (line) => f.output.push(line) });
+    const result = await offerSetup({ root: f.root, clients: [client], ui, tty: true,
+      ask: async (question) => { questions.push(question); return 'n'; } });
+    assert.equal(result.pending, true);
+    assert.equal(questions.filter((question) => /Choose the models now/.test(question)).length, 1, client);
+    assert.match(f.output.join('\n'), /Run when you want: okit-plugin setup/);
+  }
+});
+
+test('D140 saving one client keeps the summary pending for another selected client', async (t) => {
+  const f = await fixture(t), output = [];
+  const { ui, finish } = createInstallerView({ operation: 'install', command: 'okit-plugin', locale: 'en', write: (line) => output.push(line) });
+  ui.beginClients(['claude-code', 'codex']);
+  ui.header({ client: 'Claude Code', version: '1' });
+  ui.header({ client: 'Codex', version: '1' });
+  await offerSetup({ root: f.root, clients: ['claude-code', 'codex'], ui, tty: true,
+    env: f.io.env, ask: async () => 'y', adapters: [
+      { CLIENT: 'claude-code', listModels: async () => ({ client: 'claude-code', installed: true, models: ['sonnet'], source: 'listing' }) },
+      { CLIENT: 'codex', listModels: async () => ({ client: 'codex', installed: false, models: [], source: 'listing' }) },
+    ] });
+  finish({ code: 0, client: 'all', after: { 'claude-code': {}, codex: {} } });
+  assert.match(output.join('\n'), /Models\s+-\s+sonnet saved/);
+  assert.equal(output.filter((line) => /still need confirmation/.test(line)).length, 1);
+  assert.ok(output.includes('Installed for Claude Code.'));
+  assert.ok(output.includes('Installed for Codex. Model choices still need confirmation.'));
 });
 
 test('a prompt is the explanation first and one question last, and y or s are accepted at the models question', async (t) => {

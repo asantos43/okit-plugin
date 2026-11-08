@@ -1,0 +1,1 @@
+Installer model setup now reviews saved choices with default No for every client, saves first choices with default Yes, uses built-in proposals when listings are unavailable, keeps unchanged updates quiet and reports pending clients truthfully; setup blocks have one blank line and panel controls appear after installation (English and Brazilian Portuguese).

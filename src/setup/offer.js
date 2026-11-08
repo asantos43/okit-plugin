@@ -7,8 +7,11 @@ import process from 'node:process';
 import { readJson } from '../state.js';
 import { paths } from '../store.js';
 import { commandText } from '../install/command-token.js';
-import { localizeReason } from '../install/present.js';
-import { setupPending, DEFAULT_CONFIG, PROFILE_EFFORTS } from '../profiles.js';
+import { clientLabel, localizeReason } from '../install/present.js';
+import { workLabel } from '../cli-present.js';
+import { proposeProfiles } from '../env/models.js';
+import { setupPending, configOf, DEFAULT_CONFIG, PROFILE_EFFORTS } from '../profiles.js';
+import { environmentSnapshot } from '../env/snapshot.js';
 import { runSetup, setupResultLines, formatUnreadable, isReadableConfig, CONFIG_UNREADABLE } from './setup.js';
 
 // Every text here is simple, bilingual and free of demand or order ids.
@@ -46,9 +49,11 @@ export function formatOffer(key, locale, values = {}) {
   const message = OFFER_MESSAGES[key];
   const language = locale === 'en' ? message.en : locale === 'pt-BR' ? message['pt-BR'] : null;
   // The reason of a failure is told in the language of the side that shows it (REASONS).
-  const portuguese = values.reason === undefined ? values : { ...values, reason: localizeReason(values.reason, 'pt-BR') };
-  if (language !== null) return fill(language, locale === 'pt-BR' ? portuguese : values);
-  return `${fill(message.en, values)} / ${fill(message['pt-BR'], portuguese)}`;
+  const reason = (value) => String(value).trimEnd().replace(/\.$/, '');
+  const english = values.reason === undefined ? values : { ...values, reason: reason(values.reason) };
+  const portuguese = values.reason === undefined ? values : { ...values, reason: reason(localizeReason(values.reason, 'pt-BR')) };
+  if (language !== null) return fill(language, locale === 'pt-BR' ? portuguese : english);
+  return `${fill(message.en, english)} / ${fill(message['pt-BR'], portuguese)}`;
 }
 
 /** An empty answer accepts the recommendation, like the setup wizard does. */
@@ -59,8 +64,11 @@ function affirmative(value) {
 
 // A confirmation for another client cannot confirm the client being installed.
 function pendingForClients(stored, clients) {
+  const profiles = configOf(stored).profiles;
   return setupPending(stored) || Boolean(clients?.some((client) => Object.keys(PROFILE_EFFORTS).some((name) =>
-    !stored.setup?.done?.profiles?.[client]?.[name])));
+    !stored.setup?.done?.profiles?.[client]?.[name]
+      || stored.setup.done.profiles[client][name].model !== profiles[client]?.[name]?.model
+      || stored.setup.done.profiles[client][name].effort !== profiles[client]?.[name]?.effort)));
 }
 
 /**
@@ -135,11 +143,40 @@ async function runOffer({
   }
 }
 
+// An installed client's unavailable listing uses the same catalog path for all
+// clients. Retain saved values as candidates when reopening the wizard.
+function installerModels(snapshot, stored, clients) {
+  const config = configOf(stored);
+  const detected = { clients: [...snapshot.detected.clients] };
+  for (const client of clients) {
+    const index = detected.clients.findIndex((entry) => entry.client === client);
+    const observation = detected.clients[index];
+    if (observation?.installed === false || observation?.models?.length) continue;
+    const models = [...new Set([config.profiles[client], DEFAULT_CONFIG.profiles[client]]
+      .flatMap((profiles) => Object.values(profiles ?? {}).map((profile) => profile?.model))
+      .filter((model) => model && !observation?.hidden?.includes(model)))];
+    const fallback = { ...observation, client, installed: true, models, source: 'catalog', hidden: observation?.hidden ?? [] };
+    if (index < 0) detected.clients.push(fallback);
+    else detected.clients[index] = fallback;
+  }
+  return { ...snapshot, detected, proposals: proposeProfiles(detected, config) };
+}
+
+function currentModels(ui, stored, clients) {
+  const profiles = configOf(stored).profiles;
+  return clients.flatMap((client, index) => [
+    ...(index ? [''] : []), ui.text(pendingForClients(stored, [client]) ? 'modelsSuggested' : 'modelsCurrent', { client: clientLabel(client) }),
+    ...Object.entries(profiles[client] ?? {}).map(([name, profile]) =>
+      `${workLabel(name, ui.locale)}: ${profile?.model ?? '—'}`),
+  ]);
+}
+
 /**
  * The same offer through the installer's presenter: one `Models` row at the
  * end of the run, the explanation first and the question last.
  */
 async function runOfferRow({
+  operation = 'install',
   clients,
   ui,
   root,
@@ -160,35 +197,64 @@ async function runOfferRow({
     row('skipped', formatUnreadable(ui.locale, program));
     return { pending: true, offered: false, ran: false, failed: true };
   }
-  if (!pendingForClients(stored, clients)) return { pending: false, offered: false, ran: false };
+  snapshot ??= await environmentSnapshot({ root, config: configOf(stored), env, run, adapters, plugin: {}, versions: {} });
+  clients ??= snapshot.detected.clients.filter((client) => client.installed !== false).map((client) => client.client);
+  const pendingBefore = pendingForClients(stored, clients);
+  ui.modelsState?.(clients.filter((client) => pendingForClients(stored, [client])));
+  snapshot = installerModels(snapshot, stored, clients);
+  const proposals = proposeProfiles(snapshot.detected, { ...configOf(stored), profiles: DEFAULT_CONFIG.profiles });
+  const different = clients.some((client) => Object.keys(PROFILE_EFFORTS).some((name) => {
+    const proposed = proposals.clients.find((entry) => entry.client === client)?.profiles[name];
+    const current = stored.profiles?.[client]?.[name];
+    return proposed?.model !== current?.model || proposed?.effort !== current?.effort;
+  }));
+  if (!pendingBefore && operation === 'update' && !different) {
+    row('ok', ui.text('modelsKept'));
+    return { pending: false, offered: false, ran: false };
+  }
+  // Do not offer a wizard when neither the listing nor the catalog supplies choices.
+  const available = snapshot.detected.clients.some((client) => clients.includes(client.client)
+    && client.installed !== false && client.models?.length
+    && Object.keys(snapshot.proposals.clients.find((entry) => entry.client === client.client)?.profiles ?? {}).length);
+  if (!available) {
+    row(pendingBefore ? 'info' : 'ok', ui.text('modelsUnavailable', { command: program }));
+    return { pending: pendingBefore, offered: false, ran: false };
+  }
   // Without a terminal there is nobody to answer, so the row says how to do it later.
   if (!tty || typeof ask !== 'function') {
-    row('info', ui.text('modelsPending', { command: program }));
-    return { pending: true, offered: true, ran: false };
+    ui.explain(['', ...currentModels(ui, stored, clients), '', ui.text(pendingBefore ? 'modelsConfirmNext' : 'modelsLater', { command: program }), '']);
+    row(pendingBefore ? 'info' : 'ok', pendingBefore ? ui.text('modelsPending', { command: program }) : ui.text('modelsKept'));
+    return { pending: pendingBefore, offered: true, ran: false };
   }
   try {
-    const accepted = await ui.confirm(ask, { explain: [ui.text('modelsExplain', { command: program })], question: ui.text('modelsAsk'), defaultYes: true });
+    const accepted = await ui.confirm(ask, {
+      explain: pendingBefore ? [ui.text('modelsExplain', { command: program })] : currentModels(ui, stored, clients),
+      question: ui.text(pendingBefore ? 'modelsAsk' : 'modelsReview'), defaultYes: pendingBefore,
+    });
     if (!accepted) {
-      row('skipped', ui.text('modelsDeclined', { command: program }));
-      return { pending: true, offered: true, ran: false, declined: true };
+      row(pendingBefore ? 'skipped' : 'ok', ui.text(pendingBefore ? 'modelsDeclined' : 'modelsKept', { command: program }));
+      return { pending: pendingBefore, offered: true, ran: false, declined: true };
     }
     const result = await runSetup({ clients, root, config: stored, env, run, ask, adapters, snapshot, write, command: program, ui,
-      again: !setupPending(stored) && pendingForClients(stored, clients) });
+      saveDefaultYes: true, again: !setupPending(stored) });
+    const saved = await readJson(paths(root).config, {});
+    const pending = pendingForClients(saved, clients);
+    ui.modelsState?.(clients.filter((client) => pendingForClients(saved, [client])));
     if (ui.humanOutput) {
       // An installation into a custom folder is somewhere the doctor does not look: no doctor line is offered for it.
       ui.explain(setupResultLines(result, ui.locale, program, { doctor: false }));
-      if (result.changes.length) row('ok', ui.text('modelsSaved', { models: [...new Set(result.changes.map((change) => change.model))].join(', ') }));
-      else row(result.cancelled ? 'skipped' : 'info', result.messages[0] ?? ui.text('modelsPending', { command: program }));
-      return { pending: true, offered: true, ran: true, code: result.code };
+      if (result.changes.length) row(pending ? 'info' : 'ok', ui.text('modelsSaved', { models: [...new Set(result.changes.map((change) => change.model))].join(', ') }));
+      else row(pending ? (result.cancelled ? 'skipped' : 'info') : 'ok', pending ? result.messages[0] ?? ui.text('modelsPending', { command: program }) : ui.text('modelsKept'));
+      return { pending, offered: true, ran: true, code: result.code };
     }
     const models = [...new Set(result.changes.map((change) => change.model))];
-    if (result.cancelled || !models.length) row(result.cancelled ? 'skipped' : 'info', result.messages[0] ?? '');
-    else row('ok', ui.text('modelsSaved', { models: models.join(', ') }));
+    if (result.cancelled || !models.length) row(pending ? (result.cancelled ? 'skipped' : 'info') : 'ok', pending ? result.messages[0] ?? '' : ui.text('modelsKept'));
+    else row(pending ? 'info' : 'ok', ui.text('modelsSaved', { models: models.join(', ') }));
     for (const message of result.messages.slice(result.cancelled || !models.length ? 1 : 0)) ui.note(message);
-    return { pending: true, offered: true, ran: true, code: result.code };
+    return { pending, offered: true, ran: true, code: result.code };
   } catch (error) {
-    row('skipped', formatOffer('failed', ui.locale, { command: program, reason: error.message }));
-    return { pending: true, offered: true, ran: false, failed: true };
+    row(pendingBefore ? 'skipped' : 'ok', formatOffer('failed', ui.locale, { command: program, reason: error.message }));
+    return { pending: pendingBefore, offered: true, ran: false, failed: true };
   }
 }
 
