@@ -12,6 +12,7 @@ import { loginState } from './accounts-login.js';
 import { pollStateFile } from './quota/active-poller.js';
 import { pollReason, rotationStatus } from './quota/rotation.js';
 import { requestQuotaRead, serviceRunning } from './quota/active-trigger.js';
+import { collectorState } from './quota/collector-registration.js';
 
 const RECENT_RUNS = 100;
 const MAX_RUN_BYTES = 256 * 1024;
@@ -105,6 +106,7 @@ async function configuredState(ctx, client, internal, stored, warnings, readRunJ
     const state = await readJson(join(ctx.root, 'quota', pollStateFile(internal, identity.id)), null).catch(() => null);
     const login = await loginState({ ...ctx, client: internal, account: identity, config });
     return { id: identity.id, label: identity.label,
+      collector: await collectorState(ctx, config, identity),
       rotation: rotationStatus({ reading: account.reading, login, config, now, locale: ctx.locale ?? config.language }),
       quota_state: state ? { state: state.state, reason: pollReason(state, ctx.locale ?? config.language) } : null,
       quota: { session: windowState(account.reading, true, now), weekly: windowState(account.reading, false, now) } };

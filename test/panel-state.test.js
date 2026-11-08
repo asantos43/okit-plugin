@@ -64,6 +64,8 @@ test('populated state matches the documented versioned golden', async (t) => {
   assert.equal(result.code, 0);
   const expected = JSON.parse(await readFile(new URL('./fixtures/panel-state-v1-populated.json', import.meta.url)));
   for (const account of expected.accounts) {
+    account.collector = { state: 'not registered', text: 'Not registered',
+      reason: 'Could not register the collector. Check account settings permissions and JSON.' };
     account.quota_state = null;
     account.rotation = { eligible: false, known: false, readAt: account.id === 'default' ? now - 60_000 : null,
       reason: 'login', text: 'The account is not logged in.' };

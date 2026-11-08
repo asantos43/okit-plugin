@@ -179,6 +179,8 @@ export const FLAG_TABLE = Object.freeze([
   { flag: '--yes', value: 'none', commands: ['install', 'uninstall'], invalid: [] },
   { flag: '--prerelease', value: 'none', commands: ['install'], invalid: [] },
   { flag: '--verbose', value: 'none', commands: ['install', 'update', 'uninstall', 'doctor'], invalid: [] },
+  // Repairs passive collectors of saved extra Claude accounts; default and login keep their own flows.
+  { flag: '--fix', value: 'none', commands: ['doctor'], invalid: [] },
   { flag: '--defaults', value: 'none', commands: ['setup'], invalid: [] },
   { flag: '--again', value: 'none', commands: ['setup'], invalid: [] },
   { flag: '--check', value: 'none', commands: ['update'], invalid: [] },
@@ -287,6 +289,12 @@ export function envLiterals() {
 // refusal of usage (exit 2); a file of another program that we would have to change and cannot preserve is unreadable.
 
 export const FILE_RULES = Object.freeze([
+  { file: 'quota/collector-<client>.<id>.json (collector restoration metadata)', readBy: 'src/quota/collector-registration.js (savedCollector, ensureCollector)', unreadable: 0, wrongType: 0,
+    proof: 'test/d146-collector-registration.test.js#foreign command and settings are preserved',
+    note: 'Optional statusline restoration record before plugin installation; missing metadata falls back to the existing installation record. Unreadable metadata prevents best-effort registration or skips handoff, never fails account add. The statusline path/backup/previous/hash are reused by planStatusline/applyStatusline; installer handoff requires the expected account settings path.' },
+  { file: 'settings.json of an account (collector state)', readBy: 'src/quota/collector-registration.js (collectorState), through account add/list, web state and panel state', unreadable: 0, wrongType: 0,
+    proof: 'test/d146-collector-registration.test.js#four states reach web and panel',
+    note: 'Missing, malformed or non-command settings mean Not registered; only a valid executable collector invocation proves registration. Passive sample presence distinguishes waiting from received; credentials are never opened. Registration writes reuse the stricter settings of the client (statusline) rule, with failure caught by ensureCollector so add still succeeds.' },
   { file: 'quota active state and leases', readBy: 'active-poller, active-trigger, panel-state', unreadable: 0, wrongType: 0,
     proof: 'test/d145-active-quota.test.js#disabled polling',
     note: 'Optional poll observations and timestamp leases; unreadable JSON is absent, leases remain busy unless demonstrably expired. Poller config uses configOf validation.' },
@@ -298,7 +306,7 @@ export const FILE_RULES = Object.freeze([
     note: 'a root that is not an object is an empty configuration; setup and account changes refuse unreadable roots/profiles (exit 1, test/setup-wizard.test.js and test/d115-cli.test.js); panel-state treats unreadable or non-object roots as absent with an English warning (test/panel-state.test.js); the quota reader of the claude-code adapter never fails for it: a configuration it cannot read leaves the default settings of the collector (test/adapter-claude-code.test.js#a configuration that cannot be read is no reading of its own)' },
   { file: 'package.json of --from', readBy: 'src/install/source.js', unreadable: 2, wrongType: 2, proof: 'test/input-inventory.test.js#package.json ${body}',
     note: 'a folder the person named that has no package is a wrong argument (--from), told as such' },
-  { file: 'install.json / install.<client>.json (the record)', readBy: 'src/install/place.js, src/install/bootstrap.js', unreadable: 1, wrongType: 2,
+  { file: 'install.json / install.<client>.json (the record)', readBy: 'src/install/place.js, src/install/bootstrap.js; collector-registration.js via readRecord for saved statusline restoration data', unreadable: 1, wrongType: 2,
     proof: 'test/input-inventory.test.js#${record} ${body}',
     note: 'every field is checked by RECORD_FIELDS (src/config-schema.js), also in the record the record replaced (`previous`); a wrong type names the field; the doctor reads the records leniently (readRecordsLenient), so a record it cannot read is a failed row of the diagnosis (exit 1) and never a refusal of the whole run; the install reads them leniently too (a record it cannot read is no usable record for that client: a clean install of it, exit 0), while update, uninstall and status keep the strict reading and its message' },
   { file: 'managed-path.json (the PATH state)', readBy: 'src/install/link.js (pathState)', unreadable: 1, wrongType: 2, proof: 'test/input-inventory.test.js#managed-path.json ${body}',
@@ -386,6 +394,9 @@ const STATE_OF_OTHER_COMMANDS = 'state of a command outside this inventory (I9 l
  * FILE_RULES row; `excluded` says why the file is not an input of this inventory.
  */
 export const READ_POINTS = Object.freeze([
+  { file: 'src/quota/collector-registration.js', arg: /^(metadata\(ctx\.root, account\)|file)$/, rule: 'quota/collector-<client>.<id>.json (collector restoration metadata)' },
+  { file: 'src/quota/collector-registration.js', arg: /^join\(folder, config\.statuslineRegistration\.settingsFile\)$/, rule: 'settings.json of an account (collector state)' },
+  { file: 'src/doctor/command.js', arg: /^`\$\{ctx\.root\}\/config\.json`$/, rule: CONFIG_JSON },
   { file: 'src/quota/active-poller.js', arg: /^file$/, rule: 'quota active state and leases' },
   { file: 'src/quota/active-trigger.js', arg: /^(file|lease)$/, rule: 'quota active state and leases' },
   { file: 'src/panel-state.js', arg: /^join\(ctx\.root, 'quota', pollStateFile\(internal, identity.id\)\)$/, rule: 'quota active state and leases' },

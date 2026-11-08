@@ -16,7 +16,7 @@ A rotação exige mais que `accountPolicy.minQuotaPct` (20 por padrão) em **amb
 ## Gerenciar uma conta
 
 1. Adicione uma pasta distinta com caminho absoluto neste sistema e execute o comando impresso de login manual.
-2. Registre o comando impresso do coletor Claude, se aplicável, e confira `account list`.
+2. Confira `account list`: o coletor passivo Claude é registrado automaticamente ao salvar a conta pelo CLI ou web. O login continua manual.
 3. Renomeie ou remova o registro conforme necessário; o id fica estável ao renomear.
 
 ```sh
@@ -33,7 +33,9 @@ Use um caminho absoluto. No Windows PowerShell, por exemplo: `okit-plugin accoun
 
 O login é manual. Se o terminal abrir sem iniciar o login, use Copiar e execute o comando manualmente. Siga o comando impresso: `CLAUDE_CONFIG_DIR=/caminho/absoluto/claude-trabalho claude` ou `CODEX_HOME=/caminho/absoluto/codex-trabalho codex`. No PowerShell: `$env:CODEX_HOME='C:\Contas\Trabalho'; codex` (Claude usa `CLAUDE_CONFIG_DIR` e `claude`). Cada aspa de uma pasta impressa para o PowerShell é dobrada, então uma pasta cujo nome tem uma aspa (`C:\Users\O'Brien\acc`) continua sendo uma só string. `logged-in` indica que existe um marcador local; não verifica acesso. O login da conta default é lido na pasta que o cliente usa sem sobrescrita, a que seus ajustes de instalação nomeiam. A detecção de login não abre credenciais; a consulta ativa lê apenas token e validade conforme descrito acima. macOS Keychain e armazenamento por keyring do Codex aparecem como `unknown`.
 
-Para Claude Code, add imprime um comando do coletor. Registre-o manualmente em `statusLine.command`, com `statusLine.type` igual a `command`, no `settings.json` daquela pasta. Preserve ou encadeie uma barra existente conforme necessário. O comando define `CLAUDE_CONFIG_DIR` e `OKWORK_HOME`: o coletor identifica a conta pela pasta e grava sua própria amostra. O coletor grava só o arquivo da conta que a pasta nomeia: uma pasta que não nomeia conta salva (a pasta de uma conta removida, ou de uma que nunca foi salva) não grava nada, então a leitura de uma conta nunca é sobrescrita pelos limites de outra. A pasta que o cliente usa sem sobrescrita é a pasta da própria conta default e grava o arquivo da default. Claude usa um shell POSIX, inclusive Git Bash no Windows. Codex consulta ativamente a cota pelo app-server e mantém as leituras das sessões locais; não tem a barra do Claude para registrar. Os comandos de conta nunca editam arquivos dos clientes.
+Para contas Claude extras salvas, add pelo CLI/web, install e update registram automaticamente o coletor passivo da barra de status. `doctor --fix` repara um coletor ausente. Comandos existentes são preservados com `--previous` e backup exato; o registro nunca abre arquivos de credenciais. A conta default mantém seu fluxo atual. Uma falha não impede adicionar a conta: informa Não registrado com um motivo simples. O login continua manual. Codex não precisa de coletor na barra de status.
+
+A configuração web e o painel mostram Registrado quando o `settings.json` da pasta invoca o coletor, com Aguardando primeira leitura até existir o arquivo de leitura passiva, depois Leitura recebida. Não registrado indica comando ausente ou ilegível. Leituras do poller ativo não contam como leitura passiva.
 
 List mostra default primeiro em cada cliente; o JSON contém `client`, `id`, `label`, `configDir` (null para default) e `login`. Remove aceita id e só altera a configuração do plugin: pasta, login e histórico gravado permanecem. Default não pode ser removida. Rename aceita id ou nome atual, altera apenas o nome e mantém a consulta de quota e histórico pelo id.
 
@@ -48,7 +50,7 @@ Processos usam o id informado pelo chamador ou, se omitido, a conta da vaga rese
 <a id="register"></a>
 ## Registrar o plugin em uma conta
 
-1. Execute `okit-plugin install --client claude-code --account trabalho`. Espere o plugin, a entrada MCP, os hooks e (com `--statusline`) a barra de status somente na pasta dessa conta; nenhuma outra pasta é tocada.
+1. Execute `okit-plugin install --client claude-code --account trabalho`. O plugin, a entrada MCP e os hooks pertencem à conta. Install e update também registram os coletores passivos de todas as contas Claude extras salvas; a conta default mantém seu fluxo atual de barra de status.
 2. Repita com outro id para cada conta que deva ter o plugin. Os arquivos do plugin são compartilhados: uma cópia por cliente, não importa quantas contas a usem.
 3. Execute `okit-plugin uninstall --client claude-code --account trabalho` para tirar só essa conta. As outras contas e os arquivos compartilhados ficam até o último registro sair.
 

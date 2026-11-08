@@ -23,6 +23,8 @@ Each account shows rotation eligibility: both windows must have **more than 20%*
 
 ## What the board shows
 
+Each account also shows its passive collector state: Registered with Waiting for first reading, then Reading received once its passive file exists, or Not registered with a plain reason. This checks the account's `settings.json` command and passive file presence, without opening credentials; active readings do not prove passive collection. CLI/web add, install and update register every saved extra Claude account automatically; `doctor --fix` repairs missing collectors. Existing commands are chained with `--previous` and backed up. The default flow is unchanged, Codex needs no status-bar collector, and login stays manual.
+
 - ACCOUNTS: running/idle aliases, aligned session 5h and weekly bars, percent left, local 24 h reset times and time remaining (`4h35m` or `1d 21h`). Resets more than 24 h away include the weekday; `!` marks less than 20% left and missing quota shows `unknown`.
 - RUNNING: active runs and their last progress line.
 - RECENT: completed, failed or no longer live (stale) runs.

@@ -204,7 +204,7 @@ test('doctor --help prints the usage with the doctor line', async (t) => {
   const code = await main(['doctor', '--help'], f.io);
   const text = f.output.join('\n');
   assert.equal(code, exitCodeFor('ok'), text);
-  assert.match(text, /^ {7}okit-plugin doctor \[--client <c>\] \[--verbose\] \[--locale en\|pt-BR\]/m, text);
+  assert.match(text, /^ {7}okit-plugin doctor \[--fix\] \[--client <c>\] \[--verbose\] \[--locale en\|pt-BR\]/m, text);
 });
 
 test('the exit codes are the ones of the policy of the installer', async () => {
@@ -335,8 +335,8 @@ test('help after other doctor flags prints usage and never diagnoses', async (t)
     assert.equal(await main(['doctor', ...flags], f.io), 0, f.output.join('\n'));
     const text = f.output.join('\n');
     assert.match(text, flags.includes('pt-BR')
-      ? /^ {5}okit-plugin doctor \[--client <c>\] \[--verbose\] \[--locale en\|pt-BR\]/m
-      : /^ {7}okit-plugin doctor \[--client <c>\] \[--verbose\] \[--locale en\|pt-BR\]/m);
+      ? /^ {5}okit-plugin doctor \[--fix\] \[--client <c>\] \[--verbose\] \[--locale en\|pt-BR\]/m
+      : /^ {7}okit-plugin doctor \[--fix\] \[--client <c>\] \[--verbose\] \[--locale en\|pt-BR\]/m);
     assert.match(text, flags.includes('pt-BR') ? /^uso: / : /^usage: /);
     assert.doesNotMatch(text, /doctor:|failed,|falharam,|everything looks right|tudo está certo/); // locale:pt-BR
     assert.deepEqual(f.commands, []);

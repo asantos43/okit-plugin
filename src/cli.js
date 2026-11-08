@@ -69,7 +69,7 @@ const USAGE_LINES = [
   '       {command} update [--client <c>] [--check] [--rollback] [--dry-run] [--statusline|--no-statusline]',
   '       {command} uninstall [--client <c>] [--purge] [--yes] [--dry-run]',
   '       {command} setup [--defaults] [--again] [--locale en|pt-BR]',
-  '       {command} doctor [--client <c>] [--verbose] [--locale en|pt-BR]',
+  '       {command} doctor [--fix] [--client <c>] [--verbose] [--locale en|pt-BR]',
   '       {command} panel-state --json --client <claude|codex>',
   '       {command} config ui [--no-open] [--idle-minutes <n>] [--locale en|pt-BR]',
   '       {command} account add <client> <name> --config-dir <path>',
@@ -177,7 +177,7 @@ async function doctorEntry(ctx, flags) {
   let config;
   try { config = installConfig(stored?.install); } catch { config = installConfig(); }
   const { doctorCommand } = await import('./doctor/command.js');
-  return await doctorCommand(ctx, { locale: chosen.locale, config, verbose: parsed.found.verbose, client: parsed.found.client });
+  return await doctorCommand(ctx, { locale: chosen.locale, config, verbose: parsed.found.verbose, client: parsed.found.client, fix: parsed.found.fix });
 }
 
 /**
@@ -314,7 +314,8 @@ function doctorFlags(flags) {
     if (flag === '--locale') {
       if (flags[index + 1] === undefined || flags[index + 1].startsWith('--')) return { unknown: 'Missing value for --locale' };
       index += 1;
-    } else if (flag === '--verbose') found.verbose = true;
+    } else if (flag === '--fix') found.fix = true;
+    else if (flag === '--verbose') found.verbose = true;
     else if (flag === '--client' || flag.startsWith('--client=')) {
       found.client = flag === '--client' ? flags[++index] ?? '' : flag.slice('--client='.length);
       if (!CLIENTS.includes(found.client)) return { unknown: `Unknown flag: ${flag}` };

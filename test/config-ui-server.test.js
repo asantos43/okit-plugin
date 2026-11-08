@@ -174,7 +174,7 @@ test('account add returns login help and mtime; removal preserves folder, login 
   const add = await request(session, '/api/account-add', { method: 'POST', value: { client: 'codex', label: 'Work', configDir } });
   assert.equal(add.status, 200, add.text);
   assert.deepEqual(add.json().account, { client: 'codex', id: 'work', label: 'Work', configDir,
-    login: 'logged-out', loginCommand: `CODEX_HOME=${configDir} codex login` });
+    collector: { state: 'not-needed', text: 'No status-bar collector needed' }, login: 'logged-out', loginCommand: `CODEX_HOME=${configDir} codex login` });
   assert.equal(add.json().expectedMtime, await configMtime(session.root));
   if (process.platform !== 'win32') assert.equal((await stat(configDir)).mode & 0o777, 0o700);
   await writeFile(join(configDir, 'auth.json'), 'PRIVATE-CREDENTIAL');
@@ -289,9 +289,9 @@ test('account state uses install folders, saved default commands and unknown log
   assert.equal(response.status, 200, response.text);
   const rows = response.json().accounts.filter(account => account.client === 'codex');
   assert.deepEqual(rows, [{ client: 'codex', id: 'default', label: 'default', configDir: null,
-    login: 'logged-in', loginCommand: process.platform === 'win32'
+    collector: { state: 'not-needed', text: 'No status-bar collector needed' }, login: 'logged-in', loginCommand: process.platform === 'win32'
       ? 'Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue; codex login' : 'env -u CODEX_HOME codex login' },
-  { client: 'codex', id: 'work', label: 'Work', configDir, login: 'unknown', loginCommand: `CODEX_HOME=${configDir} codex login` }]);
+  { client: 'codex', id: 'work', label: 'Work', configDir, collector: { state: 'not-needed', text: 'No status-bar collector needed' }, login: 'unknown', loginCommand: `CODEX_HOME=${configDir} codex login` }]);
   assert.doesNotMatch(response.text, /PRIVATE-CREDENTIAL/);
 });
 

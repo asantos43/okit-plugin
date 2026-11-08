@@ -8,17 +8,12 @@ import { createPresenter, presentDiagnosis, programLine } from '../cli-present.j
 export { presentDiagnosis } from '../cli-present.js';
 
 import { diagnose } from './diagnose.js';
+import { ensureSavedCollectors } from '../quota/collector-registration.js';
 
 // The doctor of the command line: it looks at the whole installation and tells what it found. One row per thing it
 // looked at, the summary first and repair instructions below the data table.
 //
-// It only reads. The state of the person is the same before and after the run: no file is written, no record is
-// removed and nothing is registered. The rows come from the diagnosis (src/doctor/diagnose.js), which is the only
-// place that knows what to look at; this file only tells the rows and decides the exit code.
-//
-// The contract of the run: the doctor never writes to the state of the person (the state root, the records of the
-// installation, the settings of the client); the only folder it creates is the temporary one of the check, under the
-// temporary folder of the caller, and it is removed when the run ends.
+// Diagnosis is read-only. With --fix, repair saved extra accounts' collectors before diagnosis.
 
 /**
  * Runs the doctor and tells what it found.
@@ -32,10 +27,16 @@ import { diagnose } from './diagnose.js';
  * @param {object} [entry.readers] optional readers passed to the diagnosis
  * @returns {Promise<number>} the exit code
  */
-export async function doctorCommand(ctx, { locale, config, verbose = false, client, readers }) {
+export async function doctorCommand(ctx, { locale, config, verbose = false, client, readers, fix = false }) {
   const ui = createPresenter({ locale, verbose, write: ctx.out, isTTY: ctx.isTTY, env: ctx.env });
   const home = ctx.home ?? homeOf(ctx.env, ctx.platform) ?? homedir();
   const { destination } = installPaths(config, { ...ctx, home });
+  if (fix) {
+    const raw = await ctx.fs.readFile(`${ctx.root}/config.json`, 'utf8').then(JSON.parse).catch(() => ({}));
+    for (const state of await ensureSavedCollectors({ ...ctx, locale }, raw, client ?? 'claude-code')) {
+      ctx.out([state.text, state.detail, state.reason].filter(Boolean).join(': '));
+    }
+  }
   // The records of the installation, read leniently: a record that cannot be read is a row of the diagnosis, and the
   // other clients are still diagnosed. The records of the installation that is running are found too, when the
   // destination has none (the doctor that runs from inside an installation sees it).

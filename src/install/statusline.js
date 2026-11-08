@@ -120,7 +120,7 @@ export async function applyStatusline(record, plan, deps) {
       // A run with accounts registers several of them in one record: the record in memory keeps what each one saved.
       if (scoped(deps)) record.accounts = { ...record.accounts, [deps.accountScope.id]: { ...record.accounts?.[deps.accountScope.id], statusline: next } };
       else record.statusline = next;
-      await saveRecord(deps.destination, record, deps);
+      await (deps.saveStatuslineRecord ?? saveRecord)(deps.destination, record, deps);
     }
   } catch (error) {
     if (plan.original === null) await deps.fs.rm(plan.path, { force: true });
