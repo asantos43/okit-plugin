@@ -393,7 +393,7 @@ async function installationAutostartPlan(ctx, io, record, verify = true) {
   });
 }
 
-function installerLifecycle(ctx, io) {
+export function installerLifecycle(ctx, io) {
   // The records whose service the stop already took away: the uninstall that follows must not remove it a second time
   // (a manager that errors on a missing service would abort it).
   const stopped = new WeakSet();

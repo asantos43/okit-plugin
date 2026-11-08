@@ -155,6 +155,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
     const results = [];
     ui.beginClients?.(clients);
     for (const client of clients) {
+      io.checkpoint?.('client');
       const purge = flags.purge && client === clients.at(-1) && results.every(({ code }) => code === 0);
       const shared = Object.values(await recordsOf());
       const code = await runClient(command, { ...flags, purge, client }, ctx, io, {
@@ -163,19 +164,21 @@ export async function installerCommand(command, args, ctx, io = {}) {
       }, user, records[client]);
       results.push({ client, code });
       if (code === 0 && ['install', 'update'].includes(command) && !deps.dryRun && !flags.check && !flags.rollback && !flags['no-statusline']) {
+        io.checkpoint?.('collectors');
         const collectors = await ensureSavedCollectors({ ...ctx, fs }, user, client);
         for (const collector of collectors) ui.note([collector.text, collector.detail, collector.reason].filter(Boolean).join(': '));
       }
     }
     ui.endClients?.();
+    io.checkpoint?.(null);
     if (results.length > 1) results.forEach(({ client, code }) => ui.row(clientLabel(client), code === 0 ? 'ok' : 'failed'));
     const succeeded = results.every(({ code }) => code === 0);
-    if (!flags.panel && (command === 'install' || command === 'update') && !flags.check && !flags.rollback && succeeded) {
+    if (!io.deferFollowups && !flags.panel && (command === 'install' || command === 'update') && !flags.check && !flags.rollback && succeeded) {
       await executionPolicyStep(ui, flags, deps);
     }
     // The setup was not done yet: offer it. A setup that cannot run is
     // reported and never fails the installation.
-    if (!flags.panel && (command === 'install' || command === 'update') && !deps.dryRun && !flags.check && succeeded) {
+    if (!io.deferFollowups && !flags.panel && (command === 'install' || command === 'update') && !deps.dryRun && !flags.check && succeeded) {
       const ask = io.ask ?? readTerminal;
       const reader = { ask: (...values) => ui.readAnswer ? ui.readAnswer(ask, ...values) : ask(...values), close: () => {} };
       try {
@@ -265,7 +268,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
   const { fs, config, ui } = deps;
   const label = clientLabel(flags.client);
   // The step being worked on, so a failure can name it.
-  deps.stage = (key) => { stage = key; };
+  deps.stage = (key) => { if (key) io.checkpoint?.(key); stage = key; };
   try {
     if (current) {
       deps.bin = current.linkDirectory ?? deps.bin;
@@ -337,7 +340,7 @@ async function runClient(command, flags, ctx, io, deps, user, current) {
     const acting = !target ? [null] : command === 'update' ? registered : [target];
     const offeringPanel = command === 'install';
     const panelAfterSuccess = async (record, succeeded) => {
-      if (offeringPanel && succeeded) {
+      if (!io.deferFollowups && offeringPanel && succeeded) {
         for (const account of acting) await offerPanel(record, flags, scoped(account));
       }
       return exitCodeFor(succeeded ? 'ok' : 'operational');
