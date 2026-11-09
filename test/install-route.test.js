@@ -55,7 +55,7 @@ test('mutation proof: the table fails for a routing function with one rule broke
 });
 
 test('every reason is said in English and in Brazilian Portuguese, and the labels carry the same texts', () => {
-  const reasons = ['ssh', 'container', 'display', 'opener', 'opener-failed', 'options', 'no-terminal'];
+  const reasons = ['ssh', 'container', 'display', 'opener', 'opener-failed', 'options', 'no-terminal', 'windows'];
   assert.deepEqual(Object.keys(ROUTE_TEXT.en), reasons);
   assert.deepEqual(Object.keys(ROUTE_TEXT['pt-BR']), reasons);
   for (const reason of reasons) {

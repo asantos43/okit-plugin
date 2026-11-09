@@ -6,7 +6,8 @@
     "opener": "No program to open a browser was found; using the terminal installer. Use --ui --headless and open the printed address yourself.",
     "opener-failed": "The browser could not be opened; using the terminal installer. Use --ui --headless and open the printed address yourself.",
     "options": "Options only the terminal installer supports were given; using the terminal installer.",
-    "no-terminal": "The terminal installer needs a terminal to ask in. Pass --client, or use --ui --headless."
+    "no-terminal": "The terminal installer needs a terminal to ask in. Pass --client, or use --ui --headless.",
+    "windows": "Windows uses the browser wizard, not a terminal installer. Run install.ps1 without this option, or add --headless to print the address and open it yourself."
   },
   "wizard": {
     "detect": "Choose clients",
