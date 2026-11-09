@@ -7,9 +7,9 @@ const escape = (value) => String(value ?? '').replace(/[&<>"']/g,
 const json = (value) => JSON.stringify(value).replace(/[<>&\u2028\u2029]/g,
   (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
 
-export function renderPage(state, { locale = 'en', nonce, token, instance }) {
+export function renderPage(state, { locale = 'en', nonce, token, instance, client, extraState = {} }) {
   state = { ...state, instance };
-  const text = labels[locale] ?? labels.en;
+  const { wizard: _wizard, ...text } = labels[locale] ?? labels.en;
   const e = escape;
   const button = (action, label, attrs = '') => `<button type="button" data-action="${action}" ${attrs}>${e(label)}</button>`;
   const options = (values, current) => values.map(({ value, label }) =>
@@ -122,7 +122,7 @@ export function renderPage(state, { locale = 'en', nonce, token, instance }) {
     [hidden]{display:none!important}@media(max-width:700px){.field{grid-template-columns:1fr;gap:.75rem}header{gap:.5rem}.panel{padding:.75rem}header .badge{order:4;width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}.action-bar{flex-wrap:wrap}.field>*{min-width:0}.field-control input[type=text],.field-control select{flex:1 1 8rem;min-width:0}}
   `;
   function renderDocument() {
-    return `<!doctype html><html lang="${e(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${e(text.title)}</title><style nonce="${e(nonce)}">${css}</style></head><body><header><h1>${e(text.title)}</h1><p class="badge ${launchable ? 'ready' : 'waiting'}">${e(state.readiness)}</p><nav>${['en', 'pt-BR'].map(lang => `<a href="?token=${e(encodeURIComponent(token))}&amp;locale=${lang}">${lang}</a>`).join(' · ')}</nav>${button('close', text.close)}</header><main>${tabBar}${panels}<section id="review" tabindex="-1" hidden><pre id="changes"></pre>${button('apply', text.apply)}${button('cancel', text.cancel)}</section></main><footer class="action-bar"><p id="error" role="alert"></p><p id="status" role="status" aria-live="polite" class="status"></p>${button('review', text.save)}${button('reload', text.reload, 'id="reload" hidden')}</footer><script type="application/json" id="state" nonce="${e(nonce)}">${json({ ...state, labels: text, locale })}</script><script nonce="${e(nonce)}">${clientSource()}</script></body></html>`;
+    return `<!doctype html><html lang="${e(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${e(text.title)}</title><style nonce="${e(nonce)}">${css}</style></head><body><header><h1>${e(text.title)}</h1><p class="badge ${launchable ? 'ready' : 'waiting'}">${e(state.readiness)}</p><nav>${['en', 'pt-BR'].map(lang => `<a href="?token=${e(encodeURIComponent(token))}&amp;locale=${lang}">${lang}</a>`).join(' · ')}</nav>${button('close', text.close)}</header><main>${tabBar}${panels}<section id="review" tabindex="-1" hidden><pre id="changes"></pre>${button('apply', text.apply)}${button('cancel', text.cancel)}</section></main><footer class="action-bar"><p id="error" role="alert"></p><p id="status" role="status" aria-live="polite" class="status"></p>${button('review', text.save)}${button('reload', text.reload, 'id="reload" hidden')}</footer><script type="application/json" id="state" nonce="${e(nonce)}">${json({ ...state, labels: text, locale, ...extraState })}</script><script nonce="${e(nonce)}">${client ?? clientSource()}</script></body></html>`;
   }
   return renderDocument();
 }

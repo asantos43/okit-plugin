@@ -26,8 +26,10 @@ import { STATUSLINE_FILE } from '../quota/statusline-collector.js';
  * @property {object[]} releases Pinned assets and integrity evidence.
  * @property {object[]} mutations Typed paths, argv and redacted diffs, never executable shell strings.
  * @property {object[]} fingerprints Re-observable input hashes and metadata.
- * @property {object[]} deferred Follow-up consent or observations still required.
- * @property {boolean} reviewable False when consent would be incomplete.
+ * @property {object[]} deferred Own-consent followups (`followup: true`), declared
+ * apply-time observations (`resolvedAtApply`, exact argv and decision rule), or
+ * unresolved core effects (`requiresObservation`) which still block consent.
+ * @property {boolean} reviewable Core effects are declared, exit is zero and no ownership conflict exists.
  */
 
 const hash = (value) => createHash('sha256').update(value).digest('hex');
@@ -146,7 +148,8 @@ export async function buildInstallPlan(command, args, ctx, io = {}) {
     }
   }
   plan.mutations = [...new Map(plan.mutations.map((item) => [JSON.stringify(item), item])).values()];
-  plan.reviewable = plan.exitCode === 0 && !plan.conflicts.length && !plan.deferred.some((item) => item.requiresObservation);
+  plan.reviewable = plan.exitCode === 0 && !plan.conflicts.length
+    && !plan.deferred.some((item) => item.requiresObservation && !item.followup && !item.resolvedAtApply);
   plan.fingerprints = [...plan.fingerprints, ...inputs.values(),
     { kind: 'environment', value: environmentIdentity(ctx.env ?? {}) },
   ];
@@ -230,11 +233,11 @@ export async function collectClientPlan(plan, { command, flags, selected, local,
       }
     }
   }
-  plan.deferred.push({ kind: 'setup', optional: true, requiresObservation: true,
+  plan.deferred.push({ kind: 'setup', optional: true, followup: true,
     path: join(deps.root, 'config.json'), keys: ['profiles', 'limits.clients', 'setup.detected', 'setup.done.profiles'] });
   if (deps.platform === deps.config.windowsPlatform && !flags['no-execution-policy']) {
     plan.deferred.push({ kind: 'policy', optional: !flags['set-execution-policy'],
-      scope: 'CurrentUser', before: null, after: 'RemoteSigned', requiresObservation: true });
+      scope: 'CurrentUser', before: null, after: 'RemoteSigned', followup: true });
   }
   await registrationInventory({ plan, flags, record, current, accounts, action, replacing, named, add, deps });
   if (!flags.check) auxiliaryInventory({ plan, flags, record, accounts, action, replacing, add, deps });
@@ -266,7 +269,8 @@ function auxiliaryInventory({ plan, flags, record, accounts, action, replacing, 
       add({ kind: 'account-collector', account: account.id, path, conditional: true });
       add({ kind: 'account-collector-metadata', path: join(deps.root, 'quota', `collector-${record.client}.${account.id}.json`), conditional: true });
       add({ kind: 'account-collector-temporary', path: `${path}.*.tmp`, temporary: true, conditional: true });
-      plan.deferred.push({ kind: 'account-collector', account: account.id, path, requiresObservation: true });
+      plan.deferred.push({ kind: 'account-collector', account: account.id, path, followup: true,
+        writes: ['statusline', 'collector-metadata'] });
     }
   }
 }
@@ -284,7 +288,8 @@ export async function collectRetainedPlan(plan, current, flags, deps, accounts) 
     if (!panel) return;
     add({ kind: 'panel-command', ...panel, optional: false, conditional: true });
     plan.deferred.push({ kind: 'panel-list', command: panel.command,
-      args: ['plugin', 'list', '--json'], requiresObservation: true });
+      args: ['plugin', 'list', '--json'], resolvedAtApply: true,
+      decision: { whenPresent: 'skip', whenAbsent: 'install-panel', invalid: 'refuse' } });
   } else {
     const record = { ...current.previous, link: current.link, autostart: current.autostart,
       previous: current, ...(current.panel ? { panel: current.panel } : {}) };
@@ -322,7 +327,9 @@ async function registrationInventory({ plan, flags, record, current, accounts, a
       add({ kind: 'mcp', account: id, ...mcp,
         ownership: 'observe-before-apply', conflictPolicy: 'preserve-foreign' });
       plan.deferred.push({ kind: 'mcp-ownership', client: record.client, account: id,
-        observation: mcp.get, requiresObservation: true });
+        command: mcp.get[0], args: mcp.get.slice(1), resolvedAtApply: true,
+        decision: { ownedAtConfiguredScope: 'replace', absent: 'register', foreign: 'preserve',
+          unscopedExisting: 'preserve', ambiguous: 'preserve', invalid: 'refuse' } });
     }
     if (!flags.check && appliesStatusline(record, flags, account)) {
       const bar = await planStatusline(current ?? record, account).catch(() => {
@@ -359,7 +366,7 @@ async function registrationInventory({ plan, flags, record, current, accounts, a
       }
     }
     const panel = panelProposal(record, flags, account);
-    if (panel && action === 'install') plan.deferred.push({ kind: 'panel', ...panel });
+    if (panel && action === 'install') plan.deferred.push({ kind: 'panel', ...panel, followup: true });
     const held = panelOf(current, account);
     if (held && action === 'update' && replacing) add({ kind: 'panel-command', account: id,
       command: deps.config.clients[record.client].executable, args: ['plugin', 'update', held.identity, '--scope', 'user'] });
@@ -386,10 +393,11 @@ async function sharedInventory({ plan, flags, record, current, action, replacing
       }
     }
     for (const item of await pathProposal(deps)) {
-      const change = { ...item, before: diffText(item.before), after: diffText(item.after) };
+      const change = { ...item, before: item.before === null ? null : diffText(item.before),
+        after: item.after === null ? null : diffText(item.after) };
       add(change);
       if (item.conflict) plan.conflicts.push({ kind: 'foreign-profile-block', path: item.path });
-      if (item.requiresObservation) plan.deferred.push({ kind: item.kind, requiresObservation: true });
+      if (item.requiresObservation || item.resolvedAtApply) plan.deferred.push({ ...item });
     }
     add({ kind: 'path-state', path: join(deps.destination, deps.config.path.stateFile) });
   }

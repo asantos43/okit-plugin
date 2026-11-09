@@ -332,6 +332,8 @@ export const TEXTS = Object.freeze({
 // A pattern matches the whole reason and its captures fill $1..; a reason that
 // matches none is shown as raised. The tests walk this table and the raise sites.
 export const REASONS = [
+  [/^(--ui|--headless) and --terminal cannot be combined$/, '$1 e --terminal não podem ser combinadas', '--ui and --terminal cannot be combined'], // locale:pt-BR
+  [/^Model is not confirmed by the client; confirm this change explicitly\.$/, 'O modelo não foi confirmado pelo cliente; confirme esta alteração explicitamente.', 'Model is not confirmed by the client; confirm this change explicitly.'], // locale:pt-BR
   [/^Invalid install request\.$/, 'Solicitação de instalação inválida.', 'Invalid install request.'], // locale:pt-BR
   [/^Install cancelled at a safe boundary\.$/, 'Instalação cancelada entre etapas seguras.', 'Install cancelled at a safe boundary.'], // locale:pt-BR
   [/^Install lock held; close the other installer and review again\.$/, 'Instalação bloqueada; feche o outro instalador e revise novamente.', 'Install lock held; close the other installer and review again.'], // locale:pt-BR

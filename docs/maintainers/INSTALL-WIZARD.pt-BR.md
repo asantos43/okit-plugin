@@ -161,6 +161,7 @@ Usar `node:test` e adaptadores injetados de arquivos/processos/navegador/relógi
 
 - Adicionar contratos de servidor junto dos testes existentes de config UI; exercitar autorização sem bind quando sandbox proibir loopback. Depois rodar contratos HTTP reais em ambiente que permita `127.0.0.1`.
 - Recomendação de navegador: um cenário de aceitação com Playwright usando runner/navegador já disponível, sem dependência no pacote. Custo: manter um cenário e provisionar navegador no verificador; se indisponível localmente, manter testes DOM/contrato e aceitação pelo Diretor até aprovar runner CI. Cobrir prévia/aplicação por teclado, reconexão, idioma, transição e rejeição de requisições externas da página.
+- **Cenário de navegador (D151):** `node scripts/acceptance/install-wizard.playwright.mjs` inicia `install --headless` em um HOME descartável e conduz a URL impressa com um Playwright já instalado (`PLAYWRIGHT_MODULE` indica um; sem dependência no repositório). Verifica revisão e Apply só pelo teclado, recarga que reconecta o job, troca de idioma e que qualquer requisição a host não loopback derruba a execução. Sem runner ou navegador imprime `not run: ...` e sai com 0. Fica fora de `test/`, então `node --test` nunca o coleta; o Diretor o executa.
 - Aceitação do instalador em contêiner: manter a **execução Podman de instaladores do projeto**, com HOME/estado isolados, shims de clientes e fixtures offline de release. Exercitar fallback Unix padrão/sem display, `--terminal`, `--ui --headless`, recusas de requisitos/checksum, reparo repetido e ausência de escritas antes do consentimento. Não publicar porta do host nos casos de terminal.
 - O comando/imagem exatos do harness Podman existente não foram identificados no conjunto de fontes permitido; o Diretor deve anexar a invocação do projeto e resultados antes de aceitar fatias de bootstrap. Não substituir por harness inventado nem alegar prova Windows com contêiner Linux.
 
@@ -214,6 +215,44 @@ não podem restaurar acidentalmente interação de terminal no lançador Windows
 1. **Aliases:** os aliases `update` e `uninstall` encaminham diretamente ao Node, sem menus; anunciar depreciação antes de qualquer remoção, sobretudo no Windows.
 2. **Aceitação em navegador:** reusar runner Playwright disponível, sem nova dependência no repositório; o Diretor assume a aceitação em navegador até a aprovação de um runner de CI.
 3. **Bootstrap comum:** manter os artefatos verificados por cliente; avaliar bootstrap comum somente se a auditoria da fatia 1 provar necessário.
+
+### Contrato compartilhado do backend da fatia 3
+
+O núcleo é revisável com código de saída zero, sem conflitos de propriedade e sem
+efeitos do núcleo não declarados. `deferred` distingue itens com consentimento
+próprio `followup: true` (setup, política, coletores de contas, painel) de observações
+com `resolvedAtApply: true`, comando/argv exatos e regra de decisão (propriedade MCP,
+listagem de plugins, PATH de usuário Windows). Nenhum bloqueia a revisão do núcleo.
+Um `requiresObservation` sem classificação continua bloqueando. Fingerprints ainda
+detectam mudanças nas entradas. Apply usa `deferFollowups` e nunca executa essas
+gravações com consentimento próprio.
+
+`POST /api/install/followup-plan` recebe `{jobId, kind, client}`. Setup exige ainda
+`expectedMtime` (número/null) e `profiles: [{class, model, effort, confirm?}]`;
+classes são simple/normal/hard. Retorna `{followupId, jobId, preview}`. Modelos
+desconhecidos exigem `confirm: true` literal; esforços usam as regras do cliente.
+`POST /api/install/followup` recebe `{jobId, kind, followupId, consent: true,
+idempotencyKey}`. Escolhas ficam vinculadas à prévia, sem reenvio no Apply.
+
+Kinds formam lista fechada: setup, panel, policy. Só um cliente `ok` do job atual
+é elegível. Painel exige ainda instalação Claude registrada e usa `panelCommand`;
+política Windows usa a etapa CurrentUser existente e preserva política de grupo.
+Setup usa o gravador de configuração em lote travado com `expectedMtime`, sem mudar
+`setup.done`; a evidência de conclusão continua sob responsabilidade de `runSetup`.
+Contas/login mantêm suas rotas; execução do followup account-collector não é exposta
+nesta fatia. Operações de núcleo repair/somente modelos não foram adicionadas.
+O schema do plano de núcleo continua aceitando somente install/update.
+
+Ambas as rotas usam autorização, limites JSON e redação existentes. Planos mantêm
+limites de TTL/quantidade; execução reconfere a proposta sob a trava da raiz.
+Só um followup roda por vez. Mesma chave/prévia retorna a mesma operação; prévias
+alteradas, expiradas, consumidas ou de job anterior são recusadas. Cancelar espera
+um checkpoint, preserva gravações concluídas e nunca as reverte. Poll retorna
+`followups` limitados com estado/resultado/completed/remaining; o resultado do núcleo
+inclui `clients: [{client, state, reason?}]` (ok/failed/skipped/cancelled). A execução
+do núcleo ainda para na primeira falha; sucessos anteriores permanecem visíveis.
+`test/config-ui-install-wizard.test.js` exercita o backend com adaptadores injetados.
+Telas iniciais, opções de CLI e aceitação em navegador ficam para a próxima rodada.
 
 ### Auditoria dos artefatos
 
