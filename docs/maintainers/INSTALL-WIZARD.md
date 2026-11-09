@@ -161,6 +161,7 @@ Use `node:test` and injected fs/process/browser/clock adapters; no new runtime d
 
 - Add server contract cases beside existing config UI tests; exercise request authorization without binding where sandbox forbids loopback. Then run real HTTP contracts in an environment permitting `127.0.0.1`.
 - Browser recommendation: one Playwright-driven acceptance scenario using an already available runner/browser, no package dependency. Cost: maintain one scenario plus browser provisioning in the verifier; if unavailable locally, keep DOM/contract tests and Director browser acceptance until a CI runner is approved. Cover keyboard-only preview/apply, reconnect, locale, hand-off, and reject external page requests.
+- **Browser scenario (D151):** `node scripts/acceptance/install-wizard.playwright.mjs` starts `install --headless` in a scratch HOME and drives the printed URL with an already installed Playwright (`PLAYWRIGHT_MODULE` names one; no repository dependency). It checks keyboard-only review and Apply, reload reconnecting the job, the language switch and that any request to a non-loopback host fails the run. With no runner or browser it prints `not run: ...` and exits 0. It lives outside `test/`, so `node --test` never collects it; the Director runs it.
 - Installer container acceptance: retain the project's **Podman installer run**, with isolated HOME/state/client shims and offline release fixtures. Exercise Unix default/no-display fallback, `--terminal`, `--ui --headless`, requirements/checksum refusals, repeat repair and no writes before consent. Do not publish a host port for terminal cases.
 - The exact existing Podman harness command/image is not identified in the permitted source set; Director must attach that project's invocation and results before accepting bootstrap slices. Do not substitute a newly invented container harness or claim Windows proof from Linux containers.
 
@@ -214,6 +215,43 @@ not accidentally restore terminal interaction to the Windows launcher.
 1. **Aliases:** `update` and `uninstall` aliases forward directly to Node, with no menus; announce deprecation before any removal, especially on Windows.
 2. **Browser acceptance:** reuse an available Playwright runner, with no new repository dependency; the Director owns browser acceptance until a CI runner is approved.
 3. **Common bootstrap:** keep the verified per-client assets; evaluate a common bootstrap only if the slice-1 audit proves it necessary.
+
+### Slice 3 shared backend contract
+
+The core plan is reviewable when its exit code is zero, ownership conflicts are
+absent and no undeclared core effect remains. `deferred` distinguishes own-consent
+`followup: true` items (setup, policy, account collectors, panel) from observations
+with `resolvedAtApply: true`, exact command/argv and a decision rule (MCP ownership,
+plugin listing, Windows user PATH). Neither blocks core review. An unclassified
+`requiresObservation` still blocks it. Fingerprints still detect input drift.
+Core Apply uses `deferFollowups` and never executes these own-consent writes.
+
+`POST /api/install/followup-plan` takes `{jobId, kind, client}`. Setup additionally
+requires `expectedMtime` (number/null) and `profiles: [{class, model, effort, confirm?}]`;
+classes are simple/normal/hard. It returns `{followupId, jobId, preview}`. Unknown
+models require literal `confirm: true`; efforts use the existing client rules.
+`POST /api/install/followup` takes `{jobId, kind, followupId, consent: true,
+idempotencyKey}`. Choices are bound to the preview, not resubmitted at Apply.
+
+Kinds are closed: setup, panel, policy. Only an `ok` client of the current job is
+eligible. Panel additionally requires Claude's registered installation and uses
+`panelCommand`; Windows policy uses the existing CurrentUser step and preserves
+group policy. Setup uses the locked configuration batch writer with `expectedMtime`,
+leaving `setup.done` unchanged; completion evidence remains owned by `runSetup`.
+Accounts/login keep their existing routes; account-collector followup execution
+is not exposed by this slice. Repair/model-only core operations are not added.
+The core plan schema still accepts only install/update.
+
+Both routes use the existing authorization, JSON limits and redaction. Plans have
+the same TTL/count limits; execution rechecks the proposal under the root lock.
+One followup runs at a time. Same key/preview returns the same operation; changed,
+expired, consumed or previous-job previews refuse. Cancel waits for a checkpoint,
+preserves completed writes and never rolls them back. Poll snapshots expose bounded
+`followups` with their state/result/completed/remaining, while the core result has
+`clients: [{client, state, reason?}]` (ok/failed/skipped/cancelled). Core execution
+still stops at the first failed client; previous successes remain visible.
+`test/config-ui-install-wizard.test.js` exercises this backend with injected adapters.
+First-run screens, CLI flags and browser acceptance remain for the next round.
 
 ### Asset audit
 

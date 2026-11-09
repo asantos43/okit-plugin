@@ -274,7 +274,12 @@ export async function pathProposal(deps) {
     const before = deps.windowsUserPath ?? null;
     return [{ kind: 'windows-user-path', variable: config.path.windowsVariable, before,
       after: before === null ? null : before.split(';').some((part) => part.toLowerCase() === bin.toLowerCase())
-        ? before : [before, bin].filter(Boolean).join(';'), requiresObservation: before === null }];
+        ? before : [before, bin].filter(Boolean).join(';'),
+      ...(before === null ? { resolvedAtApply: true,
+        command: config.path.windowsExecutable,
+        args: ['-NoProfile', '-NonInteractive', '-Command',
+          `[Environment]::GetEnvironmentVariable(${powershellLiteral(config.path.windowsVariable)},'User')`],
+        decision: { containsBinCaseInsensitive: 'unchanged', otherwise: 'append-bin', bin } } : {}) }];
   }
   if (binInPath(deps)) return [];
   const shell = currentShell(deps.env, config) ?? config.path.fallbackShell;

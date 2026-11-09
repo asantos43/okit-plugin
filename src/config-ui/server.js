@@ -33,7 +33,7 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
   modelTimeoutMs = 5000, closeGraceMs = 3000, detect = detectClients, observe, signals = process,
   platform = process.platform, launchLogin = launchAccountLogin, background = false,
   loginTimeoutMs = LOGIN_TIMEOUT_MS, loginSpawn, quotaRead = requestQuotaRead,
-  install = {}, createServer = http.createServer } = {}) {
+  install = {}, firstRun = null, createServer = http.createServer } = {}) {
   const token = randomBytes(32).toString('hex');
   const jobs = createInstallJobs({ ...install, root, env, platform, locale, token,
     run: install.run ?? (async ({ command, args, env: childEnv, ...options }) => {
@@ -190,10 +190,11 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
       '/api/account-login/status': 'POST', '/api/account-login/cancel': 'POST', '/api/account-logout': 'POST',
       '/api/models/refresh': 'POST', '/api/close': 'POST', '/api/keepalive': 'POST' };
     Object.assign(routes, { '/api/install/plan': 'POST', '/api/install/apply': 'POST',
-      '/api/install/job': 'GET', '/api/install/answer': 'POST', '/api/install/cancel': 'POST' });
+      '/api/install/job': 'GET', '/api/install/answer': 'POST', '/api/install/cancel': 'POST',
+      '/api/install/followup-plan': 'POST', '/api/install/followup': 'POST' });
     if (!Object.hasOwn(routes, url.pathname)) throw fail(404, 'Not found.');
     if (request.method !== routes[url.pathname]) throw fail(405, 'Method not allowed.');
-    if (url.pathname === '/') return page(response, url.searchParams.get('locale'));
+    if (url.pathname === '/') return page(response, url.searchParams.get('locale'), request.headers['x-okit-instance']);
     if (url.pathname === '/api/state') return send(response, 200, await state(url.searchParams.get('locale') ?? locale));
     if (url.pathname === '/api/install/job') {
       const cursor = url.searchParams.get('after') ?? '0';
@@ -325,12 +326,23 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
     });
     send(response, 200, { client: input.client, id: input.id, label: redact(input.label) });
   }
-  async function page(response, requestedLocale) {
+  async function page(response, requestedLocale, existingInstance) {
+    if (existingInstance !== undefined && existingInstance !== activeInstance) throw fail(409, 'Session is closing.');
     const nonce = randomBytes(18).toString('base64');
     const chosenLocale = ['en', 'pt-BR'].includes(requestedLocale) ? requestedLocale : locale;
     const pageState = await state(chosenLocale);
-    activeInstance = randomBytes(12).toString('hex');
-    const html = renderPage(pageState, { locale: chosenLocale, nonce, token, instance: activeInstance });
+    activeInstance = existingInstance ?? randomBytes(12).toString('hex');
+    const pageOptions = { locale: chosenLocale, nonce, token, instance: activeInstance };
+    let html;
+    if (firstRun) {
+      const [{ renderWizardPage }, { wizardState }] = await Promise.all([
+        import('./wizard-page.js'), import('./wizard-state.js')]);
+      const { raw } = await load();
+      const initial = await (install.wizardObserve ?? wizardState)({ root, env, platform,
+        options: firstRun.options ?? {}, io: { config: raw.install, ...install.io, locale: chosenLocale },
+        run: install.run ?? (async ({ command, args, ...options }) => run(command, args, options)) });
+      html = renderWizardPage(pageState, { ...pageOptions, wizard: safe({ ...initial, ...firstRun }) });
+    } else html = renderPage(pageState, pageOptions);
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8',
       'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
       'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store' });

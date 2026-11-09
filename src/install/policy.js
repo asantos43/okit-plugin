@@ -9,7 +9,7 @@ const execute = promisify(execFile);
 const SCOPES = ['MachinePolicy', 'UserPolicy', 'Process', 'CurrentUser', 'LocalMachine'];
 const GROUP = ['MachinePolicy', 'UserPolicy'];
 const BLOCKING = new Set(['Restricted', 'AllSigned', 'Undefined']);
-const LIST = "Get-ExecutionPolicy -List | ForEach-Object { '{0}={1}' -f $_.Scope, $_.ExecutionPolicy }";
+export const POLICY_LIST = "Get-ExecutionPolicy -List | ForEach-Object { '{0}={1}' -f $_.Scope, $_.ExecutionPolicy }";
 
 /** `Scope=Policy` lines to [[scope, policy]]. */
 export function parsePolicies(stdout) {
@@ -36,7 +36,7 @@ export async function executionPolicyStep(ui, flags, deps) {
   const shell = (args) => (deps.policyExecute ?? execute)(config.path.windowsExecutable, ['-NoProfile', '-NonInteractive', '-Command', ...args], { env: deps.env });
   const label = ui.text('policy');
   let judged;
-  try { judged = judgePolicy(parsePolicies((await shell([LIST])).stdout)); }
+  try { judged = judgePolicy(parsePolicies((await shell([POLICY_LIST])).stdout)); }
   catch (error) { ui.detail(`${label}: ${localizeReason(error.message, ui.locale)}`); return; }
   if (!judged.blocked) return;
   if (judged.group) return ui.row(label, 'skipped', ui.text('policyGroup'));

@@ -90,7 +90,7 @@ export function configKeysRead() {
     if (['src/config.js', 'src/config-schema.js', 'src/install/present.js', 'src/install/rules.js', 'src/install/bootstrap.js'].includes(file)) continue;
     const text = read(file);
     for (const match of text.matchAll(/(?<![.\w$/'"`])(config|userConfig|user)\??\.([A-Za-z_]\w*)(?![\w(])/g)) {
-      if (match[2] === 'json') continue; // the file name "config.json" in a message or a comment
+      if (match[2] === 'json' || match[2] === 'js') continue; // the file name "config.json" or the module "wizard-config.js" in a message, a comment or an import
       found.push({ key: match[2], name: match[1], file, line: lineOf(text, match.index) });
     }
   }
@@ -105,6 +105,8 @@ export function configReadsOutsideTheInventory() {
     if (known.has(key)) return false;
     if (SECTION_READERS.files[file]?.includes(key)) return false;
     if (file.startsWith('src/install/') && file !== 'src/install/index.js') return !install.has(key);
+    // The first-run observation reads the install section after installConfig: its keys must be INSTALL_SCHEMA fields.
+    if (file === 'src/config-ui/wizard-state.js') return !install.has(key);
     return !Object.keys(SECTION_READERS.prefixes).some((prefix) => file.startsWith(prefix));
   }).map(({ key, file, line }) => `${file}:${line} reads config.${key}`);
 }
@@ -157,6 +159,9 @@ const NAMES = ['no-such-name', '', ' ', 'a\nb'];
  * tried with no value after it ("missing value") and in the `--flag=value` form where the command accepts it.
  */
 export const FLAG_TABLE = Object.freeze([
+  { flag: '--ui', value: 'none', commands: ['install'], invalid: [] },
+  { flag: '--headless', value: 'none', commands: ['install'], invalid: [] },
+  { flag: '--terminal', value: 'none', commands: ['install'], invalid: [] },
   // config ui starts only a fixed system browser opener (one URL argv, shell:false); model refresh
   // uses the existing detection runner with a timeout and bounded output, never a command from the body.
   { flag: '--no-open', value: 'none', commands: ['configUi'], invalid: [] },
@@ -397,6 +402,8 @@ const STATE_OF_OTHER_COMMANDS = 'state of a command outside this inventory (I9 l
  * FILE_RULES row; `excluded` says why the file is not an input of this inventory.
  */
 export const READ_POINTS = Object.freeze([
+  { file: 'src/config-ui/wizard-state.js', arg: /^new URL\('\.\.\/\.\.\/package.json', import.meta.url\)$/, excluded: 'Package engines metadata belonging to the running program; read only for first-run requirements.' },
+  { file: 'src/config-ui/install-followups.js', arg: /^join\(ctx.root, 'config.json'\)$/, rule: CONFIG_JSON },
   { file: 'src/config-ui/install-jobs.js', arg: /^file$/, rule: 'install-job.lock (install ownership)' },
   { file: 'src/config-ui/install-jobs.js', arg: /^JSON.stringify\(value,/, excluded: 'Redacted in-memory job snapshot, not an external file or executable input.' },
   { file: 'src/quota/collector-registration.js', arg: /^(metadata\(ctx\.root, account\)|file)$/, rule: 'quota/collector-<client>.<id>.json (collector restoration metadata)' },
@@ -474,6 +481,9 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/core/config.js', arg: /^trimmed$/, excluded: 'the text of a `config set` value, a command-line argument; parseValue refuses what is not a value of its entry' },
   { file: 'src/config-ui/client.js', arg: /^doc\.getElementById\('state'\)\.textContent$/, excluded: 'the escaped JSON state embedded by the server, not a filesystem read; config-ui-page.test.js verifies round-trip safety' },
   { file: 'src/config-ui/client.js', arg: /^control\.value \|\| 'null'$/, excluded: 'a browser form value, not a filesystem read; parsed before review and validated by the server on save (config-ui-client.test.js)' },
+  { file: 'src/config-ui/wizard-client.js', arg: /^doc\.getElementById\('state'\)\.textContent$/, excluded: 'the escaped JSON state embedded by the server in the first-run page, not a filesystem read; test/config-ui-wizard-screens.test.js boots it in both locales' },
+  { file: 'src/config-ui/wizard-config.js', arg: /^(doc|parsed)\.getElementById\('state'\)\.textContent$/, excluded: 'the escaped JSON state of the page or of the server\'s own refreshed page (same origin, token and instance headers), not a filesystem read; refused with an error when the answer is not ok' },
+  { file: 'src/config-ui/wizard-config.js', arg: /^options\.body$/, excluded: 'the body the page\'s own config client is about to send, parsed only to ask the person to confirm a write; never a file and never sent elsewhere' },
   // Hooks and processes that read what the client hands them, not a file of the person.
   { file: 'src/hook-post-compact.js', arg: /^(file|typeof stdin|await readFile)/, excluded: 'the transcript file or the standard input a client hook hands to the program (a hook, not a command of this inventory); a reader that never stops' },
   { file: 'src/hook-session-start.js', arg: /^(raw|files\.(inbox|orders))$/, excluded: 'the standard input of a client hook and the orchestration state of other commands (inbox, orders)' },

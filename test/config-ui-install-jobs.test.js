@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import http from 'node:http';
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
@@ -184,6 +184,20 @@ test('stale, expired and incomplete plans refuse before writes and release locks
   const other = await fixture(t, { buildPlan: async (...args) => ({ ...await preview(...args), reviewable: false }) });
   const plan = await other.jobs.plan(requestPlan);
   await assert.rejects(other.jobs.apply(apply(plan.planId)), status(409));
+});
+// Must pass: the lock creating its own state folder (so the folder and its parent change) on a clean install.
+// Must refuse: any other fingerprint that changed once the lock is held.
+test('the lock creating its own folder does not make a clean first apply stale', async (t) => {
+  for (const [extra, ok] of [[[], true], [['/somewhere/else'], false]]) {
+    let locked = false, writes = 0;
+    const { root, jobs } = await fixture(t, {
+      lock: async () => { locked = true; return async () => {}; },
+      compare: async () => locked ? { matches: false, changed: [resolve(root), dirname(resolve(root)), ...extra] } : { matches: true },
+      execute: async () => { writes++; return 0; } });
+    const { planId } = await jobs.plan(requestPlan);
+    if (ok) { await jobs.apply(apply(planId)); await jobs.close(); assert.equal(writes, 1); }
+    else { await assert.rejects(jobs.apply(apply(planId)), (e) => e.status === 409 && e.code === 'stale-plan'); assert.equal(writes, 0); }
+  }
 });
 test('cancel finishes an in-flight atomic step and prevents the next step', async (t) => {
   const entered = deferred(), finish = deferred(); const writes = [];

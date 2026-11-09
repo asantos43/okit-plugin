@@ -163,7 +163,7 @@ export async function installerCommand(command, args, ctx, io = {}) {
         sharedLink: shared.some((record) => record.link), sharedAutostart: shared.some((record) => record.autostart),
       }, user, records[client]);
       results.push({ client, code });
-      if (code === 0 && ['install', 'update'].includes(command) && !deps.dryRun && !flags.check && !flags.rollback && !flags['no-statusline']) {
+      if (!io.deferFollowups && code === 0 && ['install', 'update'].includes(command) && !deps.dryRun && !flags.check && !flags.rollback && !flags['no-statusline']) {
         io.checkpoint?.('collectors');
         const collectors = await ensureSavedCollectors({ ...ctx, fs }, user, client);
         for (const collector of collectors) ui.note([collector.text, collector.detail, collector.reason].filter(Boolean).join(': '));

@@ -1241,7 +1241,7 @@ test('each pair of incompatible flags is refused in the chosen language', async 
       if (ALLOWED_FLAGS[command].includes(first) && ALLOWED_FLAGS[command].includes(second)) cases.push({ command, first, second });
     }
   }
-  assert.equal(cases.length, 5, 'check/rollback on update; statusline and execution-policy on install and update');
+  assert.equal(cases.length, 7, 'check/rollback on update; statusline and execution-policy on install and update; terminal with ui and with headless on install');
   for (const { command, first, second } of cases) {
     for (const [locale, head, next] of [
       ['en', `Refused: --${first} and --${second} cannot be combined`, '      Next: check the options and try again'],
@@ -1249,7 +1249,9 @@ test('each pair of incompatible flags is refused in the chosen language', async 
     ]) {
       const f = await fixture(t);
       assert.equal(await main([command, `--${first}`, `--${second}`, '--locale', locale], f.io), 2, `${command} ${first} ${second}`);
-      assert.deepEqual(f.output, [head, next], `${command} ${first} ${second} ${locale}`);
+      // The wizard flags are refused before the presenter starts: one plain, localized line, no "Next" line.
+      const expected = second === 'terminal' ? [`okit-plugin: ${head.replace(/^(Refused|Recusado): /, '')}`] : [head, next];
+      assert.deepEqual(f.output, expected, `${command} ${first} ${second} ${locale}`);
     }
   }
 });

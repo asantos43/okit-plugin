@@ -227,6 +227,14 @@ async function setupCommand(ctx, flags, io) {
 }
 
 async function presentInstaller(group, flags, ctx, io, stored) {
+  if (group === 'install' && flags.some((flag) => ['--ui', '--headless', '--terminal'].includes(flag))) {
+    const options = flagsOf(group, separateLocale(flags));
+    if (options.ui || options.headless) {
+      const { installUiCommand } = await import('./config-ui/wizard-cli.js');
+      return installUiCommand(ctx, options, io, openConfigBrowser);
+    }
+    flags = flags.filter((flag) => flag !== '--terminal');
+  }
   const invoke = (extra = {}) => installerCommand(group, flags, ctx, { ...io, ...installerLifecycle(ctx, io), ...extra });
   // Machine/usage refusals are handled by the existing parser, byte for byte.
   if (io.ui || flags.includes('--json')) return invoke();

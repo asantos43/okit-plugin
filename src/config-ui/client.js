@@ -313,5 +313,5 @@ export function clientMain(win, slugify = accountSlug, proposeFolder = proposedA
   });
 }
 
-export const clientSource = () => '(' + clientMain.toString()
-  + ')(window, ' + accountSlug.toString() + ', ' + proposedAccountFolder.toString() + ')';
+export const clientSource = (windowName = 'window') => '(' + clientMain.toString()
+  + ')(' + windowName + ', ' + accountSlug.toString() + ', ' + proposedAccountFolder.toString() + ')';

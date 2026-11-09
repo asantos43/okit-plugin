@@ -1,10 +1,11 @@
 import * as fs from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { buildInstallPlan, compareInstallFingerprints } from '../install/plan.js';
 import { installerCommand } from '../install/index.js';
 import { createStructuredPresenter, localizeReason, redact } from '../install/present.js';
 import { UsageError } from '../install/exit.js';
+import { createFollowupJobs } from './install-followup-jobs.js';
 
 const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const id = (v) => typeof v === 'string' && /^[\w-]{1,128}$/.test(v);
@@ -103,6 +104,8 @@ export function createInstallJobs({ root, env = process.env, platform = process.
   }).split(token || '\0').join('[redacted]'));
   const ctx = { root, env, platform, run, command: 'okit-plugin', now, fs: io.fs ?? fs,
     write: io.write, writeConfig: io.writeConfig };
+  const followups = createFollowupJobs({ getJob: () => current, busy: () => active() || current?.running, ctx,
+    io, lock, clean, event, fail: installError, now, ttl: planTtlMs, limit: maxPlans, maxRuns: maxJobs, locale });
   function event(job, value) {
     job.events.push(clean({ ...value, seq: ++job.seq }));
     if (job.events.length > maxEvents) job.events.shift();
@@ -110,7 +113,8 @@ export function createInstallJobs({ root, env = process.env, platform = process.
   const prune = () => {
     for (const [key, entry] of plans) if (entry.expires <= now()) plans.delete(key);
   };
-  const active = () => applying || current?.state === 'applying' || current?.state === 'waiting';
+  const active = () => applying || current?.state === 'applying'
+    || current?.state === 'waiting' || followups.active();
   async function plan(input) {
     shape(input, ['operation', 'clients', 'options']);
     const { operation, clients, options = {} } = input;
@@ -152,7 +156,7 @@ export function createInstallJobs({ root, env = process.env, platform = process.
     return clean({ jobId: job.id, state: job.state, seq: job.seq, fullSnapshot,
       events: job.events.filter((e) => fullSnapshot || e.seq > after), question: job.question,
       cancelRequested: Boolean(job.cancel), currentStep: { client: job.client ?? null, stage: job.step ?? null },
-      completed: job.completed, remaining: job.remaining, result: job.result });
+      completed: job.completed, remaining: job.remaining, result: job.result, followups: job.followups });
   }
   function checkpoint(job, step) {
     if (job.step && !['client', 'question', 'answer'].includes(job.step)) {
@@ -165,7 +169,8 @@ export function createInstallJobs({ root, env = process.env, platform = process.
     job.step = step;
   }
   function cancel() {
-    if (current && active()) {
+    followups.cancel();
+    if (current && ['applying', 'waiting'].includes(current.state)) {
       current.cancel = true;
       current.resolveAnswer?.(false);
     }
@@ -209,6 +214,7 @@ export function createInstallJobs({ root, env = process.env, platform = process.
       for (const entry of approved.entries) {
         checkpoint(job, 'client');
         job.client = entry.plan.clients[0]?.client;
+        const outcome = job.clients.find((row) => row.client === job.client);
         const ui = createStructuredPresenter({ locale });
         // Stream typed presenter events into bounded job history; retain no second event buffer.
         ui.events.push = (...values) => { values.forEach((v) => event(job, v)); return 0; };
@@ -219,17 +225,27 @@ export function createInstallJobs({ root, env = process.env, platform = process.
           runContext,
           { ...io, ...lifecycle, ui, tty: false, deferFollowups: true, read: unsupported, ask: unsupported,
             question: (proposal) => question(job, proposal), checkpoint: (step) => checkpoint(job, step) });
-        if (code !== 0) { job.state = job.cancel ? 'cancelled' : 'failed'; break; }
+        if (code !== 0) {
+          outcome.state = job.cancel ? 'cancelled' : 'failed';
+          job.state = job.cancel ? 'cancelled' : 'failed'; break;
+        }
+        outcome.state = 'ok';
         checkpoint(job, null);
       }
       if (job.state === 'applying') job.state = job.cancel ? 'cancelled' : 'succeeded';
     } catch (error) {
       job.state = job.cancel ? 'cancelled' : 'failed';
+      const outcome = job.clients.find((row) => row.client === job.client);
+      if (outcome && outcome.state !== 'ok') {
+        outcome.state = job.cancel ? 'cancelled' : 'failed';
+        outcome.reason = localizeReason(error.message, locale);
+      }
       event(job, { stage: 'result', client: null, status: job.state,
         messageKey: 'install-failed', params: { reason: localizeReason(error.message, locale) } });
     } finally {
       job.question = null;
-      job.result = clean({ state: job.state, completed: job.completed, remaining: job.remaining });
+      job.result = clean({ state: job.state, clients: job.clients,
+        completed: job.completed, remaining: job.remaining });
       try { await release(); }
       catch (error) {
         job.state = 'failed';
@@ -237,6 +253,7 @@ export function createInstallJobs({ root, env = process.env, platform = process.
       }
       event(job, { stage: 'result', client: null, status: job.state,
         messageKey: 'install-result', params: job.result });
+      job.running = false;
     }
   }
   async function startApply(input) {
@@ -256,13 +273,21 @@ export function createInstallJobs({ root, env = process.env, platform = process.
       prune();
       const approved = plans.get(input.planId);
       if (!approved) throw installError(409, 'stale-plan');
-      release = await lock(root);
+      // Everything is compared before the lock; the lock may create its own folder (and so change that folder's
+      // listing and its parent's), so after it only changes outside those two paths can make a plan stale.
       for (const entry of approved.entries) {
         if (!(await compare(entry.plan, { ...io, env })).matches) throw installError(409, 'stale-plan');
       }
+      release = await lock(root);
+      const lockPaths = new Set([resolve(root), dirname(resolve(root))]);
+      for (const entry of approved.entries) {
+        const { changed = [] } = await compare(entry.plan, { ...io, env });
+        if (changed.some((path) => !lockPaths.has(path))) throw installError(409, 'stale-plan');
+      }
       if (!approved.plan.reviewable) throw installError(409, 'Install preview is incomplete; review again.');
       if (closing) throw cancelled();
-      current = { id: randomUUID(), planId: input.planId, state: 'applying', events: [], seq: 0,
+      current = { id: randomUUID(), planId: input.planId, state: 'applying', running: true, events: [], seq: 0,
+        clients: approved.entries.map((entry) => ({ client: entry.plan.clients[0]?.client, state: 'skipped' })), followups: [],
         completed: [], remaining: approved.entries.flatMap((e) => e.plan.events
           .filter((v) => v.stage === 'sequence').flatMap((v) => v.params.keys
             .map((key) => `${e.plan.clients[0]?.client}:${key}`))), question: null, result: null };
@@ -288,9 +313,11 @@ export function createInstallJobs({ root, env = process.env, platform = process.
     return promise;
   }
   return { plan, apply, answer, cancel, snapshot, active,
+    'followup-plan': followups.plan, followup: followups.apply,
     async close() {
       closing = true; cancel();
       await Promise.allSettled([...pending.values()].map((p) => p.promise));
       cancel(); await current?.done;
+      await followups.close();
     } };
 }
