@@ -52,6 +52,7 @@ for (const locale of LOCALES) for (const operation of ['install', 'update']) {
     const start = output.findIndex((line) => line.trim() === (pt ? 'Notas' : 'Notes')); // locale:pt-BR
     const end = output.findIndex((line) => line.trim() === (pt ? 'Próximo' : 'Next')); // locale:pt-BR
     assert.ok(start >= 0 && end > start, output.join('\n'));
+    if (operation === 'install') assert.ok(output.includes(pt ? 'Pronto.' : 'Done.'), output.join('\n')); else assert.ok(!output.includes(pt ? 'Pronto.' : 'Done.')); // locale:pt-BR
     const notes = output.slice(start + 1, end).filter(Boolean);
     assert.ok(notes.every((line) => /^ {2}\S/.test(line)), notes.join('\n'));
     assert.ok(notes.includes('  First note') && notes.includes('  Continued note'));
@@ -474,7 +475,8 @@ function retainedEvidence(locale, platform, update = false) {
     pt ? '  Modelos  -  ainda não definidos. Rode: okit-plugin setup' : '  Models  -  not set yet. Run: okit-plugin setup', '',
     pt ? '  OKit (opcional)  -  não encontrado. Só é necessário para o fluxo de orquestração do OKit: INSTALL.pt-BR.md#kit-de-orquestração'
       : '  OKit (optional)  -  not found. Needed only for the OKit orchestration workflow: INSTALL.md#orchestration-kit', '',
-    pt ? 'Instalado para Claude Code. Falta confirmar os modelos.' : 'Installed for Claude Code. Model choices still need confirmation.', '',
+    pt ? 'Instalado para Claude Code. Falta confirmar os modelos.' : 'Installed for Claude Code. Model choices still need confirmation.',
+    pt ? 'Pronto.' : 'Done.', '',
     pt ? 'Notas' : 'Notes', pt ? '  Verifique a instalação: okit-plugin doctor --client claude-code' : '  Check the installation: okit-plugin doctor --client claude-code', '',
     pt ? 'Próximo' : 'Next', ...(windows ? [pt ? 'Execute agora:' : 'Run this now:', HINT('<bin>'), pt ? 'ou abra um terminal novo' : 'or open a new terminal']
       : [pt ? 'Abra um terminal novo.' : 'Open a new terminal.']),
@@ -1230,8 +1232,17 @@ test('every message in the bootstrap has a pt-BR side that differs from English'
   }
   // A refusal that skips t() must carry both languages itself, except what a child process printed.
   for (const [, rest] of code.matchAll(/\bfail\((?!t\()([^\n]*)/g)) {
-    assert.ok(rest.includes(' / ') || rest.startsWith('result.stderr'), `bootstrap: untranslated refusal fail(${rest}`);
+    // The routing texts come from route.js, which has both languages (checked below: they differ, key by key).
+    assert.ok(rest.includes(' / ') || rest.startsWith('result.stderr') || /^routing\.routeReason\(language, '[\w-]+'\)\);?$/.test(rest), `bootstrap: untranslated refusal fail(${rest}`);
   }
+});
+
+test('the routing texts of the bootstrap exist in both languages and differ', async () => {
+  const { ROUTE_TEXT } = await import('../src/install/route.js');
+  assert.deepEqual(Object.keys(ROUTE_TEXT['pt-BR']), Object.keys(ROUTE_TEXT.en));
+  for (const key of Object.keys(ROUTE_TEXT.en)) assert.notEqual(ROUTE_TEXT['pt-BR'][key], ROUTE_TEXT.en[key], key);
+  const code = await source('bootstrap.js');
+  for (const [, key] of code.matchAll(/routing\.routeReason\(language, '([\w-]+)'\)/g)) assert.ok(Object.hasOwn(ROUTE_TEXT.en, key), key);
 });
 
 test('each pair of incompatible flags is refused in the chosen language', async (t) => {
@@ -1670,4 +1681,20 @@ quotaColorTest('doctor renders colored account-policy quota percentages and leav
   const plain = render({ isTTY: false, env: {} });
   quotaAssert.equal(render({ isTTY: true, env: { NO_COLOR: '' } }), plain);
   quotaAssert.equal(render({ isTTY: true, env: {} }), plain.replace('12%', '\x1b[31m12%\x1b[0m'));
+});
+
+for (const locale of LOCALES) test(`the terminal installer ends an install with Done. and tells failures on the error stream: ${locale}`, () => {
+  const pt = locale === 'pt-BR', done = pt ? 'Pronto.' : 'Done.';
+  const run = (observe, result) => {
+    const out = [], err = [], view = createInstallerView({ operation: 'install', command: 'okit-plugin', locale, write: (line) => out.push(line), writeErr: (line) => err.push(line) });
+    observe(view.ui); view.finish(result);
+    return { out, err };
+  };
+  const ok = run((ui) => ui.header({ client: 'Codex', version: '0.3.0' }), { code: 0, client: 'codex', after: { codex: { version: '0.3.0', link: true } } });
+  assert.ok(ok.out.includes(done), ok.out.join('\n'));
+  assert.deepEqual(ok.err, []);
+  const refused = run((ui) => { ui.header({ client: 'Codex', version: '0.3.0' }); ui.failure({ step: ui.text('link'), reason: ui.text('linkConflict', { path: '/x/okit-plugin' }) }); }, { code: 1, client: 'codex' });
+  assert.match(refused.err.join('\n'), pt ? /não é o comando do plugin\. Renomeie ou remova esse comando/ : /is not the plugin command\. Rename or remove it/); // locale:pt-BR
+  assert.ok(!refused.out.join('\n').includes(done));
+  assert.doesNotMatch(refused.out.join('\n'), /Rename or remove|Renomeie ou remova/);
 });

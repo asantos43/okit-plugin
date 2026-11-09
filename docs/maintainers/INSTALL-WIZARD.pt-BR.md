@@ -30,6 +30,7 @@ As regras de instalação ficam em `src/install`; o navegador envia escolhas e m
 | Download Linux/macOS | Execute `sh install.sh`; padrão: verificar/baixar pacote, conferir requisitos, abrir assistente. |
 | Instalador shell alternativo | `sh install.sh --terminal`; mesmo instalador Node e presenter de terminal testado. |
 | Forçar navegador | `sh install.sh --ui`; nunca trocar silenciosamente para terminal. |
+| Roteamento (fatia 4, implementada) | Sem opção, `install.sh` escolhe o cliente sem perguntar (`--client`, `OKIT_CLIENT`, registro instalado, senão o primeiro cliente instalado na ordem configurada), decide a rota antes de baixar (`src/install/route.js`, função pura `chooseRoute`), imprime o motivo e executa `install --ui --auto` ou o instalador de terminal. `--auto` é interno: se o abridor não inicia, o servidor fecha (nenhum job rodou) e o instalador de terminal roda com os mesmos argumentos. `--yes`, `--autostart` e as opções de política de execução levam a rota automática ao terminal (nunca são consentimento do navegador). Sem terminal e sem `--client`/`OKIT_CLIENT`, a rota de terminal sai com 2 antes de baixar. |
 | Download Windows | Execute `powershell.exe -NoProfile -File .\install.ps1`; somente bootstrap e assistente web, sem assistente de terminal. |
 | Pacote extraído e verificado | `node src/cli.js install --ui --from .`; execute na pasta do pacote extraído. |
 | Comando instalado | `okit-plugin install --ui`; `okit-plugin config ui` mostra o fluxo inicial quando instalação/setup estiver incompleto. |

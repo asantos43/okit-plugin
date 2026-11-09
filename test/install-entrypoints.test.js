@@ -99,7 +99,7 @@ async function bootstrapRun(t, argv, { env = {}, platform = 'win32', release: gi
     await fs.mkdir(join(f.home, '.okwork'), { recursive: true });
     await fs.writeFile(join(f.home, '.okwork', 'config.json'), JSON.stringify(state));
   });
-  const runtime = { env, versions: { node: '22' }, platform, arch: 'x64', execPath: 'node', argv: ['node', ...argv, '--dest', f.destination] };
+  const runtime = { env, stdin: {}, stdout: {}, versions: { node: '22' }, platform, arch: 'x64', execPath: 'node', argv: ['node', ...argv, '--dest', f.destination] };
   const modules = {
     'node:fs/promises': { ...fs, readFile: (path, ...rest) => (path.endsWith('release.json') ? Promise.resolve(JSON.stringify(release)) : fs.readFile(path, ...rest)) },
     'node:path': await import('node:path'),
@@ -109,7 +109,7 @@ async function bootstrapRun(t, argv, { env = {}, platform = 'win32', release: gi
   const source = await fs.readFile('src/install/bootstrap.js', 'utf8');
   const load = new Function('imports', 'process', 'console', `${source.replaceAll('await import(', 'await imports(')}\nreturn bootstrap;`);
   let error = null;
-  try { await load(async (name) => modules[name], runtime, { log: (line) => lines.push(line) })(scriptDefaults({ ...f.io.pkg, engines: { node: '>=20' } }, f.io.config), present); }
+  try { await load(async (name) => modules[name], runtime, { log: (line) => lines.push(line) })(scriptDefaults({ ...f.io.pkg, engines: { node: '>=20' } }, f.io.config), present, await import('../src/install/route.js')); }
   catch (caught) { error = caught; }
   return { f, lines, error };
 }
@@ -480,7 +480,7 @@ async function runScript(t, file, machine, { locale = 'en', assets = built.map((
   t.after(() => fs.rm(home, { recursive: true, force: true }));
   const js = await embeddedProgram(file);
   const load = new Function('imports', 'process', 'console', js.replaceAll('await import(', 'await imports(')
-    .replace('bootstrap(defaults, present).catch', 'return bootstrap(defaults, present).catch'));
+    .replace('bootstrap(defaults, present, route).catch', 'return bootstrap(defaults, present, route).catch'));
   const release = { tag_name: `v${pkgJson.version}`, prerelease: false,
     assets: [...assets, `${pkgJson.name}-${pkgJson.version}-checksums.sha256`].map((name) => ({ name })) };
   const calls = [];

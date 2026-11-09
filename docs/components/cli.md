@@ -11,7 +11,7 @@ People use terminal commands to install, maintain and diagnose the plugin and ma
 
 `--help` shows options; installation can change the command name through `install.command`.
 
-For Claude Code, `install` offers the optional panel after success; `--no-panel` skips the question and hint. `install --ui` opens the wizard screens in the browser (explicit consent before Apply, keyboard-only, English and pt-BR); `--headless` only prints the private loopback URL and never starts a browser; `--terminal` keeps the prompts and cannot be combined with them. Enable the panel later with `okit-plugin install --panel` (isolated mode; cannot combine with `--no-panel`). `update` accepts `--no-panel` and only refreshes panels already installed, without asking.
+For Claude Code, `install` offers the optional panel after success; `--no-panel` skips the question and hint. `install --ui` opens the wizard screens in the browser (explicit consent before Apply, keyboard-only, English and pt-BR); `--headless` only prints the private loopback URL and never starts a browser; `--terminal` keeps the prompts and cannot be combined with them. The downloaded `install.sh` (Linux/macOS) opens this wizard by default and uses the terminal installer, saying why, when there is no graphical session (SSH, container, no display, no opener) or when `--yes`/`--autostart` are given; `--ui` never falls back, `--terminal` forces the terminal, and the internal `--auto` flag (set by the script) falls back only if the browser cannot be opened. Enable the panel later with `okit-plugin install --panel` (isolated mode; cannot combine with `--no-panel`). `update` accepts `--no-panel` and only refreshes panels already installed, without asking.
 
 | Command | Purpose | Example |
 | :- | :- | :- |

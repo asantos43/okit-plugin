@@ -1,4 +1,13 @@
 {
+  "route": {
+    "ssh": "Nenhuma sessão gráfica detectada (SSH); usando o instalador de terminal. Use --ui --headless para uma sessão de navegador encaminhada.",
+    "container": "Nenhuma sessão gráfica detectada (contêiner); usando o instalador de terminal. Use --ui --headless para uma sessão de navegador encaminhada.",
+    "display": "Nenhuma sessão gráfica detectada (sem DISPLAY nem WAYLAND_DISPLAY); usando o instalador de terminal. Use --ui --headless para uma sessão de navegador encaminhada.",
+    "opener": "Nenhum programa para abrir o navegador foi encontrado; usando o instalador de terminal. Use --ui --headless e abra o endereço impresso por conta própria.",
+    "opener-failed": "Não foi possível abrir o navegador; usando o instalador de terminal. Use --ui --headless e abra o endereço impresso por conta própria.",
+    "options": "Foram dadas opções que só o instalador de terminal aceita; usando o instalador de terminal.",
+    "no-terminal": "O instalador de terminal precisa de um terminal para perguntar. Passe --client, ou use --ui --headless."
+  },
   "wizard": {
     "detect": "Escolher clientes",
     "requirements": "Requisitos",

@@ -1,13 +1,13 @@
 // Embedded into the standalone release scripts by the build; no repo imports.
 // `present` is the installer's presenter (src/install/present.js), embedded by the same build.
 // Whatever fails is told without the query, fragment or credentials of an address and without the temporary folder.
-async function bootstrap(defaults, present) {
+async function bootstrap(defaults, present, routing) {
   const hide = [];
-  try { await install(defaults, present, hide); }
+  try { await install(defaults, present, hide, routing); }
   catch (error) { error.message = present.redact(error.message, hide); throw error; }
 }
 
-async function install(defaults, present, hide) {
+async function install(defaults, present, hide, routing) {
   const fs = await import('node:fs/promises');
   const { basename, join, resolve } = await import('node:path');
   const { homedir, tmpdir } = await import('node:os');
@@ -15,6 +15,7 @@ async function install(defaults, present, hide) {
   hide.push(tmpdir());
   // The one door of the script's output: every line is redacted on its way out.
   const say = present.redactingWriter((line) => console.log(line), hide);
+  const warn = present.redactingWriter((line) => console.error(line), hide);   // the routing notice: it must not pollute stdout
   const env = process.env;
   const config = Object.fromEntries(Object.entries(defaults).map(([key, value]) => [key, env[`OKIT_${key}`] ?? value]));
   // What kind of failure it is (`error.kind`, read by present.kindOf) decides the exit code (present.exitCodeFor); an error
@@ -91,8 +92,13 @@ async function install(defaults, present, hide) {
     if (['--client', '--dest', '--locale'].includes(key)) {
       if (!args[i + 1] || args[i + 1].startsWith('--')) fail(t(`Missing value for ${key}`, `Falta o valor de ${key}`));
       flags[key] = args[++i];
-    } else if (['--dry-run', '--yes', '--no-link', '--no-path', '--autostart', '--prerelease', '--check', '--rollback', '--purge', '--verbose', '--set-execution-policy', '--no-execution-policy'].includes(key)) flags[key] = true;
+    } else if (process.platform !== 'win32' && ['--ui', '--headless', '--terminal'].includes(key)) flags[key] = true;
+    else if (['--dry-run', '--yes', '--no-link', '--no-path', '--autostart', '--prerelease', '--check', '--rollback', '--purge', '--verbose', '--set-execution-policy', '--no-execution-policy'].includes(key)) flags[key] = true;
     else fail(t(`Unknown flag: ${key}`, `Opção desconhecida: ${key}`));
+  }
+  // The browser wizard and the terminal installer exclude each other (the installed command refuses the same pairs).
+  for (const [first, second] of [['--ui', '--terminal'], ['--headless', '--terminal']]) {
+    if (flags[first] && flags[second]) fail(t(`${first} and ${second} cannot be combined`, `${first} e ${second} não podem ser combinadas`));
   }
   const shared = [...(['flag', 'environment'].includes(chosen.source) ? ['--locale', language] : []), ...(flags['--verbose'] ? ['--verbose'] : [])];
   // The installed command's own presenter: the same lines, whichever program prints them.
@@ -147,15 +153,19 @@ async function install(defaults, present, hide) {
   if (flags['--check'] || flags['--rollback'] || flags['--purge']) fail(t('Use update --check|--rollback or uninstall --purge', 'Use update --check|--rollback ou uninstall --purge'));
   const clients = settings.CLIENTS;
   let client = flags['--client'] || env.OKIT_CLIENT || record?.client;
+  const named = Boolean(client);
+  const found = (executable) => (platform === 'win32' ? spawnSync('where.exe', [executable]).status === 0
+    : spawnSync('sh', ['-c', 'command -v "$1"', 'sh', executable]).status === 0);
+  if (!client && platform !== 'win32') {
+    // No question here: the first client of the configured order that is installed (the browser wizard offers the rest).
+    client = Object.keys(clients).find((name) => found(clients[name]));
+    if (!client) fail(t(`No supported client found; install one or choose with --client: ${Object.keys(clients).join(', ')}`, `Nenhum cliente com suporte encontrado; instale um ou escolha com --client: ${Object.keys(clients).join(', ')}`));
+  }
   if (!client) {
     const entries = Object.entries(clients);
     say('');
     say(t('Which client do you want to install for?', 'Para qual cliente você quer instalar?'));
-    entries.forEach(([name, executable], i) => {
-      const detected = platform === 'win32' ? spawnSync('where.exe', [executable]).status === 0
-        : spawnSync('sh', ['-c', 'command -v "$1"', 'sh', executable]).status === 0;
-      say(`  ${i + 1}. ${name}${detected ? ` (${t('found', 'encontrado')})` : ''}`);
-    });
+    entries.forEach(([name, executable], i) => say(`  ${i + 1}. ${name}${found(executable) ? ` (${t('found', 'encontrado')})` : ''}`));
     if (!process.stdin.isTTY && !process.stdout.isTTY) fail(t('Without a terminal to ask in, choose a client with --client: ', 'Sem terminal para perguntar, escolha o cliente com --client: ') + entries.map(([name]) => name).join(', '));
     const { createInterface } = await import('node:readline/promises');
     const stream = process.stdin.isTTY || platform === 'win32' ? process.stdin : (await import('node:fs')).createReadStream('/dev/tty');
@@ -165,6 +175,32 @@ async function install(defaults, present, hide) {
     finally { input.close(); if (stream !== process.stdin) stream.destroy(); }
   }
   if (!Object.hasOwn(clients, client)) fail(t(`Invalid client; choose: ${Object.keys(clients).join(', ')}`, `Cliente inválido; escolha: ${Object.keys(clients).join(', ')}`));
+  // Which installer runs, decided from the environment before anything is downloaded (Linux and macOS only: the Windows
+  // script has no terminal route). An explicit flag is never overridden; `--yes` is never consent to open a browser.
+  let path = { route: 'terminal', reason: null };
+  if (platform !== 'win32') {
+    const explicit = { ui: flags['--ui'], headless: flags['--headless'], terminal: flags['--terminal'] };
+    const anyExplicit = Object.values(explicit).some(Boolean);
+    const container = Boolean(env.container) || await exists('/.dockerenv') || await exists('/run/.containerenv');
+    path = routing.chooseRoute({ flags: explicit, platform, env, container,
+      unattended: ['--yes', '--autostart', '--set-execution-policy', '--no-execution-policy'].some((key) => flags[key]),
+      hasOpener: anyExplicit || found(platform === 'darwin' ? 'open' : 'xdg-open') });
+    // Without a terminal to ask in (neither input nor output is one), the terminal installer needs the client on the
+    // command line: it never hangs. `--yes` is not a choice of client and never consent to a browser.
+    if (path.route === 'terminal' && !flags['--dry-run'] && !process.stdin.isTTY && !process.stdout.isTTY && !named) {
+      fail(routing.routeReason(language, 'no-terminal'));
+    }
+  }
+  // The arguments of the installed command for the route: the terminal installer as before, or the browser wizard
+  // (`--auto` also carries the terminal arguments, for a browser that cannot be opened).
+  const routed = (from, repoPart, flagList, passedArgs) => {
+    const common = ['--client', client, '--from', from, '--dest', destination];
+    if (path.route === 'terminal') return [...common, ...repoPart, ...passedArgs, ...flagList];
+    const mode = flags['--headless'] ? ['--headless'] : ['--ui'];
+    if (flags['--ui'] || flags['--headless']) return [...mode, ...common, ...shared, ...flagList];
+    return [...mode, '--auto', ...common, ...repoPart, ...passedArgs, ...flagList];
+  };
+  const announce = () => { if (path.reason) warn(routing.routeReason(language, path.reason)); };
   const temporary = await fs.mkdtemp(join(tmpdir(), 'okit-bootstrap-'));
   const ps = (code, values) => {
     const literal = (value) => present.powershellLiteral(value);
@@ -216,8 +252,8 @@ async function install(defaults, present, hide) {
     // The release, asset and checksum note are printed by the installed command, once, inside its steps.
     const passed = ['--asset', name, ...(selected.prerelease ? ['--fallback'] : []), ...shared];
     if (record?.version === version && record.client === client) {
-      invoke(join(record.path, 'src/cli.js'), 'install', ['--client', client, '--from', record.path, '--dest', destination, ...passed,
-        ...['--dry-run', '--no-link', '--no-path', '--set-execution-policy', '--no-execution-policy'].filter((key) => flags[key])]); return;
+      announce();
+      invoke(join(record.path, 'src/cli.js'), 'install', routed(record.path, [], ['--dry-run', '--no-link', '--no-path', '--set-execution-policy', '--no-execution-policy'].filter((key) => flags[key]), passed)); return;
     }
     if (flags['--dry-run']) {
       // The steps that need no package, as the installed command's dry run numbers them.
@@ -250,6 +286,7 @@ async function install(defaults, present, hide) {
     if (platform === 'win32') ps('& { param($file,$dest) $ErrorActionPreference="Stop"; Expand-Archive -LiteralPath $file -DestinationPath $dest }', [archive, extracted]);
     else run('tar', ['-xzf', archive, '-C', extracted]);
     for (const key of ['--dry-run', '--yes', '--no-link', '--no-path', '--autostart', '--prerelease', '--set-execution-policy', '--no-execution-policy']) if (flags[key]) forwarded.push(key);
-    invoke(join(extracted, 'src/cli.js'), 'install', ['--client', client, '--from', extracted, '--dest', destination, '--repo', config.REPO, ...passed, ...forwarded]);
+    announce();
+    invoke(join(extracted, 'src/cli.js'), 'install', routed(extracted, ['--repo', config.REPO], forwarded, passed));
   } finally { await fs.rm(temporary, { recursive: true, force: true }); }
 }

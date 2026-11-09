@@ -1,4 +1,13 @@
 {
+  "route": {
+    "ssh": "No graphical session detected (SSH); using the terminal installer. Use --ui --headless for a forwarded browser session.",
+    "container": "No graphical session detected (container); using the terminal installer. Use --ui --headless for a forwarded browser session.",
+    "display": "No graphical session detected (no DISPLAY or WAYLAND_DISPLAY); using the terminal installer. Use --ui --headless for a forwarded browser session.",
+    "opener": "No program to open a browser was found; using the terminal installer. Use --ui --headless and open the printed address yourself.",
+    "opener-failed": "The browser could not be opened; using the terminal installer. Use --ui --headless and open the printed address yourself.",
+    "options": "Options only the terminal installer supports were given; using the terminal installer.",
+    "no-terminal": "The terminal installer needs a terminal to ask in. Pass --client, or use --ui --headless."
+  },
   "wizard": {
     "detect": "Choose clients",
     "requirements": "Requirements",
