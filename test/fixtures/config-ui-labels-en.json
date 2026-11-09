@@ -7,7 +7,7 @@
     "opener-failed": "The browser could not be opened; using the terminal installer. Use --ui --headless and open the printed address yourself.",
     "options": "Options only the terminal installer supports were given; using the terminal installer.",
     "no-terminal": "The terminal installer needs a terminal to ask in. Pass --client, or use --ui --headless.",
-    "windows": "Windows uses the browser wizard, not a terminal installer. Run install.ps1 without this option, or add --headless to print the address and open it yourself."
+    "windows": "This option does not exist on Windows: there is no terminal installer there. Configure the install in the browser wizard. Before the installer is installed, run: powershell.exe -NoProfile -File .\\install.ps1 (add --headless to print the private address and open it yourself). Once installed, run: okit-plugin install --ui, and later okit-plugin config ui."
   },
   "wizard": {
     "detect": "Choose clients",
@@ -64,6 +64,12 @@
     "event": "Stage",
     "warning": "Warning",
     "question": "Approve this pending change?",
+    "setupStep": "Models setup",
+    "panelStep": "Claude panel",
+    "installedNote": "Already installed",
+    "update": "Update",
+    "repair": "Repair (install this version again)",
+    "changeModels": "Change models only",
     "accountPreview": "Review this account action",
     "confirm": "Confirm",
     "cancelPreview": "Cancel preview"

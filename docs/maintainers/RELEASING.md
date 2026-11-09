@@ -14,6 +14,7 @@ Release artifact, bootstrap, publication and native proof requirements for maint
 - [The local build](#section-5)
 - [Release notes](#section-6)
 - [Release checklist](#section-7)
+- [Install wizard release acceptance](#section-7a)
 - [Publishing](#section-8)
 - [Proof per pair](#section-9)
 - [Decisions](#section-10)
@@ -164,6 +165,16 @@ node scripts/release-checklist.js [--out <dir>] [--version <version>] [--revisio
 The **Extra layer** (macOS and Windows pairs only; see the paragraph after the container install check) is rendered after the two smoke layers with one empty row per configured label, from `release.checklist.extra` (`systems`, `title`, `labels`); a user `systems` array replaces the default, and an invalid one is ignored. The Producer runs it on the real machine and unfilled rows stay unchecked until the Producer's written acceptance.
 
 Payload SHA-256 values come from the checksum manifest in the output directory when present; otherwise they remain blank. No hashes are calculated here: hash notes/checklist only after final completion. A mismatched version, invalid pair/proof/manifest or existing checklist with different contents refuses with a reason and writes nothing. Identical reruns are allowed; there is no `--force`, so filled evidence is preserved. Keep completed proof records under `docs/` as required by D-Q7.
+
+<a id="section-7a"></a>
+## Install wizard release acceptance
+
+Before a release that changes the installers, the Director supplies this evidence (the unit suite alone does not stand for it):
+
+- [ ] Podman installer lane: the existing container lane passes on the generated `install.sh` (terminal fallback in a container, SHA-256 mismatch refused).
+- [ ] Real-browser script: `node scripts/acceptance/install-wizard.playwright.mjs` passes with a Playwright already installed (keyboard review and apply, reload, language switch, no foreign request, and the second run that offers Update, Repair and Change models); `not run: no runner` is not a pass.
+- [ ] Manual Windows run: the generated `install.ps1` in PowerShell 5.1 and 7 on a clean disposable VM (checks, verified download, browser wizard, refusal of terminal-only options with the commands to use instead), then a second run that offers the reruns.
+- [ ] `install.sh` and `install.ps1` were regenerated together from `src/install/bootstrap.js`, never edited by hand.
 
 <a id="section-8"></a>
 ## Publishing

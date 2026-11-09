@@ -3,19 +3,21 @@ export function wizardFlow(boot, api, changed) {
   const state = { screen: 'detect', locale: boot.locale, options: { ...boot.wizard.options },
     clients: boot.wizard.clients ?? boot.wizard.detection.filter((c) => c.installed).map((c) => c.client),
     plan: null, consent: false, job: null, events: [], cursor: 0, preview: null, error: '',
-    takeover: false, owns: true, active: false, unknown: false, followupKind: null };
+    takeover: false, owns: true, active: false, unknown: false, followupKind: null, operation: 'install' };
   let revision = 0, initiated = false, following = null, key = null;
   const emit = (focus = false) => changed(state, focus);
-  const go = (screen) => { state.screen = screen; state.error = ''; state.consent = false; state.preview = null; emit(true); };
+  const go = (screen) => { if (screen === 'detect') state.operation = 'install'; state.screen = screen; state.error = ''; state.consent = false; state.preview = null; emit(true); };
   const invalidate = () => { revision++; state.plan = null; state.preview = null; state.consent = false; emit(); };
+  const recorded = (client) => Boolean(boot.wizard.installed?.[client]);
   const allowed = () => state.clients.length > 0 && boot.wizard.requirements.every((r) => r.ok)
-    && state.clients.every((client) => boot.wizard.detection.some((row) => row.client === client && row.installed));
+    && state.clients.every((client) => boot.wizard.detection.some((row) => row.client === client && row.installed))
+    && (state.operation === 'install' || state.clients.every(recorded));
   const fail = (reason) => { state.error = reason; emit(true); };
   async function review() {
     if (!allowed()) return fail(boot.catalogs[state.locale].wizard.missing);
     invalidate(); go('review');
     const version = revision;
-    const result = await api('/api/install/plan', 'POST', { operation: 'install', clients: state.clients, options: state.options });
+    const result = await api('/api/install/plan', 'POST', { operation: state.operation, clients: state.clients, options: state.operation === 'install' ? state.options : {} });
     if (version !== revision) return;
     if (result.status !== 200) return fail(result.value.reason);
     state.plan = result.value; emit();
@@ -51,7 +53,7 @@ export function wizardFlow(boot, api, changed) {
       following = null; state.preview = null; state.consent = false;
       if (state.screen === 'models') emit();
     }
-    if (initiated && state.screen === 'applying' && !state.active) go('models');
+    if (initiated && state.screen === 'applying' && !state.active) go(['update', 'repair'].includes(state.operation) ? 'result' : 'models');
     else emit();
     return state.active;
   }
@@ -72,7 +74,13 @@ export function wizardFlow(boot, api, changed) {
     if (response.status !== 200) { invalidate(); return fail(response.value.reason); }
     following = response.value.followupId; state.active = true; state.consent = false; emit();
   }
-  return { state, go, allowed, review, apply, poll, preview, followup, own, fail,
+  // An installed client offers the three reruns. Each one only starts a review: nothing is written before the consent.
+  function rerun(operation) {
+    const installed = Object.keys(boot.wizard.installed ?? {});
+    if (!['update', 'repair', 'models'].includes(operation) || !installed.length) return;
+    state.operation = operation; state.clients = installed;     return review();
+  }
+  return { state, go, allowed, review, rerun, apply, poll, preview, followup, own, fail,
     change(name, value) { state[name] = value; invalidate(); },
     consent(value) { state.consent = value === true; emit(); },
     take() { initiated = true; state.takeover = false; go(state.active ? 'applying' : 'models'); },

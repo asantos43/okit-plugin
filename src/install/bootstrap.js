@@ -149,6 +149,9 @@ async function install(defaults, present, hide, routing) {
   if (!records.length && await exists(recordFile)) records.push(await readRecord(recordFile));
   const record = flags['--client'] ? records.find((item) => item.client === flags['--client']) : records[0];
   const invoke = (cli, command, values) => {
+    // Ctrl-C reaches this script and the program it started together. This script stays alive until that program has
+    // closed its own listener and has returned, so the `finally` below always removes the temporary folder.
+    process.removeAllListeners?.('SIGINT'); process.on?.('SIGINT', () => {});
     const result = spawnSync(process.execPath, [cli, command, ...values], { stdio: 'inherit' });
     process.exitCode = result.status ?? present.exitCodeFor('operational');
   };
@@ -244,6 +247,8 @@ async function install(defaults, present, hide, routing) {
   if (!flags['--dry-run']) { await writable(tmpdir()); await writable(destination); }
 //#endif
   const temporary = await fs.mkdtemp(join(tmpdir(), 'okit-bootstrap-'));
+  // An interrupt during a download or a check removes the staging folder at once and ends the run (exit 130).
+  process.on?.('SIGINT', () => { fs.rm(temporary, { recursive: true, force: true }).finally(() => process.exit(130)); });
   const ps = (code, values) => {
     const literal = (value) => present.powershellLiteral(value);
     const encoded = Buffer.from(`${code} ${values.map(literal).join(' ')}`, 'utf16le').toString('base64');

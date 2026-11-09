@@ -50,7 +50,14 @@ export function wizardMain(win, createFlow, bridgeConfig, startConfig) {
       check('autostart', t.autostart, false, byId('choices'), true);
       if (boot.wizard.platform === 'win32') check('policy', t.policy, state.policy);
     }
-    if (state.screen === 'detect') button('requirements', t.next, !flow.allowed());
+    if (state.screen === 'detect') {
+      button('requirements', t.next, !flow.allowed());
+      const installed = Object.entries(boot.wizard.installed ?? {});
+      if (installed.length) {
+        element('p', `${t.installedNote}: ${installed.map(([client, row]) => `${client} ${row.version ?? ''}`.trim()).join(', ')}`, byId('body'));
+        for (const [operation, label] of [['update', t.update], ['repair', t.repair], ['models', t.changeModels]]) button(`rerun:${operation}`, label);
+      }
+    }
     if (state.screen === 'requirements') {
       for (const item of boot.wizard.requirements) element('p', `${t[item.key]}: ${item.ok ? t.ok : t.failed}
         ${item.actual ?? item.path ?? ''} ${item.required ?? ''} ${item.ok ? '' : t[item.remedyKey]}`, byId('body'));
@@ -87,6 +94,11 @@ export function wizardMain(win, createFlow, bridgeConfig, startConfig) {
       const clients = state.job?.result?.clients ?? [];
       if (clients.some((row) => row.state === 'ok') && clients.some((row) => row.state !== 'ok')) element('p', t.partial, byId('body'));
       for (const row of clients) element('p', `${row.client}: ${t[row.state]} ${row.reason ?? ''}`, byId('body'));
+      // Setup and the panel are their own steps with their own consent: each one says whether it ran.
+      for (const kind of ['setup', 'panel']) {
+        const done = state.job?.followups?.find((item) => item.kind === kind);
+        element('p', `${t[`${kind}Step`]}: ${done ? t[done.state] ?? done.state : t.skipped}`, byId('body'));
+      }
       element('pre', JSON.stringify(boot.wizard.recovery, null, 2), byId('body'));
       button('config', t.next);
     }
@@ -212,7 +224,8 @@ export function wizardMain(win, createFlow, bridgeConfig, startConfig) {
     if (!target) return;
     const action = target.dataset.wizard;
     try {
-      if (action === 'review') await flow.review();
+      if (action.startsWith('rerun:')) await flow.rerun(action.slice(6));
+      else if (action === 'review') await flow.review();
       else if (action === 'apply') { await flow.apply(); await poll(); }
       else if (action === 'take') { flow.take(); await poll(); }
       else if (action === 'cancel') await flow.cancel();

@@ -21,7 +21,7 @@ import { STATUSLINE_FILE } from '../quota/statusline-collector.js';
 /**
  * @typedef {object} InstallPlan
  * @property {1} schemaVersion
- * @property {'install'|'update'} operation
+ * @property {'install'|'update'|'repair'|'models'} operation
  * @property {object[]} clients Selected client/account roots.
  * @property {object[]} releases Pinned assets and integrity evidence.
  * @property {object[]} mutations Typed paths, argv and redacted diffs, never executable shell strings.

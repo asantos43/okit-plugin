@@ -61,7 +61,7 @@ const scenarios = {
   async terminalRefused(t, source) {
     const wrong = [];
     for (const flag of ['--terminal', '--yes', '--autostart', '--set-execution-policy', '--no-execution-policy']) {
-      for (const [locale, text] of [['en', /^Refused: Windows uses the browser wizard, not a terminal installer/], ['pt-BR', /^Recusado: O Windows usa o assistente no navegador/]]) { // locale:pt-BR
+      for (const [locale, text] of [['en', /^Refused: This option does not exist on Windows.*install\.ps1.*okit-plugin install --ui.*okit-plugin config ui/], ['pt-BR', /^Recusado: Esta opção não existe no Windows.*install\.ps1.*okit-plugin install --ui.*okit-plugin config ui/]]) { // locale:pt-BR
         const f = await launcher(t, ['install', '--client', 'claude-code', flag, '--locale', locale], { source });
         const error = await f.run();
         if (error?.code !== 2 || !text.test(error.message)) wrong.push(`${flag} ${locale}: ${error?.message ?? 'not refused'}`);
@@ -168,8 +168,8 @@ test('selectTarget keeps a block for its target only, drops the marker lines and
 });
 
 test('the route text of the Windows refusal says the browser wizard in both languages', () => {
-  assert.match(routing.routeReason('en', 'windows'), /browser wizard.*--headless/);
-  assert.match(routing.routeReason('pt-BR', 'windows'), /assistente no navegador.*--headless/); // locale:pt-BR
+  assert.match(routing.routeReason('en', 'windows'), /does not exist on Windows.*browser wizard.*--headless/);
+  assert.match(routing.routeReason('pt-BR', 'windows'), /não existe no Windows.*assistente no navegador.*--headless/); // locale:pt-BR
 });
 
 // Each new refusal is proved by a mutation: break the source, and its scenario must report something wrong.

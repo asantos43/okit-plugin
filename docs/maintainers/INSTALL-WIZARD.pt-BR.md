@@ -196,11 +196,35 @@ inclui testes focados e documentação afetada bilíngue, mantendo caminhos publ
 | 3. Telas iniciais | L / 2 | Detecção → revisão → progresso → modelos/painel/contas/recarga/resultado → config; reusar controles, consentimento por escrita, teclado/i18n e aceitação em navegador. `install --ui` opt-in/comando do pacote extraído funciona. | Nenhuma; preservar padrões publicados até aceitar UI. |
 | 4. Bootstrap/padrão Unix | M / 3 | Aquisição verificada, bootstrap com cliente detectado, roteamento gráfico/SSH/contêiner, opções forçadas/headless e limpeza. Execução Podman existente de instaladores e contrato do abridor gráfico passam. | Remover perguntas de cliente/apresentação de terminal do bootstrap UI padrão; manter rota de terminal e presenter Node testado no fallback automático/`--terminal`. |
 | 5. Lançador simples Windows | M / 3 | PowerShell gerado só com requisitos/aquisição/abertura; roteiro Windows manual passa em 5.1/7. | Remover seleção/setup/menus de terminal embutidos e opções exclusivas de terminal da geração/saída Windows; manter preâmbulo Node, integridade/requisitos/abertura. |
-| 6. Reexecução e aceitação de release | M / 4, 5 | Recuperação após reinício, atualizar/reparar/só modelos, falha parcial, limpeza temporária e docs. Diretor fornece evidências Podman, navegador real e Windows. | Remover ramos obsoletos de interação do bootstrap após auditoria de compatibilidade; manter testes do fallback Unix permanentemente. |
+| 6. Reexecução e aceitação de release (feita, D154) | M / 4, 5 | Recuperação após reinício, atualizar/reparar/só modelos, falha parcial, limpeza temporária e docs. Diretor fornece evidências Podman, navegador real e Windows. | Remover ramos obsoletos de interação do bootstrap após auditoria de compatibilidade; manter testes do fallback Unix permanentemente. |
 
 Não editar scripts gerados à mão: atualizar `src/release/install-scripts.js` e sua
 fonte de bootstrap embutida, depois regenerar ambas as saídas juntas. Mudanças comuns
 não podem restaurar acidentalmente interação de terminal no lançador Windows.
+
+### Status da fatia 6 (D154)
+
+- **Reexecuções.** `wizardState` lê de novo, a cada início, os registros de instalação e `setup.done.profiles`. A
+  primeira tela, com um cliente instalado, oferece Atualizar (`installerCommand('update')`, com backup, smoke e
+  orientação de rollback), Reparar (a instalação executada de novo) e Mudar modelos (sem payload). Cada uma só
+  começa uma revisão; Aplicar exige o consentimento como antes. Atualizar e Reparar terminam no resultado; Mudar
+  modelos vai à tela de modelos.
+- **Reinício.** O job não é persistido: um servidor reiniciado não tem job nem plano, encontra os registros de novo
+  e pede consentimento numa nova revisão. Uma gravação pela metade nunca é repetida. Uma revisão abandonada não
+  grava nada (o plano é somente leitura). Recarregar durante um job reconecta ao mesmo job (assumir a vista).
+- **Falha parcial.** O resultado lista cada cliente (ok, falhou, pulado, cancelado); os clientes que deram certo
+  ficam; setup e painel dizem se rodaram ou foram pulados. Não há rollback de todos os clientes.
+- **Limpeza.** O servidor para o listener, solta a trava e cancela num passo seguro ao fechar, no tempo ocioso
+  (10 minutos) e no SIGINT. O bootstrap remove sua pasta temporária em sucesso e falha, numa interrupção antes de o
+  programa extraído começar (saída 130), e fica vivo durante o programa para o `finally` sempre rodar.
+- **Windows.** Nenhuma rota de reexecução cai no terminal; se o navegador não abrir, só o endereço privado é
+  impresso. Uma opção só de terminal é recusada com palavras que dizem que a função não existe no Windows e dão os
+  comandos exatos (`powershell.exe -NoProfile -File .\install.ps1`; instalado: `okit-plugin install --ui`, depois
+  `okit-plugin config ui`).
+- **Auditoria.** Nada foi removido. A pergunta de cliente do bootstrap Unix (`//#if unix`, depois da escolha
+  automática) só é alcançável com `platform === 'win32'`, que não é um modo suportado de rodar `install.sh`;
+  `test/install-windows-launcher.test.js` a fixa em `install.sh`, então a remoção fica como candidata para o dono.
+  O fallback de terminal Unix e seus testes ficam.
 
 <a id="section-8"></a>
 ## 8. Riscos e decisões do proprietário
@@ -242,9 +266,12 @@ Kinds formam lista fechada: setup, panel, policy. Só um cliente `ok` do job atu
 política Windows usa a etapa CurrentUser existente e preserva política de grupo.
 Setup usa o gravador de configuração em lote travado com `expectedMtime`, sem mudar
 `setup.done`; a evidência de conclusão continua sob responsabilidade de `runSetup`.
-Contas/login mantêm suas rotas; execução do followup account-collector não é exposta
-nesta fatia. Operações de núcleo repair/somente modelos não foram adicionadas.
-O schema do plano de núcleo continua aceitando somente install/update.
+Contas/login mantêm suas rotas; execução do followup account-collector não é exposta.
+A fatia 6 acrescenta as operações de núcleo `repair` (a instalação executada de novo para um
+cliente com registro de instalação: sem registro é `409 not-installed`; `destination`, `noLink`
+e `prerelease` são recusados) e `models` (sem comando de payload e sem opções; só clientes com
+registro; as configurações são mudadas depois pelo followup de setup, com consentimento próprio,
+que nunca grava `setup.done`). O schema do plano de núcleo aceita install, update, repair e models.
 
 Ambas as rotas usam autorização, limites JSON e redação existentes. Planos mantêm
 limites de TTL/quantidade; execução reconfere a proposta sob a trava da raiz.
