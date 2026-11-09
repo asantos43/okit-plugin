@@ -14,6 +14,7 @@ Requisitos de artefatos, bootstrap, publicação e provas nativas do release par
 - [The local build](#section-5)
 - [Release notes](#section-6)
 - [Release checklist](#section-7)
+- [Install wizard release acceptance](#section-7a)
 - [Publishing — Publicação](#section-8)
 - [Proof per pair](#section-9)
 - [Decisions](#section-10)
@@ -164,6 +165,16 @@ node scripts/release-checklist.js [--out <dir>] [--version <version>] [--revisio
 A **camada extra** (somente pares macOS e Windows; veja o parágrafo após a verificação de instalação em contêineres) é gerada depois das duas camadas de smoke com uma linha vazia por rótulo configurado, a partir de `release.checklist.extra` (`systems`, `title`, `labels`); um array `systems` do usuário substitui o padrão, e um inválido é ignorado. O Produtor a executa na máquina real e as linhas em branco permanecem desmarcadas até a aceitação escrita do Produtor.
 
 Os SHA-256 dos payloads vêm do manifesto de checksums na pasta de saída quando presente; caso contrário ficam em branco. Nenhum hash é calculado aqui: calcular hashes de notas/checklist só após finalizar. Versão divergente, par/prova/manifesto inválido ou checklist existente com conteúdo diferente recusa com razão e não grava nada. Repetições idênticas são permitidas; não existe `--force`, preservando provas preenchidas. Guardar registros concluídos em `docs/`, conforme D-Q7.
+
+<a id="section-7a"></a>
+## Install wizard release acceptance
+
+Antes de um release que muda os instaladores, o Diretor fornece estas evidências (a suíte unitária sozinha não as substitui):
+
+- [ ] Raia Podman dos instaladores: a raia de contêiner existente passa no `install.sh` gerado (fallback de terminal em contêiner, SHA-256 diferente recusado).
+- [ ] Script de navegador real: `node scripts/acceptance/install-wizard.playwright.mjs` passa com um Playwright já instalado (revisão e aplicação por teclado, recarregar, troca de idioma, nenhuma requisição externa e a segunda execução que oferece Atualizar, Reparar e Mudar modelos); `not run: no runner` não é aprovação.
+- [ ] Execução manual no Windows: o `install.ps1` gerado no PowerShell 5.1 e no 7 numa VM descartável limpa (verificações, download verificado, assistente no navegador, recusa das opções só de terminal com os comandos a usar), e uma segunda execução que oferece as reexecuções.
+- [ ] `install.sh` e `install.ps1` foram regenerados juntos a partir de `src/install/bootstrap.js`, nunca editados à mão.
 
 <a id="section-8"></a>
 ## Publishing — Publicação

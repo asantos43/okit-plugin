@@ -549,6 +549,10 @@ const ALLOWED = new Map([
   ['src/autostart.js', new Map([
     ['Description={command} daemon', 'the unit of the machine starts the daemon; it is a file of the system, not a text the model reads'],
   ])],
+  ['src/install/route.js', new Map([
+    ["This option does not exist on Windows: there is no terminal installer there. Configure the install in the browser wizard. Before the installer is installed, run: powershell.exe -NoProfile -File .\\\\install.ps1 (add --headless to print the private address and open it yourself). Once installed, run: okit-plugin install --ui, and later okit-plugin config ui.", 'the refusal on Windows names the commands of the browser wizard that the person runs there'],
+    ["Esta opção não existe no Windows: lá não há instalador de terminal. Configure a instalação no assistente no navegador. Antes de instalar, rode: powershell.exe -NoProfile -File .\\\\install.ps1 (acrescente --headless para imprimir o endereço privado e abri-lo por conta própria). Depois de instalado, rode: okit-plugin install --ui, e mais tarde okit-plugin config ui.", 'the refusal on Windows names the commands of the browser wizard that the person runs there'],
+  ])],
 ]);
 
 // | the source | must hold | must refuse |

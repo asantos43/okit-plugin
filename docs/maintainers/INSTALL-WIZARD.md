@@ -196,13 +196,34 @@ includes its focused tests and bilingual affected documentation, keeping shipped
 | 3. First-run screens | L / 2 | Detection → review → progress → models/panel/accounts/reload/result → config; reuse existing controls, consent for every write, keyboard/i18n and browser acceptance. Opt-in `install --ui` / extracted-package command works. | None; preserve released defaults until UI acceptance. |
 | 4. Unix bootstrap/default | M / 3 | Verified acquisition, detected-client bootstrap, GUI/SSH/container routing, force flags/headless and cleanup. Existing Podman installer lane plus GUI opener contract passes. | Remove client questions/terminal presentation from default UI bootstrap; retain terminal route and tested Node presenter behind auto fallback/`--terminal`. |
 | 5. Windows simple launcher | M / 3 | Generated PowerShell checks/acquisition/launch only; manual Windows script passes in 5.1/7. | Remove embedded terminal selection/setup/menu routes and terminal-only options from Windows generation/output; keep Node prelude, integrity/preflight/launch. |
-| 6. Rerun and release acceptance | M / 4, 5 | Restart recovery, update/repair/model-only flows, partial failure, temporary cleanup and docs. Director supplies Podman, real-browser and Windows evidence. | Remove obsolete bootstrap interaction branches after compatibility audit; retain Unix fallback tests permanently. |
+| 6. Rerun and release acceptance (done, D154) | M / 4, 5 | Restart recovery, update/repair/model-only flows, partial failure, temporary cleanup and docs. Director supplies Podman, real-browser and Windows evidence. | Remove obsolete bootstrap interaction branches after compatibility audit; retain Unix fallback tests permanently. |
 
 Do not hand-edit generated scripts: update `src/release/install-scripts.js` and its
 embedded bootstrap source, then regenerate both outputs together. Shared changes must
 not accidentally restore terminal interaction to the Windows launcher.
 
 <a id="section-8"></a>
+### Slice 6 status (D154)
+
+- **Reruns.** `wizardState` reads the installation records and `setup.done.profiles` again on every start. A first screen
+  with an installed client offers Update (`installerCommand('update')`, backup/smoke/rollback guidance kept), Repair (the
+  install run again) and Change models (no payload). Each only starts a review; Apply needs the consent as before.
+  Update and Repair end at the result; Change models goes to the models screen.
+- **Restart.** The job is not persisted: a restarted server has no job and no plan, finds the records again and asks
+  for consent on a new review. A half-finished write is never replayed. A review that is left writes nothing (the plan is
+  read-only). A reload during a job reconnects to the same job (takeover).
+- **Partial failure.** The result lists each client (ok, failed, skipped, cancelled); the clients that worked stay;
+  setup and the panel say whether they ran or were skipped. There is no all-client rollback.
+- **Cleanup.** The server stops its listener, releases the lock and cancels at a safe step on close, idle timeout
+  (10 minutes) and SIGINT. The bootstrap removes its temporary folder on success and failure, on an interrupt before the
+  extracted program starts (exit 130), and stays alive during the program so its `finally` always runs.
+- **Windows.** No rerun route falls to a terminal; if the browser does not open, only the private address is printed.
+  A terminal-only option is refused in words that say the feature does not exist on Windows and give the exact commands
+  (`powershell.exe -NoProfile -File .\install.ps1`; installed: `okit-plugin install --ui`, then `okit-plugin config ui`).
+- **Audit.** Nothing was removed. The client question of the Unix bootstrap (`//#if unix`, after the automatic choice)
+  is reachable only when `platform === 'win32'`, which is not a supported way to run `install.sh`; `test/install-windows-launcher.test.js`
+  pins it in `install.sh`, so removing it is left as a candidate for the owner. The Unix terminal fallback and its tests stay.
+
 ## 8. Risks and owner decisions
 
 | Risk | Mitigation / decision |
@@ -242,8 +263,11 @@ eligible. Panel additionally requires Claude's registered installation and uses
 group policy. Setup uses the locked configuration batch writer with `expectedMtime`,
 leaving `setup.done` unchanged; completion evidence remains owned by `runSetup`.
 Accounts/login keep their existing routes; account-collector followup execution
-is not exposed by this slice. Repair/model-only core operations are not added.
-The core plan schema still accepts only install/update.
+is not exposed. Slice 6 adds the core operations `repair` (the install run again for a
+client with an installation record: a missing record is `409 not-installed`; `destination`,
+`noLink` and `prerelease` are refused) and `models` (no payload command and no options; only
+clients with a record; the settings are then changed by the own-consent setup followup, which
+never writes `setup.done`). The core plan schema accepts install, update, repair and models.
 
 Both routes use the existing authorization, JSON limits and redaction. Plans have
 the same TTL/count limits; execution rechecks the proposal under the root lock.

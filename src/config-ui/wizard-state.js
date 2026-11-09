@@ -1,9 +1,19 @@
 import * as fs from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { installConfig, installPaths, homeOf } from '../install/config.js';
 import { detect } from '../install/menu.js';
 import { activationMessage } from '../install/link.js';
+import { discoverRecords } from '../install/place.js';
+
+/** The installation records found at the destination, read-only (what a repair or a model-only run needs one of). */
+export async function installedRecords({ root, env, platform, io = {}, options = {} }) {
+  const fileSystem = io.fs ?? fs;
+  const config = installConfig(io.config, options.destination ? { destination: options.destination } : {});
+  const paths = config.dataRoots[platform] ? installPaths(config, { env, platform, home: io.home ?? homeOf(env, platform) })
+    : { destination: options.destination ?? config.destination ?? root, bin: root };
+  return (await discoverRecords(paths.destination, { fs: fileSystem, config, lenient: true })).records;
+}
 
 /** Read-only first-run observations; no initialization, locks or setup writes. */
 export async function wizardState({ root, env, platform, run, options, io = {} }) {
@@ -34,7 +44,18 @@ export async function wizardState({ root, env, platform, run, options, io = {} }
     requirements.push({ key: 'permissions', ok, path: parent, remedyKey: 'writePermission' });
   }
   requirements.push({ key: 'tools', ok: true, remedyKey: 'localTools', actual: 'Node.js' });
-  return { detection: clients, requirements, platform,
+  // What a restarted server finds again: the installation records and the models a finished setup confirmed. Nothing is
+  // replayed from before the restart; the wizard builds a new plan from these and asks consent again.
+  const installed = {};
+  try {
+    for (const [client, record] of Object.entries(await installedRecords({ root, env, platform, io, options }))) installed[client] = { version: record.version ?? null };
+  } catch { /* unreadable records: shown as not installed, a repair is then a fresh install */ }
+  let profiles = {};
+  try {
+    const saved = JSON.parse(await fileSystem.readFile(join(root, 'config.json'), 'utf8'));
+    if (saved?.setup?.done?.profiles && typeof saved.setup.done.profiles === 'object') profiles = saved.setup.done.profiles;
+  } catch { /* no configuration yet */ }
+  return { detection: clients, requirements, platform, installed, setupDone: profiles,
     activationMessage: activationMessage(config, { env, platform, bin: paths.bin, locale: io.locale ?? 'en' }),
     recovery: [{ command: config.command, args: ['doctor'] },
       { command: config.command, args: ['setup'] }], destination: paths.destination };

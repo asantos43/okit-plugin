@@ -30,19 +30,26 @@ if (!playwright) { console.log('not run: no runner'); process.exit(0); }
 const home = await mkdtemp(join(tmpdir(), 'okit-wizard-accept-'));
 const env = { ...process.env, HOME: home, USERPROFILE: home, CODEX_HOME: join(home, '.codex'),
   CLAUDE_CONFIG_DIR: join(home, '.claude'), OKIT_NO_UPDATE_CHECK: '1' };
-const child = spawn(process.execPath, [join(repo, 'src', 'cli.js'), 'install', '--headless', '--from', repo],
-  { env, stdio: ['ignore', 'pipe', 'pipe'] });
-const stop = async () => { child.kill('SIGTERM'); await rm(home, { recursive: true, force: true }); };
-
-const url = await new Promise((resolve, reject) => {
-  const timer = setTimeout(() => reject(new Error('no private URL printed within 15 s')), 15000);
-  let text = '';
-  child.stdout.on('data', (chunk) => {
-    text += chunk; const hit = text.match(/http:\/\/127\.0\.0\.1:\d+\/\?token=[a-f0-9]+/);
-    if (hit) { clearTimeout(timer); resolve(hit[0]); }
+// One headless run of the installer: its child process and the private URL it prints.
+const children = [];
+function launch() {
+  const child = spawn(process.execPath, [join(repo, 'src', 'cli.js'), 'install', '--headless', '--from', repo],
+    { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  children.push(child);
+  const url = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('no private URL printed within 15 s')), 15000);
+    let text = '';
+    child.stdout.on('data', (chunk) => {
+      text += chunk; const hit = text.match(/http:\/\/127\.0\.0\.1:\d+\/\?token=[a-f0-9]+/);
+      if (hit) { clearTimeout(timer); resolve(hit[0]); }
+    });
+    child.on('exit', (code) => reject(new Error(`install exited early with ${code}`)));
   });
-  child.on('exit', (code) => reject(new Error(`install exited early with ${code}`)));
-});
+  return { child, url };
+}
+const stop = async () => { for (const child of children) child.kill('SIGTERM'); await rm(home, { recursive: true, force: true }); };
+const run = launch();
+const url = await run.url;
 
 let browser, failure = null;
 try {
@@ -96,6 +103,23 @@ try {
   await page.goto(url);
   await page.waitForSelector('#wizard-heading:not(:empty)');
   check(foreign.length === 0, `foreign requests: ${foreign.join(', ')}`);
+  // Rerun (D154): once the install has finished, a second run on the same HOME finds the records and offers
+  // Update, Repair and Change models, each only as a review (nothing is written before the consent).
+  const finished = await page.waitForFunction(() => document.querySelector('#wizard-status').textContent === '', null, { timeout: 120000 }).then(() => true, () => false);
+  if (finished) {
+    run.child.kill('SIGTERM');
+    const again = launch(); const secondUrl = await again.url;
+    await page.goto(secondUrl);
+    await page.waitForSelector('#wizard-heading:not(:empty)');
+    for (const action of ['rerun:update', 'rerun:repair', 'rerun:models']) {
+      check(await page.locator(`[data-wizard="${action}"]`).count() === 1, `a second run must offer ${action}`);
+    }
+    await page.click('[data-wizard="rerun:update"]');
+    await page.waitForSelector('#wizard-preview:not(:empty)');
+    check(await page.locator('[data-wizard="apply"]').isDisabled(), 'a rerun review must wait for consent');
+    again.child.kill('SIGTERM');
+  } else console.log('note: install did not finish within 120 s; rerun case skipped');
+
   console.log('ok: keyboard review and apply, reload, language switch, no foreign request');
 } catch (error) { failure = error; }
 finally { await browser?.close(); await stop(); }

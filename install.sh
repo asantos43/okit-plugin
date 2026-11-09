@@ -1048,7 +1048,7 @@ const ROUTE_TEXT = {
     'opener-failed': 'The browser could not be opened; using the terminal installer. Use --ui --headless and open the printed address yourself.',
     options: 'Options only the terminal installer supports were given; using the terminal installer.',
     'no-terminal': 'The terminal installer needs a terminal to ask in. Pass --client, or use --ui --headless.',
-    windows: 'Windows uses the browser wizard, not a terminal installer. Run install.ps1 without this option, or add --headless to print the address and open it yourself.',
+    windows: 'This option does not exist on Windows: there is no terminal installer there. Configure the install in the browser wizard. Before the installer is installed, run: powershell.exe -NoProfile -File .\\install.ps1 (add --headless to print the private address and open it yourself). Once installed, run: okit-plugin install --ui, and later okit-plugin config ui.',
   },
   'pt-BR': {
     ssh: 'Nenhuma sessão gráfica detectada (SSH); usando o instalador de terminal. Use --ui --headless para uma sessão de navegador encaminhada.',
@@ -1058,7 +1058,7 @@ const ROUTE_TEXT = {
     'opener-failed': 'Não foi possível abrir o navegador; usando o instalador de terminal. Use --ui --headless e abra o endereço impresso por conta própria.',
     options: 'Foram dadas opções que só o instalador de terminal aceita; usando o instalador de terminal.',
     'no-terminal': 'O instalador de terminal precisa de um terminal para perguntar. Passe --client, ou use --ui --headless.',
-    windows: 'O Windows usa o assistente no navegador, não um instalador de terminal. Rode install.ps1 sem esta opção, ou acrescente --headless para imprimir o endereço e abri-lo por conta própria.',
+    windows: 'Esta opção não existe no Windows: lá não há instalador de terminal. Configure a instalação no assistente no navegador. Antes de instalar, rode: powershell.exe -NoProfile -File .\\install.ps1 (acrescente --headless para imprimir o endereço privado e abri-lo por conta própria). Depois de instalado, rode: okit-plugin install --ui, e mais tarde okit-plugin config ui.',
   },
 };
 
@@ -1227,6 +1227,9 @@ async function install(defaults, present, hide, routing) {
   if (!records.length && await exists(recordFile)) records.push(await readRecord(recordFile));
   const record = flags['--client'] ? records.find((item) => item.client === flags['--client']) : records[0];
   const invoke = (cli, command, values) => {
+    // Ctrl-C reaches this script and the program it started together. This script stays alive until that program has
+    // closed its own listener and has returned, so the `finally` below always removes the temporary folder.
+    process.removeAllListeners?.('SIGINT'); process.on?.('SIGINT', () => {});
     const result = spawnSync(process.execPath, [cli, command, ...values], { stdio: 'inherit' });
     process.exitCode = result.status ?? present.exitCodeFor('operational');
   };
@@ -1295,6 +1298,8 @@ async function install(defaults, present, hide, routing) {
   };
   const announce = () => { if (path.reason) warn(routing.routeReason(language, path.reason)); };
   const temporary = await fs.mkdtemp(join(tmpdir(), 'okit-bootstrap-'));
+  // An interrupt during a download or a check removes the staging folder at once and ends the run (exit 130).
+  process.on?.('SIGINT', () => { fs.rm(temporary, { recursive: true, force: true }).finally(() => process.exit(130)); });
   const ps = (code, values) => {
     const literal = (value) => present.powershellLiteral(value);
     const encoded = Buffer.from(`${code} ${values.map(literal).join(' ')}`, 'utf16le').toString('base64');

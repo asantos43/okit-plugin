@@ -48,7 +48,7 @@ test('follow-ups need a typed service contract before a screen can request them'
     execute: async () => { writes++; },
   });
   try {
-    for (const operation of ['setup', 'models', 'panel']) {
+    for (const operation of ['setup', 'panel', 'rollback']) {
       await assert.rejects(jobs.plan({ operation, clients: ['claude-code'], options: {} }),
         { status: 400, code: 'Invalid install request.' });
     }

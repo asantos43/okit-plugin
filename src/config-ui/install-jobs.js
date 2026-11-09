@@ -5,6 +5,7 @@ import { buildInstallPlan, compareInstallFingerprints } from '../install/plan.js
 import { installerCommand } from '../install/index.js';
 import { createStructuredPresenter, localizeReason, redact } from '../install/present.js';
 import { UsageError } from '../install/exit.js';
+import { installedRecords } from './wizard-state.js';
 import { createFollowupJobs } from './install-followup-jobs.js';
 
 const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -115,10 +116,16 @@ export function createInstallJobs({ root, env = process.env, platform = process.
   };
   const active = () => applying || current?.state === 'applying'
     || current?.state === 'waiting' || followups.active();
+  // The records of what is installed, read-only: repair and model-only runs need one for every client they name.
+  async function recorded() {
+    let saved = {};
+    try { saved = JSON.parse(await (io.fs ?? fs).readFile(join(root, 'config.json'), 'utf8')); } catch { /* none yet */ }
+    return installedRecords({ root, env, platform, io: { ...io, config: saved?.install } });
+  }
   async function plan(input) {
     shape(input, ['operation', 'clients', 'options']);
     const { operation, clients, options = {} } = input;
-    if (!['install', 'update'].includes(operation) || !Array.isArray(clients) || !clients.length
+    if (!['install', 'update', 'repair', 'models'].includes(operation) || !Array.isArray(clients) || !clients.length
       || clients.length > 3 || new Set(clients).size !== clients.length
       || clients.some((c) => !['claude-code', 'codex', 'opencode'].includes(c))) {
       throw installError(400, 'Invalid install request.');
@@ -129,7 +136,11 @@ export function createInstallJobs({ root, env = process.env, platform = process.
       const text = ['from', 'destination'].includes(key);
       if (text ? typeof value !== 'string' || !value.trim() || value.startsWith('--') || /[\0\r\n]/.test(value)
         : typeof value !== 'boolean') throw installError(400, 'Invalid install request.');
-      if (operation === 'update' && ['from', 'destination', 'noLink', 'prerelease'].includes(key)) {
+      if (operation === 'repair' && ['destination', 'noLink', 'prerelease'].includes(key)) {
+        throw installError(400, 'Invalid install request.');
+      }
+      if (operation === 'update' && ['from', 'destination', 'noLink', 'prerelease'].includes(key)
+        || operation === 'models') {
         throw installError(400, 'Invalid install request.');
       }
       if (text) args.push(`--${flags[key]}`, value);
@@ -138,8 +149,17 @@ export function createInstallJobs({ root, env = process.env, platform = process.
     prune();
     if (closing || plans.size >= maxPlans) throw installError(409, 'Install session is full or closing; reopen and review again.');
     const entries = [];
-    for (const client of clients) entries.push({ args: [...args, '--client', client],
-      plan: await buildPlan(operation, [...args, '--client', client], ctx, io) });
+    const records = ['repair', 'models'].includes(operation) ? await recorded() : null;
+    if (records && clients.some((client) => !records[client])) throw installError(409, 'not-installed');
+    for (const client of clients) {
+      // A model-only run has no payload and nothing to preview but the saved settings: the follow-up that follows
+      // shows each change and asks again. Repair is the install run again, so it is previewed as one.
+      const entryPlan = operation === 'models'
+        ? { schemaVersion: 1, operation, locale, clients: [{ client }], releases: [], mutations: [], conflicts: [],
+          deferred: [], events: [], fingerprints: [], reviewable: true }
+        : await buildPlan(operation === 'repair' ? 'install' : operation, [...args, '--client', client], ctx, io);
+      entries.push({ args: [...args, '--client', client], plan: { ...entryPlan, operation } });
+    }
     prune();
     if (closing || plans.size >= maxPlans) throw installError(409, 'Install session is full or closing; reopen and review again.');
     const combined = { ...entries[0].plan, reviewable: entries.every((e) => e.plan.reviewable) };
@@ -221,7 +241,8 @@ export function createInstallJobs({ root, env = process.env, platform = process.
         ui.confirm = (_read, proposal) => question(job, { message: proposal.question,
           preview: { mutations: entry.plan.mutations, explain: proposal.explain ?? [] } });
         const unsupported = () => { throw installError(400, 'Install question requires a typed preview.'); };
-        const code = await execute(approved.operation, [...entry.args, '--no-panel', '--no-execution-policy'],
+        if (approved.operation === 'models') { outcome.state = 'ok'; checkpoint(job, null); continue; }
+        const code = await execute(approved.operation === 'repair' ? 'install' : approved.operation, [...entry.args, '--no-panel', '--no-execution-policy'],
           runContext,
           { ...io, ...lifecycle, ui, tty: false, deferFollowups: true, read: unsupported, ask: unsupported,
             question: (proposal) => question(job, proposal), checkpoint: (step) => checkpoint(job, step) });
@@ -312,7 +333,7 @@ export function createInstallJobs({ root, env = process.env, platform = process.
     pending.set(input.idempotencyKey, { planId: input.planId, promise });
     return promise;
   }
-  return { plan, apply, answer, cancel, snapshot, active,
+  return { plan, apply, answer, cancel, snapshot, active, recorded,
     'followup-plan': followups.plan, followup: followups.apply,
     async close() {
       closing = true; cancel();

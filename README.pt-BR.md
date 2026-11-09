@@ -15,7 +15,7 @@ Use `okit-plugin account add codex Trabalho --config-dir /caminho/absoluto/codex
 ## Instalar
 
 1. Tenha Node.js 20 ou mais recente e um cliente de IA instalado. Siga [instalação](docs/guide/install.pt-BR.md) para baixar e ler o instalador da versão para seu sistema.
-2. Execute `sh install.sh --client codex` no Linux/macOS ou `./install.ps1 --client codex` no PowerShell do Windows, na pasta do download. Troque `codex` por `claude-code` ou `opencode` conforme necessário. Espere um resumo da versão, destino e registro do cliente; siga a mensagem de ativação e reinicie o cliente.
+2. Execute `sh install.sh --client codex` no Linux/macOS ou `./install.ps1 --client codex` no PowerShell do Windows, na pasta do download. Troque `codex` por `claude-code` ou `opencode` conforme necessário. Espere um resumo da versão, destino e registro do cliente; siga a mensagem de ativação e reinicie o cliente. Rodar o instalador de novo num cliente já instalado oferece Atualizar, Reparar e Mudar modelos no assistente do navegador, cada um como uma revisão que exige o seu consentimento.
 3. Execute `okit-plugin setup`. Confirme as escolhas de modelos; elas continuam confirmadas quando o cliente não consegue listar modelos. Sem leitura de cota, o setup pede a porcentagem real, que o seu assistente registra (`quota_set`); informe a porcentagem mostrada pelo cliente.
 
 <a id="first-try"></a>

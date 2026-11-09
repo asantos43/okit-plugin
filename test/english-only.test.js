@@ -14,6 +14,7 @@ const LOCALE_FILES = new Set([
   'test/fixtures/mcp-golden.json', // Records runtime answers in both supported locales.
   'test/fixtures/d115-mcp-golden.json', // Records account answers in both supported locales.
   'test/fixtures/config-ui-labels-pt-BR.json', // Golden of the configuration page locale table.
+  'test/no-cli-instructions.test.js', // Exempts the exact Portuguese route refusal literal of src/install/route.js.
 ]);
 const PORTUGUESE = /[áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]|\b(?:nao|voce|tambem|ajudante|arquivos?|configuracao|escolha|nenhum|nenhuma|antes|depois|falhou|pronto|salvar|indisponivel|padrao|pasta|tarefas|verificacao|comando|ordens|demandas|portugues|corrija|listado|modelos|perfis|rodar|exemplo|usuario|retorna|deve|entao|mensagens|trabalho|salvo|instale|inteiro|demorou|interrompido|ultrapassou|defina|producao|somente|computador|idioma|omitido|entregue|evento)\b/iu; // locale:pt-BR classifier vocabulary
 const LOCALE_VALUE = /(['"])(?:pt-BR|pt)\1\s*:\s*(['"`])(?:\\.|(?!\2)[^\\])*?\2/g;
