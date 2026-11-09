@@ -1,5 +1,8 @@
+import { ROUTE_TEXT } from '../install/route.js';
+
 export const labels = {
   en: {
+    route: ROUTE_TEXT.en,
     wizard: {
       detect: 'Choose clients', requirements: 'Requirements', review: 'Review installation', applying: 'Installing',
       models: 'Models and effort', panel: 'Optional Claude panel', accounts: 'Accounts', reload: 'PATH and restart', result: 'Installation result', config: 'Configuration',
@@ -65,6 +68,7 @@ export const labels = {
     },
   },
   'pt-BR': {
+    route: ROUTE_TEXT['pt-BR'],
     wizard: {
       detect: 'Escolher clientes', requirements: 'Requisitos', review: 'Revisar instalação', applying: 'Instalando',
       models: 'Modelos e esforço', panel: 'Painel Claude opcional', accounts: 'Contas', reload: 'PATH e reinício', result: 'Resultado da instalação', config: 'Configuração',

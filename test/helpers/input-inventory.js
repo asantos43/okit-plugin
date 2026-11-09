@@ -199,6 +199,7 @@ export const FLAG_TABLE = Object.freeze([
   { flag: '--set-execution-policy', value: 'none', commands: ['install', 'update'], invalid: [] },
   { flag: '--no-execution-policy', value: 'none', commands: ['install', 'update'], invalid: [] },
   { flag: '--fallback', value: 'none', commands: ['install'], invalid: [] },
+  { flag: '--auto', value: 'none', commands: ['install'], invalid: [] },
 ]);
 
 /** Positional numbers that are not behind a flag: none of the commands of the table takes one. */

@@ -72,8 +72,10 @@ const PS_NODE_CHECK = [
 export async function renderInstallScripts(root, pkg, install, release) {
   const source = await readFile(join(root, 'src/install/bootstrap.js'), 'utf8');
   const presenter = await embeddedPresenter(root);
+  const routing = (await readFile(join(root, 'src/install/route.js'), 'utf8')).replace(/^export /gm, '');
+  if (/^(import|export) /m.test(routing)) throw new Error('src/install/route.js: unexpected imports');
   const defaults = JSON.stringify(scriptDefaults(pkg, install, release));
-  const js = `// BEGIN OKIT CONFIG (each key overridden by OKIT_<KEY>)\nconst defaults = ${defaults};\n// END OKIT CONFIG\n${presenter}\n${source}\nbootstrap(defaults, present).catch(error => { present.redactingWriter((line) => console.error(line))(error.message); process.exitCode = present.exitCodeFor(present.kindOf(error)); });`;
+  const js = `// BEGIN OKIT CONFIG (each key overridden by OKIT_<KEY>)\nconst defaults = ${defaults};\n// END OKIT CONFIG\n${presenter}\nconst route = (() => {\n${routing}\nreturn { chooseRoute, routeReason };\n})();\n${source}\nbootstrap(defaults, present, route).catch(error => { present.redactingWriter((line) => console.error(line))(error.message); process.exitCode = present.exitCodeFor(present.kindOf(error)); });`;
   return {
     'install.sh': `#!/bin/sh\n# Generated from src/install/bootstrap.js; inspect before executing.\n${SH_NODE_CHECK}\nnode -e "$(cat <<'OKIT_BOOTSTRAP'\n${js}\nOKIT_BOOTSTRAP\n)" -- "$@"\n`,
     'install.ps1': `# Generated from src/install/bootstrap.js; inspect before executing.\n${PS_NODE_CHECK}\n$okitBootstrap = @'\n${js}\n'@\n$okitEncoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($okitBootstrap))\n& node -e "eval(Buffer.from(process.argv.splice(1,1)[0],'base64').toString())" -- $okitEncoded @args\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n`,

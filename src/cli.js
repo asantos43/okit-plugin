@@ -230,10 +230,12 @@ async function presentInstaller(group, flags, ctx, io, stored) {
   if (group === 'install' && flags.some((flag) => ['--ui', '--headless', '--terminal'].includes(flag))) {
     const options = flagsOf(group, separateLocale(flags));
     if (options.ui || options.headless) {
-      const { installUiCommand } = await import('./config-ui/wizard-cli.js');
-      return installUiCommand(ctx, options, io, openConfigBrowser);
-    }
-    flags = flags.filter((flag) => flag !== '--terminal');
+      const { installUiCommand, UI_FALLBACK } = await import('./config-ui/wizard-cli.js');
+      const code = await installUiCommand(ctx, options, io, openConfigBrowser, launchConfigBrowser);
+      if (code !== UI_FALLBACK) return code;
+      // Only `--auto` gets here: no web job ever started, so the terminal installer may run.
+      flags = flags.filter((flag) => !['--ui', '--headless', '--auto'].includes(flag));
+    } else flags = flags.filter((flag) => !['--terminal', '--auto'].includes(flag));
   }
   const invoke = (extra = {}) => installerCommand(group, flags, ctx, { ...io, ...installerLifecycle(ctx, io), ...extra });
   // Machine/usage refusals are handled by the existing parser, byte for byte.
@@ -258,7 +260,7 @@ async function presentInstaller(group, flags, ctx, io, stored) {
   const manages = group === 'install' && !flags.includes('--no-path');
   const linked = (group === 'install' ? !options['no-link'] : Object.values(before).some((record) => record?.link)) && await reachable(manages, before, group !== 'install');
   const view = createInstallerView({ operation: group, command: config.command, locale: ctx.locale,
-    write: ctx.out, verbose: flags.includes('--verbose'), hide: [io.tmpdir ?? tmpdir()],
+    write: ctx.out, writeErr: ctx.err ?? ctx.out, verbose: flags.includes('--verbose'), hide: [io.tmpdir ?? tmpdir()],
     launch: { program, platform: ctx.platform, linked, dest: options.dest } });
   const code = await invoke({ ui: view.ui });
   const after = await discoverRecords(destination, { fs: ctx.fs, config, lenient: true }).then((found) => found.records).catch(() => ({}));
@@ -434,6 +436,20 @@ export function installerLifecycle(ctx, io) {
       child.unref();
     }),
   };
+}
+
+/** Resolves true when the opener program started and false when it could not (missing, or it failed to launch). */
+export function launchConfigBrowser(url, platform, launch = spawn) {
+  const command = platform === 'win32' ? 'cmd' : platform === 'darwin' ? 'open' : 'xdg-open';
+  const args = platform === 'win32' ? ['/c', 'start', '', url] : [url];
+  return new Promise((resolve) => {
+    try {
+      const child = launch(command, args, { shell: false, stdio: 'ignore', detached: true });
+      if (typeof child?.once !== 'function') { resolve(true); return; }
+      child.once('error', () => resolve(false));
+      child.once('spawn', () => { child.unref?.(); resolve(true); });
+    } catch { resolve(false); }
+  });
 }
 
 export function openConfigBrowser(url, platform, launch = spawn) {

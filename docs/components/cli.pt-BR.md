@@ -11,7 +11,7 @@ A pessoa usa comandos no terminal para instalar, manter e diagnosticar o plugin 
 
 `--help` mostra opções; a instalação pode alterar o nome do comando por `install.command`.
 
-No Claude Code, `install` oferece o painel opcional após sucesso; `--no-panel` pula a pergunta e a dica. `install --ui` abre as telas do assistente no navegador (consentimento explícito antes de Apply, só pelo teclado, inglês e pt-BR); `--headless` só imprime a URL privada de loopback e nunca abre navegador; `--terminal` mantém as perguntas e não pode ser combinada com eles. Ative o painel depois com `okit-plugin install --panel` (modo isolado; incompatível com `--no-panel`). `update` aceita `--no-panel` e apenas atualiza painéis já instalados, sem perguntar.
+No Claude Code, `install` oferece o painel opcional após sucesso; `--no-panel` pula a pergunta e a dica. `install --ui` abre as telas do assistente no navegador (consentimento explícito antes de Apply, só pelo teclado, inglês e pt-BR); `--headless` só imprime a URL privada de loopback e nunca abre navegador; `--terminal` mantém as perguntas e não pode ser combinada com eles. O `install.sh` baixado (Linux/macOS) abre esse assistente por padrão e usa o instalador de terminal, dizendo o motivo, quando não há sessão gráfica (SSH, contêiner, sem display, sem abridor) ou com `--yes`/`--autostart`; `--ui` nunca recorre ao terminal, `--terminal` o força, e a flag interna `--auto` (definida pelo script) só recorre ao terminal se o navegador não abrir. Ative o painel depois com `okit-plugin install --panel` (modo isolado; incompatível com `--no-panel`). `update` aceita `--no-panel` e apenas atualiza painéis já instalados, sem perguntar.
 
 | Comando | Propósito | Exemplo |
 | :- | :- | :- |

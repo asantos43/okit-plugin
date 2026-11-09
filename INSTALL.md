@@ -41,11 +41,20 @@ Windows PowerShell:
 irm https://github.com/asantos43/okit-plugin/releases/latest/download/install.ps1 | iex
 ```
 
-For unattended use, select the client first with `OKIT_CLIENT=claude-code`
-(PowerShell: `$env:OKIT_CLIENT='claude-code'`). Choices are `claude-code`, `codex`,
-and `opencode`. Without a terminal and a choice, the script refuses. To use flags,
-download and inspect the script, then run `sh install.sh --client codex` or
-`./install.ps1 --client codex`. A terminal lists clients and marks those on PATH.
+On Linux and macOS the script, after verifying the package, opens the installation
+wizard in your browser and asks no question itself: it uses `--client` or
+`OKIT_CLIENT` (`claude-code`, `codex`, `opencode`), else the first installed client in
+configured order. When no graphical session is available (SSH, a container without a
+display, Linux without `DISPLAY`/`WAYLAND_DISPLAY`, no `xdg-open`/`open`, or a browser that
+fails to start) it says why in one line and uses the terminal installer instead; `--yes`,
+`--autostart` and the execution-policy flags also choose the terminal. `--ui` always
+uses the browser (it prints the address and waits if the browser cannot open),
+`--headless` prints the address without opening it (for `ssh -N -L`), and `--terminal` forces
+the terminal installer; `--ui` and `--headless` cannot be combined with `--terminal`.
+The terminal route without a terminal and without `--client`/`OKIT_CLIENT` exits 2 before
+downloading. To use flags, download and inspect the script, then run
+`sh install.sh --client codex` or `./install.ps1 --client codex`. On Windows a terminal
+lists clients and marks those on PATH.
 
 The script checks Node, OS and architecture, selects the newest stable GitHub
 release (or warns when falling back to the newest pre-release), downloads the

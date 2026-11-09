@@ -96,7 +96,7 @@ export async function programLine({ config, platform, env, fs, remaining }) {
   return shownCommand(words, platform);
 }
 /** Collect installer observations so the outcome can precede completed steps. */
-export function createInstallerView({ operation, command, locale, write, verbose = false, hide = [], launch: start = {} }) {
+export function createInstallerView({ operation, command, locale, write, writeErr = write, verbose = false, hide = [], launch: start = {} }) {
   const notes = [];
   const headers = [], steps = [], failures = [], offered = [];
   let globalLine = false, activeClient, stepNote = false, rowNotes = false;
@@ -107,24 +107,33 @@ export function createInstallerView({ operation, command, locale, write, verbose
   }, verbose, hide });
   const pt = ui.locale === 'pt-BR';
   const rawEmit = redactingWriter(write, hide);
-  let gap = false, started = false;
-  const flushGap = () => { if (gap && started) rawEmit(''); gap = false; };
-  const emit = (value) => {
-    if (operation !== 'install') {
-      if (gap && value && !String(value).startsWith('\n')) flushGap();
-      else gap = false;
-      rawEmit(value); started = true; return;
-    }
-    for (const line of String(value).split('\n')) {
-      if (!line.trim()) { gap = started; continue; }
-      flushGap(); rawEmit(line); started = true;
-    }
+  // Failures and refusals go to the error stream (the contract of the terminal installer), line by line.
+  const rawErr = redactingWriter(writeErr, hide);
+  // One emitter per stream: the output and the error stream.
+  const shared = { gap: false, started: false };   // one blank-line state: the screens read the same on either stream
+  const makeEmit = (raw) => {
+    const state = shared;
+    const flush = () => { if (state.gap && state.started) raw(''); state.gap = false; };
+    const send = (value) => {
+      if (operation !== 'install') {
+        if (state.gap && value && !String(value).startsWith('\n')) flush();
+        else state.gap = false;
+        raw(value); state.started = true; return;
+      }
+      for (const line of String(value).split('\n')) {
+        if (!line.trim()) { state.gap = state.started; continue; }
+        flush(); raw(line); state.started = true;
+      }
+    };
+    return { state, flush, send };
   };
-  const block = () => { if (operation === 'install') gap = started; };
+  const out = makeEmit(rawEmit), err = makeEmit(rawErr);
+  const emit = out.send, flushGap = out.flush;
+  const block = () => { if (operation === 'install') { out.state.gap = out.state.started; err.state.gap = err.state.started; } };
   ui.readAnswer = async (read, ...args) => {
     flushGap();
     try { return await read(...args); }
-    finally { gap = started; }
+    finally { out.state.gap = out.state.started; }
   };
   const states = new Map();
   const stateOf = (label) => states.get(label) ?? states.set(label, {}).get(label);
@@ -303,7 +312,8 @@ export function createInstallerView({ operation, command, locale, write, verbose
     const rollbackLine = (id) => `${pt ? 'Volte à versão guardada' : 'Return to the retained version'}${multiple ? ` (${clientLabel(id)})` : ''}: ${type(['update', '--rollback', ...(known.length > 1 ? withClient(id) : [])], { later: true })}`; // locale:pt-BR
     const scopes = asked ? [asked] : operation === 'install' ? ids : [undefined];
     const once = new Set();
-    const say = (line) => { if (!once.has(line)) { once.add(line); emit(line); } };
+    const sink = code !== 0 ? err.send : emit;
+    const say = (line) => { if (!once.has(line)) { once.add(line); sink(line); } };
     if (menu && !selected) {
       for (const failure of failures.filter(({ reason }) => reason !== ui.text('clientNoTty'))) say(resolve(localizeReason(failure.reason, ui.locale)));
       for (const id of offered) say(`${pt ? 'Instale para' : 'Install for'} ${clientLabel(id)}: ${replay({ client: id })}`); // locale:pt-BR
@@ -412,6 +422,8 @@ export function createInstallerView({ operation, command, locale, write, verbose
         : stateOf(id)?.current ? (pt ? `${name} está em dia.` : `${name} is up to date.`) // locale:pt-BR
           : (pt ? `${name} atualizado de ${before[id]?.version} para ${record?.version}.` : `Updated ${name} from ${before[id]?.version} to ${record?.version}.`));
     }
+    // A finished install says so (the terminal installer's contract), before the notes and the next steps.
+    if (operation === 'install') say(ui.text('done'));
     renderSteps(say);
     const changed = ids.filter((id) => !stateOf(id)?.current);
     // The doctor reads the folder of the settings and takes no folder of its own: for an install into a custom folder

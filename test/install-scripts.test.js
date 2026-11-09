@@ -45,7 +45,8 @@ async function fixture(t) {
   }
   t.after(() => new Promise((resolve) => server.close(resolve)));
   base = `http://127.0.0.1:${server.address().port}`;
-  const env = { ...process.env, HOME: home, OKWORK_HOME: join(home, 'state'), TMPDIR: temporary, OKIT_DEST: dest,
+  // No graphical session unless a test brings one: the default route is the terminal installer.
+  const env = { ...process.env, DISPLAY: '', WAYLAND_DISPLAY: '', SSH_CONNECTION: '', SSH_TTY: '', HOME: home, OKWORK_HOME: join(home, 'state'), TMPDIR: temporary, OKIT_DEST: dest,
     OKIT_API: base, OKIT_REPO: 'fake/repo', PATH: `${bin}:${process.env.PATH}` };
   const run = async (args = [], overrides = {}) => {
     try { return { ...(await exec('sh', ['install.sh', ...args], { env: { ...env, ...overrides }, timeout: 15000 })), code: 0 }; }
@@ -88,6 +89,7 @@ for (const flag of ['--set-execution-policy', '--no-execution-policy']) {
     const source = await fs.readFile('src/install/bootstrap.js', 'utf8');
     // Execute the actual bootstrap with injected modules, without shell or network.
     const load = new Function('imports', 'process', `${source.replaceAll('await import(', 'await imports(')}\nreturn bootstrap;`);
+    const routing = await import('../src/install/route.js');
     for (const locale of ['en', 'pt-BR']) {
       const calls = [];
       const runtime = { env: {}, versions: { node: '22' }, platform: 'win32', arch: 'x64', execPath: 'node',
@@ -172,7 +174,7 @@ test('install modules never depend on excluded release modules; documentation re
 test('POSIX bootstrap loopback corpus', async (t) => {
   const f = await fixture(t); if (!f) return;
   let result = await f.run();
-  assert.equal(result.code, 2); assert.match(result.stderr, /Without a terminal to ask in/);
+  assert.equal(result.code, 2); assert.match(result.stderr, /needs a terminal to ask in/);
   result = await f.run(['--client', 'claude-code', '--dry-run']);
   assert.equal(result.code, 0, result.stderr);
   // The dry run shows one step line with the asset and no Release/Asset/Destination block.
@@ -232,7 +234,8 @@ test('bootstrap dry-run shows the chosen destination and the numbered steps of t
       { name: `${pkg.name}-1.2.3-claude-code-linux-x64.tar.gz` }, { name: `${pkg.name}-1.2.3-checksums.sha256` } ] };
     const source = await fs.readFile('src/install/bootstrap.js', 'utf8');
     const load = new Function('imports', 'process', `${source.replaceAll('await import(', 'await imports(')}\nreturn bootstrap;`);
-    const runtime = { env: {}, versions: { node: '22' }, platform: 'linux', arch: 'x64', execPath: 'node',
+    const routing = await import('../src/install/route.js');
+    const runtime = { env: {}, stdin: {}, stdout: {}, versions: { node: '22' }, platform: 'linux', arch: 'x64', execPath: 'node',
       argv: ['node', 'install', '--client', 'claude-code', '--dry-run', '--dest', marker, '--locale', locale] };
     const modules = { 'node:fs/promises': { ...fs, readFile: (path, ...options) =>
       path.endsWith('release.json') ? Promise.resolve(JSON.stringify(release)) : fs.readFile(path, ...options) },
@@ -241,7 +244,7 @@ test('bootstrap dry-run shows the chosen destination and the numbered steps of t
     const lines = [];
     const log = console.log;
     console.log = (line) => lines.push(line);
-    try { await load(async (name) => modules[name], runtime)(scriptDefaults(pkg), present); } finally { console.log = log; }
+    try { await load(async (name) => modules[name], runtime)(scriptDefaults(pkg), present, routing); } finally { console.log = log; }
     const out = lines.join('\n');
     for (const step of steps) assert.ok(out.includes(step), `${locale}: ${step} missing in\n${out}`);
     assert.match(out, new RegExp(`\\[2/5\\] .*(would|faria)\\s+${marker}[\\\\/]1\\.2\\.3-claude-code`), `${locale}: destination\n${out}`);
@@ -406,7 +409,7 @@ async function runGenerated(t, { argv, env = {}, tmpdir: temporary }) {
   t.after(() => fs.rm(home, { recursive: true, force: true }));
   const scripts = await renderInstallScripts('.', pkg);
   const js = scripts['install.sh'].split("OKIT_BOOTSTRAP'\n")[1].split('\nOKIT_BOOTSTRAP\n')[0];
-  const run = new Function('imports', 'process', 'console', js.replaceAll('await import(', 'await imports(').replace('bootstrap(defaults, present).catch', 'return bootstrap(defaults, present).catch'));
+  const run = new Function('imports', 'process', 'console', js.replaceAll('await import(', 'await imports(').replace('bootstrap(defaults, present, route).catch', 'return bootstrap(defaults, present, route).catch'));
   const name = `${pkg.name}-1.2.3-claude-code-linux-x64.tar.gz`;
   const secret = 'https://user:PASSWORD_SECRET@example.invalid/pkg?token=TEST_SECRET#TEST_FRAGMENT';
   const release = { tag_name: 'v1.2.3', assets: [{ name, browser_download_url: secret },
@@ -422,7 +425,7 @@ async function runGenerated(t, { argv, env = {}, tmpdir: temporary }) {
       : { status: 0, stdout: '' } },
   };
   const lines = [];
-  const runtime = { env, versions: { node: '22' }, platform: 'linux', arch: 'x64', execPath: 'node', argv: ['node', '--client', 'claude-code', '--dest', join(home, 'dest'), ...argv] };
+  const runtime = { env, stdin: {}, stdout: {}, versions: { node: '22' }, platform: 'linux', arch: 'x64', execPath: 'node', argv: ['node', '--client', 'claude-code', '--dest', join(home, 'dest'), ...argv] };
   await run(async (module) => modules[module], runtime, { log: (line) => lines.push(String(line)), error: (line) => lines.push(String(line)) });
   return { lines, exitCode: runtime.exitCode };
 }
@@ -454,4 +457,82 @@ test('the generated bootstrap never prints credentials, query or fragment of an 
       assert.equal(lines.some((line) => /GET https:\/\/example\.invalid\/pkg$/.test(line.trim())), verbose, `${locale} ${verbose}: ${text}`);
     }
   }
+});
+
+// D152: the default route of install.sh. The fake installed command prints its arguments (`delegated ...`).
+test('install.sh routes by the environment and says why when it uses the terminal installer', async (t) => {
+  const f = await fixture(t); if (!f) return;
+  await fs.writeFile(join(f.bin, 'xdg-open'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  await fs.writeFile(join(f.bin, 'open'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const client = ['--client', 'claude-code'];
+  const delegated = (result) => result.stdout.split('\n').find((line) => line.startsWith('delegated '));
+  // A desktop with an opener: the browser wizard, with the terminal arguments kept for a browser that cannot open.
+  let result = await f.run(client, { DISPLAY: ':0' });
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(delegated(result), /^delegated install --ui --auto --client claude-code --from \S+ --dest \S+ --repo fake\/repo --asset \S+\.tar\.gz/);
+  assert.doesNotMatch(result.stderr, /No graphical session/);
+  // SSH, no display, and options only the terminal supports: the terminal installer, with the reason first.
+  for (const [overrides, extra, reason] of [
+    [{ DISPLAY: ':0', SSH_CONNECTION: '1 2 3 4' }, [], /\(SSH\); using the terminal installer\. Use --ui --headless/],
+    [{ DISPLAY: ':0', SSH_TTY: '/dev/pts/1' }, [], /\(SSH\)/],
+    [{ DISPLAY: '', WAYLAND_DISPLAY: '' }, [], /No graphical session detected \((no DISPLAY or WAYLAND_DISPLAY|container)\)/],
+    [{ DISPLAY: ':0' }, ['--yes'], /Options only the terminal installer supports/],
+  ]) {
+    result = await f.run([...client, ...extra], overrides);
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stderr, reason);
+    assert.doesNotMatch(result.stdout, /No graphical session|Nenhuma sessão/); // locale:pt-BR
+    assert.match(delegated(result), /^delegated install --client claude-code/);
+  }
+  result = await f.run([...client, '--locale', 'pt-BR'], { SSH_CONNECTION: '1 2 3 4', DISPLAY: ':0' });
+  assert.match(result.stderr, /Nenhuma sessão gráfica detectada \(SSH\)/); // locale:pt-BR
+  // Explicit flags are never overridden: --ui stays the browser (no fallback arguments), --terminal stays the terminal.
+  result = await f.run([...client, '--ui'], { SSH_CONNECTION: '1 2 3 4', DISPLAY: '' });
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(delegated(result), /^delegated install --ui --client claude-code --from \S+ --dest \S+$/);
+  assert.doesNotMatch(result.stdout + result.stderr, /--auto|No graphical session/);
+  result = await f.run([...client, '--headless'], { DISPLAY: '' });
+  assert.match(delegated(result), /^delegated install --headless --client claude-code/);
+  result = await f.run([...client, '--terminal'], { DISPLAY: ':0' });
+  assert.match(delegated(result), /^delegated install --client claude-code/);
+  assert.doesNotMatch(result.stdout + result.stderr, /No graphical session|--terminal/);
+  // The two pairs that exclude each other are refused before anything is downloaded.
+  f.state.requests.length = 0;
+  for (const flags of [['--ui', '--terminal'], ['--headless', '--terminal']]) {
+    result = await f.run([...client, ...flags]);
+    assert.equal(result.code, 2); assert.match(result.stderr, /cannot be combined/);
+  }
+  assert.deepEqual(f.state.requests, []);
+});
+
+test('install.sh with no terminal to ask in and no client exits 2 with what to do, and never opens a browser for --yes', async (t) => {
+  const f = await fixture(t); if (!f) return;
+  for (const [locale, text] of [['en', /needs a terminal to ask in\. Pass --client/], ['pt-BR', /precisa de um terminal para perguntar\. Passe --client/]]) { // locale:pt-BR
+    const result = await f.run(['--locale', locale], { SSH_CONNECTION: '1 2 3 4' });
+    assert.equal(result.code, 2); assert.match(result.stderr, text);
+  }
+  assert.deepEqual(f.state.requests, [], 'it refuses before any download');
+  // `--yes` on a desktop is unattended: the terminal installer, not a browser.
+  await fs.writeFile(join(f.bin, 'xdg-open'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const result = await f.run(['--client', 'claude-code', '--yes'], { DISPLAY: ':0' });
+  assert.equal(result.code, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /delegated install --ui/);
+});
+
+test('the Windows script keeps no terminal route and the routing code is embedded in both scripts', async () => {
+  const rendered = await renderInstallScripts('.', pkg);
+  for (const source of Object.values(rendered)) assert.match(source, /const route = \(\(\) => \{/);
+  const ps = rendered['install.ps1'];
+  assert.match(ps, /process\.platform !== 'win32' && \['--ui', '--headless', '--terminal'\]/, 'the flags are Unix-only in the shared source');
+});
+
+test('the generated scripts need src/install/route.js: the release build fails without it', async (t) => {
+  const root = await fs.mkdtemp(join(tmpdir(), 'route-missing-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.mkdir(join(root, 'src/install'), { recursive: true });
+  for (const file of ['bootstrap', 'present', 'rules', 'exit']) await fs.copyFile(`src/install/${file}.js`, join(root, `src/install/${file}.js`));
+  await assert.rejects(renderInstallScripts(root, pkg), { code: 'ENOENT' });
+  await fs.copyFile('src/install/route.js', join(root, 'src/install/route.js'));
+  const rendered = await renderInstallScripts(root, pkg);
+  assert.ok(rendered['install.sh'].includes('function chooseRoute('));
 });

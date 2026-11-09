@@ -42,11 +42,19 @@ Windows PowerShell:
 irm https://github.com/asantos43/okit-plugin/releases/latest/download/install.ps1 | iex
 ```
 
-Sem terminal, escolha antes com `OKIT_CLIENT=claude-code` (PowerShell:
-`$env:OKIT_CLIENT='claude-code'`). As opções são `claude-code`, `codex`, `opencode`.
-Sem escolha e sem terminal, o script recusa. Para usar flags, baixe, leia e rode
-`sh install.sh --client codex` ou `./install.ps1 --client codex`.
-O menu mostra as opções e marca os executáveis encontrados no PATH.
+No Linux e no macOS o script, depois de verificar o pacote, abre o assistente de
+instalação no navegador e não faz pergunta alguma: usa `--client` ou `OKIT_CLIENT`
+(`claude-code`, `codex`, `opencode`), senão o primeiro cliente instalado na ordem
+configurada. Sem sessão gráfica (SSH, contêiner sem display, Linux sem
+`DISPLAY`/`WAYLAND_DISPLAY`, sem `xdg-open`/`open`, ou navegador que não inicia) ele diz o
+motivo em uma linha e usa o instalador de terminal; `--yes`, `--autostart` e as opções de
+política de execução também escolhem o terminal. `--ui` sempre usa o navegador (imprime o
+endereço e espera se o navegador não abrir), `--headless` imprime o endereço sem abrir
+(para `ssh -N -L`) e `--terminal` força o instalador de terminal; `--ui` e `--headless` não
+combinam com `--terminal`. A rota de terminal sem terminal e sem `--client`/`OKIT_CLIENT`
+sai com 2 antes de baixar. Para usar flags, baixe, leia e rode
+`sh install.sh --client codex` ou `./install.ps1 --client codex`. No Windows o menu mostra
+as opções e marca os executáveis encontrados no PATH.
 
 O script confere Node, sistema e arquitetura, consulta a última release estável
 do GitHub (ou avisa ao usar o pré-lançamento mais recente), baixa o pacote exato

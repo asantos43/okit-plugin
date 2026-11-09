@@ -31,8 +31,8 @@ const home = `/home/${USER}`;
 const PATHS = { sh: '/bin/sh', bash: '/bin/bash', zsh: '/usr/bin/zsh', fish: '/usr/bin/fish' };
 // The command that prints where the shell finds the command, the real path behind it, and the exit of a run of it.
 const LOOKUP = {
-  fish: 'command -v okit-plugin; readlink -f (command -v okit-plugin); okit-plugin status >/dev/null; echo "exit=$status"',
-  posix: 'command -v okit-plugin; readlink -f "$(command -v okit-plugin)"; okit-plugin status >/dev/null; echo "exit=$?"',
+  fish: 'command -v okit-plugin; readlink -f (command -v okit-plugin); okit-plugin --help >/dev/null; echo "exit=$status"',
+  posix: 'command -v okit-plugin; readlink -f "$(command -v okit-plugin)"; okit-plugin --help >/dev/null; echo "exit=$?"',
 };
 // `exec` returns code -1 and a stderr ending in `timed out` when its time ran out: a refusal must be a real exit.
 const timedOut = (result) => result.stderr.endsWith('timed out');
@@ -98,7 +98,7 @@ describe('install in containers', { skip: reason ?? false, timeout: 3600000 }, (
           // c. Quota recording is not offered by the downloaded script: the installed command writes the status bar.
           const bar = await login(`okit-plugin install --client claude-code --statusline --from ${installed}`);
           assert.equal(bar.code, 0, `${bar.stdout}${bar.stderr}`);
-          assert.match(bar.stdout, /Quota recording\s+ok\s+\S+settings\.json/, bar.stdout);
+          assert.match(bar.stdout, /Quota recording: complete — \S*settings\.json/, bar.stdout);
           const written = await exec(id, ['cat', `${home}/.claude/settings.json`]);
           assert.equal(written.code, 0, `settings.json was not read\n${written.stderr}`);
           const settings = JSON.parse(written.stdout);

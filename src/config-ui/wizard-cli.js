@@ -1,10 +1,16 @@
 import { UsageError, exitCodeFor } from '../install/exit.js';
 import { startConfigServer } from './server.js';
+import { routeReason } from '../install/route.js';
+
+/** Returned instead of an exit code when `--auto` could not open the browser: the caller runs the terminal installer. */
+export const UI_FALLBACK = Symbol('ui-fallback');
 
 /** Only explicit install UI flags enter here. Never fall back to terminal input. */
-export async function installUiCommand(ctx, options, io, openBrowser) {
+export async function installUiCommand(ctx, options, io, openBrowser, launchBrowser) {
   const supported = ['ui', 'headless', 'client', 'from', 'dest', 'no-path', 'no-link',
-    'no-statusline', 'prerelease', 'locale', 'yes'];
+    'no-statusline', 'prerelease', 'locale', 'yes', 'auto',
+    // From the generated script, which also holds the terminal fallback's arguments; only an `--auto` run has them.
+    ...(options.auto ? ['asset', 'fallback', 'repo'] : [])];
   for (const key of Object.keys(options)) {
     if (!supported.includes(key)) throw new UsageError(`Unknown flag: --${key}`);
   }
@@ -23,8 +29,18 @@ export async function installUiCommand(ctx, options, io, openBrowser) {
   let stopped = false;
   const stop = () => { if (!stopped) { stopped = true; session.close(); } };
   ctx.signal?.addEventListener('abort', stop, { once: true });
-  ctx.sessionUrl = session.url; ctx.out(session.url); ctx.sessionUrl = undefined;
-  if (!options.headless) openBrowser(session.url, ctx.platform, io.spawn);
+  if (options.auto && !options.headless && launchBrowser) {
+    // Nothing ran yet and no URL was shown: a browser that cannot open means the terminal installer, with the reason said.
+    if (!(await launchBrowser(session.url, ctx.platform, io.spawn))) {
+      stop(); await session.closed;
+      ctx.out(routeReason(ctx.locale, 'opener-failed'));
+      return UI_FALLBACK;
+    }
+    ctx.sessionUrl = session.url; ctx.out(session.url); ctx.sessionUrl = undefined;
+  } else {
+    ctx.sessionUrl = session.url; ctx.out(session.url); ctx.sessionUrl = undefined;
+    if (!options.headless) openBrowser(session.url, ctx.platform, io.spawn);
+  }
   if (ctx.signal?.aborted) stop();
   try { await session.closed; return exitCodeFor('ok'); }
   finally { ctx.signal?.removeEventListener('abort', stop); }
