@@ -53,8 +53,19 @@ endereço e espera se o navegador não abrir), `--headless` imprime o endereço 
 (para `ssh -N -L`) e `--terminal` força o instalador de terminal; `--ui` e `--headless` não
 combinam com `--terminal`. A rota de terminal sem terminal e sem `--client`/`OKIT_CLIENT`
 sai com 2 antes de baixar. Para usar flags, baixe, leia e rode
-`sh install.sh --client codex` ou `./install.ps1 --client codex`. No Windows o menu mostra
-as opções e marca os executáveis encontrados no PATH.
+`sh install.sh --client codex` ou `./install.ps1 --client codex`.
+
+No Windows, `install.ps1` é só um lançador: confere o Node e se ao menos um entre `claude`,
+`codex` ou `opencode` está instalado (senão sai com 2 e orienta), confere que as pastas
+temporária e de destino aceitam gravação, baixa e verifica o pacote (SHA-256) e abre o
+assistente de instalação no navegador. Não faz pergunta: o cliente é `--client`,
+`OKIT_CLIENT`, o registro instalado, senão o primeiro instalado na ordem configurada.
+`--headless` inicia o assistente sem abrir o navegador e imprime o endereço privado; se o
+navegador não abrir, o endereço é impresso e o assistente continua sem navegador. O Windows
+não tem instalador de terminal: `--terminal`, `--yes`, `--autostart` e as opções de política
+de execução são recusadas com uma mensagem simples (saída 2). `--locale` e `--dest` são
+repassados. O script não pede elevação e não altera a política de execução. A execução
+manual do script no Windows PowerShell 5.1 e no 7 é a evidência do Diretor e está pendente.
 
 O script confere Node, sistema e arquitetura, consulta a última release estável
 do GitHub (ou avisa ao usar o pré-lançamento mais recente), baixa o pacote exato

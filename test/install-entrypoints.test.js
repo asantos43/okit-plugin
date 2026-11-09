@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { main } from '../src/cli.js';
 import * as present from '../src/install/present.js';
-import { embeddedPresenter, scriptDefaults } from '../src/release/install-scripts.js';
+import { embeddedPresenter, scriptDefaults, selectTarget } from '../src/release/install-scripts.js';
 import { fixture } from './helpers/install-fixture.js';
 
 // The invariants of the installer, asked of every ENTRY POINT and not of one call site. An entry point is a way in:
@@ -106,7 +106,7 @@ async function bootstrapRun(t, argv, { env = {}, platform = 'win32', release: gi
     'node:os': { homedir: () => f.home, tmpdir: () => f.scratch },
     'node:child_process': { spawnSync: (command, args) => ({ status: 0, stdout: command === 'uname' ? (args[0] === '-s' ? 'Linux' : 'x86_64') : status }) },
   };
-  const source = await fs.readFile('src/install/bootstrap.js', 'utf8');
+  const source = selectTarget(await fs.readFile('src/install/bootstrap.js', 'utf8'), platform === 'win32' ? 'windows' : 'unix');
   const load = new Function('imports', 'process', 'console', `${source.replaceAll('await import(', 'await imports(')}\nreturn bootstrap;`);
   let error = null;
   try { await load(async (name) => modules[name], runtime, { log: (line) => lines.push(line) })(scriptDefaults({ ...f.io.pkg, engines: { node: '>=20' } }, f.io.config), present, await import('../src/install/route.js')); }
@@ -502,9 +502,16 @@ async function runScript(t, file, machine, { locale = 'en', assets = built.map((
   return { text: lines.join('\n'), lines, code: runtime.exitCode ?? 0, calls, home };
 }
 
-test('the build has one asset per client, system and architecture, and both scripts carry the same program', async () => {
+test('the build has one asset per client, system and architecture, and both scripts carry the same program (the Windows one without the terminal code)', async () => {
   assert.equal(built.length, 18);
-  assert.equal(await embeddedProgram('install.sh'), await embeddedProgram('install.ps1'));
+  // Same settings, presenter and routing texts, and the same call; only the bootstrap function differs by its target blocks.
+  const [shHead, shBody] = (await embeddedProgram('install.sh')).split('\nasync function bootstrap(');
+  const [psHead, psBody] = (await embeddedProgram('install.ps1')).split('\nasync function bootstrap(');
+  assert.equal(shHead, psHead);
+  const call = (body) => body.slice(body.lastIndexOf('\nbootstrap(defaults'));
+  assert.equal(call(shBody), call(psBody));
+  const source = await fs.readFile('src/install/bootstrap.js', 'utf8');
+  assert.equal(shBody.slice(0, shBody.lastIndexOf('\nbootstrap(defaults')), selectTarget(source, 'unix').split('\nasync function bootstrap(')[1]);
 });
 
 for (const file of ['install.sh', 'install.ps1']) {

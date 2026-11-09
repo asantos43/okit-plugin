@@ -1,6 +1,8 @@
 // Embedded into the standalone release scripts by the build; no repo imports.
 // `present` is the installer's presenter (src/install/present.js), embedded by the same build.
 // Whatever fails is told without the query, fragment or credentials of an address and without the temporary folder.
+// `//#if unix|windows` ... `//#endif` lines mark code only one generated script keeps (selectTarget in src/release/install-scripts.js):
+// the Windows script is a launcher (checks, verified download, the browser wizard) and holds no terminal wizard.
 async function bootstrap(defaults, present, routing) {
   const hide = [];
   try { await install(defaults, present, hide, routing); }
@@ -92,10 +94,23 @@ async function install(defaults, present, hide, routing) {
     if (['--client', '--dest', '--locale'].includes(key)) {
       if (!args[i + 1] || args[i + 1].startsWith('--')) fail(t(`Missing value for ${key}`, `Falta o valor de ${key}`));
       flags[key] = args[++i];
+//#if unix
     } else if (process.platform !== 'win32' && ['--ui', '--headless', '--terminal'].includes(key)) flags[key] = true;
+//#endif
+//#if windows
+    } else if (['--ui', '--headless', '--terminal'].includes(key)) flags[key] = true;
+//#endif
     else if (['--dry-run', '--yes', '--no-link', '--no-path', '--autostart', '--prerelease', '--check', '--rollback', '--purge', '--verbose', '--set-execution-policy', '--no-execution-policy'].includes(key)) flags[key] = true;
     else fail(t(`Unknown flag: ${key}`, `Opção desconhecida: ${key}`));
   }
+//#if windows
+  // Windows has one installer, the browser wizard: the terminal one and the options that only it supports are refused in
+  // words (exit 2), whatever else was given. Updating and uninstalling are not the wizard and keep their flags.
+  if (action === 'install') {
+    const terminalOnly = ['--terminal', '--yes', '--autostart', '--set-execution-policy', '--no-execution-policy'].find((key) => flags[key]);
+    if (terminalOnly) fail(routing.routeReason(language, 'windows'));
+  }
+//#endif
   // The browser wizard and the terminal installer exclude each other (the installed command refuses the same pairs).
   for (const [first, second] of [['--ui', '--terminal'], ['--headless', '--terminal']]) {
     if (flags[first] && flags[second]) fail(t(`${first} and ${second} cannot be combined`, `${first} e ${second} não podem ser combinadas`));
@@ -156,6 +171,7 @@ async function install(defaults, present, hide, routing) {
   const named = Boolean(client);
   const found = (executable) => (platform === 'win32' ? spawnSync('where.exe', [executable]).status === 0
     : spawnSync('sh', ['-c', 'command -v "$1"', 'sh', executable]).status === 0);
+//#if unix
   if (!client && platform !== 'win32') {
     // No question here: the first client of the configured order that is installed (the browser wizard offers the rest).
     client = Object.keys(clients).find((name) => found(clients[name]));
@@ -174,7 +190,19 @@ async function install(defaults, present, hide, routing) {
     try { client = entries[Number(await input.question(t('Number: ', 'Número: '))) - 1]?.[0]; }
     finally { input.close(); if (stream !== process.stdin) stream.destroy(); }
   }
+//#endif
+//#if windows
+  if (!client) {
+    // No question here either: the first client of the configured order that is installed (the browser wizard offers the rest).
+    client = Object.keys(clients).find((name) => found(clients[name]));
+    if (!client) {
+      const executables = Object.values(clients).join(', ');
+      fail(t(`Install at least one of ${executables}, then run this script again (or choose one with --client)`, `Instale pelo menos um de ${executables} e rode este script de novo (ou escolha um com --client)`));
+    }
+  }
+//#endif
   if (!Object.hasOwn(clients, client)) fail(t(`Invalid client; choose: ${Object.keys(clients).join(', ')}`, `Cliente inválido; escolha: ${Object.keys(clients).join(', ')}`));
+//#if unix
   // Which installer runs, decided from the environment before anything is downloaded (Linux and macOS only: the Windows
   // script has no terminal route). An explicit flag is never overridden; `--yes` is never consent to open a browser.
   let path = { route: 'terminal', reason: null };
@@ -201,6 +229,20 @@ async function install(defaults, present, hide, routing) {
     return [...mode, '--auto', ...common, ...repoPart, ...passedArgs, ...flagList];
   };
   const announce = () => { if (path.reason) warn(routing.routeReason(language, path.reason)); };
+//#endif
+//#if windows
+  // The only route is the browser wizard: `--ui` opens the browser (and, when it cannot be opened, prints the address and
+  // stays headless), `--headless` only prints the address. Nothing falls back to a terminal.
+  const routed = (from, repoPart, flagList) => [flags['--headless'] ? '--headless' : '--ui', '--client', client, '--from', from, '--dest', destination, ...shared, ...flagList];
+  const announce = () => {};
+  // The temporary folder and the destination must be writable before anything is downloaded.
+  const writable = async (folder) => {
+    let probe = folder;
+    while (!(await exists(probe))) { const parent = resolve(probe, '..'); if (parent === probe) break; probe = parent; }
+    try { await fs.access(probe, fs.constants.W_OK); } catch { fail(t(`Cannot write to ${folder}; choose another folder with --dest`, `Não é possível gravar em ${folder}; escolha outra pasta com --dest`)); }
+  };
+  if (!flags['--dry-run']) { await writable(tmpdir()); await writable(destination); }
+//#endif
   const temporary = await fs.mkdtemp(join(tmpdir(), 'okit-bootstrap-'));
   const ps = (code, values) => {
     const literal = (value) => present.powershellLiteral(value);

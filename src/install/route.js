@@ -13,6 +13,7 @@ export const ROUTE_TEXT = {
     'opener-failed': 'The browser could not be opened; using the terminal installer. Use --ui --headless and open the printed address yourself.',
     options: 'Options only the terminal installer supports were given; using the terminal installer.',
     'no-terminal': 'The terminal installer needs a terminal to ask in. Pass --client, or use --ui --headless.',
+    windows: 'Windows uses the browser wizard, not a terminal installer. Run install.ps1 without this option, or add --headless to print the address and open it yourself.',
   },
   'pt-BR': {
     ssh: 'Nenhuma sessão gráfica detectada (SSH); usando o instalador de terminal. Use --ui --headless para uma sessão de navegador encaminhada.',
@@ -22,6 +23,7 @@ export const ROUTE_TEXT = {
     'opener-failed': 'Não foi possível abrir o navegador; usando o instalador de terminal. Use --ui --headless e abra o endereço impresso por conta própria.',
     options: 'Foram dadas opções que só o instalador de terminal aceita; usando o instalador de terminal.',
     'no-terminal': 'O instalador de terminal precisa de um terminal para perguntar. Passe --client, ou use --ui --headless.',
+    windows: 'O Windows usa o assistente no navegador, não um instalador de terminal. Rode install.ps1 sem esta opção, ou acrescente --headless para imprimir o endereço e abri-lo por conta própria.',
   },
 };
 

@@ -69,16 +69,32 @@ const PS_NODE_CHECK = [
   '}',
 ].join('\n');
 
+/**
+ * The bootstrap source for one script: the lines between `//#if unix|windows` and `//#endif` stay for that target only,
+ * and the marker lines never reach the output. The Unix result is the source as it was before the markers.
+ */
+export function selectTarget(source, target) {
+  const lines = []; let block = null;
+  for (const line of source.split('\n')) {
+    const open = /^\/\/#if (unix|windows)$/.exec(line);
+    if (open) { if (block) throw new Error('src/install/bootstrap.js: nested //#if'); block = open[1]; }
+    else if (line === '//#endif') { if (!block) throw new Error('src/install/bootstrap.js: //#endif without //#if'); block = null; }
+    else if (!block || block === target) lines.push(line);
+  }
+  if (block) throw new Error('src/install/bootstrap.js: //#if without //#endif');
+  return lines.join('\n');
+}
+
 export async function renderInstallScripts(root, pkg, install, release) {
   const source = await readFile(join(root, 'src/install/bootstrap.js'), 'utf8');
   const presenter = await embeddedPresenter(root);
   const routing = (await readFile(join(root, 'src/install/route.js'), 'utf8')).replace(/^export /gm, '');
   if (/^(import|export) /m.test(routing)) throw new Error('src/install/route.js: unexpected imports');
   const defaults = JSON.stringify(scriptDefaults(pkg, install, release));
-  const js = `// BEGIN OKIT CONFIG (each key overridden by OKIT_<KEY>)\nconst defaults = ${defaults};\n// END OKIT CONFIG\n${presenter}\nconst route = (() => {\n${routing}\nreturn { chooseRoute, routeReason };\n})();\n${source}\nbootstrap(defaults, present, route).catch(error => { present.redactingWriter((line) => console.error(line))(error.message); process.exitCode = present.exitCodeFor(present.kindOf(error)); });`;
+  const script = (target) => `// BEGIN OKIT CONFIG (each key overridden by OKIT_<KEY>)\nconst defaults = ${defaults};\n// END OKIT CONFIG\n${presenter}\nconst route = (() => {\n${routing}\nreturn { chooseRoute, routeReason };\n})();\n${selectTarget(source, target)}\nbootstrap(defaults, present, route).catch(error => { present.redactingWriter((line) => console.error(line))(error.message); process.exitCode = present.exitCodeFor(present.kindOf(error)); });`;
   return {
-    'install.sh': `#!/bin/sh\n# Generated from src/install/bootstrap.js; inspect before executing.\n${SH_NODE_CHECK}\nnode -e "$(cat <<'OKIT_BOOTSTRAP'\n${js}\nOKIT_BOOTSTRAP\n)" -- "$@"\n`,
-    'install.ps1': `# Generated from src/install/bootstrap.js; inspect before executing.\n${PS_NODE_CHECK}\n$okitBootstrap = @'\n${js}\n'@\n$okitEncoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($okitBootstrap))\n& node -e "eval(Buffer.from(process.argv.splice(1,1)[0],'base64').toString())" -- $okitEncoded @args\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n`,
+    'install.sh': `#!/bin/sh\n# Generated from src/install/bootstrap.js; inspect before executing.\n${SH_NODE_CHECK}\nnode -e "$(cat <<'OKIT_BOOTSTRAP'\n${script('unix')}\nOKIT_BOOTSTRAP\n)" -- "$@"\n`,
+    'install.ps1': `# Generated from src/install/bootstrap.js; inspect before executing.\n${PS_NODE_CHECK}\n$okitBootstrap = @'\n${script('windows')}\n'@\n$okitEncoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($okitBootstrap))\n& node -e "eval(Buffer.from(process.argv.splice(1,1)[0],'base64').toString())" -- $okitEncoded @args\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n`,
   };
 }
 

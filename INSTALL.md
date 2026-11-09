@@ -53,8 +53,20 @@ uses the browser (it prints the address and waits if the browser cannot open),
 the terminal installer; `--ui` and `--headless` cannot be combined with `--terminal`.
 The terminal route without a terminal and without `--client`/`OKIT_CLIENT` exits 2 before
 downloading. To use flags, download and inspect the script, then run
-`sh install.sh --client codex` or `./install.ps1 --client codex`. On Windows a terminal
-lists clients and marks those on PATH.
+`sh install.sh --client codex` or `./install.ps1 --client codex`.
+
+On Windows, `install.ps1` is a launcher only: it checks Node and that at least one of
+`claude`, `codex` or `opencode` is installed (exit 2 with guidance otherwise) and that the
+temporary and destination folders are writable, downloads and verifies the package
+(SHA-256), and opens the installation wizard in the browser. It asks no question: the
+client is `--client`, `OKIT_CLIENT`, the installed record, else the first installed one in
+configured order. `--headless` starts the wizard without opening a browser and prints the
+private address; if the browser cannot be opened the address is printed and the wizard
+stays headless. Windows has no terminal installer: `--terminal`, `--yes`, `--autostart`
+and the execution-policy flags are refused with a plain message (exit 2). `--locale` and
+`--dest` are forwarded. The script needs no elevation and does not change the execution
+policy. The manual run of this script in Windows PowerShell 5.1 and 7 is the Director's
+evidence and is pending.
 
 The script checks Node, OS and architecture, selects the newest stable GitHub
 release (or warns when falling back to the newest pre-release), downloads the

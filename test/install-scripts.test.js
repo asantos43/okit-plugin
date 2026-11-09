@@ -8,8 +8,9 @@ import { promisify } from 'node:util';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { tarGz } from '../src/release/archive.js';
-import { scriptDefaults, renderInstallScripts } from '../src/release/install-scripts.js';
+import { scriptDefaults, renderInstallScripts, selectTarget } from '../src/release/install-scripts.js';
 import * as present from '../src/install/present.js';
+import * as routing from '../src/install/route.js';
 import { DEFAULT_CONFIG } from '../src/profiles.js';
 const exec = promisify(execFile);
 const pkg = JSON.parse(await fs.readFile('package.json', 'utf8'));
@@ -61,23 +62,23 @@ async function fixture(t) {
 // update policy flags | forward each flag | reject it before reaching the CLI
 // same-version reinstall | forward each policy flag | silently drop the flag
 // early errors | explicit or environment language | English for --locale pt-BR
-async function bootstrapRuntime(t, args, { env = {}, release, status = '200' } = {}) {
+async function bootstrapRuntime(t, args, { env = {}, release, status = '200', platform = 'win32' } = {}) {
   const home = await fs.mkdtemp(join(tmpdir(), 'bootstrap-runtime-'));
   t.after(() => fs.rm(home, { recursive: true, force: true }));
   const active = join(home, 'active'), calls = [];
   await fs.writeFile(join(home, 'install.json'), JSON.stringify({ path: active, client: 'claude-code', version: '1.2.3' }));
-  const source = await fs.readFile('src/install/bootstrap.js', 'utf8');
+  const source = selectTarget(await fs.readFile('src/install/bootstrap.js', 'utf8'), platform === 'win32' ? 'windows' : 'unix');
   const load = new Function('imports', 'process', `${source.replaceAll('await import(', 'await imports(')}\nreturn bootstrap;`);
-  const runtime = { env, versions: { node: '22' }, platform: 'win32', arch: 'x64', execPath: 'node',
+  const runtime = { env, stdin: {}, stdout: {}, versions: { node: '22' }, platform, arch: 'x64', execPath: 'node',
     argv: ['node', ...args, '--dest', home] };
   const modules = { 'node:fs/promises': { ...fs, readFile: (path, ...options) =>
     release && path.endsWith('release.json') ? Promise.resolve(JSON.stringify(release)) : fs.readFile(path, ...options) },
   'node:path': { join, resolve }, 'node:os': { homedir: () => home, tmpdir: () => home },
   'node:child_process': { spawnSync: (...values) => {
     calls.push(values);
-    return { status: 0, stdout: values[0] === 'powershell.exe' ? status : '' };
+    return { status: 0, stdout: ['powershell.exe', 'curl'].includes(values[0]) ? status : values[0] === 'uname' ? (values[1][0] === '-s' ? 'Linux' : 'x86_64') : '' };
   } } };
-  return { home, active, calls, runtime, run: () => load(async (name) => modules[name], runtime)(scriptDefaults(pkg), present) };
+  return { home, active, calls, runtime, run: () => load(async (name) => modules[name], runtime)(scriptDefaults(pkg), present, routing) };
 }
 
 for (const flag of ['--set-execution-policy', '--no-execution-policy']) {
@@ -86,7 +87,7 @@ for (const flag of ['--set-execution-policy', '--no-execution-policy']) {
     t.after(() => fs.rm(home, { recursive: true, force: true }));
     const active = join(home, 'active');
     await fs.writeFile(join(home, 'install.json'), JSON.stringify({ path: active, client: 'claude-code' }));
-    const source = await fs.readFile('src/install/bootstrap.js', 'utf8');
+    const source = selectTarget(await fs.readFile('src/install/bootstrap.js', 'utf8'), 'windows');
     // Execute the actual bootstrap with injected modules, without shell or network.
     const load = new Function('imports', 'process', `${source.replaceAll('await import(', 'await imports(')}\nreturn bootstrap;`);
     const routing = await import('../src/install/route.js');
@@ -104,14 +105,14 @@ for (const flag of ['--set-execution-policy', '--no-execution-policy']) {
   });
 }
 
-test('bootstrap same-version reinstall forwards each execution-policy flag', async (t) => {
-  const asset = `${pkg.name}-1.2.3-claude-code-windows-x64.zip`;
+test('bootstrap same-version reinstall forwards each execution-policy flag (Unix: the terminal installer)', async (t) => {
+  const asset = `${pkg.name}-1.2.3-claude-code-linux-x64.tar.gz`;
   const release = { tag_name: 'v1.2.3', prerelease: false, assets: [
     { name: asset }, { name: `${pkg.name}-1.2.3-checksums.sha256` },
   ] };
   for (const locale of ['en', 'pt-BR']) {
     for (const flag of ['--set-execution-policy', '--no-execution-policy']) {
-      const f = await bootstrapRuntime(t, ['install', flag, '--locale', locale], { release });
+      const f = await bootstrapRuntime(t, ['install', flag, '--locale', locale], { release, platform: 'linux' });
       await f.run();
       const delegated = f.calls.filter(([command]) => command === 'node');
       assert.deepEqual(delegated, [['node', [join(f.active, 'src/cli.js'), 'install',
@@ -232,7 +233,7 @@ test('bootstrap dry-run shows the chosen destination and the numbered steps of t
     await fs.mkdir(scratch);
     const release = { tag_name: 'v1.2.3', prerelease: false, assets: [
       { name: `${pkg.name}-1.2.3-claude-code-linux-x64.tar.gz` }, { name: `${pkg.name}-1.2.3-checksums.sha256` } ] };
-    const source = await fs.readFile('src/install/bootstrap.js', 'utf8');
+    const source = selectTarget(await fs.readFile('src/install/bootstrap.js', 'utf8'), 'windows');
     const load = new Function('imports', 'process', `${source.replaceAll('await import(', 'await imports(')}\nreturn bootstrap;`);
     const routing = await import('../src/install/route.js');
     const runtime = { env: {}, stdin: {}, stdout: {}, versions: { node: '22' }, platform: 'linux', arch: 'x64', execPath: 'node',
@@ -523,7 +524,9 @@ test('the Windows script keeps no terminal route and the routing code is embedde
   const rendered = await renderInstallScripts('.', pkg);
   for (const source of Object.values(rendered)) assert.match(source, /const route = \(\(\) => \{/);
   const ps = rendered['install.ps1'];
-  assert.match(ps, /process\.platform !== 'win32' && \['--ui', '--headless', '--terminal'\]/, 'the flags are Unix-only in the shared source');
+  assert.doesNotMatch(ps, /process\.platform !== 'win32' && \['--ui', '--headless', '--terminal'\]/, 'Windows reads --ui and --headless itself');
+  assert.match(rendered['install.sh'], /process\.platform !== 'win32' && \['--ui', '--headless', '--terminal'\]/, 'the Unix flags are as before');
+  assert.doesNotMatch(ps, /routing\.chooseRoute\(/, 'the Windows script never chooses a terminal route');
 });
 
 test('the generated scripts need src/install/route.js: the release build fails without it', async (t) => {
