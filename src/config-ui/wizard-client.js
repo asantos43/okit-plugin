@@ -1,8 +1,9 @@
 import { clientSource } from './client.js';
 import { wizardConfig } from './wizard-config.js';
 import { wizardFlow } from './wizard-flow.js';
+import { planSummary, previewSummary } from './wizard-summary.js';
 
-export function wizardMain(win, createFlow, bridgeConfig, startConfig) {
+export function wizardMain(win, createFlow, bridgeConfig, startConfig, summarize = { plan: planSummary, preview: previewSummary }) {
   const doc = win.document;
   const boot = JSON.parse(doc.getElementById('state').textContent);
   const token = new win.URLSearchParams(win.location.search).get('token') ?? '';
@@ -40,30 +41,54 @@ export function wizardMain(win, createFlow, bridgeConfig, startConfig) {
     input.dataset.choice = key; input.checked = Boolean(checked); input.disabled = disabled;
     element('span', label, wrapper); return input;
   }
+  const clientName = (client) => text().clientNames?.[client] ?? String(client ?? '');
+  // `{key}` takes its value from the given values; a key with no value is empty. Only text is produced: textContent escapes it.
+  const say = (template, values = {}) => String(template ?? '').replace(/\{(\w+)\}/g,
+    (_, key) => (['string', 'number', 'boolean'].includes(typeof values[key]) ? String(values[key]) : ''));
+  // The one place where JSON may be shown: a collapsed "View details" block, never the main text.
+  const details = (parent, value) => {
+    const block = element('details', undefined, parent); block.className = 'wizard-details';
+    element('summary', text().details, block); element('pre', JSON.stringify(value, null, 2), block); return block;
+  };
+  let reasonNode;
+  // What blocks Next, said once. A failing requirement is already listed above the options, so it is not repeated here.
+  const reason = () => {
+    if (flow.allowed()) return '';
+    if (flow.state.clients.length === 0) return text().missing;
+    return boot.wizard.requirements.some((item) => !item.ok) ? '' : text().missing;
+  };
   function buildScreen(state) {
     byId('body').replaceChildren(); byId('actions').replaceChildren(); byId('choices').replaceChildren();
     const t = text();
-    if (state.screen === 'detect' || state.screen === 'review') {
-      for (const row of boot.wizard.detection) check(`client:${row.client}`,
-        `${row.client}: ${row.executable ?? t.failed} ${row.version ?? ''}`, state.clients.includes(row.client));
-      for (const option of ['noPath', 'noLink', 'noStatusline']) check(option, t[option], state.options[option]);
-      check('autostart', t.autostart, false, byId('choices'), true);
-      if (boot.wizard.platform === 'win32') check('policy', t.policy, state.policy);
-    }
+    reasonNode = null; bodySignature = null;
     if (state.screen === 'detect') {
-      button('requirements', t.next, !flow.allowed());
+      const found = boot.wizard.detection.filter((row) => row.installed);
+      for (const row of boot.wizard.detection) {
+        if (row.installed) check(`client:${row.client}`, say(t.installClient, { client: clientName(row.client) }), state.clients.includes(row.client));
+        else element('p', say(t.clientMissing, { client: clientName(row.client) }), byId('choices')).className = 'wizard-note';
+      }
+      if (!found.length) element('p', t.missing, byId('choices')).className = 'wizard-note';
+      const failing = boot.wizard.requirements.filter((item) => !item.ok);
+      if (failing.length) {
+        element('p', t.notReady, byId('body')).className = 'wizard-state-bad';
+        const lines = new Set();
+        for (const item of failing) lines.add(`${t[item.key]}${item.path ? ` (${item.path})` : ''}: ${t[item.remedyKey]}`);
+        for (const line of lines) element('p', line, byId('body'));
+      } else element('p', t.allReady, byId('body')).className = 'wizard-state-ok';
+      const options = element('details', undefined, byId('body')); options.className = 'wizard-options';
+      element('summary', t.options, options);
+      for (const option of ['noPath', 'noLink', 'noStatusline']) check(option, t[option], state.options[option], options);
+      if (boot.wizard.platform === 'win32') check('policy', t.policy, state.policy, options);
+      element('p', t.autostartNote, byId('body')).className = 'wizard-note';
       const installed = Object.entries(boot.wizard.installed ?? {});
       if (installed.length) {
-        element('p', `${t.installedNote}: ${installed.map(([client, row]) => `${client} ${row.version ?? ''}`.trim()).join(', ')}`, byId('body'));
+        element('p', `${t.installedNote}: ${installed.map(([client, row]) => `${clientName(client)} ${row.version ?? ''}`.trim()).join(', ')}`, byId('body'));
         for (const [operation, label] of [['update', t.update], ['repair', t.repair], ['models', t.changeModels]]) button(`rerun:${operation}`, label);
       }
+      button('review', t.next, !flow.allowed());
+      reasonNode = element('p', reason(), byId('body')); reasonNode.className = 'wizard-reason';
     }
-    if (state.screen === 'requirements') {
-      for (const item of boot.wizard.requirements) element('p', `${t[item.key]}: ${item.ok ? t.ok : t.failed}
-        ${item.actual ?? item.path ?? ''} ${item.required ?? ''} ${item.ok ? '' : t[item.remedyKey]}`, byId('body'));
-      element('p', t.localTools, byId('body')); button('detect', t.back); button('review', t.preview, !flow.allowed());
-    }
-    if (state.screen === 'review') { button('review', t.preview); button('apply', t.apply, true); button('detect', t.back); }
+    if (state.screen === 'review') { button('detect', t.back); button('review', t.preview, true); button('apply', t.apply, true); }
     if (state.screen === 'applying') button('cancel', t.cancel, !state.active);
     if (state.screen === 'models') {
       const select = element('select', undefined, element('label', t.models, byId('body')));
@@ -72,48 +97,123 @@ export function wizardMain(win, createFlow, bridgeConfig, startConfig) {
         const option = element('option', row.client, select); option.value = row.client;
       }
       select.value = state.modelClient ?? select.value; state.modelClient = select.value;
-      button('setup-preview', t.preview, !select.value); button('followup', t.apply, true); button('panel', t.next);
+      button('result', t.backToDone); button('setup-preview', t.preview, !select.value); button('followup', t.apply, true);
     }
-    if (state.screen === 'panel') {
-      const claude = state.job?.result?.clients.some((row) => row.client === 'claude-code' && row.state === 'ok');
-      if (claude) { button('panel-preview', t.preview); button('followup', t.apply, true); }
-      button('accounts', t.skip);
+    if (state.screen === 'accounts') { element('p', t.collectors, byId('body')); button('result', t.backToDone); }
+    if (state.screen === 'result') { button('config', t.openConfig); }
+  }
+  // The done screen: what was done per client, then the optional steps as a checklist (each one with its own button).
+  let bodySignature;
+  function buildDone(state) {
+    const t = text(), body = byId('body');
+    const clients = state.job?.result?.clients ?? [];
+    const signature = JSON.stringify([state.locale, clients, state.job?.followups, state.preview?.followupId, state.followupKind, state.active]);
+    if (signature === bodySignature) return;
+    bodySignature = signature; body.replaceChildren();
+    const anyOk = clients.some((row) => row.state === 'ok');
+    for (const row of clients) {
+      const line = element('p', `${row.state === 'ok' ? '✓' : '✗'} ${clientName(row.client)}: ${t[row.state] ?? row.state}${row.reason ? ` (${row.reason})` : ''}`, body);
+      line.className = row.state === 'ok' ? 'wizard-state-ok' : 'wizard-state-bad';
     }
-    if (state.screen === 'accounts') { element('p', t.collectors, byId('body')); button('reload', t.next); }
-    if (state.screen === 'reload') {
-      element('p', boot.wizard.activationMessage, byId('body')); element('p', t.restart, byId('body'));
-      element('pre', JSON.stringify(state.options, null, 2), byId('body'));
-      element('pre', JSON.stringify(state.plan?.plan.mutations.filter((item) => /path|profile/i.test(item.kind)) ?? [], null, 2), byId('body'));
-      if (state.policy && state.job?.result?.clients.some((row) => row.state === 'ok')) {
-        button('policy-preview', t.policy); button('followup', t.apply, true);
+    if (anyOk && clients.some((row) => row.state !== 'ok')) element('p', t.partial, body);
+    if (!anyOk) return element('p', t.failedHelp, body);
+    element('h3', t.nextSteps, body);
+    const list = element('ul', undefined, body); list.className = 'wizard-checklist';
+    const followup = (kind) => state.job?.followups?.find((item) => item.kind === kind);
+    const step = (kind, title, run) => {
+      const item = element('li', undefined, list), done = followup(kind);
+      const mark = done ? (done.state === 'ok' ? t.stepDone : t[done.state] ?? done.state) : t.stepPending;
+      element('span', `${done?.state === 'ok' ? '✓' : '○'} ${title}: ${mark}`, item);
+      if (run && !(done?.state === 'ok')) {
+        const open = element('button', run.label, item); open.type = 'button'; open.dataset.wizard = run.action; open.disabled = state.active;
+        if (state.followupKind === kind && state.preview) {
+          const apply = element('button', t.apply, item); apply.type = 'button'; apply.dataset.wizard = 'followup'; apply.disabled = true;
+        }
       }
-      button('result', t.next);
+    };
+    step('setup', t.stepModels, { label: t.chooseModels, action: 'models' });
+    if (clients.some((row) => row.client === 'claude-code' && row.state === 'ok')) step('panel', t.stepPanel, { label: t.preview, action: 'panel-preview' });
+    step('accounts', t.stepAccounts, { label: t.setUpAccounts, action: 'accounts' });
+    if (state.policy && boot.wizard.platform === 'win32') step('policy', t.policy, { label: t.preview, action: 'policy-preview' });
+    // One sentence: how to reach the command (in the language on screen), then the restart; never two "open a new terminal".
+    const activation = boot.wizard.activationMessages?.[state.locale]?.replace(/[.\s]+$/, '');
+    element('p', activation ? `${activation}. ${t.restartAfter}` : t.restart, body);
+    const recovery = (boot.wizard.recovery ?? []).map((item) => [item.command, ...(item.args ?? [])].join(' '));
+    if (recovery.length) element('p', `${t.recoveryNote} ${recovery.join(' · ')}`, body);
+  }
+  // The text of a plan or follow-up preview: short lines per client, JSON only inside the collapsed block.
+  let summaryKey, progressNode, planningSince = 0;
+  function showSummary(state) {
+    const t = text(), box = byId('preview');
+    const key = state.screen === 'review' ? (state.planning ? 'planning' : state.plan ? `plan:${state.plan.planId}:${state.locale}` : 'none')
+      : state.preview ? `preview:${state.preview.followupId}:${state.locale}` : 'none';
+    if (key === summaryKey) return;
+    summaryKey = key; box.replaceChildren(); progressNode = null;
+    if (key === 'planning') {
+      planningSince = Date.now();
+      progressNode = element('p', '', box); progressNode.setAttribute('role', 'status'); progressNode.className = 'wizard-progress';
+      tickProgress(); return;
     }
-    if (state.screen === 'result') {
-      element('p', t.pending, byId('body'));
-      const clients = state.job?.result?.clients ?? [];
-      if (clients.some((row) => row.state === 'ok') && clients.some((row) => row.state !== 'ok')) element('p', t.partial, byId('body'));
-      for (const row of clients) element('p', `${row.client}: ${t[row.state]} ${row.reason ?? ''}`, byId('body'));
-      // Setup and the panel are their own steps with their own consent: each one says whether it ran.
-      for (const kind of ['setup', 'panel']) {
-        const done = state.job?.followups?.find((item) => item.kind === kind);
-        element('p', `${t[`${kind}Step`]}: ${done ? t[done.state] ?? done.state : t.skipped}`, byId('body'));
+    if (state.screen === 'review' && state.plan) {
+      const summary = summarize.plan(state.plan.plan);
+      if (summary.conflicts) element('p', say(t.conflicts, { count: summary.conflicts }), box).className = 'wizard-state-bad';
+      element('p', say(t.planTotal, { count: summary.total }), box);
+      for (const entry of summary.clients) {
+        const card = element('section', undefined, box); card.className = 'wizard-client';
+        element('h3', entry.client ? clientName(entry.client) : t.sharedGroup, card);
+        const list = element('ul', undefined, card);
+        if (entry.files) element('li', entry.packaged ? t.packageDownloaded : say(t.packageFiles, { count: entry.files }), list);
+        for (const item of entry.shown) element('li', `${t.kinds[item.kind] ?? t.kinds.other}: ${item.path}`, list);
+        if (entry.more) element('li', say(t.andMore, { count: entry.more }), list);
+        if (!entry.files && !entry.shown.length) element('li', t.nothingToChange, list);
       }
-      element('pre', JSON.stringify(boot.wizard.recovery, null, 2), byId('body'));
-      button('config', t.next);
+      details(box, state.plan.plan);
+    } else if (state.preview) {
+      const list = element('ul', undefined, box);
+      for (const line of summarize.preview(state.preview.preview)) {
+        element('li', say(t.previewLines[line.kind] ?? t.previewLines.other, { a: line.a, b: line.b, c: line.c }), list);
+      }
+      details(box, state.preview.preview);
     }
+  }
+  function tickProgress() {
+    if (!progressNode) return;
+    const seconds = Math.max(0, Math.floor((Date.now() - planningSince) / 1000));
+    progressNode.textContent = `${text().calculating} ${text().calcStage} (${seconds} s)`;
+    win.setTimeout(tickProgress, 1000);
+  }
+  // The stages of the installation, one line each: done, in progress, failed or waiting.
+  function showStages(state) {
+    const t = text(), box = byId('boundaries');
+    box.replaceChildren();
+    if (!['applying'].includes(state.screen)) { box.hidden = true; return; }
+    box.hidden = false;
+    const job = state.job ?? {}, completed = job.completed ?? [], remaining = job.remaining ?? [];
+    const failed = job.state === 'failed' || state.job?.result?.clients?.some((row) => row.state === 'failed');
+    const list = element('ul', undefined, box); list.className = 'wizard-stages';
+    const stages = [...completed.map((id) => [id, 'done']), ...remaining.map((id, index) => [id, index === 0 ? (failed ? 'failed' : 'running') : 'waiting'])];
+    const marks = { done: '✓', running: '…', failed: '✗', waiting: '·' };
+    const names = { done: t.stageDone, running: t.stageRunning, failed: t.stageFailed, waiting: t.stageWaiting };
+    for (const [id, status] of stages) {
+      const [client, ...rest] = id.split(':'), key = rest.join(':');
+      const label = say(boot.installLabels?.[state.locale]?.[key] ?? key, { client: clientName(client) });
+      element('li', `${marks[status]} ${stages.some(([other]) => other.split(':')[0] !== client) ? `${clientName(client)}: ` : ''}${label}: ${names[status]}`, list);
+    }
+    if (!stages.length) element('li', t.starting, list);
+    element('p', t.cancelNote, box);
   }
   let lastTakeover;
   function render(state, focus = false) {
     const t = text(), transition = lastScreen !== state.screen || lastLocale !== state.locale;
-    if (transition) { buildScreen(state); lastScreen = state.screen; lastLocale = state.locale; }
+    if (transition) { buildScreen(state); lastScreen = state.screen; lastLocale = state.locale; summaryKey = null; }
+    doc.documentElement.dataset.screen = state.screen;
     byId('heading').textContent = t[state.screen];
     byId('error').textContent = state.error;
     byId('consent-label').hidden = !(state.screen === 'review' && state.plan || state.preview);
     byId('consent').checked = state.consent;
     byId('unknown-label').hidden = state.screen !== 'models'; byId('unknown').checked = state.unknown;
-    byId('preview').textContent = state.screen === 'review' ? JSON.stringify(state.plan?.plan ?? {}, null, 2)
-      : state.preview ? JSON.stringify(state.preview.preview, null, 2) : '';
+    if (state.screen === 'result') buildDone(state);
+    showSummary(state);
     // `{key}` takes its value from the event's params (the params themselves, `values`, or an object of `args`);
     // a key with no value is empty, as in the terminal presenter. Only text is produced: textContent escapes it.
     const fill = (text, params = {}) => {
@@ -128,22 +228,24 @@ export function wizardMain(win, createFlow, bridgeConfig, startConfig) {
       const label = boot.installLabels?.[state.locale]?.[event.messageKey] ?? t[event.messageKey] ?? t.event;
       return `${event.client ?? ''} ${event.status}: ${fill(label, event.params)}`.replace(/\s+$/, '');
     });
-    byId('events').hidden = !['applying', 'result', 'reload'].includes(state.screen);
+    // The raw lines are technical output: they stay in a collapsed block, apart from the stage list.
+    const shownEvents = ['applying', 'result'].includes(state.screen) && events.length > 0;
+    byId('events').hidden = !shownEvents; if (byId('technical')) byId('technical').hidden = !shownEvents;
     byId('events').textContent = events.join('\n');
-    byId('boundaries').hidden = !['applying', 'result'].includes(state.screen);
-    byId('boundaries').textContent = `${t.cancelNote}\n${t.completed}: ${JSON.stringify(state.job?.completed ?? [])}
-      ${t.remaining}: ${JSON.stringify(state.job?.remaining ?? [])}\n${JSON.stringify(state.job?.followups ?? [], null, 2)}`;
+    showStages(state);
     for (const node of all('[data-wizard="apply"]')) node.disabled = !state.consent || !state.plan?.plan.reviewable || !flow.allowed() || !state.owns;
     for (const node of all('[data-wizard="followup"]')) node.disabled = !state.consent || !state.preview || state.active || !state.owns;
-    for (const node of all('[data-wizard="requirements"]')) node.disabled = !flow.allowed();
-    for (const node of all('[data-wizard="panel"], [data-wizard="accounts"], [data-wizard="result"]')) node.disabled = state.active;
+    if (state.screen === 'detect') {
+      for (const node of all('[data-wizard="review"]')) node.disabled = !flow.allowed();
+      if (reasonNode) reasonNode.textContent = reason();
+    }
+    if (state.screen === 'review') for (const node of all('[data-wizard="review"]')) node.disabled = state.planning;
     if (lastTakeover !== state.takeover || transition) {
       byId('existing').replaceChildren(); lastTakeover = state.takeover;
       if (state.takeover) { element('p', t.takeover, byId('existing'));
         const take = element('button', t.take, byId('existing')); take.type = 'button'; take.dataset.wizard = 'take'; }
     }
-    byId('status').textContent = state.active ? t.applying : state.job?.followups?.length
-      ? JSON.stringify(state.job.followups.map((item) => ({ kind: item.kind, state: item.state, reason: item.reason }))) : '';
+    byId('status').textContent = state.active ? t.applying : '';
     showControls(state);
     showQuestion(state.job?.question);
     if (focus || transition) (state.error ? byId('error') : byId('heading')).focus();
@@ -155,7 +257,7 @@ export function wizardMain(win, createFlow, bridgeConfig, startConfig) {
     if (!question) return;
     element('h3', text().question, byId('question'));
     element('p', question.message, byId('question'));
-    element('pre', JSON.stringify(question.preview, null, 2), byId('question'));
+    details(byId('question'), question.preview);
     for (const answer of ['yes', 'no']) { const node = element('button', text()[answer], byId('question'));
       node.type = 'button'; node.dataset.wizard = answer; }
   }
@@ -209,6 +311,9 @@ export function wizardMain(win, createFlow, bridgeConfig, startConfig) {
         doc.documentElement.lang = locale;
         byId('consent-label').lastChild.textContent = text().consent;
         byId('unknown-label').lastChild.textContent = text().unknown;
+        const language = node.parentNode?.firstChild, summary = byId('technical')?.querySelector?.('summary');
+        if (language) language.textContent = `${boot.catalogs[locale].tablanguage} `;
+        if (summary) summary.textContent = text().technical;
         if (flow.state.screen === 'review') await flow.review();
         render(flow.state, true);
       } catch { flow.fail(text().retry); }
@@ -255,4 +360,5 @@ export function wizardMain(win, createFlow, bridgeConfig, startConfig) {
 }
 
 export const wizardSource = () => `(${wizardMain.toString()})(window, ${wizardFlow.toString()},
-  ${wizardConfig.toString()}, function(configWindow) { ${clientSource('configWindow')} });`;
+  ${wizardConfig.toString()}, function(configWindow) { ${clientSource('configWindow')} },
+  { plan: ${planSummary.toString()}, preview: ${previewSummary.toString()} });`;
