@@ -1018,3 +1018,54 @@ test('batch unset matches CLI for every schema entry, aliases, defaults and orde
   assert.deepEqual(await readFile(join(root, 'config.json')), before);
   assert.deepEqual(await filesOnly(root), ['config.json']);
 });
+
+// D158: the readiness line of the page counts the accounts as the panel and the doctor do (one snapshot reading).
+async function twoAccountsFixture(t, withReading) {
+  const home = await mkdtemp(join(tmpdir(), 'okit-d158-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const bin = join(home, 'bin'), root = join(home, '.okwork'), work = join(home, 'work'), main = join(home, '.claude');
+  await mkdir(bin); await mkdir(join(root, 'quota'), { recursive: true });
+  await mkdir(work); await mkdir(main);
+  const claude = join(bin, 'claude');
+  await writeFile(claude, `#!${process.execPath}\nconsole.log('2.0.0');\n`); await chmod(claude, 0o755);
+  for (const dir of [work, main]) await writeFile(join(dir, '.credentials.json'), '{}');
+  await writeFile(join(root, 'config.json'), JSON.stringify({ setup: { done: true }, accounts: { 'claude-code': [
+    { id: 'default', label: 'Main' }, { id: 'work', label: 'Work', configDir: work }] } }));
+  const recordedAt = new Date().toISOString();
+  const reading = { source: 'active-oauth', remainingPct: 80, recordedAt, readAt: Date.now(),
+    windows: [{ remainingPct: 80, windowMinutes: 300 }] };
+  await writeFile(join(root, 'quota', 'claude-code.json'), JSON.stringify(reading));
+  // The work account has only what the status bar collector wrote: no file of the person, no poll state.
+  if (withReading) await writeFile(join(root, 'quota', 'claude-code-statusline.work.json'), JSON.stringify({
+    receivedAt: recordedAt, input: { rate_limits: { five_hour: { used_percentage: 20, resets_at: Math.floor(Date.now() / 1000) + 3600 },
+      seven_day: { used_percentage: 30, resets_at: Math.floor(Date.now() / 1000) + 86_400 } } } }));
+  const env = { HOME: home, PATH: bin, CLAUDE_CONFIG_DIR: '', CODEX_HOME: '' };
+  const session = await startConfigServer({ root, env, observe: undefined,
+    detect: async ({ onlyClient }) => ({ clients: [{ client: onlyClient, installed: true, source: 'listing',
+      models: ['opus', 'sonnet', 'haiku'] }] }) });
+  t.after(() => session.close());
+  return { ...session, root, env, origin: `http://127.0.0.1:${session.port}` };
+}
+
+for (const [name, withReading, count] of [['both accounts with a recent reading', true, 2], ['an account with no reading', false, 1]]) {
+  test(`readiness line of the page: ${name} says ${count}/2 like the doctor and the panel`, async t => {
+    const session = await twoAccountsFixture(t, withReading);
+    const { readiness, readyLine } = await import('../src/env/ready.js');
+    const { environmentSnapshot } = await import('../src/env/snapshot.js');
+    const { adapterQuotaReader } = await import('../src/env/quota.js');
+    const { configOf } = await import('../src/profiles.js');
+    const config = configOf(JSON.parse(await readFile(join(session.root, 'config.json'), 'utf8')));
+    const snapshot = await environmentSnapshot({ root: session.root, config, env: session.env, record: false,
+      cache: new Map(), plugin: { onPath: null }, versions: { 'claude-code': { installed: true } },
+      detectClients: async ({ onlyClient }) => ({ clients: [{ client: onlyClient ?? 'claude-code', installed: true,
+        source: 'listing', models: ['opus', 'sonnet', 'haiku'] }] }),
+      readQuota: adapterQuotaReader({ stateRoot: session.root, env: session.env, config }) });
+    const expectedEn = readyLine(readiness(snapshot), 'en');
+    const page = (await request(session, '/api/state')).json();
+    const wanted = `claude-code: ${count}/2 accounts ready`;
+    assert.match(page.readiness, new RegExp(wanted), `${page.readiness} | ${expectedEn}`);
+    assert.match(expectedEn, new RegExp(wanted));
+    const pt = (await request(session, '/api/state?locale=pt-BR')).json();
+    assert.match(pt.readiness, new RegExp(`${count}/2 contas prontas`));
+  });
+}

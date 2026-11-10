@@ -1,0 +1,1 @@
+The configuration page counted "accounts ready" from the raw quota file only, so an account whose quota came from the status bar collector showed "0/2 accounts ready" (quota not recorded) while the panel and `doctor` said "2/2". The page now reads the quota with the same reader as `doctor` and the panel state, so the three places give one answer.
