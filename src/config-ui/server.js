@@ -11,7 +11,7 @@ import { Refusal } from '../core/refusal.js';
 import { UsageError, OperationalError } from '../install/exit.js';
 import { localizeReason } from '../install/present.js';
 import { changeAccount } from '../accounts-cli.js';
-import { withAccountRenamed, accountFiles, accountsOf, accountEnv, ACCOUNT_CLIENTS, requireAccount,
+import { withAccountRenamed, accountsOf, accountEnv, ACCOUNT_CLIENTS, requireAccount,
   accountSlug, proposedAccountFolder } from '../accounts.js';
 import { launchLogin as launchAccountLogin, createAccountLogins, LOGIN_TIMEOUT_MS } from '../accounts-login-launch.js';
 import { requestQuotaRead } from '../quota/active-trigger.js';
@@ -19,6 +19,7 @@ import { defaultFolderOf, homeOf } from '../install/config.js';
 import { detectClients, confirmedModels } from '../env/models.js';
 import { environmentSnapshot } from '../env/snapshot.js';
 import { limitsStatus } from '../limits.js';
+import { adapterQuotaReader } from '../env/quota.js';
 import { buildState, describeAccount, accountQuota, redact, sensitive } from './state.js';
 import { renderPage } from './page.js';
 import { createInstallJobs, installError } from './install-jobs.js';
@@ -134,8 +135,8 @@ export async function startConfigServer({ root, env = process.env, locale = 'en'
         limits: await limitsStatus(root, loaded.config),
         detectClients: async ({ onlyClient, account }) => ({ clients: readings.filter((entry) =>
           (!onlyClient || entry.client === onlyClient) && (entry.account ?? 'default') === (account ?? 'default')) }),
-        readQuota: (client, id) => ACCOUNT_CLIENTS.includes(client)
-          ? readJson(join(root, 'quota', accountFiles(client, id).reading), null) : null });
+        // The same reader of the quota as the doctor and the panel: one answer for "accounts ready".
+        readQuota: adapterQuotaReader({ stateRoot: root, env, config: loaded.config }) });
     const accountStates = await Promise.all(ACCOUNT_CLIENTS.flatMap((client) => accountsOf(loaded.raw, client))
       .map(async (account) => ({ ...await describeAccount(account, loaded.raw, { root, env, platform, locale: chosenLocale }),
         quota: await accountQuota(root, account.client, account.id) })));
