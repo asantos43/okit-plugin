@@ -1,12 +1,14 @@
-okit plugin · claude · 2 accounts ·
-ready: no
+ okit plugin · claude · 2 accounts ·
+ ready: no
+
 ╔═ ACCOUNTS ═══════════════════════════╗
 ║ Personal · idle                      ║
-║   session 5h              unknown    ║
-║   week                    unknown    ║
+║   5h    ──────────  unknown          ║
+║   week  ──────────  unknown          ║
+║                                      ║
 ║ Work · idle                          ║
-║   session 5h              unknown    ║
-║   week                    unknown    ║
+║   5h    ──────────  unknown          ║
+║   week  ──────────  unknown          ║
 ╚══════════════════════════════════════╝
 ╔═ RUNNING ════════════════════════════╗
 ║ No live runs.                        ║

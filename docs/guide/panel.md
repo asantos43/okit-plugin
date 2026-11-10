@@ -25,26 +25,28 @@ Each account shows rotation eligibility: both windows must have **more than 20%*
 
 Each account also shows its passive collector state: Registered with Waiting for first reading, then Reading received once its passive file exists, or Not registered with a plain reason. This checks the account's `settings.json` command and passive file presence, without opening credentials; active readings do not prove passive collection. CLI/web add, install and update register every saved extra Claude account automatically; `doctor --fix` repairs missing collectors. Existing commands are chained with `--previous` and backed up. The default flow is unchanged, Codex needs no status-bar collector, and login stays manual.
 
-- ACCOUNTS: running/idle aliases, aligned session 5h and weekly bars, percent left, local 24 h reset times and time remaining (`4h35m` or `1d 21h`). Resets more than 24 h away include the weekday; `!` marks less than 20% left and missing quota shows `unknown`.
+- ACCOUNTS: running/idle aliases, aligned `5h` and `week` bars, percent left, local 24 h reset times and time remaining (`4h35m` or `1d 21h`). Resets more than 24 h away include the weekday; `!` marks less than 20% left and missing quota shows `unknown`.
 - RUNNING: active runs and their last progress line.
 - RECENT: completed, failed or no longer live (stale) runs.
 - LAUNCHABLE NOW: accounts eligible for simple/normal/hard/critic work.
 - Readiness: gaps that prevent launching work.
 - `unknown`: unavailable data, never zero quota.
 
-Quota rows use the host theme: at least 50% left is green (`ok`), 20% to below 50% is yellow (`warn`), below 20% is red (`low`), and unknown quota is dim (`dim`). Exactly 50% is green, 20% is yellow and 19.9% is red. Wrapped lines keep the same tone. The percent text (`12% left`) and `!` below 20% remain visible. `panel.color` defaults to `true`; set it to `false` in `config.json` for plain text. Doctor account-choice quota percentages use the same thresholds on a terminal and honor `NO_COLOR`; piped and MCP output remain plain.
+Only the percentage and the filled part of each quota bar are colored (the frame, labels and reset times are never colored; resets are dim), using the host theme: at least 50% left is green (`ok`), 20% to below 50% is yellow (`warn`), below 20% is red (`low`), and unknown quota is dim (`dim`). Exactly 50% is green, 20% is yellow and 19.9% is red. The percent text (`12%`) and `!` below 20% remain visible. `panel.color` defaults to `true`; set it to `false` in `config.json` for plain text. Doctor account-choice quota percentages use the same thresholds on a terminal and honor `NO_COLOR`; piped and MCP output remain plain.
 
 What the board looks like (a text rendering, not a capture of the real Claude Code screen):
 
 ```text
-okit plugin · claude · 2 accounts · ready: no
+ okit plugin · claude · 2 accounts · ready: no
+
 ╔═ ACCOUNTS ═══════════════════════════════════════════════════════════════════╗
 ║ Personal · running                                                           ║
-║   session 5h [████████░░] 80% left resets 17:00 (in 5h00m)                   ║
-║   week                    unknown                                            ║
+║   5h    ━━━━━━━━──  80%  resets 17:00 (in 5h00m)                             ║
+║   week  ──────────  unknown                                                  ║
+║                                                                              ║
 ║ Work · idle                                                                  ║
-║   session 5h              unknown                                            ║
-║   week                    unknown                                            ║
+║   5h    ──────────  unknown                                                  ║
+║   week  ──────────  unknown                                                  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ╔═ RUNNING ════════════════════════════════════════════════════════════════════╗
 ║ one: live · demand sample-demand · account Personal · actor hard · opus ·    ║

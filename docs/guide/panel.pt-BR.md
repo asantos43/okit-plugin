@@ -25,26 +25,28 @@ Cada conta mostra elegibilidade para rotação: ambas as janelas devem ter **mai
 
 Cada conta também mostra o estado do coletor passivo: Registrado com Aguardando primeira leitura, depois Leitura recebida quando existir seu arquivo passivo, ou Não registrado com um motivo simples. Isso verifica o comando do `settings.json` da conta e a presença do arquivo passivo, sem abrir credenciais; leituras ativas não comprovam coleta passiva. Add pelo CLI/web, install e update registram automaticamente todas as contas Claude extras salvas; `doctor --fix` repara coletores ausentes. Comandos existentes são encadeados com `--previous` e recebem backup. O fluxo default permanece, Codex não precisa de coletor na barra de status e o login continua manual.
 
-- ACCOUNTS: apelidos em execução ou ociosos, barras alinhadas de session 5h e semana, percentual restante, horários locais de renovação em 24 h e tempo que falta (`4h35m` ou `1d 21h`). Renovações a mais de 24 h incluem o dia da semana; `!` marca menos de 20% restante e cotas ausentes mostram `unknown`.
+- ACCOUNTS: apelidos em execução ou ociosos, barras alinhadas de `5h` e `week`, percentual restante, horários locais de renovação em 24 h e tempo que falta (`4h35m` ou `1d 21h`). Renovações a mais de 24 h incluem o dia da semana; `!` marca menos de 20% restante e cotas ausentes mostram `unknown`.
 - RUNNING: execuções ativas e sua última linha de progresso.
 - RECENT: execuções concluídas, com falha ou que não estão mais ativas (stale).
 - LAUNCHABLE NOW: contas aptas para trabalho simple/normal/hard/critic.
 - Readiness: o que falta para iniciar o trabalho.
 - `unknown`: dado indisponível, nunca cota zero.
 
-As cotas usam o tema do cliente: a partir de 50% restante, verde (`ok`); de 20% até menos de 50%, amarelo (`warn`); abaixo de 20%, vermelho (`low`); cota desconhecida, tom apagado (`dim`). Exatamente 50% é verde, 20% é amarelo e 19.9% é vermelho. Linhas quebradas mantêm o tom. O texto percentual (`12% left`) e `!` abaixo de 20% continuam visíveis. `panel.color` tem padrão `true`; defina como `false` no `config.json` para texto sem cores. Os percentuais de cota nas razões de escolha de conta do doctor usam os mesmos limites no terminal e respeitam `NO_COLOR`; saídas canalizadas e MCP continuam sem cores.
+Só o percentual e a parte preenchida da barra de cota recebem cor (a moldura, os rótulos e os horários de renovação nunca têm cor; a renovação fica apagada), usando o tema do cliente: a partir de 50% restante, verde (`ok`); de 20% até menos de 50%, amarelo (`warn`); abaixo de 20%, vermelho (`low`); cota desconhecida, tom apagado (`dim`). Exatamente 50% é verde, 20% é amarelo e 19.9% é vermelho. O texto percentual (`12%`) e `!` abaixo de 20% continuam visíveis. `panel.color` tem padrão `true`; defina como `false` no `config.json` para texto sem cores. Os percentuais de cota nas razões de escolha de conta do doctor usam os mesmos limites no terminal e respeitam `NO_COLOR`; saídas canalizadas e MCP continuam sem cores.
 
 Como é o quadro (uma representação em texto, não uma captura da tela real do Claude Code):
 
 ```text
-okit plugin · claude · 2 accounts · ready: no
+ okit plugin · claude · 2 accounts · ready: no
+
 ╔═ ACCOUNTS ═══════════════════════════════════════════════════════════════════╗
 ║ Personal · running                                                           ║
-║   session 5h [████████░░] 80% left resets 17:00 (in 5h00m)                   ║
-║   week                    unknown                                            ║
+║   5h    ━━━━━━━━──  80%  resets 17:00 (in 5h00m)                             ║
+║   week  ──────────  unknown                                                  ║
+║                                                                              ║
 ║ Work · idle                                                                  ║
-║   session 5h              unknown                                            ║
-║   week                    unknown                                            ║
+║   5h    ──────────  unknown                                                  ║
+║   week  ──────────  unknown                                                  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ╔═ RUNNING ════════════════════════════════════════════════════════════════════╗
 ║ one: live · demand sample-demand · account Personal · actor hard · opus ·    ║

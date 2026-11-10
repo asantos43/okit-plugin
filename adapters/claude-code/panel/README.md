@@ -14,10 +14,38 @@ The core works without this directory.
 The header shows `okit plugin · claude · N accounts · ready: yes|no`, with readiness
 from the command. Framed sections follow: **ACCOUNTS**, **RUNNING**, **RECENT**,
 **LAUNCHABLE NOW**, then **Readiness** with the existing line and warnings.
-Accounts show only aliases, running/idle markers, session (5 h) and week bars,
+Accounts show only aliases, running/idle markers, `5h` and `week` bars,
 percent left, local 24 h reset time and time until reset (`4h35m` or `1d 21h`).
-Columns align across accounts; resets more than 24 h away include the weekday.
-`!` marks less than 20% left. Null is `unknown`; zero is `0% left`.
+Each account is a title (name in bold, state dim), two quota lines in aligned
+columns (label, 10-cell bar of thin line characters, `NN%`, `resets …`) and a
+blank line before the next account. Columns align across accounts; resets more
+than 24 h away include the weekday. `!` marks less than 20% left. Null is
+`unknown`; zero is `0%`. The board starts with the header and a blank line.
+
+Colour follows one rule: only the `NN%` text and the filled part of the bar take
+the band's tone (green from 50, yellow from 20, red below 20, dim when unknown);
+labels, frame and the board's other text have none, resets are dim. `!` warnings
+(`Not registered: …`, a non-eligible rotation) are yellow text only; `Eligible for
+rotation.` is dim. With `panel.color` set to `false` there is no colour or bold.
+The model is segments, not rows: `boardSegments` returns lines of `{text, tone?,
+bold?}`, `boardLines` is the same lines joined, and `register.js` draws one `Text`
+per line with a nested `Text` per segment.
+
+```text
+ okit plugin · claude · 2 accounts · ready: no
+
+╔═ ACCOUNTS ═════════════════════════════════════════════╗
+║ Personal · running                                     ║
+║   5h    ━━━━━━━━━━  96%  resets 16:25 (in 4h25m)       ║
+║   week  ━━━───────  30%  resets Mon 10:00 (in 2d 22h)  ║
+║ Eligible for rotation.                                 ║
+║                                                        ║
+║ Work · idle                                            ║
+║ ! 5h    ━─────────  10%  reset unknown                 ║
+║   week  ──────────  unknown                            ║
+║ ! Not registered: Could not register the collector.    ║
+╚════════════════════════════════════════════════════════╝
+```
 Live, non-stale runs show account alias, demand when saved, model, effort,
 elapsed and last progress. Recent includes finished, failed, stale and unknown
 statuses with elapsed and a saved error reason when available. Unknown accounts

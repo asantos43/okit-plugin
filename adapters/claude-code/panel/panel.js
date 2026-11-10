@@ -1,5 +1,5 @@
-import { elapsed, localTimestamps, quotaRows, quotaTone } from './formatters.js';
-import { frameLines, wrapText } from './frame.js';
+import { elapsed, localTimestamps, quotaLines } from './formatters.js';
+import { frameSegments, segmentText, wrapText } from './frame.js';
 
 export const COMMAND = Object.freeze(['okit-plugin', 'panel-state', '--json', '--client', 'claude']);
 export const PROCESS_OPTIONS = Object.freeze({ timeoutMs: 5000, maxOutputBytes: 1024 * 1024 });
@@ -54,25 +54,24 @@ function readableRun(r) {
   return record(r);
 }
 
-/** @param {import('./types.js').Result} result @param {number} width @param {number} [now] @param {string} [timeZone] */
-export function boardLines(result, width, now = Date.now(), timeZone) {
+/** The board as lines of segments `{text, tone?, bold?}`. A tone goes only on the text it describes; the frame never has one.
+ * @param {import('./types.js').Result} result @param {number} width @param {number} [now] @param {string} [timeZone]
+ * @returns {import('./types.js').Segment[][]} */
+export function boardSegments(result, width, now = Date.now(), timeZone) {
   const w = Number.isFinite(width) ? Math.max(1, Math.min(240, Math.floor(width))) : 80;
-  return viewModel(result, now, timeZone).flatMap((block, index) => result.ok && index === 0
-    ? wrapText(block.title, w) : frameLines(block.title, block.rows, w));
+  const blocks = viewModel(result, now, timeZone);
+  return blocks.flatMap((block, index) => {
+    if (result.ok && index === 0) {
+      const margin = w < 40 ? 0 : 1;
+      return [...wrapText(block.title, Math.max(1, w - margin)).map(text => [{ text: ' '.repeat(margin) + text, bold: true }]), []];
+    }
+    return [...(w < 40 && index > 1 ? [[]] : []), ...frameSegments(block.title, block.lines, w)];
+  });
 }
 
-/** Parallel metadata for boardLines; frames and non-quota rows have no tone.
- * @param {import('./types.js').Result} result @param {number} width @param {number} [now] @param {string} [timeZone] */
-export function boardTones(result, width, now = Date.now(), timeZone) {
-  const w = Number.isFinite(width) ? Math.max(1, Math.min(240, Math.floor(width))) : 80;
-  const tones = result.ok ? result.state.accounts.flatMap(account =>
-    [undefined, quotaTone(account.quota.session?.remaining_pct ?? null), quotaTone(account.quota.weekly?.remaining_pct ?? null)]) : [];
-  return viewModel(result, now, timeZone).flatMap((block, index) => {
-    if (result.ok && index === 0) return wrapText(block.title, w).map(() => undefined);
-    const rows = block.rows.flatMap((row, rowIndex) => wrapText(row, w < 40 ? w : w - 4)
-      .map(() => result.ok && index === 1 ? tones[rowIndex] : undefined));
-    return w < 40 ? [undefined, ...rows] : [undefined, ...rows, undefined];
-  });
+/** Plain text of the board: the segments joined. @param {import('./types.js').Result} result @param {number} width @param {number} [now] @param {string} [timeZone] */
+export function boardLines(result, width, now = Date.now(), timeZone) {
+  return boardSegments(result, width, now, timeZone).map(segmentText);
 }
 
 /** @param {import('./types.js').Runner} run @returns {Promise<import('./types.js').Result>} */
@@ -88,18 +87,26 @@ export async function loadState(run) {
 
 /** @param {import('./types.js').Result} result @param {number} [now] @param {string} [timeZone] */
 export function viewModel(result, now = Date.now(), timeZone) {
-  if (!result.ok) return [{ title: 'okit plugin', rows: [result.error] }];
+  /** @param {string} text @param {import('./types.js').Segment['tone']} [tone] @returns {import('./types.js').Segment[]} */
+  const plain = (text, tone) => [{ text, ...(tone ? { tone } : {}) }];
+  /** @param {string} title @param {import('./types.js').Segment[][]} lines */
+  const block = (title, lines) => ({ title, lines: lines.map(line => line.map(segment => ({ ...segment, text: localTimestamps(segment.text, now, timeZone) }))) });
+  if (!result.ok) return [withRows(block('okit plugin', [plain(result.error)]))];
   const { state } = result;
   const labels = new Map(state.accounts.map(account => [account.id, account.label]));
   /** @param {string | null} id */
   const accountName = id => labels.get(id ?? '') ?? 'unknown account';
-  const quotas = quotaRows(state.accounts, now, timeZone);
+  const quotas = quotaLines(state.accounts, now, timeZone);
+  /** @type {import('./types.js').Segment[][]} */
   const accounts = state.accounts.flatMap((account, index) => [
-    `${account.label} · ${state.runs.some(run => run.account === account.id && run.status === 'live' && !run.stale) ? 'running' : 'idle'}`,
+    ...(index ? [[]] : []),
+    [{ text: account.label, bold: true }, { text: ' · ' },
+      { text: state.runs.some(run => run.account === account.id && run.status === 'live' && !run.stale) ? 'running' : 'idle', tone: 'dim' }],
     quotas[index * 2], quotas[index * 2 + 1],
-    ...(account.quota_state?.reason && !account.quota.session && !account.quota.weekly ? [account.quota_state.reason] : []),
-    ...(account.rotation ? [account.rotation.text] : []),
-    ...(account.collector ? [[account.collector.text, account.collector.detail, account.collector.reason].filter(Boolean).join(': ')] : []),
+    ...(account.quota_state?.reason && !account.quota.session && !account.quota.weekly ? [plain(account.quota_state.reason, 'dim')] : []),
+    ...(account.rotation ? [account.rotation.eligible === false ? plain(`! ${account.rotation.text}`, 'warn') : plain(account.rotation.text, 'dim')] : []),
+    ...(account.collector ? [(text => account.collector?.state === 'not registered' ? plain(`! ${text}`, 'warn') : plain(text, 'dim'))(
+      [account.collector.text, account.collector.detail, account.collector.reason].filter(Boolean).join(': '))] : []),
   ]);
   const newest = [...state.runs].sort((a, b) =>
     (Date.parse(b.started_at ?? '') || 0) - (Date.parse(a.started_at ?? '') || 0));
@@ -124,14 +131,21 @@ export function viewModel(result, now = Date.now(), timeZone) {
     return `${actor}: ${[...new Set(names)].join(', ') || 'none'}`;
   });
   const ready = /^Ready to launch executors: yes(?:[;. ]|$)/.test(state.readiness);
-  return [{ title: `okit plugin · claude · ${state.accounts.length} accounts · ready: ${ready ? 'yes' : 'no'}`, rows: [] },
-  { title: 'ACCOUNTS', rows: accounts.length ? accounts : ['No accounts.'] },
-  { title: 'RUNNING', rows: newest.some(live) ? runRows(newest.filter(live), true) : ['No live runs.'] },
-  { title: 'RECENT', rows: newest.some(run => !live(run)) ? runRows(newest.filter(run => !live(run)), false) : ['No recent runs.'] },
-  { title: 'LAUNCHABLE NOW', rows: launchable },
-  { title: 'Readiness', rows: [state.readiness,
-    ...(state.runs.length || state.skipped_runs ? [] : ['No runs.']),
-    ...(state.skipped_runs ? [`${state.skipped_runs} ${state.skipped_runs === 1 ? 'run' : 'runs'} skipped (unreadable)`] : []),
-    ...state.warnings.map(warning => `Warning: ${warning}`)] }]
-    .map(block => ({ ...block, rows: block.rows.map(row => localTimestamps(row, now, timeZone)) }));
+  /** @param {string[]} rows @param {import('./types.js').Segment['tone']} [tone] */
+  const lines = (rows, tone) => rows.map(row => plain(row, tone));
+  return [{ title: `okit plugin · claude · ${state.accounts.length} accounts · ready: ${ready ? 'yes' : 'no'}`, lines: [] },
+  { title: 'ACCOUNTS', lines: accounts.length ? accounts : [plain('No accounts.', 'dim')] },
+  { title: 'RUNNING', lines: newest.some(live) ? lines(runRows(newest.filter(live), true)) : [plain('No live runs.', 'dim')] },
+  { title: 'RECENT', lines: newest.some(run => !live(run)) ? lines(runRows(newest.filter(run => !live(run)), false)) : [plain('No recent runs.', 'dim')] },
+  { title: 'LAUNCHABLE NOW', lines: lines(launchable) },
+  { title: 'Readiness', lines: [plain(state.readiness),
+    ...(state.runs.length || state.skipped_runs ? [] : [plain('No runs.', 'dim')]),
+    ...(state.skipped_runs ? [plain(`${state.skipped_runs} ${state.skipped_runs === 1 ? 'run' : 'runs'} skipped (unreadable)`, 'warn')] : []),
+    ...state.warnings.map(warning => plain(`! Warning: ${warning}`, 'warn'))] }]
+    .map(entry => withRows(block(entry.title, entry.lines)));
+}
+/** Every block keeps `rows`, the plain text of each line, beside the segment `lines`.
+ * @param {{ title: string, lines: import('./types.js').Segment[][] }} entry */
+function withRows(entry) {
+  return { ...entry, rows: entry.lines.map(segmentText) };
 }

@@ -14,10 +14,22 @@ empacotamento. O núcleo funciona sem esta pasta.
 O cabeçalho mostra `okit plugin · claude · N accounts · ready: yes|no`, com prontidão
 do comando. Os blocos são **ACCOUNTS**, **RUNNING**, **RECENT**, **LAUNCHABLE NOW**
 e **Readiness**, com a linha e os avisos existentes ao final. Contas mostram só
-aliases, marcador running/idle, barras de sessão (5 h) e semana, percentual restante,
+aliases, marcador running/idle, barras `5h` e `week`, percentual restante,
 reset local em 24 h e tempo até ele (`4h35m` ou `1d 21h`).
-Colunas alinham entre contas; resets a mais de 24 h incluem o dia da semana.
-`!` marca menos de 20% restante. `null` aparece como `unknown`; zero como `0% left`.
+Cada conta é um título (nome em negrito, estado apagado), duas linhas de cota em
+colunas alinhadas (rótulo, barra de 10 células com traços finos, `NN%`, `resets …`)
+e uma linha em branco antes da próxima conta. Colunas alinham entre contas; resets
+a mais de 24 h incluem o dia da semana. `!` marca menos de 20% restante. `null`
+aparece como `unknown`; zero como `0%`. O painel começa com o cabeçalho e uma linha em branco.
+
+A cor segue uma só regra: apenas o texto `NN%` e a parte preenchida da barra recebem
+o tom da faixa (verde a partir de 50, amarelo a partir de 20, vermelho abaixo de 20,
+apagado se desconhecida); rótulos, moldura e o resto do texto não têm cor e a
+renovação fica apagada. Avisos com `!` (`Not registered: …`, rodízio não elegível)
+são só texto amarelo; `Eligible for rotation.` fica apagado. Com `panel.color`
+`false` não há cor nem negrito. O modelo são trechos, não linhas: `boardSegments`
+devolve linhas de `{text, tone?, bold?}`, `boardLines` é a mesma coisa juntada, e
+`register.js` desenha um `Text` por linha com um `Text` aninhado por trecho.
 Execuções live não antigas mostram conta, demanda quando salva, modelo, esforço,
 duração e último progresso. Recent inclui concluídas, falhas, antigas e status
 desconhecidos, com duração e motivo de erro quando salvo. Contas sem cadastro

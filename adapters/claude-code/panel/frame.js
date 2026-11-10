@@ -35,7 +35,7 @@ export function clipText(text, width) {
 }
 
 /** @param {string} text */
-const cleanText = text => text.replace(/[\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\u180e\ufff9-\ufffb\u061c\ufeff]/g, '')
+export const cleanText = text => text.replace(/[\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\u180e\ufff9-\ufffb\u061c\ufeff]/g, '')
   .replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
 /** @param {string} text @param {number} width */
 export function wrapText(text, width) {
@@ -75,19 +75,47 @@ export function wrapText(text, width) {
   return [...rows.slice(0, 2), last + '…'];
 }
 
-/** @param {string} title @param {readonly string[]} rows @param {number} width */
-export function frameLines(title, rows, width) {
+/** @param {readonly import('./types.js').Segment[]} line */
+export const segmentText = line => line.map(segment => segment.text).join('');
+
+/** Lay one logical line out in `width` cells. A one-segment line wraps like text (three rows at most);
+ * a line of several segments keeps its columns and is clipped with an ellipsis; an empty line is one blank row.
+ * @param {readonly import('./types.js').Segment[]} line @param {number} width @returns {import('./types.js').Segment[][]} */
+export function fitSegments(line, width) {
+  if (!line.length || !segmentText(line).trim()) return [[]];
+  if (line.length === 1) return wrapText(line[0].text, width).map(text => [{ ...line[0], text }]);
+  /** @type {import('./types.js').Segment[]} */
+  const out = [];
+  let left = Math.max(0, Math.floor(width));
+  for (const segment of line) {
+    if (left <= 0) break;
+    const clipped = textWidth(cleanText(segment.text)) > left;
+    const text = clipText(segment.text, left);
+    out.push({ ...segment, text });
+    left -= textWidth(text);
+    if (clipped) break;
+  }
+  return [out];
+}
+
+/** The frame is always plain; only the content segments may carry a tone.
+ * @param {string} title @param {readonly (readonly import('./types.js').Segment[])[]} lines @param {number} width
+ * @returns {import('./types.js').Segment[][]} */
+export function frameSegments(title, lines, width) {
   const w = Number.isFinite(width) ? Math.max(1, Math.min(240, Math.floor(width))) : 80;
-  const wrapped = rows.flatMap(row => wrapText(row, w < 40 ? w : w - 4));
-  if (w < 40) return [clipText(title, w), ...wrapped];
+  const wrapped = lines.flatMap(line => fitSegments(line, w < 40 ? w : w - 4));
+  if (w < 40) return [[{ text: clipText(title, w), bold: true }], ...wrapped];
   const inner = w - 2;
   const label = clipText(`═ ${title} `, inner);
   return [
-    `╔${label}${'═'.repeat(inner - textWidth(label))}╗`,
-    ...wrapped.map(row => {
-      const body = clipText(row, w - 4);
-      return `║ ${body}${' '.repeat(w - 4 - textWidth(body))} ║`;
-    }),
-    `╚${'═'.repeat(inner)}╝`,
+    [{ text: `╔${label}${'═'.repeat(inner - textWidth(label))}╗` }],
+    ...wrapped.map(row => [{ text: '║ ' }, ...row,
+      { text: `${' '.repeat(Math.max(0, w - 4 - textWidth(segmentText(row))))} ║` }]),
+    [{ text: `╚${'═'.repeat(inner)}╝` }],
   ];
+}
+
+/** @param {string} title @param {readonly string[]} rows @param {number} width */
+export function frameLines(title, rows, width) {
+  return frameSegments(title, rows.map(row => [{ text: row }]), width).map(segmentText);
 }
