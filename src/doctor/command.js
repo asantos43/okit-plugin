@@ -8,7 +8,8 @@ import { createPresenter, presentDiagnosis, programLine } from '../cli-present.j
 export { presentDiagnosis } from '../cli-present.js';
 
 import { diagnose } from './diagnose.js';
-import { ensureSavedCollectors } from '../quota/collector-registration.js';
+import { accountsOf } from '../accounts.js';
+import { ensureSavedCollectors, collectorState } from '../quota/collector-registration.js';
 
 // The doctor of the command line: it looks at the whole installation and tells what it found. One row per thing it
 // looked at, the summary first and repair instructions below the data table.
@@ -46,6 +47,21 @@ export async function doctorCommand(ctx, { locale, config, verbose = false, clie
     command: config.command, platform: ctx.platform, env: ctx.env, home,
     fs: ctx.fs, run: ctx.run, now: ctx.now, client, temporary: ctx.tmpdir, readers,
   });
+  // One row for the collector of each saved account (read-only): where it is not registered, the reason names the file.
+  if (!client || client === 'claude-code') {
+    const raw = await ctx.fs.readFile(`${ctx.root}/config.json`, 'utf8').then(JSON.parse).catch(() => ({}));
+    const pt = locale === 'pt-BR';
+    const accounts = await Promise.resolve().then(() => accountsOf(raw, 'claude-code')).catch(() => []);
+    for (const account of accounts.filter((entry) => !entry.isDefault)) {
+      const state = await collectorState({ ...ctx, locale }, raw, account);
+      const ok = state.state === 'registered';
+      result.rows.push({ id: 'account-collector', client: 'claude-code', account: account.id, accountLabel: account.label,
+        label: pt ? 'Coletor da conta' : 'Account collector', // locale:pt-BR
+        status: ok ? 'ok' : 'warn',
+        detail: [state.text, state.detail].filter(Boolean).join(': '), ...ok ? {} : { fix: state.reason } });
+      if (!ok) result.warnings += 1;
+    }
+  }
   const program = await programLine({ config, platform: ctx.platform, env: ctx.env, fs: ctx.fs }).catch(() => config.command);
   presentDiagnosis(result, { ui, command: config.command, client, clients: Object.keys(records), verbose, out: ctx.out, program, platform: ctx.platform });
   return exitCodeFor(result.failed > 0 ? 'operational' : 'ok');

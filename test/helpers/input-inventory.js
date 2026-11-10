@@ -408,7 +408,7 @@ export const READ_POINTS = Object.freeze([
   { file: 'src/config-ui/install-jobs.js', arg: /^file$/, rule: 'install-job.lock (install ownership)' },
   { file: 'src/config-ui/install-jobs.js', arg: /^JSON.stringify\(value,/, excluded: 'Redacted in-memory job snapshot, not an external file or executable input.' },
   { file: 'src/quota/collector-registration.js', arg: /^(metadata\(ctx\.root, account\)|file)$/, rule: 'quota/collector-<client>.<id>.json (collector restoration metadata)' },
-  { file: 'src/quota/collector-registration.js', arg: /^join\(folder, config\.statuslineRegistration\.settingsFile\)$/, rule: 'settings.json of an account (collector state)' },
+  { file: 'src/quota/collector-registration.js', arg: /^file$/, rule: 'settings.json of an account (collector state)' },
   { file: 'src/doctor/command.js', arg: /^`\$\{ctx\.root\}\/config\.json`$/, rule: CONFIG_JSON },
   { file: 'src/quota/active-poller.js', arg: /^file$/, rule: 'quota active state and leases' },
   { file: 'src/quota/active-trigger.js', arg: /^(file|lease)$/, rule: 'quota active state and leases' },

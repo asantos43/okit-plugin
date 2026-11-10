@@ -75,7 +75,7 @@ test('unknown logins and Windows PowerShell instructions', async (t) => {
   await fs.writeFile(join(blocked, 'settings.json'), 'not JSON');
   const failed = await invoke(['add', 'claude-code', 'Blocked', '--config-dir', blocked], { platform: 'darwin' });
   assert.equal(failed.code, 0, failed.text);
-  assert.ok(failed.out[0].endsWith('\tNot registered: Could not register the collector. Check account settings permissions and JSON.'));
+  assert.match(failed.out[0], /\tNot registered: Could not register the collector\. Check account settings permissions and JSON\. The settings file is not valid JSON\. File: .*settings\.json\./);
   assert.match(failed.text, /register in settings.json/);
   assert.match(failed.text, /OKWORK_HOME=.* statusline-collector/);
   assert.equal(await fs.readFile(join(blocked, 'settings.json'), 'utf8'), 'not JSON');
