@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { clipText, frameLines, textWidth, wrapText } from '../adapters/claude-code/panel/frame.js';
-import { elapsed, formatHm, localTime, quotaBar, quotaRows, quotaTone } from '../adapters/claude-code/panel/formatters.js';
-import { COMMAND, PROCESS_OPTIONS, boardLines, boardTones, loadState, parseState, viewModel } from '../adapters/claude-code/panel/panel.js';
+import { clipText, fitSegments, frameLines, frameSegments, textWidth, wrapText } from '../adapters/claude-code/panel/frame.js';
+import { elapsed, formatHm, localTime, quotaBar, quotaLines, quotaRows, quotaTone } from '../adapters/claude-code/panel/formatters.js';
+import { COMMAND, PROCESS_OPTIONS, boardLines, boardSegments, loadState, parseState, viewModel } from '../adapters/claude-code/panel/panel.js';
 import { createRefresh } from '../adapters/claude-code/panel/refresh.js';
 import { register } from '../adapters/claude-code/panel/register.js';
 
@@ -76,13 +76,13 @@ test('ported elapsed and quota formatters preserve unknown, zero and reset durat
   assert.equal(formatHm(162900), '1d 21h');
   assert.equal(formatHm(16559.999), '4h35m');
   assert.equal(quotaBar(null, 0), 'unknown');
-  assert.equal(quotaBar({ remaining_pct: 0, resets_at: null }, 0, 'UTC'), '! [░░░░░░░░░░] 0% left reset unknown');
-  assert.equal(quotaBar({ remaining_pct: 100, resets_at: null }, 0, 'UTC'), '[██████████] 100% left reset unknown');
+  assert.equal(quotaBar({ remaining_pct: 0, resets_at: null }, 0, 'UTC'), '! ────────── 0% reset unknown');
+  assert.equal(quotaBar({ remaining_pct: 100, resets_at: null }, 0, 'UTC'), '━━━━━━━━━━ 100% reset unknown');
   assert.match(quotaBar({ remaining_pct: 50, resets_at: '1970-01-01T04:15:00Z' }, 0, 'UTC'), /resets 04:15 \(in 4h15m\)/);
   assert.match(quotaBar({ remaining_pct: 50, resets_at: '1970-01-01T04:15:00Z' }, 15300001), /\(passed\)$/);
   assert.match(quotaBar({ remaining_pct: 50, resets_at: '1970-01-01T04:15:00Z' }, 15300000), /\(in 0h00m\)$/);
   for (const [remaining_pct, expected] of [[33.3333333333, 33], [1e21, 100], [-5, 0]])
-    assert.match(quotaBar({ remaining_pct, resets_at: null }, 0), new RegExp(` ${expected}% left`));
+    assert.match(quotaBar({ remaining_pct, resets_at: null }, 0), new RegExp(` ${expected}% reset`));
 });
 
 test('quota helpers use explicit local zones, day durations, rounding and a plain low marker', () => {
@@ -91,8 +91,8 @@ test('quota helpers use explicit local zones, day durations, rounding and a plai
   const week = { remaining_pct: 18, resets_at: '2026-11-09T13:00:00Z' };
   assert.equal(localTime(Date.parse(session.resets_at), now, 'UTC'), '20:20');
   assert.equal(localTime(Date.parse(session.resets_at), now, 'America/Sao_Paulo'), '17:20');
-  assert.match(quotaBar(session, now, 'UTC'), /97% left resets 20:20 \(in 4h35m\)/);
-  assert.match(quotaBar(week, now, 'UTC'), /^! .*18% left resets Mon 13:00 \(in 1d 21h\)/);
+  assert.match(quotaBar(session, now, 'UTC'), /97% resets 20:20 \(in 4h35m\)/);
+  assert.match(quotaBar(week, now, 'UTC'), /^! .*18% resets Mon 13:00 \(in 1d 21h\)/);
   for (const [pct, low] of [[19.9, true], [20, false], [0, true]])
     assert.equal(quotaBar({ remaining_pct: pct, resets_at: null }, now, 'UTC').startsWith('!'), low);
   assert.equal(localTime(Date.parse('2026-11-08T00:00:00Z'), now, 'UTC'), '00:00');
@@ -107,8 +107,9 @@ test('quota columns align across accounts and board widths 1..240 wrap safely wi
   state.accounts[1].quota = { session: null, weekly: { remaining_pct: 100, resets_at: null } };
   state.runs[0].last_progress = 'Checked 2026-11-07T20:20:00.000Z';
   const rows = quotaRows(state.accounts, now, 'UTC');
-  assert.equal(rows[0].indexOf('['), rows[1].indexOf('['));
-  assert.equal(rows[0].indexOf('['), rows[3].indexOf('['));
+  const bar = row => row.search(/[━─]/);
+  assert.equal(bar(rows[0]), bar(rows[1]));
+  assert.equal(bar(rows[0]), bar(rows[3]));
   assert.equal(rows[0].indexOf('97%'), rows[2].indexOf('unknown'));
   assert.equal(rows[0].indexOf('resets'), rows[1].indexOf('resets'));
   assert.equal(rows[0].indexOf('resets'), rows[3].indexOf('reset unknown'));
@@ -119,7 +120,7 @@ test('quota columns align across accounts and board widths 1..240 wrap safely wi
     assert.ok(lines.every(line => textWidth(line) <= width));
     if (width >= 80) assert.ok(lines.some(line => line.includes(rows[0])), 'render keeps column padding');
     if ([30, 40, 80].includes(width)) {
-      assert.match(lines.join('\n'), /97%[\s║]*left/);
+      assert.match(lines.join('\n'), /97%/);
       assert.match(lines.join('\n'), /unknown/);
       assert.match(lines.join('\n'), /! week/);
     }
@@ -188,8 +189,8 @@ test('view model shows no runs, two accounts, failed and stale runs, and both qu
   const blocks = viewModel(parseState(JSON.stringify(state)), 0);
   assert.deepEqual(blocks.slice(1).map(b => b.title), ['ACCOUNTS', 'RUNNING', 'RECENT', 'LAUNCHABLE NOW', 'Readiness']);
   assert.equal(blocks[0].title, 'okit plugin · claude · 2 accounts · ready: no');
-  assert.match(blocks[1].rows.join('\n'), /Personal · running\n! session 5h .* 0%[\s\S]*week +unknown/);
-  assert.match(blocks[1].rows.join('\n'), /Work · idle\n +session 5h +unknown[\s\S]*week .*75%/);
+  assert.match(blocks[1].rows.join('\n'), /Personal · running\n! 5h .* 0%[\s\S]*week +─+ +unknown/);
+  assert.match(blocks[1].rows.join('\n'), /Work · idle\n +5h +─+ +unknown[\s\S]*week .*75%/);
   assert.match(blocks[3].rows.join('\n'), /failure: failed .*account Work/);
   assert.match(blocks[3].rows.join('\n'), /old: live · stale .*account unknown account/);
   assert.match(blocks[2].rows.join('\n'), /actor hard · opus · effort high · elapsed 0:02/);
@@ -479,32 +480,75 @@ test('quota tones use exact remaining-percent boundaries and preserve the low ma
   }
 });
 
-test('board metadata colors only quota rows and carries tones through wrapping without escapes', () => {
+const colorOf = { ok: 'success', warn: 'warning', low: 'error', dim: 'inactive' };
+const toneOfSegment = (line, needle) => line.find(segment => segment.text.includes(needle))?.tone;
+const twoAccounts = () => {
   const state = structuredClone(populated);
-  state.accounts[0].quota = { session: { remaining_pct: 19.9, resets_at: null }, weekly: null };
-  const result = { ok: true, state };
-  for (const width of [1, 20, 39, 40, 80, 240]) {
-    const lines = boardLines(result, width, 0, 'UTC');
-    const tones = boardTones(result, width, 0, 'UTC');
-    assert.equal(tones.length, lines.length);
-    assert.ok(lines.every(line => !line.includes('\x1b')));
-    const session = viewModel(result, 0, 'UTC')[1].rows[1];
-    const count = wrapText(session, width < 40 ? width : width - 4).length;
-    assert.equal(tones.filter(tone => tone === 'low').length, count);
-    assert.ok(tones.includes('dim'));
-    assert.equal(tones[0], undefined);
+  state.accounts[0].quota = { session: { remaining_pct: 96, resets_at: null }, weekly: { remaining_pct: 30, resets_at: null } };
+  state.accounts[0].rotation = { eligible: true, known: true, reason: 'eligible', text: 'Eligible for rotation.' };
+  state.accounts[0].collector = { state: 'registered', text: 'Registered', detail: 'Reading received' };
+  state.accounts[1].quota = { session: { remaining_pct: 10, resets_at: null }, weekly: null };
+  state.accounts[1].collector = { state: 'not registered', text: 'Not registered', reason: 'Could not register the collector.' };
+  return { ok: true, state };
+};
+
+test('the frame never carries a tone, at any width', () => {
+  for (const width of [1, 20, 30, 39, 40, 80, 120, 240]) for (const segments of [boardSegments(twoAccounts(), width, 0, 'UTC')]) {
+    for (const line of segments) for (const segment of line) {
+      if (/^[╔║╚]|[║╗╝]$/.test(segment.text)) assert.equal(segment.tone, undefined, segment.text);
+      if (/[╔╚]/.test(segment.text)) assert.ok(!segment.tone && !segment.bold);
+    }
   }
 });
 
-test('pane Text props use host theme keys only for quota rows and honor panel.color', async () => {
+test('each quota line takes the tone of its own band with two accounts and extra lines', () => {
+  const lines = boardSegments(twoAccounts(), 100, 0, 'UTC');
+  const find = text => lines.find(line => line.map(segment => segment.text).join('').includes(text));
+  const five = lines.filter(line => line.some(segment => segment.text === '96%'))[0];
+  assert.equal(toneOfSegment(five, '96%'), 'ok');
+  assert.equal(five.find(segment => /^━+$/.test(segment.text)).tone, 'ok');
+  const weekly = lines.filter(line => line.some(segment => segment.text.startsWith('30%')))[0];
+  assert.equal(toneOfSegment(weekly, '30%'), 'warn');
+  const low = lines.filter(line => line.some(segment => segment.text.startsWith('10%')))[0];
+  assert.equal(toneOfSegment(low, '10%'), 'low');
+  assert.match(low[1].text, /^! /);
+  const unknown = lines.filter(line => line.some(segment => segment.text.startsWith('unknown')))[0];
+  assert.equal(toneOfSegment(unknown, 'unknown'), 'dim');
+  // Other lines: no quota tone leaks into labels, rotation text or the collector's state.
+  assert.equal(find('Eligible for rotation.')[1].tone, 'dim');
+  assert.equal(find('Registered: Reading received')[1].tone, 'dim');
+  assert.equal(find('Not registered: Could not')[1].tone, 'warn');
+  assert.match(find('Not registered: Could not')[1].text, /^! /);
+  for (const line of lines) for (const segment of line) {
+    if (/^(5h|week) /.test(segment.text.trim()) || /^\s+(5h|week)/.test(segment.text)) assert.equal(segment.tone, undefined);
+    if (/^resets|^reset unknown/.test(segment.text)) assert.equal(segment.tone, 'dim');
+  }
+});
+
+test('board lines stay the joined segments and fit every width without losing column alignment', () => {
+  const result = twoAccounts();
+  for (const width of [30, 40, 80, 120]) {
+    const segments = boardSegments(result, width, 0, 'UTC');
+    const lines = boardLines(result, width, 0, 'UTC');
+    assert.deepEqual(lines, segments.map(line => line.map(segment => segment.text).join('')));
+    assert.ok(lines.every(line => textWidth(line) <= width), `width ${width}`);
+    const bars = lines.filter(line => /[━─]{10}/.test(line)).map(line => line.search(/[━─]{10}/));
+    assert.equal(new Set(bars).size, 1, `bar column at ${width}`);
+    if (width >= 40) {
+      const pct = lines.filter(line => /\d+%/.test(line) && /[━─]{10}/.test(line)).map(line => line.search(/\d+%/));
+      assert.equal(new Set(pct).size, 1);
+    }
+  }
+});
+
+test('panel.color false removes every tone from the pane, with the same layout', async () => {
   const previousH = globalThis.h;
   globalThis.h = (type, props, ...children) => ({ type, props, children });
   try {
+    const rendered = {};
     for (const color of [true, false]) {
-      const state = structuredClone(populated), handlers = new Map();
+      const state = twoAccounts().state, handlers = new Map();
       state.panel = { color };
-      state.accounts[0].quota = { session: { remaining_pct: 50, resets_at: null }, weekly: { remaining_pct: 20, resets_at: null } };
-      state.accounts[1].quota = { session: { remaining_pct: 19.9, resets_at: null }, weekly: null };
       let panes = [];
       const engine = { process: { run: async () => response(state) }, command: { register: async () => {} },
         clock: { every: () => ({ cancel() {} }) },
@@ -513,22 +557,42 @@ test('pane Text props use host theme keys only for quota rows and honor panel.co
       register((event, ...args) => handlers.set(event, args.at(-1)));
       await handlers.get('session.start')(engine, {}, value => value);
       await settle();
-      for (const width of [20, 80]) {
-        const tree = await handlers.get('ui.render')(engine, { props: { bodyColumns: width + 2 } });
-        const expected = state.accounts.flatMap(account => [account.quota.session, account.quota.weekly])
-          .map(window => ({ ok: 'success', warn: 'warning', low: 'error', dim: 'inactive' })[quotaTone(window?.remaining_pct ?? null)]);
-        const blocks = viewModel({ ok: true, state });
-        const rowColors = [undefined, expected[0], expected[1], undefined, expected[2], expected[3]];
-        const colors = blocks.flatMap((block, index) => index === 0 ? wrapText(block.title, width).map(() => undefined)
-          : [undefined, ...block.rows.flatMap((row, rowIndex) => wrapText(row, width < 40 ? width : width - 4)
-            .map(() => color && index === 1 ? rowColors[rowIndex] : undefined)), ...(width < 40 ? [] : [undefined])]);
-        assert.deepEqual(tree.children.map(child => child.props.color), colors);
-        assert.ok(tree.children.every(child => !child.children[0].includes('\x1b')));
-        if (!color) assert.ok(tree.children.every(child => !Object.hasOwn(child.props, 'color')));
-      }
+      const tree = await handlers.get('ui.render')(engine, { props: { bodyColumns: 82 } });
+      const texts = tree.children.map(line => line.children.map(part => part.children[0]).join(''));
+      const parts = tree.children.flatMap(line => line.children);
+      assert.ok(texts.every(textLine => !textLine.includes('\x1b')));
+      assert.ok(parts.every(part => !Object.hasOwn(part.props, 'color') || color));
+      if (color) {
+        const colors = new Set(parts.map(part => part.props.color).filter(Boolean));
+        for (const value of Object.values(colorOf)) assert.ok(colors.has(value), value);
+        // frame text is never colored
+        assert.ok(parts.filter(part => /[╔║╚╗╝]/.test(part.children[0])).every(part => !part.props.color));
+      } else assert.ok(parts.every(part => !Object.hasOwn(part.props, 'color') && !Object.hasOwn(part.props, 'bold')));
+      rendered[color] = texts;
       await handlers.get('command.run')(engine);
     }
+    assert.deepEqual(rendered.true, rendered.false);
   } finally { globalThis.h = previousH; }
+});
+
+test('fitSegments wraps one-segment lines, clips column lines and keeps a blank row blank', () => {
+  assert.deepEqual(fitSegments([], 10), [[]]);
+  assert.equal(fitSegments([{ text: 'x '.repeat(40), tone: 'warn' }], 10).every(row => row[0].tone === 'warn'), true);
+  const [row] = fitSegments([{ text: 'abcd' }, { text: 'efghij', tone: 'ok' }], 7);
+  assert.equal(row.map(segment => segment.text).join(''), 'abcdef…');
+  assert.equal(frameSegments('T', [[{ text: 'a', tone: 'ok' }]], 40)[1][1].tone, 'ok');
+});
+
+const board = async name => readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
+test('golden plain text: a full example in English and one with unknown quota', async () => {
+  const now = Date.parse('2026-11-06T12:00:00Z');
+  const full = twoAccounts();
+  full.state.accounts[0].quota.session.resets_at = '2026-11-06T16:25:00Z';
+  full.state.accounts[0].quota.weekly.resets_at = '2026-11-09T10:00:00Z';
+  assert.equal(boardLines(full, 80, now, 'UTC').join('\n') + '\n', await board('panel-board-layout-full-80.txt'));
+  const unknown = structuredClone(full);
+  for (const account of unknown.state.accounts) account.quota = { session: null, weekly: null };
+  assert.equal(boardLines(unknown, 60, now, 'UTC').join('\n') + '\n', await board('panel-board-layout-unknown-60.txt'));
 });
 
 test('session start auto-opens by default/true, respects false and silently tolerates open failure', async () => {
@@ -608,11 +672,12 @@ test('ported registration opens the titled pane, renders cached data and cancels
     finish(response(populated)); await settle();
     const tree = await invoke('ui.render');
     assert.match(JSON.stringify(tree), /Personal/);
-    assert.match(JSON.stringify(tree), /week +unknown/);
+    const paneText = node => node.children.map(child => typeof child === 'string' ? child : paneText(child)).join('');
+    assert.match(tree.children.map(paneText).join('\n'), /week +─+ +unknown/);
     for (const width of [1e21, NaN, -10]) {
       const rendered = await invoke('ui.render', width);
       const max = Number.isNaN(width) ? 80 : width < 0 ? 1 : 240;
-      for (const child of rendered.children) assert.ok(textWidth(child.children[0]) <= max);
+      for (const child of rendered.children) assert.ok(textWidth(paneText(child)) <= max);
     }
     await invoke('ui.render');
     assert.equal(calls, 1);

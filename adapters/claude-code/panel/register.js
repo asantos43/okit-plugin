@@ -1,4 +1,4 @@
-import { boardLines, boardTones, loadState } from './panel.js';
+import { boardSegments, loadState } from './panel.js';
 import { createRefresh } from './refresh.js';
 
 const PANE = 'okit-plugin';
@@ -55,14 +55,14 @@ export function register(on) {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, event) => {
     const { Box, Text } = $.ui.resolve(event);
     const width = Math.max(1, (event.props?.bodyColumns ?? 80) - 2);
-    const lines = boardLines(cached, width);
-    const tones = boardTones(cached, width);
     const colors = { ok: 'success', warn: 'warning', low: 'error', dim: 'inactive' };
-    return h(Box, { flexDirection: 'column' }, ...lines.map((line, index) => {
-      const tone = tones[index];
-      const color = cached.ok && cached.state.panel?.color !== false && tone ? colors[tone] : undefined;
-      return h(Text, { key: String(index), ...(color ? { color } : {}) }, line);
-    }));
+    const styled = cached.ok && cached.state.panel?.color !== false;
+    // One Text per line with a nested Text per segment: only the segment's own text has a color, never the frame.
+    return h(Box, { flexDirection: 'column' }, ...boardSegments(cached, width).map((line, index) =>
+      h(Text, { key: String(index) }, ...(line.length ? line : [{ text: ' ' }]).map((segment, part) => {
+        const color = styled && segment.tone ? colors[segment.tone] : undefined;
+        return h(Text, { key: String(part), ...(color ? { color } : {}), ...(styled && segment.bold ? { bold: true } : {}) }, segment.text);
+      }))));
   });
 }
 

@@ -1,0 +1,1 @@
+Redesign the Claude Code panel: each account is a title with two aligned quota lines (`5h`, `week`) drawn with thin line bars, a blank line between accounts and after the header. Colour now goes only on the `NN%` text and the filled bar (never the frame, labels or resets), and the board is built from text segments so extra lines can no longer shift the tones.

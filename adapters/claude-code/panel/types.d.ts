@@ -1,7 +1,9 @@
 export type Quota = { remaining_pct: number; resets_at: string | null };
 export type Account = { id: string; label: string; quota: { session: Quota | null; weekly: Quota | null };
   rotation?: { eligible: boolean; known: boolean; reason: string; text: string };
+  collector?: { state?: string; text: string; detail?: string; reason?: string };
   quota_state?: { state: string; reason: string | null } | null };
+export type Segment = { text: string; tone?: 'ok' | 'warn' | 'low' | 'dim'; bold?: boolean };
 export type Run = {
   id: string; status: string | null; stale: boolean; account: string | null;
   actor: string | null; model: string | null; effort: string | null;
