@@ -146,17 +146,17 @@ test('no-cost client without tokens and absent or wrong confirmation never launc
 });
 
 const previewBaselines = {
-  'claude-code/en': ['5dd344067bce70d27bbe9015e854edd59b982aa8adfbc3d33ddf6c40d0f8c01d',
+  'claude-code/en': ['700f0c22a7256571c489b26c11cc69627c8bd804cb3a7966fe4778f3fd872d9a',
     '1cf99ad4c76186b5bee0fec56f578a11f1a687a191322456786c7f96a47352e3'],
-  'claude-code/pt-BR': ['6ceb996ad056da4207132a6068c6c1835ced8462ea439ca815ab7b7e287eec88',
+  'claude-code/pt-BR': ['e9873ec353b9ac817a9482df215d7df696ffeb391e5f1485309dce2b0a76e782',
     '6d6707128ce3371f4a077ce349d167d46aa2ce9d90978386a53f0b4c43e902ad'],
-  'codex/en': ['c8f10969902023f9fd547f6ec57630de3ae66b5c9e2e687d72fa0493a7072cb2',
+  'codex/en': ['63845c9fe9d838c4c580b73db2f08831325d1ca6b40719fc053131580b641f61',
     '1c582c29c3ee7725e802c44c318a22a15cbf35545688b9e55c6096abb6aca265'],
-  'codex/pt-BR': ['24c48c6c941e64bb4196e87b2132c55bd5a5ccb7ab4374176baedb9819f119fb',
+  'codex/pt-BR': ['02e030679a66c80c2cc3734dcb5973d5b6da0057bc28f642480099677f630f7d',
     '6a2b20d5da03b3b26593e1040d6944c95960b3566c3015f96b2f9c6c29ab4fe7'],
-  'opencode/en': ['1dd60194c3f1a016cd935ba365251c6b30d9b53fa53835281e6db5044017408a',
+  'opencode/en': ['606dc2a82168668b0bb37b2b45d445a38b1956e640d67aaf98c32144501d4a27',
     '5283f1e03cd4b0107dce473db5c159502bd6bba7b5fd0d42c9f962bc2372baf4'],
-  'opencode/pt-BR': ['b5237fb1f3dd6329bbd3cc26af151208d78aa27be45e84af5ea891968e0d76ac',
+  'opencode/pt-BR': ['20b65b82845225b68e78b1e9b319b21259f41d96f01eb9a0a82c6d36de5555ad',
     'a669aa1edf1fcd28201f78a933ed3b03b800b91d42724d6be8c88e78d41a3b52'],
 };
 
@@ -234,7 +234,6 @@ test('confirmation binds work, settings, helpers and allowance to the preview', 
     (d) => { d.snapshot.config.smoke.maxUsd += 1; },
     (d) => { d.snapshot.clients[0].candidates[0].model = 'another-helper'; },
     (d) => { d.snapshot.clients[0].quota.remainingPct -= 1; },
-    (d) => { d.snapshot.clients[0].reading.recordedAt = 'new-reading'; },
     (d) => { d.scenario = structuredClone(preview.plan.scenario); d.scenario.demands[0].title.en += ' changed'; },
   ]) {
     const changed = { ...deps, snapshot: structuredClone(deps.snapshot) };

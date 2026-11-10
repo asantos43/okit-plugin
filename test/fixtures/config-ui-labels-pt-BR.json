@@ -119,6 +119,7 @@
   "loginUnknown": "Desconhecido",
   "loggedInTitle": "Existe um indicador local de login; o acesso não foi verificado.",
   "notLoggedInTitle": "Nenhum indicador local de login foi encontrado.",
+  "off": "Desligado",
   "loginUnknownTitle": "O login pode estar onde o plugin não lê, como nas Chaves do macOS.",
   "accountRemove": "Remover",
   "accountConfirmRemove": "Confirmar remoção",

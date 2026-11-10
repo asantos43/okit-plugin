@@ -153,7 +153,7 @@ test('single-group panels omit outer details; summaries count all descendant con
     assert.equal(item.parent, undefined);
     assert.doesNotMatch(item.tag, / open/);
     assert.match(item.html, new RegExp(`<summary>${item.path.split('.')[1]} `));
-    assert.equal((item.html.match(/ data-path="/g) ?? []).length, 12);
+    assert.equal((item.html.match(/ data-path="/g) ?? []).length, 16);
   }
   for (const path of ['language', 'profiles', 'telemetry', 'todo', 'todo.checkbox']) {
     assert.equal(items.some(item => item.path === path), false);
@@ -165,7 +165,7 @@ test('single-group panels omit outer details; summaries count all descendant con
   }
 });
 
-test('tabs link eight panels and retain 93 fields and 48 actor controls without script', () => {
+test('tabs link eight panels and retain 105 fields and 48 actor controls without script', () => {
   for (const locale of ['en', 'pt-BR']) {
     const html = renderPage(buildState(), { locale, nonce: 'test', token: 'token' }).replace(/<script\b[\s\S]*?<\/script>/g, '');
     assert.ok(html.includes(`tabindex="-1">${locale === 'en' ? 'Accounts' : 'Contas'}</button>`));
@@ -176,7 +176,7 @@ test('tabs link eight panels and retain 93 fields and 48 actor controls without 
       assert.ok(html.includes(`id="tab-${id}" data-tab="${id}" aria-controls="panel-${id}" aria-selected="${index === 0}" tabindex="${index === 0 ? 0 : -1}">${labels[locale][`tab${id}`]}</button>`));
       assert.ok(html.includes(`role="tabpanel" id="panel-${id}" aria-labelledby="tab-${id}"${id === 'accounts' ? ' hidden' : ''}>`));
     }
-    assert.equal((html.match(/ data-path="/g) ?? []).length, 93);
+    assert.equal((html.match(/ data-path="/g) ?? []).length, 105);
     for (const key of ['enabled', 'intervalSec', 'claudeFallbackMinutes']) {
       assert.ok(html.includes(`data-path="quotaPoll.${key}"`));
     }

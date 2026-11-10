@@ -178,7 +178,7 @@ test('the table of the settings lists the defaults with their origin', async (t)
   const root = await tempRoot(t);
   const shown = await getConfig(root);
   const entries = shown.entries.filter((entry) => !entry.path.startsWith('codexQuota.') && !entry.path.startsWith('telemetry.'));
-  assert.equal(entries.length, 60);
+  assert.equal(entries.length, 72);
   assert.deepEqual(entries.filter((entry) => entry.path.startsWith('quotaPoll.')).map(({ path, value }) => [path, value]),
     [['quotaPoll.enabled', true], ['quotaPoll.intervalSec', 60], ['quotaPoll.claudeFallbackMinutes', 30]]);
   assert.deepEqual(entries.filter((entry) => entry.path.startsWith('accountPolicy.'))
