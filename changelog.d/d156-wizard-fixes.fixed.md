@@ -1,0 +1,1 @@
+A failed install now shows the reason per client, a failing requirement names the folder once, and the done screen follows the chosen language (one sentence about the new terminal) / Uma instalação que falha mostra o motivo por cliente, um requisito que falha cita a pasta uma vez, e a tela final segue o idioma escolhido (uma só frase sobre o terminal novo).

@@ -92,7 +92,7 @@ profiles and configuration may not change. Do not claim current dry-run already 
 <a id="section-3"></a>
 ## 3. States, screens and reruns
 
-`detect → requirements → review → applying → models → panel → accounts → reload → result → config`
+`detect → review → applying → result` (and `models`, `accounts`, `config` from the result)
 Any pre-apply choice change invalidates review. Applying can end in failed/cancelled;
 return to detection/review for retry, never replay writes on page load.
 
@@ -290,3 +290,35 @@ The plan never downloads packages or checksum manifests: remote payloads are tre
 with checksum pending until apply; local user-trusted sources are walked and hashed.
 `install-scripts.js` embeds the presenter and bootstrap; presenter changes require
 regeneration of both wrappers, while acquisition and launch behavior remain unchanged.
+
+### Simple wizard (D156)
+
+The wizard has four screens; everything else is a step of the last one.
+
+1. **What to do.** One sentence and a checkbox per detected client, an advanced options block (collapsed), a short
+   note on autostart (no box), and the requirements as one state line. With no client found there is no box and Next
+   is disabled, with the reason.
+2. **Confirm.** A readable summary per client (the number of files and a short list of what changes, built by
+   `planSummary` in `src/config-ui/wizard-summary.js`; the package's own `test/fixtures` and the installer's
+   bookkeeping are not listed). The JSON of the plan is in a collapsed "View details". While the plan is calculated the
+   screen says "Calculating..." with the stage and the seconds, and the preview button is disabled (`state.planning`);
+   asking again never restarts it. Consent, then Install.
+3. **Installing.** One line per stage and its state (`showStages`), Cancel visible; no `completed:`/`remaining:` lists.
+4. **Done.** What was done per client, and the optional steps (models, panel, accounts, reload Claude Code) as a
+   checklist on the same screen, each with its own button and consent. A second run keeps Update, Repair and Change
+   models with the same readable summary.
+
+The header shows only the language selector while the wizard runs (no Configuration, Close or readiness strip).
+Only presentation changed: the server, the plan, the jobs, consent before writing, the single owner, the CSP and
+"nothing leaves the machine" are as before. Tests: `test/config-ui-wizard-summary.test.js` (no JSON outside the
+details, fixture filter, progress, no restart), `scripts/acceptance/install-wizard-tree.playwright.mjs` (every
+branch of the tree in a browser).
+
+**Why `/api/install/plan` is slow with `--from`.** The plan inventories and hashes every file of the local package once
+per client (about 678 files per client plus the directory mutations), through the observing file-system proxy. A raw
+walk costs about 0.2 s; the plan takes 2 to 3 s on a quiet machine and 16 to 38 s under load. It is not shortened:
+filtering the inventory would change a plan that is signed and fingerprinted. The screen shows the progress instead.
+
+`OKIT_SCREENSHOTS=<folder> node scripts/acceptance/install-wizard-tree.playwright.mjs` also writes one picture per screen
+and language (`en-03-detect.png`), and the script prints the paths of the tree it walked. A failed install shows the
+reason the run gave, per client.

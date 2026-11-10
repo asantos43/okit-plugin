@@ -56,7 +56,7 @@ export async function wizardState({ root, env, platform, run, options, io = {} }
     if (saved?.setup?.done?.profiles && typeof saved.setup.done.profiles === 'object') profiles = saved.setup.done.profiles;
   } catch { /* no configuration yet */ }
   return { detection: clients, requirements, platform, installed, setupDone: profiles,
-    activationMessage: activationMessage(config, { env, platform, bin: paths.bin, locale: io.locale ?? 'en' }),
+    activationMessages: Object.fromEntries(['en', 'pt-BR'].map((locale) => [locale, activationMessage(config, { env, platform, bin: paths.bin, locale })])),
     recovery: [{ command: config.command, args: ['doctor'] },
       { command: config.command, args: ['setup'] }], destination: paths.destination };
 }

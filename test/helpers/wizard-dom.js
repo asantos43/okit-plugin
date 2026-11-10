@@ -54,7 +54,7 @@ export function wizardDom(boot, responses = []) {
     removeEventListener(name, fn) { handlers.set(name, (handlers.get(name) ?? []).filter((item) => item.fn !== fn)); } };
   const add = (id, tag = 'div', parent = root) => { const node = new Node(tag); node.id = id; parent.append(node); nodes.set(id, node); return node; };
   add('state', 'script').textContent = JSON.stringify(boot);
-  for (const id of ['heading', 'status', 'error', 'body', 'choices', 'actions', 'existing', 'events', 'boundaries', 'preview', 'question']) add(`wizard-${id}`, id === 'heading' ? 'h2' : 'div');
+  for (const id of ['heading', 'status', 'error', 'body', 'choices', 'actions', 'existing', 'events', 'technical', 'boundaries', 'preview', 'question']) add(`wizard-${id}`, id === 'heading' ? 'h2' : 'div');
   for (const id of ['consent', 'unknown']) { const label = add(`wizard-${id}-label`, 'label');
     const input = add(`wizard-${id}`, 'input', label); input.type = 'checkbox'; label.append(new Node('span')); }
   const dialog = add('wizard-write', 'dialog'); dialog.append(new Node('pre'));

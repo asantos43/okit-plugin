@@ -211,6 +211,15 @@ test('cancel finishes an in-flight atomic step and prevents the next step', asyn
   assert.ok(jobs.snapshot().completed.includes('codex:files'));
   assert.ok(jobs.snapshot().remaining.includes('codex:register'));
 });
+test('a failed run carries the reason it gave, per client, so the screen can say it', async (t) => {
+  const { jobs } = await fixture(t, { execute: async (_op, _args, _ctx, io) => {
+    io.ui.failure({ step: 'Self-check', reason: 'sh does not find okit-plugin' }); return 1;
+  } });
+  await jobs.apply(apply((await jobs.plan(requestPlan)).planId)); await jobs.close();
+  const [row] = jobs.snapshot().result.clients;
+  assert.equal(jobs.snapshot().state, 'failed'); assert.equal(row.state, 'failed');
+  assert.match(row.reason, /sh does not find okit-plugin/);
+});
 test('typed questions carry previews and reject duplicate or stale answers', async (t) => {
   const asked = deferred(), continued = deferred(); let answers = 0;
   const { jobs } = await fixture(t, { execute: async (_op, _args, _ctx, io) => {

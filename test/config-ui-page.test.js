@@ -334,6 +334,7 @@ test('locale goldens share keys and rendering changes only localized labels', as
     const entries = Object.entries(labels[locale]).flatMap(([key, value]) =>
       typeof value === 'object' ? Object.entries(value).map(([path, title]) => [`${key}.${path}`, title]) : [[key, value]]);
     for (const [key, raw] of entries) {
+      if (typeof raw !== 'string') continue; // the wizard's nested tables (client names, kinds) are not page labels
       const value = raw.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
       html = html.replaceAll(`>${value}<`, `>LABEL_${key}<`).replaceAll(`="${value}"`, `="LABEL_${key}"`)
         .replaceAll(`(${value})`, `(LABEL_${key})`).replaceAll(`>${value}:`, `>LABEL_${key}:`)

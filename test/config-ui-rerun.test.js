@@ -65,7 +65,7 @@ test('a rerun is refused when nothing is installed', async () => {
   assert.equal(flow.state.operation, 'install'); assert.equal(flow.state.error, '');
 });
 
-test('after the job: update and repair end at the result, models and install go on to the models', async () => {
+test('after the job: update and repair end at the result, a models-only run goes to the models', async () => {
   for (const [operation, screen] of [['update', 'result'], ['repair', 'result'], ['models', 'models']]) {
     const calls = [];
     const flow = wizardFlow(boot(), async (path) => {
@@ -95,16 +95,16 @@ test('DOM: the first screen offers the three reruns only when something is insta
   }
 });
 
-test('DOM: the result names setup and the panel as skipped when they did not run, and partial clients stay listed', async () => {
+test('DOM: the result lists the optional steps as not done when they did not run, and partial clients stay listed', async () => {
   for (const locale of ['en', 'pt-BR']) {
     const f = wizardDom(boot(locale)); const flow = wizardMain(f.win, wizardFlow, () => ({}), () => {});
     await new Promise(setImmediate);
     flow.state.job = { jobId: 'j', state: 'failed', followups: [], result: { clients: [{ client: 'codex', state: 'ok' }, { client: 'opencode', state: 'failed', reason: 'boom' }] } };
     flow.go('result');
     const body = f.nodes.get('wizard-body').textContent, t = labels[locale].wizard;
-    assert.ok(body.includes(`codex: ${t.ok}`)); assert.ok(body.includes(`opencode: ${t.failed} boom`));
+    assert.ok(body.includes(`Codex: ${t.ok}`)); assert.ok(body.includes(`OpenCode: ${t.failed} (boom)`));
     assert.ok(body.includes(t.partial));
-    assert.ok(body.includes(`${t.setupStep}: ${t.skipped}`)); assert.ok(body.includes(`${t.panelStep}: ${t.skipped}`));
+    assert.ok(body.includes(`${t.stepModels}: ${t.stepPending}`)); assert.ok(!body.includes(t.stepPanel), 'no panel step without a Claude Code install');
   }
 });
 

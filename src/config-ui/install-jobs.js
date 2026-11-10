@@ -248,6 +248,9 @@ export function createInstallJobs({ root, env = process.env, platform = process.
             question: (proposal) => question(job, proposal), checkpoint: (step) => checkpoint(job, step) });
         if (code !== 0) {
           outcome.state = job.cancel ? 'cancelled' : 'failed';
+          // The reason the run gave for its refusal (the `failure` call of the presenter), so the screen can say it per client.
+          const refusal = job.events.findLast((item) => item.stage === 'failure')?.params?.args?.[0];
+          if (!job.cancel && typeof refusal?.reason === 'string') outcome.reason = localizeReason(refusal.reason, locale);
           job.state = job.cancel ? 'cancelled' : 'failed'; break;
         }
         outcome.state = 'ok';

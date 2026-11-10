@@ -92,7 +92,7 @@ perfis e configuração não podem mudar. Não afirmar que o dry-run atual já f
 <a id="section-3"></a>
 ## 3. Estados, telas e reexecuções
 
-`detectar → requisitos → revisão → aplicando → modelos → painel → contas → recarregar → resultado → config`
+`detectar → revisão → aplicando → resultado` (e `modelos`, `contas`, `config` a partir do resultado)
 Qualquer mudança de escolha antes de aplicar invalida a revisão. Aplicação pode falhar/ser cancelada;
 voltar à detecção/revisão para tentar novamente, nunca repetir escritas ao carregar a página.
 
@@ -294,3 +294,36 @@ O plano não baixa pacotes nem manifestos: payloads remotos são árvores, com c
 pendente até aplicar; fontes locais confiadas pelo usuário são percorridas e hashadas.
 `install-scripts.js` embute apresentador e bootstrap; mudanças no apresentador exigem
 regenerar ambos os wrappers, preservando aquisição e comportamento de lançamento.
+
+### Assistente simples (D156)
+
+O assistente tem quatro telas; o resto é etapa da última.
+
+1. **O que fazer.** Uma frase e uma caixa por cliente detectado, um bloco de opções avançadas (recolhido), uma nota
+   curta sobre a inicialização automática (sem caixa) e os requisitos em uma linha de estado. Sem cliente encontrado
+   não há caixa e Avançar fica desabilitado, com o motivo.
+2. **Confirmar.** Um resumo legível por cliente (número de arquivos e uma lista curta do que muda, feito por
+   `planSummary` em `src/config-ui/wizard-summary.js`; os `test/fixtures` do próprio pacote e a contabilidade do
+   instalador não aparecem). O JSON do plano fica em "Ver detalhes", recolhido. Enquanto o plano é calculado a tela
+   diz "Calculando..." com a etapa e os segundos, e o botão de prévia fica desabilitado (`state.planning`); pedir de
+   novo nunca reinicia. Consentimento, depois Instalar.
+3. **Instalando.** Uma linha por etapa e seu estado (`showStages`), Cancelar visível; sem listas `completed:`/`remaining:`.
+4. **Pronto.** O que foi feito por cliente e os passos opcionais (modelos, painel, contas, recarregar o Claude Code)
+   como lista na mesma tela, cada um com seu botão e consentimento. Uma segunda execução mantém Atualizar, Reparar e
+   Alterar modelos com o mesmo resumo legível.
+
+O cabeçalho mostra só o seletor de idioma enquanto o assistente roda (sem Configuração, Fechar nem faixa de
+prontidão). Só a apresentação mudou: servidor, plano, jobs, consentimento antes de escrever, dono único, CSP e
+"nada sai da máquina" continuam. Testes: `test/config-ui-wizard-summary.test.js` (sem JSON fora dos detalhes, filtro
+de fixtures, progresso, sem reinício), `scripts/acceptance/install-wizard-tree.playwright.mjs` (todos os ramos da
+árvore no navegador).
+
+**Por que `/api/install/plan` demora com `--from`.** O plano inventaria e calcula o hash de cada arquivo do pacote
+local uma vez por cliente (cerca de 678 arquivos por cliente mais as mutações de diretório), pelo proxy de sistema de
+arquivos que observa. Uma varredura crua custa cerca de 0,2 s; o plano leva 2 a 3 s em máquina quieta e 16 a 38 s sob
+carga. Não foi encurtado: filtrar o inventário mudaria um plano assinado e com impressão digital. A tela mostra o
+progresso.
+
+`OKIT_SCREENSHOTS=<pasta> node scripts/acceptance/install-wizard-tree.playwright.mjs` também grava uma imagem por tela e
+idioma (`en-03-detect.png`), e o script imprime os caminhos da árvore percorridos. Uma instalação que falha mostra o
+motivo dado pela execução, por cliente.

@@ -67,7 +67,7 @@ test('followups require their reviewed preview and consent; unknown-model errors
   await flow.preview('setup', 'codex', { profiles: [{ class: 'normal', model: 'unknown', effort: 'high' }] });
   assert.equal(flow.state.error, 'confirm model'); assert.equal(flow.state.modelClient, 'codex');
   await flow.followup(); assert.equal(calls.some((call) => call.path === '/api/install/followup'), false);
-  flow.go('panel'); flow.go('accounts'); assert.equal(flow.state.job.jobId, success.jobId);
+  flow.go('result'); flow.go('accounts'); assert.equal(flow.state.job.jobId, success.jobId);
 });
 
 test('rendering reuses controls, has no external resources or handlers, and locales share keys', () => {
@@ -92,11 +92,11 @@ test('DOM screens move heading focus only on transitions, keep hostile event tex
     const attack = '<img onerror=alert(1)>';
     flow.state.job = { ...success, result: { clients: [{ client: 'codex', state: 'ok' }, { client: 'claude-code', state: 'failed' }, { client: 'opencode', state: 'skipped' }] } };
     flow.state.events = [{ seq: 1, messageKey: 'output', status: 'warning', params: { message: attack } }];
-    for (const screen of ['requirements', 'review', 'applying', 'models', 'panel', 'accounts', 'reload', 'result', 'config']) {
+    for (const screen of ['review', 'applying', 'models', 'accounts', 'result', 'config']) {
       flow.go(screen);
       assert.equal(f.document.activeElement.id, 'wizard-heading');
       if (screen === 'result') { assert.ok(f.nodes.get('wizard-body').textContent.includes(labels[locale].wizard.partial));
-        assert.ok(f.nodes.get('wizard-body').textContent.includes(labels[locale].wizard.pending)); }
+        assert.ok(f.nodes.get('wizard-body').textContent.includes(`${labels[locale].wizard.stepModels}: ${labels[locale].wizard.stepPending}`)); }
     }
     assert.ok(f.nodes.get('wizard-events').textContent.includes(attack));
     assert.equal(f.nodes.get('wizard-events').children.length, 0);
@@ -157,14 +157,14 @@ test('skipping the panel keeps the install, setup is never reported as done, que
     const flow = wizardMain(f.win, wizardFlow, () => ({}), () => {});
     await new Promise(setImmediate);
     assert.equal(f.win.location.search, '');
-    flow.state.job = success; flow.go('panel');
-    const skip = f.nodes.get('wizard-actions').children.find((node) => node.dataset.wizard === 'accounts');
-    assert.ok(skip, 'the panel screen offers Skip');
+    flow.state.job = { ...success, result: { clients: [{ client: 'claude-code', state: 'ok' }] } }; flow.go('result');
+    const skip = f.nodes.get('wizard-body').querySelectorAll('button').find((node) => node.dataset.wizard === 'accounts');
+    assert.ok(skip, 'the done screen offers the accounts step, which can be left alone');
     await skip.click();
     assert.equal(flow.state.screen, 'accounts'); assert.equal(flow.state.job.jobId, success.jobId);
     flow.go('result');
     const body = f.nodes.get('wizard-body').textContent;
-    assert.ok(body.includes(labels[locale].wizard.pending));
+    assert.ok(body.includes(`${labels[locale].wizard.stepModels}: ${labels[locale].wizard.stepPending}`));
     assert.doesNotMatch(body, /setup (is )?(done|complete)|configuração (concluída|completa)/i); // locale:pt-BR
     assert.equal(f.nodes.get('wizard-body').textContent.includes(labels[locale].wizard.partial), false);
   }
@@ -175,7 +175,7 @@ test('unknown models need explicit confirmation and install labels cover both lo
   flow.state.job = success; flow.go('models');
   assert.equal(flow.state.unknown ?? false, false);
   flow.change('unknown', true); assert.equal(flow.state.unknown, true);
-  flow.consent(true); flow.go('panel'); assert.equal(flow.state.consent, false, 'a new screen needs a new consent');
+  flow.consent(true); flow.go('result'); assert.equal(flow.state.consent, false, 'a new screen needs a new consent');
   const html = renderWizardPage(boot('pt-BR'), { locale: 'pt-BR', nonce: 'n', token: 't', instance: 'view-one', wizard: boot().wizard });
   assert.doesNotMatch(html, /(?:src|href|action)="https?:|url\(https?:/);
 });
