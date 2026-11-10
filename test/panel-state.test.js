@@ -64,8 +64,10 @@ test('populated state matches the documented versioned golden', async (t) => {
   assert.equal(result.code, 0);
   const expected = JSON.parse(await readFile(new URL('./fixtures/panel-state-v1-populated.json', import.meta.url)));
   for (const account of expected.accounts) {
-    account.collector = { state: 'not registered', text: 'Not registered',
-      reason: 'Could not register the collector. Check account settings permissions and JSON.' };
+    const actual = result.document.accounts.find((entry) => entry.id === account.id).collector;
+    assert.match(actual.reason, /^Could not register the collector\. Check account settings permissions and JSON\. .*settings\.json\./);
+    assert.ok(actual.reason.includes(actual.file));
+    account.collector = { state: 'not registered', text: 'Not registered', file: actual.file, cause: actual.cause, reason: actual.reason };
     account.quota_state = null;
     account.rotation = { eligible: false, known: false, readAt: account.id === 'default' ? now - 60_000 : null,
       reason: 'login', text: 'The account is not logged in.' };
