@@ -10,7 +10,7 @@ test('every schema entry expands over real clients and classes', () => {
   const clients = [...Object.keys(DEFAULT_CONFIG.profiles), 'custom'];
   let total = 0;
   for (const entry of CONFIG_SCHEMA.entries) {
-    const expected = clients.flatMap((client) => Object.keys(PROFILE_EFFORTS).map((name) =>
+    const expected = clients.flatMap((client) => [...Object.keys(PROFILE_EFFORTS), DEFAULT_CONFIG.actors.criticClass].map((name) =>
       entry.path.replace('<client>', client).replace('<class>', name)));
     const paths = [...new Set(expected)];
     for (const path of paths) assert.equal(state.fields.filter((field) => field.path === path).length, 1, path);

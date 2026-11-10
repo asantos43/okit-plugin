@@ -693,6 +693,7 @@ test('demo previews both clients without spending and retains confirmation prote
   for (const client of ['codex', 'opencode']) {
     for (const locale of ['en', 'pt-BR']) {
       const config = await loadConfig(f.root);
+      config.profiles[client] = { ...config.profiles[client], critic: { ...config.profiles[client].hard } };
       const snapshot = { now: Date.now(), config, inUse: client, clients: [{ client,
         quota: { source: 'automatic', remainingPct: 80, ageMinutes: 1 }, candidates: [], slots: {} }] };
       const deps = { ...f.io, env: { ...f.io.env, OKIT_CLIENT: client }, snapshot, spawn: () => assert.fail('preview must not spawn'),

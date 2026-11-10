@@ -38,7 +38,11 @@ export async function smokeDemo(args = {}, deps = {}) {
     slots: row?.slots, selections: client ? scenario.demands.map((demand) => profilePick({ client,
       effort: classify({ title: demand.title.en, body: demand.body.en, kind: demand.kind }).effort,
       quota: preflight.quota, config })) : [] };
-  const planHash = createHash('sha256').update(canonical(plan)).digest('hex');
+  // The code the user confirms covers what the user decides (the work, the helper, the ceilings, the floor) and
+  // what the allowance decision rests on (its source, percentage and band), never the age or the timestamps of the reading.
+  const decided = { ...plan, quota: plan.quota && { source: plan.quota.source, remainingPct: plan.quota.remainingPct, band: row?.quota?.status ?? null,
+    belowFloor: preflight.refusal === 'quota-below-floor', unknown: preflight.refusal === 'quota-unknown' } };
+  const planHash = createHash('sha256').update(canonical(decided)).digest('hex');
   const quota = preflight.observed;
   const unknown = pt ? 'desconhecida' : 'unknown';
   const reportsCost = config.smokeDrivers?.[client]?.reportsCost ?? DEFAULT_CONFIG.smokeDrivers[client]?.reportsCost;
@@ -68,7 +72,12 @@ export async function smokeDemo(args = {}, deps = {}) {
   let reason = preflight.refusal || preflight.stale
     ? (pt ? 'Atualize sua cota antes de começar.' : 'Update your allowance before starting.') : null; // locale:pt-BR
   if (!client || !row) reason = pt ? 'Escolha um ajudante disponível.' : 'Choose an available helper.'; // locale:pt-BR
-  if (!args.dryRun && (!args.confirm || args.confirm !== planHash)) reason = pt
+  const criticProfile = client && config.profiles[client]?.[config.actors.criticClass];
+  const noCritic = Boolean(client && row && !(typeof criticProfile?.model === 'string' && criticProfile.model.trim()));
+  if (noCritic) reason = pt
+    ? `Falta o perfil de crítico de ${client}. Em config.json defina "profiles.${client}.${config.actors.criticClass}" (modelo, esforço e máximo de voltas) ou ligue a linha critic na tela de configuração.` // locale:pt-BR
+    : `The critic profile of ${client} is missing. In config.json set "profiles.${client}.${config.actors.criticClass}" (model, effort and max turns) or turn the critic row on in the configuration page.`;
+  if (!args.dryRun && !noCritic && (!args.confirm || args.confirm !== planHash)) reason = pt
     ? 'Confirme a prévia atual antes de começar; mudanças exigem nova confirmação.' // locale:pt-BR
     : 'Confirm the current preview before starting; changes need fresh confirmation.';
   if (!args.dryRun && !reason && !config.smoke.demoRequireQuotaConfirmation) reason = pt
@@ -81,7 +90,8 @@ export async function smokeDemo(args = {}, deps = {}) {
     return { ...result, planHash, plan };
   }
   if (reason) text.push(reason);
-  return { status: args.dryRun ? 'preview' : 'refused', exitCode: args.dryRun ? 0 : 2,
+  const preview = args.dryRun && !noCritic;
+  return { status: preview ? 'preview' : 'refused', exitCode: preview ? 0 : 2,
     confirmed: false, planHash, plan, reasons: reason ? [reason] : [], text: text.join('\n') };
 }
 
@@ -105,6 +115,6 @@ export async function smokeDemoCommand(flags, deps) {
   }
   const result = await smokeDemo(args, deps);
   deps.out(json ? JSON.stringify(result) : result.text);
-  if (!json && args.dryRun && result.planHash) deps.out(`--confirm ${result.planHash}`);
+  if (!json && args.dryRun && result.status === 'preview' && result.planHash) deps.out(`--confirm ${result.planHash}`);
   return result.exitCode;
 }

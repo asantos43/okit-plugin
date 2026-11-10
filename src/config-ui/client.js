@@ -60,6 +60,14 @@ export function clientMain(win, slugify = accountSlug, proposeFolder = proposedA
     const path = source.dataset.path ?? source.dataset.actorPath ?? source.dataset.actor;
     if (!path) return;
     resets.delete(path);
+    if (source.dataset.actor && source.checked) {
+      // Turning a row on proposes a profile, so the row never stays empty.
+      const proposed = (state.actors ?? []).flatMap(actor => actor.classes ?? []).find(row => row.path === path)?.proposed;
+      for (const control of controls) {
+        const key = control.dataset.actorPath?.startsWith(`${path}.`) && control.dataset.actorPath.slice(path.length + 1);
+        if (key && proposed?.[key] != null && (control.value === '' || control.value == null)) control.value = String(proposed[key]);
+      }
+    }
     for (const control of controls) {
       const sameKind = Boolean(source.dataset.actor) === Boolean(control.dataset.actor);
       if (control !== source && sameKind && (control.dataset.path ?? control.dataset.actorPath ?? control.dataset.actor) === path) {
@@ -279,7 +287,10 @@ export function clientMain(win, slugify = accountSlug, proposeFolder = proposedA
         pending = collect();
         doc.getElementById('changes').textContent = pending.map(change => {
           const control = controls.find(item => (item.dataset.path ?? item.dataset.actorPath ?? item.dataset.actor) === change.path);
-          return `${change.path}\n${text.before}: ${JSON.stringify(initial.get(control))}\n${text.after}: ${change.unset ? text.defaultValue : JSON.stringify(change.value)}`;
+          const actor = control?.dataset.actor;
+          const shown = actor ? value => (value ? text.enabled : text.off) : JSON.stringify;
+          const profile = () => ['model', 'effort', 'maxTurns'].map(key => `${key}: ${read(controls.find(item => item.dataset.actorPath === `${change.path}.${key}`) ?? { type: '', dataset: {}, value: '' })}`).join(', ');
+          return `${change.path}\n${text.before}: ${shown(initial.get(control))}\n${text.after}: ${actor && change.unset ? `${text.enabled} (${profile()})` : change.unset ? text.defaultValue : shown(change.value)}`;
         }).join('\n\n');
         showReview();
       } else if (action === 'apply') await save();

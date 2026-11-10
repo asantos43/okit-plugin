@@ -119,6 +119,7 @@
   "loginUnknown": "Unknown",
   "loggedInTitle": "A local login marker exists; access has not been verified.",
   "notLoggedInTitle": "No local login marker was found.",
+  "off": "Off",
   "loginUnknownTitle": "Login may be kept somewhere the plugin does not read, such as the macOS Keychain.",
   "accountRemove": "Remove",
   "accountConfirmRemove": "Confirm remove",

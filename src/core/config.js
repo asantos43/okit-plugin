@@ -43,7 +43,7 @@ function scopesOf(raw) {
     ...Object.keys(DEFAULT_CONFIG.profiles),
     ...configured,
   ])].filter((name) => isSafeScopeName('clients', name)).sort();
-  const classes = Object.keys(PROFILE_EFFORTS)
+  const classes = [...Object.keys(PROFILE_EFFORTS), DEFAULT_CONFIG.actors.criticClass]
     .filter((name) => isSafeScopeName('classes', name));
   return { clients, classes };
 }

@@ -1,4 +1,4 @@
-import { configOf, PROFILE_EFFORTS } from '../profiles.js';
+import { configOf, DEFAULT_CONFIG, PROFILE_EFFORTS } from '../profiles.js';
 import { schemaEntries, effectiveValue } from '../core/config.js';
 import { accountsOf, ACCOUNT_CLIENTS } from '../accounts.js';
 import { loginState, loginCommand } from '../accounts-login.js';
@@ -88,9 +88,13 @@ function actorClasses(config, client, models, observed) {
     const profile = config.profiles[client]?.[profileClass];
     const candidate = observed?.candidates?.find((actor) => actor.model === profile?.model
       && actor.effort === profile?.effort);
+    // What turning the row on proposes: the `normal` profile of this client, or the default of the schema.
+    const proposed = profile ?? config.profiles[client]?.normal ?? DEFAULT_CONFIG.profiles[client]?.normal
+      ?? DEFAULT_CONFIG.profiles['claude-code'].normal;
     const choices = [...models];
     if (profile?.model && !choices.includes(profile.model)) choices.push(profile.model);
     return { class: name, path: `profiles.${client}.${profileClass}`, enabled: profile != null,
+      proposed: { model: proposed.model, effort: proposed.effort, maxTurns: proposed.maxTurns },
       model: profile?.model ?? null, effort: profile?.effort ?? null, maxTurns: profile?.maxTurns ?? null,
       efforts: [...new Set(Object.values(PROFILE_EFFORTS))],
       modelChoices: choices.map((model) => ({ model, confirmed: models.includes(model) })),
